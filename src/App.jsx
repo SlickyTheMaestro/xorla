@@ -291,38 +291,49 @@ function AuthScreen({ onDone }) {
   const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
 
   const wrap = (title, subtitle, content) => (
-    <div className="lg:flex h-[100dvh] overflow-hidden" style={{ background: C.bg, color: C.ink }}>
-      {/* Left brand panel — desktop only, shows what's inside */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col items-center justify-center p-12" style={{ background: `linear-gradient(160deg, ${C.surface}, ${C.bg})` }}>
-        <XorlaMark size={60} />
-        <div className="text-[30px] font-extrabold mt-4 cx-display" style={{ letterSpacing: '-0.01em' }}>Xorla</div>
-        <div className="text-[13.5px] mt-2 mb-10" style={{ color: C.inkFaint }}>Run your business. Grow your future.</div>
+    <div className="lg:flex h-[100dvh] overflow-hidden relative" style={{ background: `radial-gradient(circle at 25% 20%, ${C.surface} 0%, ${C.bg} 55%)`, color: C.ink }}>
+      <div className="xorla-orb xorla-pulse" style={{ width: 420, height: 420, top: '-10%', left: '-8%', background: C.sage, opacity: 0.16 }} />
+      <div className="xorla-orb" style={{ width: 360, height: 360, bottom: '-12%', right: '-6%', background: C.copper, opacity: 0.13 }} />
 
-        <div className="w-full max-w-[320px] rounded-2xl p-5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, boxShadow: shadow }}>
-          <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Profit today</div>
-          <div className="cx-mono text-[28px] font-extrabold mb-3">₦42,500</div>
-          <div className="flex items-end gap-1.5 h-14">
-            {[40, 65, 50, 80, 55, 90, 70].map((h, i) => (
-              <div key={i} className="flex-1 rounded-sm" style={{ height: `${h}%`, background: i === 5 ? C.sage : C.line }} />
-            ))}
-          </div>
-          <div className="flex items-center justify-between mt-4 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
-            <span className="text-[11px]" style={{ color: C.inkFaint }}>Owed to you</span>
-            <span className="cx-mono text-[13px] font-semibold" style={{ color: C.copper }}>₦18,200</span>
+      {/* Left brand panel — desktop only */}
+      <div className="hidden lg:flex lg:w-1/2 flex-col items-center justify-center p-12 relative z-10">
+        <div className="xorla-fade-up flex flex-col items-center">
+          <div style={{ filter: `drop-shadow(0 0 24px ${C.sageSoft})` }}><XorlaMark size={60} /></div>
+          <div className="text-[32px] font-extrabold mt-4 cx-display" style={{ letterSpacing: '-0.01em', background: `linear-gradient(135deg, ${C.ink}, ${C.sage})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Xorla</div>
+          <div className="text-[13.5px] mt-2 mb-10" style={{ color: C.inkFaint }}>Run your business. Grow your future.</div>
+
+          <div className="xorla-float w-full max-w-[320px] rounded-2xl p-5" style={{ background: 'rgba(19,50,44,0.55)', backdropFilter: 'blur(20px)', border: `1px solid ${C.lineStrong}`, boxShadow: `0 20px 60px -12px rgba(0,0,0,0.6), 0 0 40px -8px ${C.sageSoft}` }}>
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[10px] uppercase tracking-wide" style={{ color: C.inkFaint }}>Profit today</div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full xorla-pulse" style={{ background: C.sage }} />
+                <span className="text-[9.5px] font-medium" style={{ color: C.sage }}>Live</span>
+              </div>
+            </div>
+            <div className="cx-mono text-[28px] font-extrabold mb-3">₦42,500</div>
+            <div className="flex items-end gap-1.5 h-14">
+              {[40, 65, 50, 80, 55, 90, 70].map((h, i) => (
+                <div key={i} className="flex-1 rounded-sm xorla-bar" style={{ height: `${h}%`, background: i === 5 ? C.sage : C.line, animationDelay: `${i * 60}ms` }} />
+              ))}
+            </div>
+            <div className="flex items-center justify-between mt-4 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
+              <span className="text-[11px]" style={{ color: C.inkFaint }}>Owed to you</span>
+              <span className="cx-mono text-[13px] font-semibold" style={{ color: C.copper }}>₦18,200</span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Right form panel */}
-      <div className="w-full lg:w-1/2 h-full overflow-y-auto flex items-center justify-center px-6 py-8">
-        <div className="w-full max-w-[380px]">
+      <div className="w-full lg:w-1/2 h-full overflow-y-auto flex items-center justify-center px-6 py-8 relative z-10">
+        <div className="w-full max-w-[380px] xorla-fade-up">
           <div className="flex flex-col items-center mb-7 lg:hidden">
-            <XorlaMark size={40} />
+            <div style={{ filter: `drop-shadow(0 0 20px ${C.sageSoft})` }}><XorlaMark size={40} /></div>
             <div className="text-[20px] font-extrabold mt-2.5 cx-display" style={{ letterSpacing: '-0.01em' }}>Xorla</div>
             <div className="text-[11px] mt-1" style={{ color: C.inkFaint }}>Run your business. Grow your future.</div>
           </div>
-          <div className="rounded-2xl p-6" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: shadow }}>
-            {title && <div className="text-[17px] font-semibold cx-display mb-1">{title}</div>}
+          <div className="rounded-2xl p-6" style={{ background: 'rgba(15,41,37,0.7)', backdropFilter: 'blur(24px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 24px 70px -16px rgba(0,0,0,0.65)' }}>
+            {title && <div className="text-[18px] font-semibold cx-display mb-1">{title}</div>}
             {subtitle && <div className="text-[12.5px] mb-5" style={{ color: C.inkFaint }}>{subtitle}</div>}
             {content}
           </div>
@@ -334,11 +345,11 @@ function AuthScreen({ onDone }) {
   if (step === 'role') {
     return wrap("Who's opening Xorla?", 'This decides what you\'ll see next.', (
       <>
-        <button onClick={() => setStep('owner')} className="w-full rounded-xl p-4 mb-2.5 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+        <button onClick={() => setStep('owner')} className="w-full rounded-xl p-4 mb-2.5 text-left transition-all hover:border-opacity-100 active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} onMouseEnter={(e) => e.currentTarget.style.borderColor = C.sage} onMouseLeave={(e) => e.currentTarget.style.borderColor = C.line}>
           <div className="text-[13.5px] font-semibold">I'm the business owner</div>
           <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>Full dashboard — sales, invoices, expenses, team, and advice.</div>
         </button>
-        <button onClick={() => setStep('staff')} className="w-full rounded-xl p-4 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+        <button onClick={() => setStep('staff')} className="w-full rounded-xl p-4 text-left transition-all active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} onMouseEnter={(e) => e.currentTarget.style.borderColor = C.copper} onMouseLeave={(e) => e.currentTarget.style.borderColor = C.line}>
           <div className="text-[13.5px] font-semibold">I'm a sales rep / staff</div>
           <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>Straight to recording sales — nothing else.</div>
         </button>
@@ -352,7 +363,7 @@ function AuthScreen({ onDone }) {
         <div className="rounded-xl p-5 mb-5 text-center" style={{ background: C.surfaceRaised, border: `1px solid ${C.sage}` }}>
           <div className="cx-mono text-[28px] font-extrabold tracking-[0.1em]" style={{ color: C.sage }}>{newBusinessCode}</div>
         </div>
-        <button onClick={() => onDone()} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Continue to my dashboard</button>
+        <button onClick={() => onDone()} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.sage, color: C.bg, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>Continue to my dashboard</button>
       </>
     ));
   }
@@ -389,7 +400,7 @@ function AuthScreen({ onDone }) {
           <input type="email" placeholder="Email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
           <input type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
         </div>
-        <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.code || !form.name))} onClick={submitStaff} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1 }}>
+        <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.code || !form.name))} onClick={submitStaff} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
           {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Join business'}
         </button>
         <div className="text-center text-[12.5px]" style={{ color: C.inkFaint }}>
@@ -431,7 +442,7 @@ function AuthScreen({ onDone }) {
         <input type="email" placeholder="Email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
         <input type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
       </div>
-      <button disabled={loading || !form.email || !form.password || (mode === 'signup' && !form.business)} onClick={submitOwner} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1 }}>
+      <button disabled={loading || !form.email || !form.password || (mode === 'signup' && !form.business)} onClick={submitOwner} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
         {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}
       </button>
       <div className="text-center text-[12.5px]" style={{ color: C.inkFaint }}>
