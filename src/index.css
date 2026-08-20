@@ -9,3 +9,30 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
+
+@keyframes xorla-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes xorla-fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes xorla-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@keyframes xorla-grow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+.xorla-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  pointer-events: none;
+}
+.xorla-float { animation: xorla-float 6s ease-in-out infinite; }
+.xorla-fade-up { animation: xorla-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.xorla-pulse { animation: xorla-pulse 2s ease-in-out infinite; }
+.xorla-bar { transform-origin: bottom; animation: xorla-grow 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
