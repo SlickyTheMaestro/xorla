@@ -742,7 +742,7 @@ export default function ChaseIt() {
   if (locked && settings.pin) return <>{fontStyle}<LockScreen pin={settings.pin} onUnlock={() => setLocked(false)} /></>;
 
   const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
-  const card = { background: C.surface, border: `1px solid ${C.line}`, boxShadow: shadow };
+  const card = { background: 'rgba(19,50,44,0.55)', backdropFilter: 'blur(16px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 1px 1px rgba(0,0,0,0.2), 0 16px 40px -20px rgba(0,0,0,0.7)' };
 
   if (settings.role === 'staff') {
     const myTodaySales = sales.filter((s) => s.dateKey === todayKey() && s.loggedBy === settings.activeStaff);
@@ -915,13 +915,14 @@ export default function ChaseIt() {
   }
 
   return (
-    <div className="min-h-screen flex cx-body" style={{ background: C.bg, color: C.ink }}>
+    <div className="min-h-screen flex cx-body relative" style={{ background: `radial-gradient(circle at 15% 0%, ${C.surface} 0%, ${C.bg} 45%)`, color: C.ink }}>
       {fontStyle}
+      <div className="xorla-orb" style={{ width: 500, height: 500, top: '-15%', left: '20%', background: C.sage, opacity: 0.06 }} />
 
       {/* Sidebar — desktop only */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 min-h-screen px-5 py-6" style={{ borderRight: `1px solid ${C.line}` }}>
+      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 min-h-screen px-5 py-6 relative z-10" style={{ borderRight: `1px solid ${C.line}` }}>
         <div className="flex items-center gap-2.5 mb-9 px-1">
-          <XorlaMark size={30} />
+          <div style={{ filter: `drop-shadow(0 0 12px ${C.sageSoft})` }}><XorlaMark size={30} /></div>
           <div className="cx-display text-[19px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</div>
         </div>
 
@@ -959,7 +960,7 @@ export default function ChaseIt() {
       </aside>
 
       {/* Main column */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 relative z-10">
 
         {/* Mobile brand bar */}
         <div className="lg:hidden flex items-center justify-between px-5 pt-6 pb-1">
@@ -1031,7 +1032,7 @@ export default function ChaseIt() {
           {/* ============ OVERVIEW TAB ============ */}
           {tab === 'overview' && (
             <>
-              <div className="lg:grid lg:grid-cols-5 lg:gap-5 mb-5">
+              <div className="lg:grid lg:grid-cols-5 lg:gap-5 mb-5 xorla-fade-up">
                 <div className="lg:col-span-3 rounded-2xl p-5 mb-4 lg:mb-0" style={card}>
                   <div className="flex items-start justify-between mb-1">
                     <div>
@@ -1495,7 +1496,7 @@ export default function ChaseIt() {
       {tab !== 'advisor' && (
         <button
           onClick={() => { setPreviousTab(tab); setTab('advisor'); }}
-          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-3.5 pr-4 py-3 rounded-full"
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-3.5 pr-4 py-3 rounded-full transition-transform active:scale-95"
           style={{ background: C.copper, color: C.bg, boxShadow: '0 8px 24px rgba(255,176,32,0.35)' }}
         >
           <Lightbulb size={17} />
