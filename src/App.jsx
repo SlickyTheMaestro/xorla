@@ -27,6 +27,17 @@ async function sbAuthCall(path, body) {
 const sbSignUp = (email, password) => sbAuthCall('/signup', { email, password });
 const sbSignIn = (email, password) => sbAuthCall('/token?grant_type=password', { email, password });
 const sbRefresh = (refresh_token) => sbAuthCall('/token?grant_type=refresh_token', { refresh_token });
+const sbRecover = (email) => sbAuthCall('/recover', { email });
+async function sbSetNewPassword(accessToken, password) {
+  const res = await fetch(`${SB_URL}/auth/v1/user`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || data.msg || 'Could not update password.');
+  return data;
+}
 
 async function sbRest(table, { method = 'GET', accessToken, query = '', body } = {}) {
   const headers = { apikey: SB_KEY, 'Content-Type': 'application/json' };
@@ -282,12 +293,13 @@ function XorlaMark({ size = 30 }) {
 }
 
 function AuthScreen({ onDone }) {
-  const [step, setStep] = useState('role'); // role | owner | staff | code
+  const [step, setStep] = useState('role'); // role | owner | staff | code | forgot
   const [mode, setMode] = useState('login'); // login | signup
   const [form, setForm] = useState({ business: '', email: '', password: '', code: '', name: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [newBusinessCode, setNewBusinessCode] = useState('');
+  const [resetSent, setResetSent] = useState(false);
   const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
 
   const wrap = (title, subtitle, content) => (
@@ -357,6 +369,34 @@ function AuthScreen({ onDone }) {
     ));
   }
 
+  if (step === 'forgot') {
+    const sendReset = async () => {
+      setError(''); setLoading(true);
+      try {
+        await sbRecover(form.email.trim());
+        setResetSent(true);
+      } catch (e) { setError(e.message); } finally { setLoading(false); }
+    };
+    return wrap('Reset your password', "We'll email you a link to set a new one.", (
+      <>
+        <button onClick={() => { setStep('role'); setResetSent(false); setError(''); }} className="flex items-center gap-1 text-[12px] mb-4" style={{ color: C.inkFaint }}><ChevronLeft size={14} /> Back</button>
+        {error && <div className="text-[12px] rounded-lg px-3 py-2 mb-3" style={{ background: 'rgba(226,98,75,0.12)', color: '#E2A090' }}>{error}</div>}
+        {resetSent ? (
+          <div className="rounded-xl p-4 text-[13px] leading-relaxed" style={{ background: C.sageSoft, color: C.sage }}>
+            Check <strong>{form.email}</strong> for a reset link. Open it on this device, set a new password, then come back and log in.
+          </div>
+        ) : (
+          <>
+            <input type="email" placeholder="Your email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none mb-4" style={field} />
+            <button disabled={loading || !form.email} onClick={sendReset} className="w-full rounded-xl py-3 text-[13.5px] font-semibold transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
+              {loading ? 'Sending…' : 'Send reset link'}
+            </button>
+          </>
+        )}
+      </>
+    ));
+  }
+
   if (step === 'code') {
     return wrap('Your business code', "Share this with your staff — it's how they join your business, not a password.", (
       <>
@@ -407,6 +447,11 @@ function AuthScreen({ onDone }) {
           {mode === 'login' ? "First time? " : 'Already joined? '}
           <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }} className="font-semibold" style={{ color: C.sage }}>{mode === 'login' ? 'Join with a code' : 'Log in'}</button>
         </div>
+        {mode === 'login' && (
+          <div className="text-center text-[12px] mt-2">
+            <button onClick={() => { setStep('forgot'); setError(''); }} style={{ color: C.inkFaint }}>Forgot password?</button>
+          </div>
+        )}
       </>
     ));
   }
@@ -449,8 +494,67 @@ function AuthScreen({ onDone }) {
         {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
         <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }} className="font-semibold" style={{ color: C.sage }}>{mode === 'login' ? 'Sign up' : 'Log in'}</button>
       </div>
+      {mode === 'login' && (
+        <div className="text-center text-[12px] mt-2">
+          <button onClick={() => { setStep('forgot'); setError(''); }} style={{ color: C.inkFaint }}>Forgot password?</button>
+        </div>
+      )}
     </>
   ));
+}
+
+function ResetPasswordScreen({ accessToken, onDone }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+
+  const submit = async () => {
+    setError('');
+    if (password.length < 6) { setError('Password should be at least 6 characters.'); return; }
+    if (password !== confirm) { setError("Passwords don't match."); return; }
+    setLoading(true);
+    try {
+      await sbSetNewPassword(accessToken, password);
+      setDone(true);
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-6 py-10 relative overflow-hidden" style={{ background: `radial-gradient(circle at 25% 20%, ${C.surface} 0%, ${C.bg} 55%)`, color: C.ink }}>
+      <div className="xorla-orb xorla-pulse" style={{ width: 380, height: 380, top: '-10%', left: '-8%', background: C.sage, opacity: 0.14 }} />
+      <div className="w-full max-w-[380px] xorla-fade-up relative z-10">
+        <div className="flex flex-col items-center mb-8">
+          <div style={{ filter: `drop-shadow(0 0 20px ${C.sageSoft})` }}><XorlaMark size={44} /></div>
+          <div className="text-[22px] font-extrabold mt-3 cx-display" style={{ letterSpacing: '-0.01em' }}>Xorla</div>
+        </div>
+        <div className="rounded-2xl p-6" style={{ background: 'rgba(15,41,37,0.7)', backdropFilter: 'blur(24px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 24px 70px -16px rgba(0,0,0,0.65)' }}>
+          {done ? (
+            <>
+              <div className="text-[17px] font-semibold cx-display mb-1">Password updated</div>
+              <div className="text-[12.5px] mb-5" style={{ color: C.inkFaint }}>You can log in with your new password now.</div>
+              <button onClick={onDone} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.sage, color: C.bg, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>Continue to log in</button>
+            </>
+          ) : (
+            <>
+              <div className="text-[17px] font-semibold cx-display mb-1">Set a new password</div>
+              <div className="text-[12.5px] mb-5" style={{ color: C.inkFaint }}>Choose something you'll remember.</div>
+              {error && <div className="text-[12px] rounded-lg px-3 py-2 mb-3" style={{ background: 'rgba(226,98,75,0.12)', color: '#E2A090' }}>{error}</div>}
+              <div className="space-y-2.5 mb-4">
+                <input type="password" placeholder="New password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
+                <input type="password" placeholder="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
+              </div>
+              <button disabled={loading || !password || !confirm} onClick={submit} className="w-full rounded-xl py-3 text-[13.5px] font-semibold transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
+                {loading ? 'Saving…' : 'Set new password'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function ChaseIt() {
@@ -463,6 +567,15 @@ export default function ChaseIt() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  const [resetToken, setResetToken] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    const hash = window.location.hash || '';
+    if (hash.includes('type=recovery')) {
+      const params = new URLSearchParams(hash.substring(1));
+      return params.get('access_token');
+    }
+    return null;
+  });
   const [locked, setLocked] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showSaleForm, setShowSaleForm] = useState(false);
@@ -735,6 +848,9 @@ export default function ChaseIt() {
     `}</style>
   );
 
+  if (resetToken) {
+    return <>{fontStyle}<ResetPasswordScreen accessToken={resetToken} onDone={() => { window.location.hash = ''; setResetToken(null); }} /></>;
+  }
   if (!loaded || authLoading) return <div className="min-h-screen flex items-center justify-center cx-body" style={{ background: C.bg, color: C.inkDim }}>{fontStyle}<div className="text-sm">Loading…</div></div>;
   if (!session) {
     return <>{fontStyle}<AuthScreen onDone={bootstrap} /></>;
