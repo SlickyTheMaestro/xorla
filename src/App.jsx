@@ -14,6 +14,26 @@ const SB_URL = 'https://gmduzfhxkjwojbkwgcxu.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtZHV6Zmh4a2p3b2pia3dnY3h1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2Nzc3MzQsImV4cCI6MjEwMjI1MzczNH0.n1nm6W27zJE7epfJ7GlK3xAN9fcAjxeRDFDCNX6t4oo';
 const SESSION_KEY = 'xorla:session';
 
+function friendlyAuthError(raw) {
+  const msg = (raw || '').toLowerCase();
+  if (msg.includes('password') && (msg.includes('6 char') || msg.includes('at least'))) return 'Your password needs to be at least 6 characters long.';
+  if (msg.includes('invalid login credentials')) return "That email or password doesn't match our records. Check both and try again.";
+  if (msg.includes('user already registered') || msg.includes('already exists')) return 'An account with this email already exists — try logging in instead.';
+  if (msg.includes('email') && msg.includes('invalid')) return 'That email address doesn\'t look right — double check it.';
+  if (msg.includes('rate limit') || msg.includes('too many')) return "Too many attempts — wait a minute and try again.";
+  if (msg.includes('failed to fetch') || msg.includes('network')) return "Couldn't reach the server — check your internet connection.";
+  if (!raw) return 'Something went wrong. Please try again.';
+  return raw;
+}
+const PASSWORD_MIN_LENGTH = 6;
+function passwordError(password) {
+  if (password.length < PASSWORD_MIN_LENGTH) return `Password needs to be at least ${PASSWORD_MIN_LENGTH} characters.`;
+  return '';
+}
+function isPasswordValid(password) {
+  return password.length >= PASSWORD_MIN_LENGTH;
+}
+
 async function sbAuthCall(path, body) {
   const res = await fetch(`${SB_URL}/auth/v1${path}`, {
     method: 'POST',
@@ -21,7 +41,7 @@ async function sbAuthCall(path, body) {
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error_description || data.msg || data.error || 'Something went wrong. Please try again.');
+  if (!res.ok) throw new Error(friendlyAuthError(data.error_description || data.msg || data.error));
   return data;
 }
 const sbSignUp = (email, password) => sbAuthCall('/signup', { email, password });
@@ -412,6 +432,10 @@ function AuthScreen({ onDone }) {
     const submitStaff = async () => {
       setError(''); setLoading(true);
       try {
+        if (mode === 'signup') {
+          const pwErr = passwordError(form.password);
+          if (pwErr) throw new Error(pwErr);
+        }
         const businesses = await sbRest(`businesses?business_code=eq.${form.code.trim().toUpperCase()}&select=id,name`);
         if (!businesses.length) throw new Error("That business code wasn't found. Double check with your employer.");
         const businessId = businesses[0].id;
@@ -423,7 +447,8 @@ function AuthScreen({ onDone }) {
           await sbRest('profiles', { method: 'POST', accessToken: auth.access_token, body: { id: auth.user.id, business_id: businessId, role: 'staff', name: form.name.trim() } });
         }
         await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
-        onDone();
+        const ok = await onDone();
+        if (!ok) throw new Error("Logged in, but couldn't load your business. Please try again.");
       } catch (e) { setError(e.message); } finally { setLoading(false); }
     };
     return wrap('Join your business', mode === 'login' ? 'Log back in.' : "Enter your employer's business code to join.", (
@@ -439,6 +464,11 @@ function AuthScreen({ onDone }) {
           )}
           <input type="email" placeholder="Email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
           <input type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
+          {mode === 'signup' && form.password.length > 0 && (
+            <div className="text-[11px] pl-0.5" style={{ color: isPasswordValid(form.password) ? C.sage : C.inkFaint }}>
+              {isPasswordValid(form.password) ? '✓ ' : ''}At least 6 characters
+            </div>
+          )}
         </div>
         <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.code || !form.name))} onClick={submitStaff} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
           {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Join business'}
@@ -460,11 +490,16 @@ function AuthScreen({ onDone }) {
   const submitOwner = async () => {
     setError(''); setLoading(true);
     try {
+      if (mode === 'signup') {
+        const pwErr = passwordError(form.password);
+        if (pwErr) throw new Error(pwErr);
+      }
       let auth;
       if (mode === 'login') {
         auth = await sbSignIn(form.email.trim(), form.password);
         await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
-        onDone();
+        const ok = await onDone();
+        if (!ok) throw new Error("Logged in, but couldn't load your business. Please try again.");
       } else {
         auth = await sbSignUp(form.email.trim(), form.password);
         const biz = await sbRest('businesses', { method: 'POST', accessToken: auth.access_token, body: { name: form.business.trim(), owner_id: auth.user.id } });
@@ -486,6 +521,11 @@ function AuthScreen({ onDone }) {
         )}
         <input type="email" placeholder="Email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
         <input type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
+        {mode === 'signup' && form.password.length > 0 && (
+          <div className="text-[11px] pl-0.5" style={{ color: isPasswordValid(form.password) ? C.sage : C.inkFaint }}>
+            {isPasswordValid(form.password) ? '✓ ' : ''}At least 6 characters
+          </div>
+        )}
       </div>
       <button disabled={loading || !form.email || !form.password || (mode === 'signup' && !form.business)} onClick={submitOwner} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
         {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}
@@ -644,10 +684,12 @@ export default function ChaseIt() {
   const bootstrap = useCallback(async () => {
     setAuthLoading(true);
     const sess = await loadSession();
-    if (!sess) { setAuthLoading(false); return; }
+    if (!sess) { setAuthLoading(false); return false; }
     try {
       const { profile, business, staffRoster } = await fetchProfileAndBusiness(sess.access_token, sess.user_id);
       applySession(sess, profile, business, staffRoster);
+      setAuthLoading(false);
+      return true;
     } catch (e) {
       try {
         const refreshed = await sbRefresh(sess.refresh_token);
@@ -655,11 +697,15 @@ export default function ChaseIt() {
         await saveSession(newSess);
         const { profile, business, staffRoster } = await fetchProfileAndBusiness(newSess.access_token, newSess.user_id);
         applySession(newSess, profile, business, staffRoster);
+        setAuthLoading(false);
+        return true;
       } catch (e2) {
+        console.error('Bootstrap failed:', e, e2);
         await clearSession();
+        setAuthLoading(false);
+        return false;
       }
     }
-    setAuthLoading(false);
   }, [fetchProfileAndBusiness, applySession]);
 
   const logout = useCallback(async () => {
