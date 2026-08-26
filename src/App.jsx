@@ -70,6 +70,17 @@ async function sbRest(table, { method = 'GET', accessToken, query = '', body } =
   return data;
 }
 
+async function sbRpc(fnName, accessToken, params) {
+  const res = await fetch(`${SB_URL}/rest/v1/rpc/${fnName}`, {
+    method: 'POST',
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || data.error_description || 'Something went wrong setting up your business.');
+  return data;
+}
+
 async function saveSession(session) { try { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch (e) {} }
 async function loadSession() { try { const v = localStorage.getItem(SESSION_KEY); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 async function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch (e) {} }
@@ -436,15 +447,13 @@ function AuthScreen({ onDone }) {
           const pwErr = passwordError(form.password);
           if (pwErr) throw new Error(pwErr);
         }
-        const businesses = await sbRest(`businesses?business_code=eq.${form.code.trim().toUpperCase()}&select=id,name`);
-        if (!businesses.length) throw new Error("That business code wasn't found. Double check with your employer.");
-        const businessId = businesses[0].id;
         let auth;
         if (mode === 'login') {
           auth = await sbSignIn(form.email.trim(), form.password);
         } else {
           auth = await sbSignUp(form.email.trim(), form.password);
-          await sbRest('profiles', { method: 'POST', accessToken: auth.access_token, body: { id: auth.user.id, business_id: businessId, role: 'staff', name: form.name.trim() } });
+          if (!auth.access_token) throw new Error('Account created, but no session came back — check that email confirmation is turned off in Supabase.');
+          await sbRpc('join_business_as_staff', auth.access_token, { p_business_code: form.code.trim().toUpperCase(), p_name: form.name.trim() });
         }
         await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
         const ok = await onDone();
@@ -502,10 +511,11 @@ function AuthScreen({ onDone }) {
         if (!ok) throw new Error("Logged in, but couldn't load your business. Please try again.");
       } else {
         auth = await sbSignUp(form.email.trim(), form.password);
-        const biz = await sbRest('businesses', { method: 'POST', accessToken: auth.access_token, body: { name: form.business.trim(), owner_id: auth.user.id } });
-        await sbRest('profiles', { method: 'POST', accessToken: auth.access_token, body: { id: auth.user.id, business_id: biz[0].id, role: 'owner', name: form.business.trim() } });
+        if (!auth.access_token) throw new Error('Account created, but no session came back — check that email confirmation is turned off in Supabase.');
+        const result = await sbRpc('create_owner_business', auth.access_token, { business_name: form.business.trim() });
+        const row = Array.isArray(result) ? result[0] : result;
         await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
-        setNewBusinessCode(biz[0].business_code);
+        setNewBusinessCode(row.out_business_code);
         setStep('code');
       }
     } catch (e) { setError(e.message); } finally { setLoading(false); }
