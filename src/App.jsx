@@ -1087,9 +1087,9 @@ export default function ChaseIt() {
   }
 
   return (
-    <div className="min-h-screen flex cx-body relative" style={{ background: `radial-gradient(circle at 15% 0%, ${C.surface} 0%, ${C.bg} 45%)`, color: C.ink }}>
+    <div className="min-h-screen flex cx-body relative overflow-x-hidden" style={{ background: `radial-gradient(circle at 15% 0%, ${C.surface} 0%, ${C.bg} 45%)`, color: C.ink }}>
       {fontStyle}
-      <div className="xorla-orb" style={{ width: 500, height: 500, top: '-15%', left: '20%', background: C.sage, opacity: 0.06 }} />
+      <div className="xorla-orb" style={{ width: 500, height: 500, top: '-15%', left: '20%', background: C.sage, opacity: 0.06, position: 'fixed' }} />
 
       {/* Sidebar — desktop only */}
       <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 min-h-screen px-5 py-6 relative z-10" style={{ borderRight: `1px solid ${C.line}` }}>
