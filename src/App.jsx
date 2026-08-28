@@ -139,6 +139,19 @@ const URGENCY = {
 function fmt(n) { return `₦${Number(n || 0).toLocaleString('en-NG')}`; }
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
 
+function timeLabel(iso) { return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
+function dateKeyOf(iso) { return new Date(iso).toLocaleDateString('sv-SE'); }
+
+function fromSbSale(row) {
+  return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null };
+}
+function fromSbInvoice(row) {
+  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '' };
+}
+function fromSbExpense(row) {
+  return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '' };
+}
+
 function staticMessage(inv, settings) {
   const status = computeStatus(inv);
   const bal = balanceOf(inv);
@@ -652,9 +665,6 @@ export default function ChaseIt() {
   const [newPin, setNewPin] = useState('');
   const [newStaffName, setNewStaffName] = useState('');
 
-  const persistInvoices = useCallback(async (next) => { try { localStorage.setItem(INVOICES_KEY, JSON.stringify(next)); } catch (e) {} }, []);
-  const persistSales = useCallback(async (next) => { try { localStorage.setItem(SALES_KEY, JSON.stringify(next)); } catch (e) {} }, []);
-  const persistExpenses = useCallback(async (next) => { try { localStorage.setItem(EXPENSES_KEY, JSON.stringify(next)); } catch (e) {} }, []);
   const persistSettings = useCallback(async (pin) => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ pin })); } catch (e) {} }, []);
 
   const fetchProfileAndBusiness = useCallback(async (accessToken, userId) => {
@@ -669,6 +679,21 @@ export default function ChaseIt() {
       staffRoster = staffRows.map((r) => r.name);
     }
     return { profile, business, staffRoster };
+  }, []);
+
+  const loadBusinessData = useCallback(async (accessToken) => {
+    try {
+      const [salesRows, invoiceRows, expenseRows] = await Promise.all([
+        sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
+        sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
+        sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
+      ]);
+      setSales(salesRows.map(fromSbSale));
+      setInvoices(invoiceRows.map(fromSbInvoice));
+      setExpenses(expenseRows.map(fromSbExpense));
+    } catch (e) {
+      console.error('Loading business data failed:', e);
+    }
   }, []);
 
   const applySession = useCallback((sess, profile, business, staffRoster) => {
@@ -689,7 +714,8 @@ export default function ChaseIt() {
       allowStaffExpenses: !!business.allow_staff_expenses,
       staffList: staffRoster,
     }));
-  }, []);
+    loadBusinessData(sess.access_token);
+  }, [loadBusinessData]);
 
   const bootstrap = useCallback(async () => {
     setAuthLoading(true);
@@ -727,9 +753,6 @@ export default function ChaseIt() {
 
   useEffect(() => {
     (async () => {
-      try { const v = localStorage.getItem(INVOICES_KEY); if (v) setInvoices(JSON.parse(v)); } catch (e) {}
-      try { const v = localStorage.getItem(SALES_KEY); if (v) setSales(JSON.parse(v)); } catch (e) {}
-      try { const v = localStorage.getItem(EXPENSES_KEY); if (v) setExpenses(JSON.parse(v)); } catch (e) {}
       let loadedSettings = null;
       try { const v = localStorage.getItem(SETTINGS_KEY); if (v) { loadedSettings = JSON.parse(v); setSettings((prev) => ({ ...prev, pin: loadedSettings.pin || '' })); } } catch (e) {}
       if (loadedSettings?.pin) setLocked(true);
@@ -752,14 +775,15 @@ export default function ChaseIt() {
     return knownCustomers.filter((c) => c.name.toLowerCase().includes(query.toLowerCase())).slice(0, 3);
   }
 
-  const addInvoice = () => {
+  const addInvoice = async () => {
     setError('');
     if (!form.clientName || !form.invoiceNo || !form.amount || !form.dueDate) { setError('Fill in client, invoice number, amount, and due date.'); return; }
-    const newInv = { id: Date.now().toString(), clientName: form.clientName, invoiceNo: form.invoiceNo, amount: form.amount, paidAmount: 0, dueDate: form.dueDate, phone: form.phone, loggedBy: settings.activeStaff || '' };
-    const next = [newInv, ...invoices];
-    setInvoices(next); persistInvoices(next);
-    setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '' });
-    setShowForm(false);
+    try {
+      const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: form.amount, paid_amount: 0, due_date: form.dueDate, phone: form.phone } });
+      setInvoices((prev) => [fromSbInvoice(rows[0]), ...prev]);
+      setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '' });
+      setShowForm(false);
+    } catch (e) { setError(e.message); }
   };
 
   const handlePhotoSelect = async (e) => {
@@ -769,40 +793,61 @@ export default function ChaseIt() {
     catch (err) { console.error(err); } finally { setPhotoUploading(false); }
   };
 
-  const addSale = () => {
+  const addSale = async () => {
     if (!saleForm.item || !saleForm.amount) return;
     const owed = saleForm.fullyPaid ? 0 : Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0));
-    const newSale = { id: Date.now().toString(), item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, dateKey: todayKey(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }), owed, photo: saleForm.photo || null, loggedBy: settings.activeStaff || '' };
-    const nextSales = [newSale, ...sales];
-    setSales(nextSales); persistSales(nextSales);
-    if (owed > 0) {
-      const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
-      const newInv = { id: (Date.now() + 1).toString(), clientName: saleForm.customerName || 'Customer', invoiceNo: `SALE-${newSale.id.slice(-5)}`, amount: saleForm.amount, paidAmount: saleForm.paidNow || 0, dueDate: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone, loggedBy: settings.activeStaff || '' };
-      const nextInv = [newInv, ...invoices];
-      setInvoices(nextInv); persistInvoices(nextInv);
-    }
-    setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null });
-    setShowSaleForm(false);
-  };
-  const removeSale = (id) => { const next = sales.filter((s) => s.id !== id); setSales(next); persistSales(next); };
+    try {
+      const saleRows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, owed } });
+      const newSale = fromSbSale(saleRows[0]);
+      setSales((prev) => [newSale, ...prev]);
 
-  const addExpense = () => {
+      if (owed > 0) {
+        const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
+        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${newSale.id.slice(-5)}`, amount: saleForm.amount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone } });
+        setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
+      }
+      setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null });
+      setShowSaleForm(false);
+    } catch (e) { console.error(e); alert(e.message); }
+  };
+  const removeSale = async (id) => {
+    try { await sbRest(`sales?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setSales((prev) => prev.filter((s) => s.id !== id)); }
+    catch (e) { alert(e.message); }
+  };
+
+  const addExpense = async () => {
     if (!expenseForm.item || !expenseForm.amount) return;
-    const newExp = { id: Date.now().toString(), item: expenseForm.item, amount: expenseForm.amount, category: expenseForm.category, dateKey: todayKey(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }), loggedBy: settings.activeStaff || '' };
-    const next = [newExp, ...expenses];
-    setExpenses(next); persistExpenses(next);
-    setExpenseForm({ item: '', amount: '', category: 'Restock' });
-    setShowExpenseForm(false);
+    try {
+      const rows = await sbRest('expenses', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: expenseForm.item, amount: expenseForm.amount, category: expenseForm.category } });
+      setExpenses((prev) => [fromSbExpense(rows[0]), ...prev]);
+      setExpenseForm({ item: '', amount: '', category: 'Restock' });
+      setShowExpenseForm(false);
+    } catch (e) { alert(e.message); }
   };
-  const removeExpense = (id) => { const next = expenses.filter((e) => e.id !== id); setExpenses(next); persistExpenses(next); };
+  const removeExpense = async (id) => {
+    try { await sbRest(`expenses?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setExpenses((prev) => prev.filter((e) => e.id !== id)); }
+    catch (e) { alert(e.message); }
+  };
 
-  const recordPayment = (id) => {
+  const recordPayment = async (id) => {
     const amt = Number(payAmount); if (!amt || amt <= 0) return;
-    const next = invoices.map((inv) => inv.id === id ? { ...inv, paidAmount: Math.min(Number(inv.amount), Number(inv.paidAmount || 0) + amt) } : inv);
-    setInvoices(next); persistInvoices(next); setPayingId(null); setPayAmount('');
+    const inv = invoices.find((i) => i.id === id);
+    if (!inv) return;
+    const newPaid = Math.min(Number(inv.amount), Number(inv.paidAmount || 0) + amt);
+    try {
+      await sbRest(`invoices?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { paid_amount: newPaid } });
+      setInvoices((prev) => prev.map((i) => i.id === id ? { ...i, paidAmount: newPaid } : i));
+      setPayingId(null); setPayAmount('');
+    } catch (e) { alert(e.message); }
   };
-  const undoPaid = (id) => { const next = invoices.map((inv) => inv.id === id ? { ...inv, paidAmount: 0 } : inv); setInvoices(next); persistInvoices(next); };
-  const removeInvoice = (id) => { const next = invoices.filter((inv) => inv.id !== id); setInvoices(next); persistInvoices(next); };
+  const undoPaid = async (id) => {
+    try { await sbRest(`invoices?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { paid_amount: 0 } }); setInvoices((prev) => prev.map((i) => i.id === id ? { ...i, paidAmount: 0 } : i)); }
+    catch (e) { alert(e.message); }
+  };
+  const removeInvoice = async (id) => {
+    try { await sbRest(`invoices?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setInvoices((prev) => prev.filter((i) => i.id !== id)); }
+    catch (e) { alert(e.message); }
+  };
 
   const copyMessage = async (inv) => {
     const msg = aiTexts[inv.id] || staticMessage(inv, settings);
