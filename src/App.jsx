@@ -646,6 +646,11 @@ export default function ChaseIt() {
   const [previousTab, setPreviousTab] = useState('overview');
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+  const [savingSale, setSavingSale] = useState(false);
+  const [savingExpense, setSavingExpense] = useState(false);
+  const [savingInvoice, setSavingInvoice] = useState(false);
+  const [salesViewDate, setSalesViewDate] = useState(todayKey());
+  const [expensesViewDate, setExpensesViewDate] = useState(todayKey());
   const [error, setError] = useState('');
   const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '' });
   const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null });
@@ -695,6 +700,13 @@ export default function ChaseIt() {
       console.error('Loading business data failed:', e);
     }
   }, []);
+
+  // Quietly refresh in the background every 20s so new entries from teammates show up without a manual reload
+  useEffect(() => {
+    if (!session) return;
+    const interval = setInterval(() => { loadBusinessData(session.access_token); }, 20000);
+    return () => clearInterval(interval);
+  }, [session, loadBusinessData]);
 
   const applySession = useCallback((sess, profile, business, staffRoster) => {
     setSession(sess);
@@ -778,12 +790,14 @@ export default function ChaseIt() {
   const addInvoice = async () => {
     setError('');
     if (!form.clientName || !form.invoiceNo || !form.amount || !form.dueDate) { setError('Fill in client, invoice number, amount, and due date.'); return; }
+    if (savingInvoice) return;
+    setSavingInvoice(true);
     try {
       const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: form.amount, paid_amount: 0, due_date: form.dueDate, phone: form.phone } });
       setInvoices((prev) => [fromSbInvoice(rows[0]), ...prev]);
       setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '' });
       setShowForm(false);
-    } catch (e) { setError(e.message); }
+    } catch (e) { setError(e.message); } finally { setSavingInvoice(false); }
   };
 
   const handlePhotoSelect = async (e) => {
@@ -795,6 +809,8 @@ export default function ChaseIt() {
 
   const addSale = async () => {
     if (!saleForm.item || !saleForm.amount) return;
+    if (savingSale) return;
+    setSavingSale(true);
     const owed = saleForm.fullyPaid ? 0 : Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0));
     try {
       const saleRows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, owed } });
@@ -808,7 +824,7 @@ export default function ChaseIt() {
       }
       setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null });
       setShowSaleForm(false);
-    } catch (e) { console.error(e); alert(e.message); }
+    } catch (e) { console.error(e); alert(e.message); } finally { setSavingSale(false); }
   };
   const removeSale = async (id) => {
     try { await sbRest(`sales?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setSales((prev) => prev.filter((s) => s.id !== id)); }
@@ -817,12 +833,14 @@ export default function ChaseIt() {
 
   const addExpense = async () => {
     if (!expenseForm.item || !expenseForm.amount) return;
+    if (savingExpense) return;
+    setSavingExpense(true);
     try {
       const rows = await sbRest('expenses', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: expenseForm.item, amount: expenseForm.amount, category: expenseForm.category } });
       setExpenses((prev) => [fromSbExpense(rows[0]), ...prev]);
       setExpenseForm({ item: '', amount: '', category: 'Restock' });
       setShowExpenseForm(false);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alert(e.message); } finally { setSavingExpense(false); }
   };
   const removeExpense = async (id) => {
     try { await sbRest(`expenses?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setExpenses((prev) => prev.filter((e) => e.id !== id)); }
@@ -889,6 +907,13 @@ export default function ChaseIt() {
   const todayExpensesList = expenses.filter((e) => e.dateKey === todayKey());
   const todayExpenses = todayExpensesList.reduce((a, e) => a + Number(e.amount), 0);
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
+
+  const viewedSales = sales.filter((s) => s.dateKey === salesViewDate);
+  const viewedSalesTotal = viewedSales.reduce((a, s) => a + Number(s.amount), 0);
+  const viewedExpensesList = expenses.filter((e) => e.dateKey === expensesViewDate);
+  const viewedExpensesTotal = viewedExpensesList.reduce((a, e) => a + Number(e.amount), 0);
+  const shiftDate = (dateKey, days) => { const d = new Date(dateKey + 'T00:00:00'); d.setDate(d.getDate() + days); return d.toLocaleDateString('sv-SE'); };
+  const formatViewDate = (dateKey) => dateKey === todayKey() ? 'Today' : new Date(dateKey + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 
   const last7 = Array.from({ length: 7 }).map((_, i) => {
     const d = new Date(); d.setDate(d.getDate() - (6 - i));
@@ -995,7 +1020,24 @@ export default function ChaseIt() {
                 <input type="number" placeholder="Sold for (₦)" value={saleForm.amount} onChange={(e) => setSaleForm({ ...saleForm, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <input type="number" placeholder="Cost (optional)" value={saleForm.cost} onChange={(e) => setSaleForm({ ...saleForm, cost: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
               </div>
-              <button onClick={addSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save sale</button>
+              <div>
+                <div className="text-[11.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>Did they pay the full amount?</div>
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => setSaleForm({ ...saleForm, fullyPaid: true })} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={saleForm.fullyPaid ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Yes, in full</button>
+                  <button type="button" onClick={() => setSaleForm({ ...saleForm, fullyPaid: false })} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={!saleForm.fullyPaid ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>No, owes some</button>
+                </div>
+              </div>
+              {!saleForm.fullyPaid && (
+                <div className="rounded-lg p-3 space-y-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                  <input type="number" placeholder="How much did they pay now (₦)?" value={saleForm.paidNow} onChange={(e) => setSaleForm({ ...saleForm, paidNow: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                  <input type="text" placeholder="Customer's name" value={saleForm.customerName} onChange={(e) => setSaleForm({ ...saleForm, customerName: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={field} />
+                  <input type="tel" placeholder="Phone (for reminder)" value={saleForm.customerPhone} onChange={(e) => setSaleForm({ ...saleForm, customerPhone: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={field} />
+                  {saleForm.amount && (
+                    <div className="text-xs font-medium" style={{ color: C.rust }}>Balance owed: {fmt(Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0)))}</div>
+                  )}
+                </div>
+              )}
+              <button onClick={addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : "Save sale"}</button>
             </div>
           </div>
 
@@ -1005,7 +1047,7 @@ export default function ChaseIt() {
               <div className="space-y-2.5">
                 <input type="text" placeholder="What did you spend on?" value={expenseForm.item} onChange={(e) => setExpenseForm({ ...expenseForm, item: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <input type="number" placeholder="Amount (₦)" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                <button onClick={addExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ border: `1px solid ${C.rust}`, color: C.rust }}>Save expense</button>
+                <button onClick={addExpense} disabled={savingExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ border: `1px solid ${C.rust}`, color: C.rust, opacity: savingExpense ? 0.6 : 1 }}>{savingExpense ? "Saving…" : "Save expense"}</button>
               </div>
             </div>
           )}
@@ -1289,7 +1331,7 @@ export default function ChaseIt() {
                       <input type="number" placeholder="Sold for (₦)" value={saleForm.amount} onChange={(e) => setSaleForm({ ...saleForm, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                       <input type="number" placeholder="Cost (optional)" value={saleForm.cost} onChange={(e) => setSaleForm({ ...saleForm, cost: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                     </div>
-                    <button onClick={addSale} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save sale</button>
+                    <button onClick={addSale} disabled={savingSale} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : "Save sale"}</button>
                     <button onClick={() => { setTab('sales'); setShowSaleForm(true); }} className="w-full text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Need to record a partial payment? →</button>
                   </div>
                 </div>
@@ -1460,14 +1502,24 @@ export default function ChaseIt() {
                     {saleForm.amount && <div className="text-[12.5px] font-medium" style={{ color: C.rust }}>Balance owed: {fmt(Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0)))}</div>}
                   </div>
                 )}
-                <button onClick={addSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save sale</button>
+                <button onClick={addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : "Save sale"}</button>
               </div>
             )}
 
-            <div className="text-[13px] font-semibold cx-display mb-2.5" style={{ color: C.inkDim }}>Today's sales</div>
-            {todaySales.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No sales logged yet today.</div>}
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(salesViewDate)}'s sales</div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSalesViewDate(shiftDate(salesViewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
+                {salesViewDate !== todayKey() && <button onClick={() => setSalesViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
+                <button onClick={() => setSalesViewDate(shiftDate(salesViewDate, 1))} disabled={salesViewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: salesViewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: salesViewDate >= todayKey() ? 0.4 : 1 }}>›</button>
+              </div>
+            </div>
+            {viewedSales.length > 0 && (
+              <div className="text-[11px] mb-2.5" style={{ color: C.inkFaint }}>{fmt(viewedSalesTotal)} total · {viewedSales.length} sale{viewedSales.length !== 1 ? 's' : ''}</div>
+            )}
+            {viewedSales.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No sales logged that day.</div>}
             <div>
-              {todaySales.map((s, i) => (
+              {viewedSales.map((s, i) => (
                 <div key={s.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                   <div className="flex items-center gap-3 min-w-0">
                     {s.photo && <img src={s.photo} alt={s.item} className="w-9 h-9 rounded-lg object-cover shrink-0" />}
@@ -1512,14 +1564,24 @@ export default function ChaseIt() {
                     <button key={c} onClick={() => setExpenseForm({ ...expenseForm, category: c })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
                   ))}
                 </div>
-                <button onClick={addExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save expense</button>
+                <button onClick={addExpense} disabled={savingExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingExpense ? 0.6 : 1 }}>{savingExpense ? "Saving…" : "Save expense"}</button>
               </div>
             )}
 
-            <div className="text-[13px] font-semibold cx-display mb-2.5" style={{ color: C.inkDim }}>Today's expenses</div>
-            {todayExpensesList.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No expenses logged yet today.</div>}
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(expensesViewDate)}'s expenses</div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setExpensesViewDate(shiftDate(expensesViewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
+                {expensesViewDate !== todayKey() && <button onClick={() => setExpensesViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
+                <button onClick={() => setExpensesViewDate(shiftDate(expensesViewDate, 1))} disabled={expensesViewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: expensesViewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: expensesViewDate >= todayKey() ? 0.4 : 1 }}>›</button>
+              </div>
+            </div>
+            {viewedExpensesList.length > 0 && (
+              <div className="text-[11px] mb-2.5" style={{ color: C.inkFaint }}>{fmt(viewedExpensesTotal)} total</div>
+            )}
+            {viewedExpensesList.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No expenses logged that day.</div>}
             <div>
-              {todayExpensesList.map((e, i) => (
+              {viewedExpensesList.map((e, i) => (
                 <div key={e.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                   <div>
                     <div className="text-[13.5px] font-medium">{e.item}</div>
@@ -1565,7 +1627,7 @@ export default function ChaseIt() {
                   <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   <input type="tel" placeholder="Phone (optional)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 </div>
-                <button onClick={addInvoice} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save invoice</button>
+                <button onClick={addInvoice} disabled={savingInvoice} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingInvoice ? 0.6 : 1 }}>{savingInvoice ? "Saving…" : "Save invoice"}</button>
               </div>
             )}
 
@@ -1637,7 +1699,12 @@ export default function ChaseIt() {
                       )}
 
                       <div className="flex items-center gap-3">
-                        {inv.phone && (
+                        {status === 'critical' && inv.phone && (
+                          <a href={`tel:${inv.phone.replace(/[^0-9+]/g, '')}`} className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ background: C.rust, color: C.bg }}>
+                            <PhoneCall size={13} /> Call now
+                          </a>
+                        )}
+                        {inv.phone && status !== 'critical' && (
                           <a href={`https://wa.me/${inv.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(isPaid ? thankMsg : message)}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>
                             <Phone size={13} /> {isPaid ? 'Send thanks' : 'WhatsApp'}
                           </a>
