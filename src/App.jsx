@@ -1031,7 +1031,11 @@ export default function ChaseIt() {
                 <div className="rounded-lg p-3 space-y-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                   <input type="number" placeholder="How much did they pay now (₦)?" value={saleForm.paidNow} onChange={(e) => setSaleForm({ ...saleForm, paidNow: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
                   <input type="text" placeholder="Customer's name" value={saleForm.customerName} onChange={(e) => setSaleForm({ ...saleForm, customerName: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={field} />
-                  <input type="tel" placeholder="Phone (for reminder)" value={saleForm.customerPhone} onChange={(e) => setSaleForm({ ...saleForm, customerPhone: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={field} />
+                  <div className="flex gap-2">
+                    <input type="tel" placeholder="Phone (for reminder)" value={saleForm.customerPhone} onChange={(e) => setSaleForm({ ...saleForm, customerPhone: e.target.value })} className="w-1/2 rounded-lg px-3 py-2 text-sm outline-none" style={field} />
+                    <input type="date" placeholder="Due date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-1/2 rounded-lg px-3 py-2 text-sm outline-none" style={field} />
+                  </div>
+                  <div className="text-[10.5px]" style={{ color: C.inkFaint }}>Leave the date blank and we'll default to 7 days from now.</div>
                   {saleForm.amount && (
                     <div className="text-xs font-medium" style={{ color: C.rust }}>Balance owed: {fmt(Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0)))}</div>
                   )}
