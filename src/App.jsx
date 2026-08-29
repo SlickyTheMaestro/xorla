@@ -1510,10 +1510,11 @@ export default function ChaseIt() {
               </div>
             )}
 
-            <div className="flex items-center justify-between mb-2.5">
+            <div className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
               <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(salesViewDate)}'s sales</div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setSalesViewDate(shiftDate(salesViewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
+                <input type="date" value={salesViewDate} max={todayKey()} onChange={(e) => e.target.value && setSalesViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
                 {salesViewDate !== todayKey() && <button onClick={() => setSalesViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
                 <button onClick={() => setSalesViewDate(shiftDate(salesViewDate, 1))} disabled={salesViewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: salesViewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: salesViewDate >= todayKey() ? 0.4 : 1 }}>›</button>
               </div>
@@ -1572,10 +1573,11 @@ export default function ChaseIt() {
               </div>
             )}
 
-            <div className="flex items-center justify-between mb-2.5">
+            <div className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
               <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(expensesViewDate)}'s expenses</div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setExpensesViewDate(shiftDate(expensesViewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
+                <input type="date" value={expensesViewDate} max={todayKey()} onChange={(e) => e.target.value && setExpensesViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
                 {expensesViewDate !== todayKey() && <button onClick={() => setExpensesViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
                 <button onClick={() => setExpensesViewDate(shiftDate(expensesViewDate, 1))} disabled={expensesViewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: expensesViewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: expensesViewDate >= todayKey() ? 0.4 : 1 }}>›</button>
               </div>
