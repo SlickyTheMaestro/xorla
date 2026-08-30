@@ -686,8 +686,7 @@ export default function ChaseIt() {
   const [savingSale, setSavingSale] = useState(false);
   const [savingExpense, setSavingExpense] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
-  const [salesViewDate, setSalesViewDate] = useState(todayKey());
-  const [expensesViewDate, setExpensesViewDate] = useState(todayKey());
+  const [viewDate, setViewDate] = useState(todayKey());
   const [error, setError] = useState('');
   const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '' });
   const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
@@ -993,10 +992,12 @@ export default function ChaseIt() {
   const todayExpenses = todayExpensesList.reduce((a, e) => a + Number(e.amount), 0);
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
-  const viewedSales = sales.filter((s) => s.dateKey === salesViewDate);
+  const viewedSales = sales.filter((s) => s.dateKey === viewDate);
   const viewedSalesTotal = viewedSales.reduce((a, s) => a + Number(s.amount), 0);
-  const viewedExpensesList = expenses.filter((e) => e.dateKey === expensesViewDate);
+  const viewedCOGS = viewedSales.reduce((a, s) => a + Number(s.cost || 0), 0);
+  const viewedExpensesList = expenses.filter((e) => e.dateKey === viewDate);
   const viewedExpensesTotal = viewedExpensesList.reduce((a, e) => a + Number(e.amount), 0);
+  const viewedProfit = viewedSalesTotal - viewedCOGS - viewedExpensesTotal;
   const shiftDate = (dateKey, days) => { const d = new Date(dateKey + 'T00:00:00'); d.setDate(d.getDate() + days); return d.toLocaleDateString('sv-SE'); };
   const formatViewDate = (dateKey) => dateKey === todayKey() ? 'Today' : new Date(dateKey + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 
@@ -1150,6 +1151,11 @@ export default function ChaseIt() {
               <div className="space-y-2.5">
                 <input type="text" placeholder="What did you spend on?" value={expenseForm.item} onChange={(e) => setExpenseForm({ ...expenseForm, item: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <input type="number" placeholder="Amount (₦)" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                <div className="flex flex-wrap gap-1.5">
+                  {EXPENSE_CATEGORIES.map((c) => (
+                    <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
+                  ))}
+                </div>
                 <button onClick={addExpense} disabled={savingExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ border: `1px solid ${C.rust}`, color: C.rust, opacity: savingExpense ? 0.6 : 1 }}>{savingExpense ? "Saving…" : "Save expense"}</button>
               </div>
             </div>
@@ -1638,14 +1644,26 @@ export default function ChaseIt() {
             )}
 
             <div className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
-              <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(salesViewDate)}'s sales</div>
+              <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(viewDate)}'s sales</div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setSalesViewDate(shiftDate(salesViewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
-                <input type="date" value={salesViewDate} max={todayKey()} onChange={(e) => e.target.value && setSalesViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
-                {salesViewDate !== todayKey() && <button onClick={() => setSalesViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
-                <button onClick={() => setSalesViewDate(shiftDate(salesViewDate, 1))} disabled={salesViewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: salesViewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: salesViewDate >= todayKey() ? 0.4 : 1 }}>›</button>
+                <button onClick={() => setViewDate(shiftDate(viewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
+                <input type="date" value={viewDate} max={todayKey()} onChange={(e) => e.target.value && setViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                {viewDate !== todayKey() && <button onClick={() => setViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
+                <button onClick={() => setViewDate(shiftDate(viewDate, 1))} disabled={viewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: viewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: viewDate >= todayKey() ? 0.4 : 1 }}>›</button>
               </div>
             </div>
+
+            <div className="rounded-2xl p-4 mb-4 flex items-center justify-between" style={card}>
+              <div>
+                <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Profit, {formatViewDate(viewDate).toLowerCase()}</div>
+                <div className="cx-mono text-[22px] font-extrabold" style={{ color: viewedProfit >= 0 ? C.ink : C.rust }}>{fmt(viewedProfit)}</div>
+              </div>
+              <div className="text-right text-[11px] space-y-0.5" style={{ color: C.inkFaint }}>
+                <div>Sales <span className="cx-mono" style={{ color: C.sage }}>{fmt(viewedSalesTotal)}</span></div>
+                <div>Expenses <span className="cx-mono" style={{ color: C.rust }}>{fmt(viewedExpensesTotal)}</span></div>
+              </div>
+            </div>
+
             {viewedSales.length > 0 && (
               <div className="text-[11px] mb-2.5" style={{ color: C.inkFaint }}>{fmt(viewedSalesTotal)} total · {viewedSales.length} sale{viewedSales.length !== 1 ? 's' : ''}</div>
             )}
@@ -1739,22 +1757,35 @@ export default function ChaseIt() {
                 <input type="number" placeholder="Amount (₦)" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <div className="flex flex-wrap gap-1.5">
                   {EXPENSE_CATEGORIES.map((c) => (
-                    <button key={c} onClick={() => setExpenseForm({ ...expenseForm, category: c })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
+                    <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
                   ))}
                 </div>
+                <div className="text-[10.5px] -mt-1.5" style={{ color: C.inkFaint }}>Picking a category fills in the description too — type your own to override.</div>
                 <button onClick={addExpense} disabled={savingExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingExpense ? 0.6 : 1 }}>{savingExpense ? "Saving…" : "Save expense"}</button>
               </div>
             )}
 
             <div className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
-              <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(expensesViewDate)}'s expenses</div>
+              <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(viewDate)}'s expenses</div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setExpensesViewDate(shiftDate(expensesViewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
-                <input type="date" value={expensesViewDate} max={todayKey()} onChange={(e) => e.target.value && setExpensesViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
-                {expensesViewDate !== todayKey() && <button onClick={() => setExpensesViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
-                <button onClick={() => setExpensesViewDate(shiftDate(expensesViewDate, 1))} disabled={expensesViewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: expensesViewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: expensesViewDate >= todayKey() ? 0.4 : 1 }}>›</button>
+                <button onClick={() => setViewDate(shiftDate(viewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
+                <input type="date" value={viewDate} max={todayKey()} onChange={(e) => e.target.value && setViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                {viewDate !== todayKey() && <button onClick={() => setViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
+                <button onClick={() => setViewDate(shiftDate(viewDate, 1))} disabled={viewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: viewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: viewDate >= todayKey() ? 0.4 : 1 }}>›</button>
               </div>
             </div>
+
+            <div className="rounded-2xl p-4 mb-4 flex items-center justify-between" style={card}>
+              <div>
+                <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Profit, {formatViewDate(viewDate).toLowerCase()}</div>
+                <div className="cx-mono text-[22px] font-extrabold" style={{ color: viewedProfit >= 0 ? C.ink : C.rust }}>{fmt(viewedProfit)}</div>
+              </div>
+              <div className="text-right text-[11px] space-y-0.5" style={{ color: C.inkFaint }}>
+                <div>Sales <span className="cx-mono" style={{ color: C.sage }}>{fmt(viewedSalesTotal)}</span></div>
+                <div>Expenses <span className="cx-mono" style={{ color: C.rust }}>{fmt(viewedExpensesTotal)}</span></div>
+              </div>
+            </div>
+
             {viewedExpensesList.length > 0 && (
               <div className="text-[11px] mb-2.5" style={{ color: C.inkFaint }}>{fmt(viewedExpensesTotal)} total</div>
             )}
