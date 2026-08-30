@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -151,6 +151,9 @@ function fromSbInvoice(row) {
 function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '' };
 }
+function fromSbProduct(row) {
+  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null };
+}
 
 function staticMessage(inv, settings) {
   const status = computeStatus(inv);
@@ -276,6 +279,35 @@ function resizeImage(file, maxWidth = 320, quality = 0.6) {
     };
     reader.onerror = reject; reader.readAsDataURL(file);
   });
+}
+
+function resizeImageToBlob(file, maxWidth = 500, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width * scale; canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not process image'))), 'image/jpeg', quality);
+      };
+      img.onerror = reject; img.src = reader.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+}
+
+async function sbUploadImage(accessToken, blob, path) {
+  const res = await fetch(`${SB_URL}/storage/v1/object/product-images/${path}`, {
+    method: 'POST',
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'image/jpeg' },
+    body: blob,
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.message || 'Image upload failed.'); }
+  return `${SB_URL}/storage/v1/object/public/product-images/${path}`;
 }
 
 function LockScreen({ pin, onUnlock }) {
@@ -626,6 +658,7 @@ export default function ChaseIt() {
   const [invoices, setInvoices] = useState([]);
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [products, setProducts] = useState([]);
   const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '' });
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -643,6 +676,10 @@ export default function ChaseIt() {
   const [showForm, setShowForm] = useState(false);
   const [showSaleForm, setShowSaleForm] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [showProductForm, setShowProductForm] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', imageBlob: null, imagePreview: null });
+  const [productImageUploading, setProductImageUploading] = useState(false);
   const [previousTab, setPreviousTab] = useState('overview');
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
@@ -653,7 +690,7 @@ export default function ChaseIt() {
   const [expensesViewDate, setExpensesViewDate] = useState(todayKey());
   const [error, setError] = useState('');
   const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '' });
-  const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null });
+  const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
   const [expenseForm, setExpenseForm] = useState({ item: '', amount: '', category: 'Restock' });
   const [payingId, setPayingId] = useState(null);
   const [payAmount, setPayAmount] = useState('');
@@ -688,14 +725,16 @@ export default function ChaseIt() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
+        sbRest('products', { accessToken, query: '?select=*&order=name.asc' }),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
       setExpenses(expenseRows.map(fromSbExpense));
+      setProducts(productRows.map(fromSbProduct));
     } catch (e) {
       console.error('Loading business data failed:', e);
     }
@@ -845,6 +884,52 @@ export default function ChaseIt() {
   const removeExpense = async (id) => {
     try { await sbRest(`expenses?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setExpenses((prev) => prev.filter((e) => e.id !== id)); }
     catch (e) { alert(e.message); }
+  };
+
+  const handleProductPhotoSelect = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setProductImageUploading(true);
+    try {
+      const [preview, blob] = await Promise.all([resizeImage(file, 200, 0.6), resizeImageToBlob(file, 500, 0.7)]);
+      setProductForm((f) => ({ ...f, imagePreview: preview, imageBlob: blob }));
+    } catch (err) { console.error(err); } finally { setProductImageUploading(false); }
+  };
+
+  const addProduct = async () => {
+    if (!productForm.name || !productForm.sellingPrice) return;
+    if (savingProduct) return;
+    setSavingProduct(true);
+    try {
+      let imageUrl = null;
+      if (productForm.imageBlob) {
+        const path = `${settings.businessId}/${Date.now()}.jpg`;
+        imageUrl = await sbUploadImage(session.access_token, productForm.imageBlob, path);
+      }
+      const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl } });
+      setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
+      setProductForm({ name: '', costPrice: '', sellingPrice: '', imageBlob: null, imagePreview: null });
+      setShowProductForm(false);
+    } catch (e) { alert(e.message); } finally { setSavingProduct(false); }
+  };
+  const removeProduct = async (id) => {
+    try { await sbRest(`products?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setProducts((prev) => prev.filter((p) => p.id !== id)); }
+    catch (e) { alert(e.message); }
+  };
+
+  // Picking a product (or changing quantity) auto-fills the sale's item/amount/cost — still editable afterward for discounts
+  const applyProductToSale = (productId, qtyRaw) => {
+    const qty = Math.max(1, Number(qtyRaw) || 1);
+    if (!productId) { setSaleForm((f) => ({ ...f, productId: '', quantity: String(qty) })); return; }
+    const product = products.find((p) => p.id === productId);
+    if (!product) return;
+    setSaleForm((f) => ({
+      ...f,
+      productId,
+      quantity: String(qty),
+      item: qty > 1 ? `${product.name} ×${qty}` : product.name,
+      amount: (Number(product.sellingPrice) * qty).toString(),
+      cost: (Number(product.costPrice) * qty).toString(),
+    }));
   };
 
   const recordPayment = async (id) => {
@@ -1015,7 +1100,21 @@ export default function ChaseIt() {
           <div className="rounded-2xl p-5 mb-5" style={card}>
             <div className="text-[13.5px] font-semibold cx-display mb-3">Record a sale</div>
             <div className="space-y-2.5">
-              <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+              {products.length > 0 && (
+                <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                  <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK A PRODUCT (OPTIONAL)</div>
+                  <div className="flex gap-2">
+                    <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                      <option value="">Choose a product…</option>
+                      {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
+                    </select>
+                    {saleForm.productId && (
+                      <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-16 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
+                    )}
+                  </div>
+                </div>
+              )}
+              <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
               <div className="flex gap-2">
                 <input type="number" placeholder="Sold for (₦)" value={saleForm.amount} onChange={(e) => setSaleForm({ ...saleForm, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <input type="number" placeholder="Cost (optional)" value={saleForm.cost} onChange={(e) => setSaleForm({ ...saleForm, cost: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
@@ -1193,6 +1292,7 @@ export default function ChaseIt() {
           {[
             { id: 'overview', label: 'Overview', Icon: Home },
             { id: 'sales', label: 'Sales', Icon: ShoppingBag },
+            { id: 'products', label: 'Products', Icon: Package },
             { id: 'expenses', label: 'Expenses', Icon: Receipt },
             { id: 'invoices', label: 'Invoices', Icon: Wallet },
             { id: 'advisor', label: 'Oga', Icon: Lightbulb },
@@ -1281,6 +1381,7 @@ export default function ChaseIt() {
             {[
               { id: 'overview', label: 'Overview', Icon: Home },
               { id: 'sales', label: 'Sales', Icon: ShoppingBag },
+              { id: 'products', label: 'Products', Icon: Package },
               { id: 'expenses', label: 'Expenses', Icon: Receipt },
               { id: 'invoices', label: 'Invoices', Icon: Wallet },
               { id: 'advisor', label: 'Oga', Icon: Lightbulb },
@@ -1330,7 +1431,18 @@ export default function ChaseIt() {
                 <div className="lg:col-span-2 rounded-2xl p-5" style={card}>
                   <div className="text-[13.5px] font-semibold cx-display mb-3">Quick add sale</div>
                   <div className="space-y-2.5">
-                    <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    {products.length > 0 && (
+                      <div className="flex gap-2">
+                        <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <option value="">Pick a product…</option>
+                          {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
+                        </select>
+                        {saleForm.productId && (
+                          <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-14 rounded-xl px-2 py-2.5 text-sm text-center outline-none cx-mono" style={field} />
+                        )}
+                      </div>
+                    )}
+                    <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <div className="flex gap-2">
                       <input type="number" placeholder="Sold for (₦)" value={saleForm.amount} onChange={(e) => setSaleForm({ ...saleForm, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                       <input type="number" placeholder="Cost (optional)" value={saleForm.cost} onChange={(e) => setSaleForm({ ...saleForm, cost: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
@@ -1467,7 +1579,22 @@ export default function ChaseIt() {
                   <div className="text-[14px] font-semibold cx-display">New sale</div>
                   <button onClick={() => setShowSaleForm(false)} style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
-                <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                {products.length > 0 && (
+                  <div className="rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                    <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK A PRODUCT (OPTIONAL)</div>
+                    <div className="flex gap-2">
+                      <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                        <option value="">Choose a product…</option>
+                        {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
+                      </select>
+                      {saleForm.productId && (
+                        <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-16 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
+                      )}
+                    </div>
+                    {saleForm.productId && <div className="text-[10.5px] mt-1.5" style={{ color: C.inkFaint }}>Amount and cost below are auto-filled — still editable if you're giving a discount.</div>}
+                  </div>
+                )}
+                <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <div className="flex gap-2">
                   <input type="number" placeholder="Sold for (₦)" value={saleForm.amount} onChange={(e) => setSaleForm({ ...saleForm, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                   <input type="number" placeholder="Cost (optional)" value={saleForm.cost} onChange={(e) => setSaleForm({ ...saleForm, cost: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
@@ -1540,6 +1667,52 @@ export default function ChaseIt() {
                     <div className="cx-mono text-[13.5px] font-medium">{fmt(s.amount)}</div>
                     <button onClick={() => removeSale(s.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
                   </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* ============ PRODUCTS TAB ============ */}
+        {tab === 'products' && (
+          <>
+            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>Add what you sell once — pick it instantly when recording a sale, with cost and price auto-filled.</div>
+
+            {!showProductForm ? (
+              <button onClick={() => setShowProductForm(true)} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add product</button>
+            ) : (
+              <div className="rounded-2xl p-5 mb-6 space-y-3" style={card}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-[14px] font-semibold cx-display">New product</div>
+                  <button onClick={() => setShowProductForm(false)} style={{ color: C.inkFaint }}><X size={17} /></button>
+                </div>
+                <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
+                  <Camera size={14} />{productImageUploading ? 'Adding photo…' : productForm.imagePreview ? 'Photo added — tap to change' : 'Add a product photo (optional)'}
+                  <input type="file" accept="image/*" onChange={handleProductPhotoSelect} className="hidden" />
+                </label>
+                {productForm.imagePreview && <img src={productForm.imagePreview} alt="" className="w-16 h-16 rounded-xl object-cover" />}
+                <input type="text" placeholder="Product name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                <div className="flex gap-2">
+                  <input type="number" placeholder="Cost price (₦)" value={productForm.costPrice} onChange={(e) => setProductForm({ ...productForm, costPrice: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  <input type="number" placeholder="Selling price (₦)" value={productForm.sellingPrice} onChange={(e) => setProductForm({ ...productForm, sellingPrice: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                </div>
+                <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : 'Save product'}</button>
+              </div>
+            )}
+
+            <div className="text-[13px] font-semibold cx-display mb-2.5" style={{ color: C.inkDim }}>Your products</div>
+            {products.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No products yet — add your first one above.</div>}
+            <div>
+              {products.map((p, i) => (
+                <div key={p.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.bg }}><Package size={16} style={{ color: C.inkFaint }} /></div>}
+                    <div className="min-w-0">
+                      <div className="text-[13.5px] font-medium truncate">{p.name}</div>
+                      <div className="text-[11px]" style={{ color: C.inkFaint }}>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}</div>
+                    </div>
+                  </div>
+                  <button onClick={() => removeProduct(p.id)} className="text-[11px] shrink-0" style={{ color: C.inkFaint }}>Remove</button>
                 </div>
               ))}
             </div>
