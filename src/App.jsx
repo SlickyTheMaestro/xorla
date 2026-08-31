@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { jsPDF } from 'jspdf';
 import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
@@ -137,7 +138,135 @@ const URGENCY = {
   paid: { label: 'Paid', color: C.sage },
 };
 function fmt(n) { return `₦${Number(n || 0).toLocaleString('en-NG')}`; }
+function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
+
+function invoiceLineItems(inv) {
+  if (inv.items && inv.items.length) return inv.items;
+  return [{ description: 'Goods / Services', quantity: 1, unitPrice: Number(inv.amount) || 0 }];
+}
+function invoiceSubtotal(inv) {
+  return invoiceLineItems(inv).reduce((a, it) => a + Number(it.quantity || 0) * Number(it.unitPrice || 0), 0);
+}
+function invoiceTotal(inv) {
+  const sub = invoiceSubtotal(inv);
+  return sub + sub * (Number(inv.taxRate || 0) / 100);
+}
+
+function downloadInvoicePDF(inv, settings) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 44;
+  let y = 56;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.text(settings.businessName || 'Your Business', marginX, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(90, 90, 90);
+  if (settings.ownerPhone) { y += 16; doc.text(`Tel: ${settings.ownerPhone}`, marginX, y); }
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(24);
+  doc.text('INVOICE', pageWidth - marginX, 56, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(90, 90, 90);
+  doc.text(`Invoice #: ${inv.invoiceNo}`, pageWidth - marginX, 76, { align: 'right' });
+  doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, pageWidth - marginX, 90, { align: 'right' });
+  doc.text(`Due: ${new Date(inv.dueDate).toLocaleDateString('en-GB')}`, pageWidth - marginX, 104, { align: 'right' });
+
+  y = 150;
+  doc.setDrawColor(220, 220, 220);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 26;
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text('BILL TO', marginX, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  y += 16;
+  doc.text(inv.clientName, marginX, y);
+  if (inv.phone) { y += 14; doc.setFontSize(9); doc.setTextColor(90, 90, 90); doc.text(inv.phone, marginX, y); doc.setTextColor(0, 0, 0); }
+
+  y += 34;
+  const colQty = pageWidth - marginX - 180;
+  const colPrice = pageWidth - marginX - 120;
+  const colTotal = pageWidth - marginX;
+
+  doc.setFillColor(19, 50, 44);
+  doc.rect(marginX, y, pageWidth - marginX * 2, 24, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text('DESCRIPTION', marginX + 8, y + 16);
+  doc.text('QTY', colQty, y + 16);
+  doc.text('UNIT PRICE', colPrice, y + 16);
+  doc.text('TOTAL', colTotal, y + 16, { align: 'right' });
+  y += 24;
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'normal');
+  const items = invoiceLineItems(inv);
+  items.forEach((item, i) => {
+    y += 22;
+    if (i % 2 === 1) { doc.setFillColor(247, 247, 247); doc.rect(marginX, y - 15, pageWidth - marginX * 2, 20, 'F'); }
+    doc.text(String(item.description), marginX + 8, y);
+    doc.text(String(item.quantity), colQty, y);
+    doc.text(fmtPdf(item.unitPrice), colPrice, y);
+    doc.text(fmtPdf(Number(item.quantity) * Number(item.unitPrice)), colTotal, y, { align: 'right' });
+  });
+
+  y += 34;
+  const subtotal = invoiceSubtotal(inv);
+  const tax = subtotal * (Number(inv.taxRate || 0) / 100);
+  doc.setFontSize(10);
+  doc.text('Subtotal', colPrice, y);
+  doc.text(fmtPdf(subtotal), colTotal, y, { align: 'right' });
+  if (Number(inv.taxRate) > 0) {
+    y += 18;
+    doc.text(`Tax (${inv.taxRate}%)`, colPrice, y);
+    doc.text(fmtPdf(tax), colTotal, y, { align: 'right' });
+  }
+  y += 6;
+  doc.setDrawColor(220, 220, 220);
+  doc.line(colPrice - 10, y, pageWidth - marginX, y);
+  y += 22;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.text('TOTAL', colPrice, y);
+  doc.text(fmtPdf(subtotal + tax), colTotal, y, { align: 'right' });
+
+  if (inv.paidAmount > 0) {
+    y += 20;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(90, 90, 90);
+    doc.text(`Paid so far: ${fmtPdf(inv.paidAmount)}  ·  Balance: ${fmtPdf(subtotal + tax - inv.paidAmount)}`, colPrice, y);
+  }
+
+  if (settings.paymentLink) {
+    y += 40;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Payment details', marginX, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(90, 90, 90);
+    y += 14;
+    doc.text(settings.paymentLink, marginX, y);
+  }
+
+  doc.setFontSize(8);
+  doc.setTextColor(150, 150, 150);
+  doc.text('Generated with Xorla', marginX, doc.internal.pageSize.getHeight() - 30);
+
+  doc.save(`Invoice-${inv.invoiceNo}.pdf`);
+}
 
 function timeLabel(iso) { return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
 function dateKeyOf(iso) { return new Date(iso).toLocaleDateString('sv-SE'); }
@@ -146,7 +275,7 @@ function fromSbSale(row) {
   return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null };
 }
 function fromSbInvoice(row) {
-  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '' };
+  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0 };
 }
 function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '' };
@@ -688,7 +817,7 @@ export default function ChaseIt() {
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [viewDate, setViewDate] = useState(todayKey());
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '' });
+  const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0' });
   const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
   const [expenseForm, setExpenseForm] = useState({ item: '', amount: '', category: 'Restock' });
   const [payingId, setPayingId] = useState(null);
@@ -827,13 +956,19 @@ export default function ChaseIt() {
 
   const addInvoice = async () => {
     setError('');
-    if (!form.clientName || !form.invoiceNo || !form.amount || !form.dueDate) { setError('Fill in client, invoice number, amount, and due date.'); return; }
+    const cleanItems = form.itemized ? form.items.filter((it) => it.description.trim() && Number(it.unitPrice) > 0).map((it) => ({ description: it.description.trim(), quantity: Number(it.quantity) || 1, unitPrice: Number(it.unitPrice) })) : [];
+    const computedAmount = form.itemized
+      ? cleanItems.reduce((a, it) => a + it.quantity * it.unitPrice, 0) * (1 + Number(form.taxRate || 0) / 100)
+      : Number(form.amount);
+    if (!form.clientName || !form.invoiceNo || !form.dueDate) { setError('Fill in client, invoice number, and due date.'); return; }
+    if (form.itemized && cleanItems.length === 0) { setError('Add at least one line item with a description and price.'); return; }
+    if (!form.itemized && !form.amount) { setError('Enter an amount, or switch to itemized to add line items.'); return; }
     if (savingInvoice) return;
     setSavingInvoice(true);
     try {
-      const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: form.amount, paid_amount: 0, due_date: form.dueDate, phone: form.phone } });
+      const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: computedAmount, paid_amount: 0, due_date: form.dueDate, phone: form.phone, items: cleanItems, tax_rate: form.itemized ? Number(form.taxRate || 0) : 0 } });
       setInvoices((prev) => [fromSbInvoice(rows[0]), ...prev]);
-      setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '' });
+      setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0' });
       setShowForm(false);
     } catch (e) { setError(e.message); } finally { setSavingInvoice(false); }
   };
@@ -1831,8 +1966,39 @@ export default function ChaseIt() {
                 </div>
                 <div className="flex gap-2">
                   <input type="text" placeholder="Invoice #" value={form.invoiceNo} onChange={(e) => setForm({ ...form, invoiceNo: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                  <input type="number" placeholder="Amount (₦)" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  {!form.itemized && (
+                    <input type="number" placeholder="Amount (₦)" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  )}
+                  {form.itemized && <div className="w-1/2 flex items-center justify-center text-[11px]" style={{ color: C.inkFaint }}>Amount from line items below</div>}
                 </div>
+
+                <button type="button" onClick={() => setForm({ ...form, itemized: !form.itemized })} className="flex items-center gap-2 text-[12px] font-medium py-1" style={{ color: C.copper }}>
+                  {form.itemized ? '− Switch to a simple amount' : '+ Add line items (itemized invoice)'}
+                </button>
+
+                {form.itemized && (
+                  <div className="rounded-xl p-3 space-y-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                    {form.items.map((it, idx) => (
+                      <div key={idx} className="flex gap-1.5 items-center">
+                        <input type="text" placeholder="Item description" value={it.description} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], description: e.target.value }; setForm({ ...form, items }); }} className="flex-1 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
+                        <input type="number" min="1" placeholder="Qty" value={it.quantity} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], quantity: e.target.value }; setForm({ ...form, items }); }} className="w-14 rounded-lg px-2 py-2 text-[12.5px] text-center outline-none cx-mono" style={field} />
+                        <input type="number" placeholder="Unit ₦" value={it.unitPrice} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], unitPrice: e.target.value }; setForm({ ...form, items }); }} className="w-20 rounded-lg px-2 py-2 text-[12.5px] outline-none cx-mono" style={field} />
+                        {form.items.length > 1 && (
+                          <button type="button" onClick={() => setForm({ ...form, items: form.items.filter((_, i) => i !== idx) })} style={{ color: C.inkFaint }}><X size={14} /></button>
+                        )}
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => setForm({ ...form, items: [...form.items, { description: '', quantity: '1', unitPrice: '' }] })} className="text-[11.5px] font-medium" style={{ color: C.sage }}>+ Add another item</button>
+
+                    <div className="flex items-center gap-2 pt-2" style={{ borderTop: `1px solid ${C.line}` }}>
+                      <span className="text-[11px]" style={{ color: C.inkDim }}>Tax / VAT %</span>
+                      <input type="number" placeholder="0" value={form.taxRate} onChange={(e) => setForm({ ...form, taxRate: e.target.value })} className="w-16 rounded-lg px-2 py-1.5 text-[12px] outline-none cx-mono" style={field} />
+                    </div>
+                    <div className="text-[13px] font-semibold pt-1" style={{ color: C.ink }}>
+                      Total: {fmt(form.items.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0) * (1 + Number(form.taxRate || 0) / 100))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   <input type="tel" placeholder="Phone (optional)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -1863,13 +2029,19 @@ export default function ChaseIt() {
                       <div className="flex items-start justify-between gap-2 mb-2.5">
                         <div className="min-w-0">
                           <div className="font-medium text-[14px] truncate">{inv.clientName}</div>
-                          <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>#{inv.invoiceNo} · due {new Date(inv.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
+                          <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>
+                            #{inv.invoiceNo} · due {new Date(inv.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                            {inv.items && inv.items.length > 0 && <span> · {inv.items.length} item{inv.items.length !== 1 ? 's' : ''}</span>}
+                          </div>
                         </div>
                         <div className="text-right shrink-0">
                           <div className="cx-mono text-[14px] font-semibold">{fmt(bal)}</div>
                           <div className="text-[11px] font-medium mt-0.5" style={{ color: u.color }}>{u.label}</div>
                         </div>
                       </div>
+                      <button onClick={() => downloadInvoicePDF(inv, settings)} className="flex items-center gap-1.5 text-[11.5px] font-medium mb-2.5" style={{ color: C.copper }}>
+                        <Wallet size={12} /> Download PDF invoice
+                      </button>
 
                       {inv.paidAmount > 0 && !isPaid && (
                         <div className="mb-2.5">
