@@ -153,35 +153,55 @@ function invoiceTotal(inv) {
   return sub + sub * (Number(inv.taxRate || 0) / 100);
 }
 
-function downloadInvoicePDF(inv, settings) {
+function loadImageAsDataURL(url) {
+  return fetch(url)
+    .then((res) => res.blob())
+    .then((blob) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    }))
+    .catch(() => null);
+}
+
+async function downloadInvoicePDF(inv, settings) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
-  const marginX = 44;
-  let y = 56;
+  const marginX = 48;
+  let y = 60;
+
+  let logoDataUrl = null;
+  if (settings.logoUrl) logoDataUrl = await loadImageAsDataURL(settings.logoUrl);
+
+  let textX = marginX;
+  if (logoDataUrl) {
+    try { doc.addImage(logoDataUrl, 'JPEG', marginX, y - 28, 42, 42); textX = marginX + 54; } catch (e) {}
+  }
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.text(settings.businessName || 'Your Business', marginX, y);
+  doc.setFontSize(17);
+  doc.text(settings.businessName || 'Your Business', textX, y);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(90, 90, 90);
-  if (settings.ownerPhone) { y += 16; doc.text(`Tel: ${settings.ownerPhone}`, marginX, y); }
+  if (settings.ownerPhone) { y += 16; doc.text(`Tel: ${settings.ownerPhone}`, textX, y); }
 
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(24);
-  doc.text('INVOICE', pageWidth - marginX, 56, { align: 'right' });
+  doc.setFontSize(22);
+  doc.text('INVOICE', pageWidth - marginX, 60, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(90, 90, 90);
-  doc.text(`Invoice #: ${inv.invoiceNo}`, pageWidth - marginX, 76, { align: 'right' });
-  doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, pageWidth - marginX, 90, { align: 'right' });
-  doc.text(`Due: ${new Date(inv.dueDate).toLocaleDateString('en-GB')}`, pageWidth - marginX, 104, { align: 'right' });
+  doc.text(`Invoice #: ${inv.invoiceNo}`, pageWidth - marginX, 80, { align: 'right' });
+  doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, pageWidth - marginX, 94, { align: 'right' });
+  doc.text(`Due: ${new Date(inv.dueDate).toLocaleDateString('en-GB')}`, pageWidth - marginX, 108, { align: 'right' });
 
   y = 150;
   doc.setDrawColor(220, 220, 220);
   doc.line(marginX, y, pageWidth - marginX, y);
-  y += 26;
+  y += 28;
 
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'bold');
@@ -191,66 +211,82 @@ function downloadInvoicePDF(inv, settings) {
   doc.setFontSize(11);
   y += 16;
   doc.text(inv.clientName, marginX, y);
-  if (inv.phone) { y += 14; doc.setFontSize(9); doc.setTextColor(90, 90, 90); doc.text(inv.phone, marginX, y); doc.setTextColor(0, 0, 0); }
+  doc.setFontSize(9);
+  doc.setTextColor(90, 90, 90);
+  if (inv.phone) { y += 14; doc.text(inv.phone, marginX, y); }
+  if (inv.clientAddress) {
+    const addrLines = doc.splitTextToSize(inv.clientAddress, 240);
+    y += 14;
+    doc.text(addrLines, marginX, y);
+    y += (addrLines.length - 1) * 12;
+  }
+  doc.setTextColor(0, 0, 0);
 
-  y += 34;
-  const colQty = pageWidth - marginX - 180;
-  const colPrice = pageWidth - marginX - 120;
-  const colTotal = pageWidth - marginX;
+  y += 36;
+  // Right-aligned numeric columns with generous spacing — prevents values from overlapping
+  const colQtyX = pageWidth - marginX - 210;
+  const colPriceX = pageWidth - marginX - 105;
+  const colTotalX = pageWidth - marginX;
+  const descX = marginX + 10;
 
   doc.setFillColor(19, 50, 44);
-  doc.rect(marginX, y, pageWidth - marginX * 2, 24, 'F');
+  doc.rect(marginX, y, pageWidth - marginX * 2, 26, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  doc.text('DESCRIPTION', marginX + 8, y + 16);
-  doc.text('QTY', colQty, y + 16);
-  doc.text('UNIT PRICE', colPrice, y + 16);
-  doc.text('TOTAL', colTotal, y + 16, { align: 'right' });
-  y += 24;
+  doc.text('DESCRIPTION', descX, y + 17);
+  doc.text('QTY', colQtyX, y + 17, { align: 'right' });
+  doc.text('UNIT PRICE', colPriceX, y + 17, { align: 'right' });
+  doc.text('TOTAL', colTotalX, y + 17, { align: 'right' });
+  y += 26;
 
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
   const items = invoiceLineItems(inv);
   items.forEach((item, i) => {
-    y += 22;
-    if (i % 2 === 1) { doc.setFillColor(247, 247, 247); doc.rect(marginX, y - 15, pageWidth - marginX * 2, 20, 'F'); }
-    doc.text(String(item.description), marginX + 8, y);
-    doc.text(String(item.quantity), colQty, y);
-    doc.text(fmtPdf(item.unitPrice), colPrice, y);
-    doc.text(fmtPdf(Number(item.quantity) * Number(item.unitPrice)), colTotal, y, { align: 'right' });
+    y += 26;
+    if (i % 2 === 1) { doc.setFillColor(247, 247, 247); doc.rect(marginX, y - 17, pageWidth - marginX * 2, 24, 'F'); }
+    const descLines = doc.splitTextToSize(String(item.description), colQtyX - descX - 20);
+    doc.text(descLines, descX, y);
+    doc.text(String(item.quantity), colQtyX, y, { align: 'right' });
+    doc.text(fmtPdf(item.unitPrice), colPriceX, y, { align: 'right' });
+    doc.text(fmtPdf(Number(item.quantity) * Number(item.unitPrice)), colTotalX, y, { align: 'right' });
+    if (descLines.length > 1) y += (descLines.length - 1) * 12;
   });
 
-  y += 34;
+  y += 40;
   const subtotal = invoiceSubtotal(inv);
   const tax = subtotal * (Number(inv.taxRate || 0) / 100);
   doc.setFontSize(10);
-  doc.text('Subtotal', colPrice, y);
-  doc.text(fmtPdf(subtotal), colTotal, y, { align: 'right' });
+  doc.text('Subtotal', colPriceX, y, { align: 'right' });
+  doc.text(fmtPdf(subtotal), colTotalX, y, { align: 'right' });
   if (Number(inv.taxRate) > 0) {
-    y += 18;
-    doc.text(`Tax (${inv.taxRate}%)`, colPrice, y);
-    doc.text(fmtPdf(tax), colTotal, y, { align: 'right' });
+    y += 20;
+    doc.text(`Tax (${inv.taxRate}%)`, colPriceX, y, { align: 'right' });
+    doc.text(fmtPdf(tax), colTotalX, y, { align: 'right' });
   }
-  y += 6;
+  y += 10;
   doc.setDrawColor(220, 220, 220);
-  doc.line(colPrice - 10, y, pageWidth - marginX, y);
-  y += 22;
+  doc.line(colQtyX, y, pageWidth - marginX, y);
+  y += 24;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
-  doc.text('TOTAL', colPrice, y);
-  doc.text(fmtPdf(subtotal + tax), colTotal, y, { align: 'right' });
+  doc.text('TOTAL', colPriceX, y, { align: 'right' });
+  doc.text(fmtPdf(subtotal + tax), colTotalX, y, { align: 'right' });
 
   if (inv.paidAmount > 0) {
-    y += 20;
+    y += 24;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(90, 90, 90);
-    doc.text(`Paid so far: ${fmtPdf(inv.paidAmount)}  ·  Balance: ${fmtPdf(subtotal + tax - inv.paidAmount)}`, colPrice, y);
+    doc.text(`Paid so far: ${fmtPdf(inv.paidAmount)}`, colPriceX, y, { align: 'right' });
+    y += 14;
+    doc.text(`Balance due: ${fmtPdf(subtotal + tax - inv.paidAmount)}`, colPriceX, y, { align: 'right' });
   }
 
   if (settings.paymentLink) {
-    y += 40;
+    y += 44;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.setTextColor(0, 0, 0);
@@ -275,7 +311,7 @@ function fromSbSale(row) {
   return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null };
 }
 function fromSbInvoice(row) {
-  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0 };
+  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '' };
 }
 function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '' };
@@ -809,6 +845,7 @@ export default function ChaseIt() {
   const [savingProduct, setSavingProduct] = useState(false);
   const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', imageBlob: null, imagePreview: null });
   const [productImageUploading, setProductImageUploading] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
   const [previousTab, setPreviousTab] = useState('overview');
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
@@ -817,7 +854,7 @@ export default function ChaseIt() {
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [viewDate, setViewDate] = useState(todayKey());
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0' });
+  const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0' });
   const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
   const [expenseForm, setExpenseForm] = useState({ item: '', amount: '', category: 'Restock' });
   const [payingId, setPayingId] = useState(null);
@@ -891,6 +928,7 @@ export default function ChaseIt() {
       language: business.language || 'english',
       ownerPhone: business.owner_phone || '',
       allowStaffExpenses: !!business.allow_staff_expenses,
+      logoUrl: business.logo_url || null,
       staffList: staffRoster,
     }));
     loadBusinessData(sess.access_token);
@@ -966,9 +1004,9 @@ export default function ChaseIt() {
     if (savingInvoice) return;
     setSavingInvoice(true);
     try {
-      const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: computedAmount, paid_amount: 0, due_date: form.dueDate, phone: form.phone, items: cleanItems, tax_rate: form.itemized ? Number(form.taxRate || 0) : 0 } });
+      const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: computedAmount, paid_amount: 0, due_date: form.dueDate, phone: form.phone, client_address: form.clientAddress, items: cleanItems, tax_rate: form.itemized ? Number(form.taxRate || 0) : 0 } });
       setInvoices((prev) => [fromSbInvoice(rows[0]), ...prev]);
-      setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0' });
+      setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0' });
       setShowForm(false);
     } catch (e) { setError(e.message); } finally { setSavingInvoice(false); }
   };
@@ -1027,6 +1065,19 @@ export default function ChaseIt() {
       const [preview, blob] = await Promise.all([resizeImage(file, 200, 0.6), resizeImageToBlob(file, 500, 0.7)]);
       setProductForm((f) => ({ ...f, imagePreview: preview, imageBlob: blob }));
     } catch (err) { console.error(err); } finally { setProductImageUploading(false); }
+  };
+
+  const handleLogoSelect = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setLogoUploading(true);
+    try {
+      const blob = await resizeImageToBlob(file, 300, 0.85);
+      const path = `${settings.businessId}/logo-${Date.now()}.jpg`;
+      const url = await sbUploadImage(session.access_token, blob, path);
+      await sbRest(`businesses?id=eq.${settings.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: { logo_url: url } });
+      setSettings((prev) => ({ ...prev, logoUrl: url }));
+      setDraft((prev) => (prev ? { ...prev, logoUrl: url } : prev));
+    } catch (err) { alert(err.message); } finally { setLogoUploading(false); }
   };
 
   const addProduct = async () => {
@@ -1240,7 +1291,7 @@ export default function ChaseIt() {
                 <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                   <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK A PRODUCT (OPTIONAL)</div>
                   <div className="flex gap-2">
-                    <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                    <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
                       <option value="">Choose a product…</option>
                       {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                     </select>
@@ -1328,6 +1379,21 @@ export default function ChaseIt() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 space-y-5">
+            <div>
+              <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
+              <div className="flex items-center gap-3">
+                {settings.logoUrl ? (
+                  <img src={settings.logoUrl} alt="Logo" className="w-14 h-14 rounded-xl object-cover" style={{ border: `1px solid ${C.line}` }} />
+                ) : (
+                  <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Package size={20} style={{ color: C.inkFaint }} /></div>
+                )}
+                <label className="flex items-center gap-2 text-[12px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
+                  <Camera size={14} />{logoUploading ? 'Uploading…' : settings.logoUrl ? 'Change logo' : 'Upload logo'}
+                  <input type="file" accept="image/*" onChange={handleLogoSelect} className="hidden" />
+                </label>
+              </div>
+              <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your downloadable invoice PDFs.</div>
+            </div>
             <div>
               <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>PAYMENT LINK</div>
               <input type="text" placeholder="Paystack link, bank details, etc." value={draft.paymentLink} onChange={(e) => setDraft({ ...draft, paymentLink: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -1574,7 +1640,7 @@ export default function ChaseIt() {
                   <div className="space-y-2.5">
                     {products.length > 0 && (
                       <div className="flex gap-2">
-                        <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                        <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
                           <option value="">Pick a product…</option>
                           {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                         </select>
@@ -1724,7 +1790,7 @@ export default function ChaseIt() {
                   <div className="rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                     <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK A PRODUCT (OPTIONAL)</div>
                     <div className="flex gap-2">
-                      <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                      <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
                         <option value="">Choose a product…</option>
                         {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                       </select>
@@ -2003,6 +2069,7 @@ export default function ChaseIt() {
                   <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   <input type="tel" placeholder="Phone (optional)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 </div>
+                <textarea placeholder="Billing address (optional)" value={form.clientAddress} onChange={(e) => setForm({ ...form, clientAddress: e.target.value })} rows={2} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
                 <button onClick={addInvoice} disabled={savingInvoice} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingInvoice ? 0.6 : 1 }}>{savingInvoice ? "Saving…" : "Save invoice"}</button>
               </div>
             )}
