@@ -138,6 +138,16 @@ const URGENCY = {
   paid: { label: 'Paid', color: C.sage },
 };
 function fmt(n) { return `₦${Number(n || 0).toLocaleString('en-NG')}`; }
+// Live comma-formatting for money input fields — keeps the underlying value clean for storage/math
+function formatNumInput(v) {
+  if (v === '' || v === null || v === undefined) return '';
+  const raw = String(v).replace(/,/g, '');
+  if (raw === '' || isNaN(Number(raw))) return raw;
+  const parts = raw.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.join('.');
+}
+function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
 
@@ -317,7 +327,7 @@ function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '' };
 }
 function fromSbProduct(row) {
-  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null };
+  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), lowStockThreshold: row.low_stock_threshold ?? 5 };
 }
 
 function staticMessage(inv, settings) {
@@ -843,7 +853,7 @@ export default function ChaseIt() {
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [showProductForm, setShowProductForm] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
-  const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', imageBlob: null, imagePreview: null });
+  const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', imageBlob: null, imagePreview: null });
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
   const [previousTab, setPreviousTab] = useState('overview');
@@ -1033,7 +1043,20 @@ export default function ChaseIt() {
         const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${newSale.id.slice(-5)}`, amount: saleForm.amount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone } });
         setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
-      setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null });
+
+      if (saleForm.productId) {
+        const product = products.find((p) => p.id === saleForm.productId);
+        if (product && product.stockQuantity !== null) {
+          const qtySold = Math.max(1, Number(saleForm.quantity) || 1);
+          const newStock = Math.max(0, product.stockQuantity - qtySold);
+          try {
+            await sbRest(`products?id=eq.${saleForm.productId}`, { method: 'PATCH', accessToken: session.access_token, body: { stock_quantity: newStock } });
+            setProducts((prev) => prev.map((p) => p.id === saleForm.productId ? { ...p, stockQuantity: newStock } : p));
+          } catch (e) { console.error('Stock update failed:', e); }
+        }
+      }
+
+      setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
       setShowSaleForm(false);
     } catch (e) { console.error(e); alert(e.message); } finally { setSavingSale(false); }
   };
@@ -1090,9 +1113,9 @@ export default function ChaseIt() {
         const path = `${settings.businessId}/${Date.now()}.jpg`;
         imageUrl = await sbUploadImage(session.access_token, productForm.imageBlob, path);
       }
-      const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl } });
+      const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, stock_quantity: productForm.stockQuantity === '' ? null : Number(productForm.stockQuantity), low_stock_threshold: Number(productForm.lowStockThreshold) || 5 } });
       setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
-      setProductForm({ name: '', costPrice: '', sellingPrice: '', imageBlob: null, imagePreview: null });
+      setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', imageBlob: null, imagePreview: null });
       setShowProductForm(false);
     } catch (e) { alert(e.message); } finally { setSavingProduct(false); }
   };
@@ -1103,14 +1126,14 @@ export default function ChaseIt() {
 
   // Picking a product (or changing quantity) auto-fills the sale's item/amount/cost — still editable afterward for discounts
   const applyProductToSale = (productId, qtyRaw) => {
-    const qty = Math.max(1, Number(qtyRaw) || 1);
-    if (!productId) { setSaleForm((f) => ({ ...f, productId: '', quantity: String(qty) })); return; }
+    if (!productId) { setSaleForm((f) => ({ ...f, productId: '', quantity: qtyRaw })); return; }
     const product = products.find((p) => p.id === productId);
     if (!product) return;
+    const qty = Math.max(1, Number(qtyRaw) || 1); // used only for computing totals — the field itself keeps whatever the user typed, including empty
     setSaleForm((f) => ({
       ...f,
       productId,
-      quantity: String(qty),
+      quantity: qtyRaw,
       item: qty > 1 ? `${product.name} ×${qty}` : product.name,
       amount: (Number(product.sellingPrice) * qty).toString(),
       cost: (Number(product.costPrice) * qty).toString(),
@@ -1303,8 +1326,8 @@ export default function ChaseIt() {
               )}
               <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
               <div className="flex gap-2">
-                <input type="number" placeholder="Sold for (₦)" value={saleForm.amount} onChange={(e) => setSaleForm({ ...saleForm, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                <input type="number" placeholder="Cost (optional)" value={saleForm.cost} onChange={(e) => setSaleForm({ ...saleForm, cost: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                <input type="text" inputMode="decimal" placeholder="Sold for (₦)" value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                <input type="text" inputMode="decimal" placeholder="Cost (optional)" value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
               </div>
               <div>
                 <div className="text-[11.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>Did they pay the full amount?</div>
@@ -1315,7 +1338,7 @@ export default function ChaseIt() {
               </div>
               {!saleForm.fullyPaid && (
                 <div className="rounded-lg p-3 space-y-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-                  <input type="number" placeholder="How much did they pay now (₦)?" value={saleForm.paidNow} onChange={(e) => setSaleForm({ ...saleForm, paidNow: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                  <input type="text" inputMode="decimal" placeholder="How much did they pay now (₦)?" value={formatNumInput(saleForm.paidNow)} onChange={(e) => setSaleForm({ ...saleForm, paidNow: parseNumInput(e.target.value) })} className="w-full rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
                   <input type="text" placeholder="Customer's name" value={saleForm.customerName} onChange={(e) => setSaleForm({ ...saleForm, customerName: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={field} />
                   <div className="flex gap-2">
                     <input type="tel" placeholder="Phone (for reminder)" value={saleForm.customerPhone} onChange={(e) => setSaleForm({ ...saleForm, customerPhone: e.target.value })} className="w-1/2 rounded-lg px-3 py-2 text-sm outline-none" style={field} />
@@ -1336,7 +1359,7 @@ export default function ChaseIt() {
               <div className="text-[13.5px] font-semibold cx-display mb-3">Record an expense</div>
               <div className="space-y-2.5">
                 <input type="text" placeholder="What did you spend on?" value={expenseForm.item} onChange={(e) => setExpenseForm({ ...expenseForm, item: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                <input type="number" placeholder="Amount (₦)" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                <input type="text" inputMode="decimal" placeholder="Amount (₦)" value={formatNumInput(expenseForm.amount)} onChange={(e) => setExpenseForm({ ...expenseForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <div className="flex flex-wrap gap-1.5">
                   {EXPENSE_CATEGORIES.map((c) => (
                     <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
@@ -1509,6 +1532,9 @@ export default function ChaseIt() {
               {id === 'invoices' && needsAttention.length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
               )}
+              {id === 'products' && products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length > 0 && (
+                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -1651,8 +1677,8 @@ export default function ChaseIt() {
                     )}
                     <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <div className="flex gap-2">
-                      <input type="number" placeholder="Sold for (₦)" value={saleForm.amount} onChange={(e) => setSaleForm({ ...saleForm, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                      <input type="number" placeholder="Cost (optional)" value={saleForm.cost} onChange={(e) => setSaleForm({ ...saleForm, cost: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                      <input type="text" inputMode="decimal" placeholder="Sold for (₦)" value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                      <input type="text" inputMode="decimal" placeholder="Cost (optional)" value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                     </div>
                     <button onClick={addSale} disabled={savingSale} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : "Save sale"}</button>
                     <button onClick={() => { setTab('sales'); setShowSaleForm(true); }} className="w-full text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Need to record a partial payment? →</button>
@@ -1803,8 +1829,8 @@ export default function ChaseIt() {
                 )}
                 <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <div className="flex gap-2">
-                  <input type="number" placeholder="Sold for (₦)" value={saleForm.amount} onChange={(e) => setSaleForm({ ...saleForm, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                  <input type="number" placeholder="Cost (optional)" value={saleForm.cost} onChange={(e) => setSaleForm({ ...saleForm, cost: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  <input type="text" inputMode="decimal" placeholder="Sold for (₦)" value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  <input type="text" inputMode="decimal" placeholder="Cost (optional)" value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 </div>
                 <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
                   <Camera size={14} />{photoUploading ? 'Adding photo…' : saleForm.photo ? 'Photo added — tap to change' : 'Add a photo (optional)'}
@@ -1822,7 +1848,7 @@ export default function ChaseIt() {
                 {!saleForm.fullyPaid && (
                   <div className="rounded-xl p-3.5 space-y-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                     <div className="text-[11px]" style={{ color: C.inkFaint }}>Shows up in Invoices so Xorla can remind them for you.</div>
-                    <input type="number" placeholder="How much did they pay now (₦)?" value={saleForm.paidNow} onChange={(e) => setSaleForm({ ...saleForm, paidNow: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }} />
+                    <input type="text" inputMode="decimal" placeholder="How much did they pay now (₦)?" value={formatNumInput(saleForm.paidNow)} onChange={(e) => setSaleForm({ ...saleForm, paidNow: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }} />
                     <div className="relative">
                       <input type="text" placeholder="Customer's name" value={saleForm.customerName} onChange={(e) => setSaleForm({ ...saleForm, customerName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }} />
                       {matchCustomers(saleForm.customerName).length > 0 && (
@@ -1912,28 +1938,54 @@ export default function ChaseIt() {
                 {productForm.imagePreview && <img src={productForm.imagePreview} alt="" className="w-16 h-16 rounded-xl object-cover" />}
                 <input type="text" placeholder="Product name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <div className="flex gap-2">
-                  <input type="number" placeholder="Cost price (₦)" value={productForm.costPrice} onChange={(e) => setProductForm({ ...productForm, costPrice: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                  <input type="number" placeholder="Selling price (₦)" value={productForm.sellingPrice} onChange={(e) => setProductForm({ ...productForm, sellingPrice: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  <input type="text" inputMode="decimal" placeholder="Cost price (₦)" value={formatNumInput(productForm.costPrice)} onChange={(e) => setProductForm({ ...productForm, costPrice: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  <input type="text" inputMode="decimal" placeholder="Selling price (₦)" value={formatNumInput(productForm.sellingPrice)} onChange={(e) => setProductForm({ ...productForm, sellingPrice: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 </div>
+                <div className="flex gap-2">
+                  <input type="number" min="0" placeholder="Stock on hand (optional)" value={productForm.stockQuantity} onChange={(e) => setProductForm({ ...productForm, stockQuantity: e.target.value })} className="w-1/2 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  <input type="number" min="0" placeholder="Alert below" value={productForm.lowStockThreshold} onChange={(e) => setProductForm({ ...productForm, lowStockThreshold: e.target.value })} className="w-1/2 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                </div>
+                <div className="text-[10.5px] -mt-1.5" style={{ color: C.inkFaint }}>Leave "Stock on hand" blank if you don't want to track stock for this product.</div>
                 <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : 'Save product'}</button>
               </div>
             )}
 
             <div className="text-[13px] font-semibold cx-display mb-2.5" style={{ color: C.inkDim }}>Your products</div>
             {products.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No products yet — add your first one above.</div>}
-            <div>
-              {products.map((p, i) => (
-                <div key={p.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
-                  <div className="flex items-center gap-3 min-w-0">
-                    {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.bg }}><Package size={16} style={{ color: C.inkFaint }} /></div>}
-                    <div className="min-w-0">
-                      <div className="text-[13.5px] font-medium truncate">{p.name}</div>
-                      <div className="text-[11px]" style={{ color: C.inkFaint }}>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}</div>
-                    </div>
-                  </div>
-                  <button onClick={() => removeProduct(p.id)} className="text-[11px] shrink-0" style={{ color: C.inkFaint }}>Remove</button>
+
+            {products.some((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold) && (
+              <div className="rounded-2xl p-3.5 mb-4 flex items-start gap-2.5" style={{ background: 'rgba(226,98,75,0.1)', border: '1px solid rgba(226,98,75,0.25)' }}>
+                <Package size={15} className="shrink-0 mt-0.5" style={{ color: C.rust }} />
+                <div className="text-[12px]" style={{ color: '#E2A090' }}>
+                  Running low: {products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).map((p) => p.name).join(', ')}
                 </div>
-              ))}
+              </div>
+            )}
+
+            <div>
+              {products.map((p, i) => {
+                const isLow = p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold;
+                const isOut = p.stockQuantity === 0;
+                return (
+                  <div key={p.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.bg }}><Package size={16} style={{ color: C.inkFaint }} /></div>}
+                      <div className="min-w-0">
+                        <div className="text-[13.5px] font-medium truncate">{p.name}</div>
+                        <div className="text-[11px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkFaint }}>
+                          <span>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}</span>
+                          {p.stockQuantity !== null && (
+                            <span className="px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold" style={isOut ? { background: 'rgba(226,98,75,0.15)', color: C.rust } : isLow ? { background: 'rgba(226,98,75,0.12)', color: C.rust } : { background: C.sageSoft, color: C.sage }}>
+                              {isOut ? 'Out of stock' : `${p.stockQuantity} in stock`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => removeProduct(p.id)} className="text-[11px] shrink-0" style={{ color: C.inkFaint }}>Remove</button>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -1955,7 +2007,7 @@ export default function ChaseIt() {
                   <button onClick={() => setShowExpenseForm(false)} style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
                 <input type="text" placeholder="What did you spend on?" value={expenseForm.item} onChange={(e) => setExpenseForm({ ...expenseForm, item: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                <input type="number" placeholder="Amount (₦)" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                <input type="text" inputMode="decimal" placeholder="Amount (₦)" value={formatNumInput(expenseForm.amount)} onChange={(e) => setExpenseForm({ ...expenseForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <div className="flex flex-wrap gap-1.5">
                   {EXPENSE_CATEGORIES.map((c) => (
                     <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
@@ -2033,7 +2085,7 @@ export default function ChaseIt() {
                 <div className="flex gap-2">
                   <input type="text" placeholder="Invoice #" value={form.invoiceNo} onChange={(e) => setForm({ ...form, invoiceNo: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   {!form.itemized && (
-                    <input type="number" placeholder="Amount (₦)" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                    <input type="text" inputMode="decimal" placeholder="Amount (₦)" value={formatNumInput(form.amount)} onChange={(e) => setForm({ ...form, amount: parseNumInput(e.target.value) })} className="w-1/2 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                   )}
                   {form.itemized && <div className="w-1/2 flex items-center justify-center text-[11px]" style={{ color: C.inkFaint }}>Amount from line items below</div>}
                 </div>
@@ -2046,9 +2098,9 @@ export default function ChaseIt() {
                   <div className="rounded-xl p-3 space-y-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                     {form.items.map((it, idx) => (
                       <div key={idx} className="flex gap-1.5 items-center">
-                        <input type="text" placeholder="Item description" value={it.description} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], description: e.target.value }; setForm({ ...form, items }); }} className="flex-1 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
+                        <input type="text" placeholder="Item description" value={it.description} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], description: e.target.value }; setForm({ ...form, items }); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
                         <input type="number" min="1" placeholder="Qty" value={it.quantity} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], quantity: e.target.value }; setForm({ ...form, items }); }} className="w-14 rounded-lg px-2 py-2 text-[12.5px] text-center outline-none cx-mono" style={field} />
-                        <input type="number" placeholder="Unit ₦" value={it.unitPrice} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], unitPrice: e.target.value }; setForm({ ...form, items }); }} className="w-20 rounded-lg px-2 py-2 text-[12.5px] outline-none cx-mono" style={field} />
+                        <input type="text" inputMode="decimal" placeholder="Unit ₦" value={formatNumInput(it.unitPrice)} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], unitPrice: parseNumInput(e.target.value) }; setForm({ ...form, items }); }} className="w-20 min-w-0 shrink-0 rounded-lg px-2 py-2 text-[12.5px] outline-none cx-mono" style={field} />
                         {form.items.length > 1 && (
                           <button type="button" onClick={() => setForm({ ...form, items: form.items.filter((_, i) => i !== idx) })} style={{ color: C.inkFaint }}><X size={14} /></button>
                         )}
@@ -2141,7 +2193,7 @@ export default function ChaseIt() {
 
                       {payingId === inv.id && (
                         <div className="flex gap-2 mb-3">
-                          <input type="number" autoFocus placeholder={`Max ${fmt(bal)}`} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="flex-1 rounded-xl px-3 py-2 text-[12.5px] outline-none cx-mono" style={field} />
+                          <input type="text" inputMode="decimal" autoFocus placeholder={`Max ${fmt(bal)}`} value={formatNumInput(payAmount)} onChange={(e) => setPayAmount(parseNumInput(e.target.value))} className="flex-1 min-w-0 rounded-xl px-3 py-2 text-[12.5px] outline-none cx-mono" style={field} />
                           <button onClick={() => recordPayment(inv.id)} className="px-3 rounded-xl text-[12px] font-medium" style={{ background: C.sage, color: C.bg }}>Save</button>
                           <button onClick={() => { setPayingId(null); setPayAmount(''); }} className="px-2" style={{ color: C.inkFaint }}><X size={14} /></button>
                         </div>
