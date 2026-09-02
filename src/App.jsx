@@ -1570,7 +1570,7 @@ export default function ChaseIt() {
           </div>
         </div>
 
-        <div className="max-w-6xl mx-auto px-5 md:px-8 py-6 lg:py-8 pb-24">
+        <div className="max-w-6xl mx-auto px-5 md:px-8 py-6 lg:py-8 pb-28 lg:pb-24">
 
           {/* Top bar */}
           <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -1608,22 +1608,6 @@ export default function ChaseIt() {
               ))}
             </div>
           )}
-
-          {/* Mobile nav */}
-          <div className="lg:hidden flex gap-5 mb-2 overflow-x-auto" style={{ borderBottom: `1px solid ${C.line}` }}>
-            {[
-              { id: 'overview', label: 'Overview', Icon: Home },
-              { id: 'sales', label: 'Sales', Icon: ShoppingBag },
-              { id: 'products', label: 'Products', Icon: Package },
-              { id: 'expenses', label: 'Expenses', Icon: Receipt },
-              { id: 'invoices', label: 'Invoices', Icon: Wallet },
-              { id: 'advisor', label: 'Oga', Icon: Lightbulb },
-            ].map(({ id, label, Icon }) => (
-              <button key={id} onClick={() => setTab(id)} className="flex items-center gap-1.5 pb-3 text-[13px] font-medium shrink-0" style={{ color: tab === id ? C.ink : C.inkFaint, borderBottom: tab === id ? `2px solid ${C.copper}` : '2px solid transparent', marginBottom: '-1px' }}>
-                <Icon size={14} /> {label}
-              </button>
-            ))}
-          </div>
           <div className="lg:hidden text-[11px] mb-6 mt-3" style={{ color: C.inkFaint }}>Sold something? Use Sales. Billing without a sale now? Use Invoices.</div>
 
           {/* ============ OVERVIEW TAB ============ */}
@@ -2281,13 +2265,35 @@ export default function ChaseIt() {
       {tab !== 'advisor' && (
         <button
           onClick={() => { setPreviousTab(tab); setTab('advisor'); }}
-          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-3.5 pr-4 py-3 rounded-full transition-transform active:scale-95"
+          className="fixed bottom-24 lg:bottom-6 right-5 lg:right-6 z-40 flex items-center gap-2 pl-3.5 pr-4 py-3 rounded-full transition-transform active:scale-95"
           style={{ background: C.copper, color: C.bg, boxShadow: '0 8px 24px rgba(255,176,32,0.35)' }}
         >
           <Lightbulb size={17} />
           <span className="text-[12.5px] font-semibold">Ask Oga</span>
         </button>
       )}
+
+      {/* Fixed bottom nav — mobile only, WhatsApp-style: always visible, never scrolls */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(10,31,28,0.97)', backdropFilter: 'blur(20px)', borderTop: `1px solid ${C.line}` }}>
+        {[
+          { id: 'overview', label: 'Overview', Icon: Home },
+          { id: 'sales', label: 'Sales', Icon: ShoppingBag },
+          { id: 'products', label: 'Products', Icon: Package },
+          { id: 'expenses', label: 'Expenses', Icon: Receipt },
+          { id: 'invoices', label: 'Invoices', Icon: Wallet },
+        ].map(({ id, label, Icon }) => (
+          <button key={id} onClick={() => setTab(id)} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
+            <Icon size={21} style={{ color: tab === id ? C.copper : C.inkFaint }} />
+            <span className="text-[10px] font-medium" style={{ color: tab === id ? C.copper : C.inkFaint }}>{label}</span>
+            {id === 'invoices' && needsAttention.length > 0 && (
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
+            )}
+            {id === 'products' && products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length > 0 && (
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length}</span>
+            )}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
