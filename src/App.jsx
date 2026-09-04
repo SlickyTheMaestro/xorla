@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -1040,7 +1040,7 @@ export default function ChaseIt() {
 
       if (owed > 0) {
         const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
-        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${newSale.id.slice(-5)}`, amount: saleForm.amount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone } });
+        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${newSale.id.slice(-5)}`, amount: saleForm.amount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone, items: [{ description: saleForm.item, quantity: 1, unitPrice: Number(saleForm.amount) }] } });
         setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
 
@@ -1061,6 +1061,8 @@ export default function ChaseIt() {
     } catch (e) { console.error(e); alert(e.message); } finally { setSavingSale(false); }
   };
   const removeSale = async (id) => {
+    const sale = sales.find((s) => s.id === id);
+    if (!window.confirm(`Remove "${sale?.item || 'this sale'}"? This can't be undone.`)) return;
     try { await sbRest(`sales?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setSales((prev) => prev.filter((s) => s.id !== id)); }
     catch (e) { alert(e.message); }
   };
@@ -1077,6 +1079,8 @@ export default function ChaseIt() {
     } catch (e) { alert(e.message); } finally { setSavingExpense(false); }
   };
   const removeExpense = async (id) => {
+    const exp = expenses.find((e) => e.id === id);
+    if (!window.confirm(`Remove "${exp?.item || 'this expense'}"? This can't be undone.`)) return;
     try { await sbRest(`expenses?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setExpenses((prev) => prev.filter((e) => e.id !== id)); }
     catch (e) { alert(e.message); }
   };
@@ -1120,6 +1124,8 @@ export default function ChaseIt() {
     } catch (e) { alert(e.message); } finally { setSavingProduct(false); }
   };
   const removeProduct = async (id) => {
+    const product = products.find((p) => p.id === id);
+    if (!window.confirm(`Remove "${product?.name || 'this product'}" from your catalog? This can't be undone.`)) return;
     try { await sbRest(`products?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setProducts((prev) => prev.filter((p) => p.id !== id)); }
     catch (e) { alert(e.message); }
   };
@@ -1156,6 +1162,8 @@ export default function ChaseIt() {
     catch (e) { alert(e.message); }
   };
   const removeInvoice = async (id) => {
+    const inv = invoices.find((i) => i.id === id);
+    if (!window.confirm(`Remove the invoice for "${inv?.clientName || 'this client'}"? This can't be undone.`)) return;
     try { await sbRest(`invoices?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setInvoices((prev) => prev.filter((i) => i.id !== id)); }
     catch (e) { alert(e.message); }
   };
@@ -1394,15 +1402,21 @@ export default function ChaseIt() {
         {fontStyle}
         <div className="max-w-2xl mx-auto min-h-screen flex flex-col">
           <div className="flex items-center gap-3 p-5 pb-4" style={{ borderBottom: `1px solid ${C.line}` }}>
-            <button onClick={() => setTab(previousTab)} className="shrink-0" style={{ color: C.inkDim }}><ChevronLeft size={20} /></button>
+            <button onClick={() => setTab(previousTab)} className="shrink-0 flex items-center gap-1" style={{ color: C.inkDim }}><ChevronLeft size={20} /><span className="text-[13px] font-medium">Back</span></button>
             <div>
               <div className="text-[15px] font-semibold cx-display mb-0.5">Business settings</div>
               <div className="text-[12px]" style={{ color: C.inkFaint }}>Set these up once — nothing changes until you save.</div>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          <div className="flex-1 overflow-y-auto p-5 space-y-7">
+
+            {/* BRANDING */}
             <div>
+              <div className="flex items-center gap-2 mb-3.5">
+                <Camera size={15} style={{ color: C.copper }} />
+                <div className="text-[13.5px] font-semibold cx-display">Branding</div>
+              </div>
               <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
               <div className="flex items-center gap-3">
                 {settings.logoUrl ? (
@@ -1417,57 +1431,72 @@ export default function ChaseIt() {
               </div>
               <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your downloadable invoice PDFs.</div>
             </div>
-            <div>
-              <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>PAYMENT LINK</div>
-              <input type="text" placeholder="Paystack link, bank details, etc." value={draft.paymentLink} onChange={(e) => setDraft({ ...draft, paymentLink: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-              <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Added to the end of every reminder message automatically.</div>
-            </div>
 
-            <div>
-              <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>REMINDER TONE</div>
-              <div className="flex flex-wrap gap-1.5">
-                {TONES.map((t) => (
-                  <button key={t.id} onClick={() => setDraft({ ...draft, tone: t.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.tone === t.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t.label}</button>
-                ))}
+            {/* CUSTOMER MESSAGES */}
+            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2 mb-3.5">
+                <Send size={15} style={{ color: C.copper }} />
+                <div className="text-[13.5px] font-semibold cx-display">Customer messages</div>
               </div>
-              {draft.tone === 'custom' && (
-                <textarea placeholder="e.g. Always mention we value the long relationship." value={draft.customInstructions} onChange={(e) => setDraft({ ...draft, customInstructions: e.target.value })} rows={2} className="w-full mt-2 rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
-              )}
-            </div>
-
-            <div>
-              <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>LANGUAGE</div>
-              <div className="flex flex-wrap gap-1.5">
-                {LANGUAGES.map((l) => (
-                  <button key={l.id} onClick={() => setDraft({ ...draft, language: l.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.language === l.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
-                ))}
+              <div className="space-y-4">
+                <div>
+                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>PAYMENT LINK</div>
+                  <input type="text" placeholder="Paystack link, bank details, etc." value={draft.paymentLink} onChange={(e) => setDraft({ ...draft, paymentLink: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Added to the end of every reminder message automatically.</div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>REMINDER TONE</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {TONES.map((t) => (
+                      <button key={t.id} onClick={() => setDraft({ ...draft, tone: t.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.tone === t.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t.label}</button>
+                    ))}
+                  </div>
+                  {draft.tone === 'custom' && (
+                    <textarea placeholder="e.g. Always mention we value the long relationship." value={draft.customInstructions} onChange={(e) => setDraft({ ...draft, customInstructions: e.target.value })} rows={2} className="w-full mt-2 rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
+                  )}
+                </div>
+                <div>
+                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>LANGUAGE</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {LANGUAGES.map((l) => (
+                      <button key={l.id} onClick={() => setDraft({ ...draft, language: l.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.language === l.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div>
+            {/* CONTACT */}
+            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2 mb-3.5">
+                <Phone size={15} style={{ color: C.copper }} />
+                <div className="text-[13.5px] font-semibold cx-display">Your contact</div>
+              </div>
               <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR WHATSAPP NUMBER</div>
               <input type="tel" placeholder="e.g. 2348012345678" value={draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+              <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Used to send your daily/weekly summary to yourself.</div>
             </div>
 
-            <div className="pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
-              <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>TEAM</div>
+            {/* TEAM */}
+            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2 mb-3.5">
+                <Users size={15} style={{ color: C.copper }} />
+                <div className="text-[13.5px] font-semibold cx-display">Team</div>
+              </div>
               <div className="text-[11px] mb-2" style={{ color: C.inkFaint }}>Share this code with staff — they enter it once to join your business for good.</div>
               <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                 <span className="cx-mono text-[16px] font-bold tracking-[0.1em]" style={{ color: C.sage }}>{settings.businessCode}</span>
                 <button onClick={() => navigator.clipboard?.writeText(settings.businessCode)} className="text-[11px] font-medium" style={{ color: C.copper }}>Copy</button>
               </div>
               {settings.staffList.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5 mb-5">
                   {settings.staffList.map((name) => (
                     <div key={name} className="px-2.5 py-1 rounded-full text-[12px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{name}</div>
                   ))}
                 </div>
               ) : (
-                <div className="text-[11.5px]" style={{ color: C.inkFaint }}>No staff have joined yet.</div>
+                <div className="text-[11.5px] mb-5" style={{ color: C.inkFaint }}>No staff have joined yet.</div>
               )}
-            </div>
-
-            <div className="pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
               <div className="flex items-center justify-between">
                 <div className="pr-4">
                   <div className="text-[13px] font-medium mb-0.5">Let staff log expenses</div>
@@ -1479,7 +1508,12 @@ export default function ChaseIt() {
               </div>
             </div>
 
-            <div className="pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
+            {/* SECURITY */}
+            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2 mb-3.5">
+                <Lock size={15} style={{ color: C.copper }} />
+                <div className="text-[13.5px] font-semibold cx-display">Security</div>
+              </div>
               <div className="text-[11px] font-medium mb-1.5" style={{ color: C.inkDim }}>APP LOCK (PIN)</div>
               <div className="text-[11px] mb-2.5 leading-relaxed" style={{ color: C.inkFaint }}>
                 Only the owner sets this — it's a quick screen lock for this device, so a staff member or customer picking up the phone can't browse your sales and money owed. It doesn't affect your login; it's separate and only lives on this device.
@@ -1492,7 +1526,12 @@ export default function ChaseIt() {
               {draft.pin && <div className="text-[11px] mt-1.5" style={{ color: C.sage }}>PIN staged: will be set when you save.</div>}
             </div>
 
-            <div className="pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
+            {/* ACCOUNT */}
+            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2 mb-3.5">
+                <LogOut size={15} style={{ color: C.rust }} />
+                <div className="text-[13.5px] font-semibold cx-display">Account</div>
+              </div>
               <button onClick={logout} className="text-[12.5px] font-medium" style={{ color: C.rust }}>Log out</button>
             </div>
           </div>
