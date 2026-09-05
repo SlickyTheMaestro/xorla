@@ -856,6 +856,8 @@ export default function ChaseIt() {
   const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', imageBlob: null, imagePreview: null });
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
+  const [openSections, setOpenSections] = useState(new Set(['branding']));
+  const toggleSection = (id) => setOpenSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [previousTab, setPreviousTab] = useState('overview');
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
@@ -1409,128 +1411,161 @@ export default function ChaseIt() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-7">
+          <div className="flex-1 overflow-y-auto p-5 space-y-3">
 
             {/* BRANDING */}
-            <div>
-              <div className="flex items-center gap-2 mb-3.5">
-                <Camera size={15} style={{ color: C.copper }} />
-                <div className="text-[13.5px] font-semibold cx-display">Branding</div>
-              </div>
-              <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
-              <div className="flex items-center gap-3">
-                {settings.logoUrl ? (
-                  <img src={settings.logoUrl} alt="Logo" className="w-14 h-14 rounded-xl object-cover" style={{ border: `1px solid ${C.line}` }} />
-                ) : (
-                  <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Package size={20} style={{ color: C.inkFaint }} /></div>
-                )}
-                <label className="flex items-center gap-2 text-[12px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
-                  <Camera size={14} />{logoUploading ? 'Uploading…' : settings.logoUrl ? 'Change logo' : 'Upload logo'}
-                  <input type="file" accept="image/*" onChange={handleLogoSelect} className="hidden" />
-                </label>
-              </div>
-              <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your downloadable invoice PDFs.</div>
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+              <button onClick={() => toggleSection('branding')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <Camera size={15} style={{ color: C.copper }} />
+                  <span className="text-[13.5px] font-semibold cx-display">Branding</span>
+                </div>
+                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('branding') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
+              </button>
+              {openSections.has('branding') && (
+                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <div className="text-[11px] font-medium mb-2 mt-4" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
+                  <div className="flex items-center gap-3">
+                    {settings.logoUrl ? (
+                      <img src={settings.logoUrl} alt="Logo" className="w-14 h-14 rounded-xl object-cover" style={{ border: `1px solid ${C.line}` }} />
+                    ) : (
+                      <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Package size={20} style={{ color: C.inkFaint }} /></div>
+                    )}
+                    <label className="flex items-center gap-2 text-[12px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
+                      <Camera size={14} />{logoUploading ? 'Uploading…' : settings.logoUrl ? 'Change logo' : 'Upload logo'}
+                      <input type="file" accept="image/*" onChange={handleLogoSelect} className="hidden" />
+                    </label>
+                  </div>
+                  <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your downloadable invoice PDFs.</div>
+                </div>
+              )}
             </div>
 
             {/* CUSTOMER MESSAGES */}
-            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2 mb-3.5">
-                <Send size={15} style={{ color: C.copper }} />
-                <div className="text-[13.5px] font-semibold cx-display">Customer messages</div>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>PAYMENT LINK</div>
-                  <input type="text" placeholder="Paystack link, bank details, etc." value={draft.paymentLink} onChange={(e) => setDraft({ ...draft, paymentLink: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                  <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Added to the end of every reminder message automatically.</div>
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+              <button onClick={() => toggleSection('messages')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <Send size={15} style={{ color: C.copper }} />
+                  <span className="text-[13.5px] font-semibold cx-display">Customer messages</span>
                 </div>
-                <div>
-                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>REMINDER TONE</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {TONES.map((t) => (
-                      <button key={t.id} onClick={() => setDraft({ ...draft, tone: t.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.tone === t.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t.label}</button>
-                    ))}
+                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('messages') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
+              </button>
+              {openSections.has('messages') && (
+                <div className="px-4 pb-4 space-y-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <div className="mt-4">
+                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>PAYMENT LINK</div>
+                    <input type="text" placeholder="Paystack link, bank details, etc." value={draft.paymentLink} onChange={(e) => setDraft({ ...draft, paymentLink: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Added to the end of every reminder message automatically.</div>
                   </div>
-                  {draft.tone === 'custom' && (
-                    <textarea placeholder="e.g. Always mention we value the long relationship." value={draft.customInstructions} onChange={(e) => setDraft({ ...draft, customInstructions: e.target.value })} rows={2} className="w-full mt-2 rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
-                  )}
-                </div>
-                <div>
-                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>LANGUAGE</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {LANGUAGES.map((l) => (
-                      <button key={l.id} onClick={() => setDraft({ ...draft, language: l.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.language === l.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
-                    ))}
+                  <div>
+                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>REMINDER TONE</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {TONES.map((t) => (
+                        <button key={t.id} onClick={() => setDraft({ ...draft, tone: t.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.tone === t.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t.label}</button>
+                      ))}
+                    </div>
+                    {draft.tone === 'custom' && (
+                      <textarea placeholder="e.g. Always mention we value the long relationship." value={draft.customInstructions} onChange={(e) => setDraft({ ...draft, customInstructions: e.target.value })} rows={2} className="w-full mt-2 rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>LANGUAGE</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {LANGUAGES.map((l) => (
+                        <button key={l.id} onClick={() => setDraft({ ...draft, language: l.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.language === l.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* CONTACT */}
-            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2 mb-3.5">
-                <Phone size={15} style={{ color: C.copper }} />
-                <div className="text-[13.5px] font-semibold cx-display">Your contact</div>
-              </div>
-              <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR WHATSAPP NUMBER</div>
-              <input type="tel" placeholder="e.g. 2348012345678" value={draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-              <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Used to send your daily/weekly summary to yourself.</div>
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+              <button onClick={() => toggleSection('contact')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <Phone size={15} style={{ color: C.copper }} />
+                  <span className="text-[13.5px] font-semibold cx-display">Your contact</span>
+                </div>
+                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('contact') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
+              </button>
+              {openSections.has('contact') && (
+                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <div className="text-[11px] font-medium mb-2 mt-4" style={{ color: C.inkDim }}>YOUR WHATSAPP NUMBER</div>
+                  <input type="tel" placeholder="e.g. 2348012345678" value={draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Used to send your daily/weekly summary to yourself.</div>
+                </div>
+              )}
             </div>
 
             {/* TEAM */}
-            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2 mb-3.5">
-                <Users size={15} style={{ color: C.copper }} />
-                <div className="text-[13.5px] font-semibold cx-display">Team</div>
-              </div>
-              <div className="text-[11px] mb-2" style={{ color: C.inkFaint }}>Share this code with staff — they enter it once to join your business for good.</div>
-              <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                <span className="cx-mono text-[16px] font-bold tracking-[0.1em]" style={{ color: C.sage }}>{settings.businessCode}</span>
-                <button onClick={() => navigator.clipboard?.writeText(settings.businessCode)} className="text-[11px] font-medium" style={{ color: C.copper }}>Copy</button>
-              </div>
-              {settings.staffList.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 mb-5">
-                  {settings.staffList.map((name) => (
-                    <div key={name} className="px-2.5 py-1 rounded-full text-[12px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{name}</div>
-                  ))}
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+              <button onClick={() => toggleSection('team')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <Users size={15} style={{ color: C.copper }} />
+                  <span className="text-[13.5px] font-semibold cx-display">Team</span>
                 </div>
-              ) : (
-                <div className="text-[11.5px] mb-5" style={{ color: C.inkFaint }}>No staff have joined yet.</div>
+                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('team') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
+              </button>
+              {openSections.has('team') && (
+                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <div className="text-[11px] mb-2 mt-4" style={{ color: C.inkFaint }}>Share this code with staff — they enter it once to join your business for good.</div>
+                  <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                    <span className="cx-mono text-[16px] font-bold tracking-[0.1em]" style={{ color: C.sage }}>{settings.businessCode}</span>
+                    <button onClick={() => navigator.clipboard?.writeText(settings.businessCode)} className="text-[11px] font-medium" style={{ color: C.copper }}>Copy</button>
+                  </div>
+                  {settings.staffList.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 mb-5">
+                      {settings.staffList.map((name) => (
+                        <div key={name} className="px-2.5 py-1 rounded-full text-[12px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{name}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11.5px] mb-5" style={{ color: C.inkFaint }}>No staff have joined yet.</div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <div className="pr-4">
+                      <div className="text-[13px] font-medium mb-0.5">Let staff log expenses</div>
+                      <div className="text-[11px]" style={{ color: C.inkFaint }}>Off by default — turn on only if reps genuinely spend cash on your behalf (transport, restock, etc).</div>
+                    </div>
+                    <button onClick={() => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses })} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.allowStaffExpenses ? C.sage : C.line }}>
+                      <div className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: C.bg, left: draft.allowStaffExpenses ? '22px' : '2px' }} />
+                    </button>
+                  </div>
+                </div>
               )}
-              <div className="flex items-center justify-between">
-                <div className="pr-4">
-                  <div className="text-[13px] font-medium mb-0.5">Let staff log expenses</div>
-                  <div className="text-[11px]" style={{ color: C.inkFaint }}>Off by default — turn on only if reps genuinely spend cash on your behalf (transport, restock, etc).</div>
-                </div>
-                <button onClick={() => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses })} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.allowStaffExpenses ? C.sage : C.line }}>
-                  <div className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: C.bg, left: draft.allowStaffExpenses ? '22px' : '2px' }} />
-                </button>
-              </div>
             </div>
 
             {/* SECURITY */}
-            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2 mb-3.5">
-                <Lock size={15} style={{ color: C.copper }} />
-                <div className="text-[13.5px] font-semibold cx-display">Security</div>
-              </div>
-              <div className="text-[11px] font-medium mb-1.5" style={{ color: C.inkDim }}>APP LOCK (PIN)</div>
-              <div className="text-[11px] mb-2.5 leading-relaxed" style={{ color: C.inkFaint }}>
-                Only the owner sets this — it's a quick screen lock for this device, so a staff member or customer picking up the phone can't browse your sales and money owed. It doesn't affect your login; it's separate and only lives on this device.
-              </div>
-              <div className="flex gap-2">
-                <input type="tel" maxLength={4} placeholder="4-digit PIN" value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} className="flex-1 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                <button onClick={() => { if (newPin.length === 4) { setDraft({ ...draft, pin: newPin }); setNewPin(''); } }} disabled={newPin.length !== 4} className="px-4 rounded-xl text-[12px] font-medium" style={{ background: C.copper, color: C.bg, opacity: newPin.length === 4 ? 1 : 0.35 }}>{draft.pin ? 'Change' : 'Set'}</button>
-                {draft.pin && <button onClick={() => setDraft({ ...draft, pin: '' })} className="px-3 rounded-xl text-[12px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Remove</button>}
-              </div>
-              {draft.pin && <div className="text-[11px] mt-1.5" style={{ color: C.sage }}>PIN staged: will be set when you save.</div>}
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+              <button onClick={() => toggleSection('security')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <Lock size={15} style={{ color: C.copper }} />
+                  <span className="text-[13.5px] font-semibold cx-display">Security</span>
+                </div>
+                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('security') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
+              </button>
+              {openSections.has('security') && (
+                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <div className="text-[11px] font-medium mb-1.5 mt-4" style={{ color: C.inkDim }}>APP LOCK (PIN)</div>
+                  <div className="text-[11px] mb-2.5 leading-relaxed" style={{ color: C.inkFaint }}>
+                    Only the owner sets this — it's a quick screen lock for this device, so a staff member or customer picking up the phone can't browse your sales and money owed. It doesn't affect your login; it's separate and only lives on this device.
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="tel" maxLength={4} placeholder="4-digit PIN" value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} className="flex-1 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                    <button onClick={() => { if (newPin.length === 4) { setDraft({ ...draft, pin: newPin }); setNewPin(''); } }} disabled={newPin.length !== 4} className="px-4 rounded-xl text-[12px] font-medium" style={{ background: C.copper, color: C.bg, opacity: newPin.length === 4 ? 1 : 0.35 }}>{draft.pin ? 'Change' : 'Set'}</button>
+                    {draft.pin && <button onClick={() => setDraft({ ...draft, pin: '' })} className="px-3 rounded-xl text-[12px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Remove</button>}
+                  </div>
+                  {draft.pin && <div className="text-[11px] mt-1.5" style={{ color: C.sage }}>PIN staged: will be set when you save.</div>}
+                </div>
+              )}
             </div>
 
-            {/* ACCOUNT */}
-            <div className="pt-6" style={{ borderTop: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2 mb-3.5">
+            {/* ACCOUNT — no content to hide, stays simple */}
+            <div className="rounded-xl px-4 py-3.5 flex items-center justify-between" style={{ border: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2.5">
                 <LogOut size={15} style={{ color: C.rust }} />
-                <div className="text-[13.5px] font-semibold cx-display">Account</div>
+                <span className="text-[13.5px] font-semibold cx-display">Account</span>
               </div>
               <button onClick={logout} className="text-[12.5px] font-medium" style={{ color: C.rust }}>Log out</button>
             </div>
