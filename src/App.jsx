@@ -905,6 +905,8 @@ export default function ChaseIt() {
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [savingSale, setSavingSale] = useState(false);
+  const [cartMode, setCartMode] = useState(false);
+  const [cartItems, setCartItems] = useState([{ productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }]);
   const [savingExpense, setSavingExpense] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [invoiceView, setInvoiceView] = useState('active');
@@ -1123,6 +1125,56 @@ export default function ChaseIt() {
     if (!window.confirm(`Remove "${sale?.item || 'this sale'}"? This can't be undone.`)) return;
     try { await sbRest(`sales?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setSales((prev) => prev.filter((s) => s.id !== id)); }
     catch (e) { alert(e.message); }
+  };
+
+  const applyProductToCartRow = (idx, productId) => {
+    const items = [...cartItems];
+    if (!productId) { items[idx] = { ...items[idx], productId: '' }; setCartItems(items); return; }
+    const product = products.find((p) => p.id === productId);
+    if (!product) return;
+    items[idx] = { ...items[idx], productId, description: product.name, unitPrice: String(product.sellingPrice), unitCost: String(product.costPrice) };
+    setCartItems(items);
+  };
+
+  const addCartSale = async () => {
+    const cleanItems = cartItems
+      .filter((it) => it.description.trim() && Number(it.unitPrice) > 0)
+      .map((it) => ({ productId: it.productId || null, description: it.description.trim(), quantity: Math.max(1, Number(it.quantity) || 1), unitPrice: Number(it.unitPrice), unitCost: Number(it.unitCost) || 0 }));
+    if (!cleanItems.length) return;
+    if (savingSale) return;
+    setSavingSale(true);
+    try {
+      const totalAmount = cleanItems.reduce((a, it) => a + it.quantity * it.unitPrice, 0);
+      const owed = saleForm.fullyPaid ? 0 : Math.max(0, totalAmount - Number(saleForm.paidNow || 0));
+
+      // One sale row per product — keeps per-product analytics, COGS, and stock tracking accurate
+      const newSales = [];
+      for (const it of cleanItems) {
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: 0 } });
+        newSales.push(rows[0]);
+        if (it.productId) {
+          const product = products.find((p) => p.id === it.productId);
+          if (product && product.stockQuantity !== null) {
+            const newStock = Math.max(0, product.stockQuantity - it.quantity);
+            await sbRest(`products?id=eq.${it.productId}`, { method: 'PATCH', accessToken: session.access_token, body: { stock_quantity: newStock } });
+            setProducts((prev) => prev.map((p) => p.id === it.productId ? { ...p, stockQuantity: newStock } : p));
+          }
+        }
+      }
+      setSales((prev) => [...newSales.map(fromSbSale), ...prev]);
+
+      if (owed > 0) {
+        const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
+        const invItems = cleanItems.map((it) => ({ description: it.description, quantity: it.quantity, unitPrice: it.unitPrice }));
+        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${Date.now().toString().slice(-6)}`, amount: totalAmount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone, items: invItems } });
+        setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
+      }
+
+      setCartItems([{ productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }]);
+      setSaleForm((f) => ({ ...f, fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '' }));
+      setShowSaleForm(false);
+      setCartMode(false);
+    } catch (e) { console.error(e); alert(e.message); } finally { setSavingSale(false); }
   };
 
   const addExpense = async () => {
@@ -1973,34 +2025,70 @@ export default function ChaseIt() {
                   <div className="text-[14px] font-semibold cx-display">New sale</div>
                   <button onClick={() => setShowSaleForm(false)} style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
-                {products.length > 0 && (
-                  <div className="rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-                    <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK A PRODUCT (OPTIONAL)</div>
-                    <div className="flex gap-2">
-                      <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
-                        <option value="">Choose a product…</option>
-                        {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
-                      </select>
-                      {saleForm.productId && (
-                        <div>
-                          <div className="text-[9px] font-semibold text-center mb-1" style={{ color: C.inkFaint }}>QTY</div>
-                          <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-16 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
+                <button onClick={() => setCartMode(!cartMode)} className="flex items-center gap-1.5 text-[12px] font-medium py-1" style={{ color: C.copper }}>
+                  {cartMode ? '− Just one item instead' : '+ Customer buying several different things?'}
+                </button>
+
+                {!cartMode && (
+                  <>
+                    {products.length > 0 && (
+                      <div className="rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                        <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK A PRODUCT (OPTIONAL)</div>
+                        <div className="flex gap-2">
+                          <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                            <option value="">Choose a product…</option>
+                            {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
+                          </select>
+                          {saleForm.productId && (
+                            <div>
+                              <div className="text-[9px] font-semibold text-center mb-1" style={{ color: C.inkFaint }}>QTY</div>
+                              <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-16 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
+                            </div>
+                          )}
                         </div>
-                      )}
+                        {saleForm.productId && <div className="text-[10.5px] mt-1.5" style={{ color: C.inkFaint }}>Amount and cost below are auto-filled — still editable if you're giving a discount.</div>}
+                      </div>
+                    )}
+                    <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <div className="flex gap-2">
+                      <input type="text" inputMode="decimal" placeholder="Sold for (₦)" value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                      <input type="text" inputMode="decimal" placeholder="Cost (optional)" value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                     </div>
-                    {saleForm.productId && <div className="text-[10.5px] mt-1.5" style={{ color: C.inkFaint }}>Amount and cost below are auto-filled — still editable if you're giving a discount.</div>}
+                    <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
+                      <Camera size={14} />{photoUploading ? 'Adding photo…' : saleForm.photo ? 'Photo added — tap to change' : 'Add a photo (optional)'}
+                      <input type="file" accept="image/*" capture="environment" onChange={handlePhotoSelect} className="hidden" />
+                    </label>
+                    {saleForm.photo && <img src={saleForm.photo} alt="Item" className="rounded-xl" style={{ maxHeight: '90px' }} />}
+                  </>
+                )}
+
+                {cartMode && (
+                  <div className="rounded-xl p-3 space-y-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                    <div className="text-[10.5px] mb-1" style={{ color: C.inkFaint }}>Everything this one customer is buying right now.</div>
+                    {cartItems.map((it, idx) => (
+                      <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
+                        {products.length > 0 && (
+                          <select value={it.productId} onChange={(e) => applyProductToCartRow(idx, e.target.value)} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                            <option value="">Pick a product… (optional)</option>
+                            {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
+                          </select>
+                        )}
+                        <div className="flex gap-1.5 items-center">
+                          <input type="text" placeholder="Item" value={it.description} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], description: e.target.value }; setCartItems(items); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
+                          <input type="number" min="1" placeholder="Qty" value={it.quantity} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], quantity: e.target.value }; setCartItems(items); }} className="w-14 rounded-lg px-2 py-2 text-[12.5px] text-center outline-none cx-mono" style={field} />
+                          <input type="text" inputMode="decimal" placeholder="₦ each" value={formatNumInput(it.unitPrice)} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], unitPrice: parseNumInput(e.target.value) }; setCartItems(items); }} className="w-20 min-w-0 shrink-0 rounded-lg px-2 py-2 text-[12.5px] outline-none cx-mono" style={field} />
+                          {cartItems.length > 1 && (
+                            <button onClick={() => setCartItems(cartItems.filter((_, i) => i !== idx))} style={{ color: C.inkFaint }}><X size={14} /></button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    <button onClick={() => setCartItems([...cartItems, { productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }])} className="text-[11.5px] font-medium" style={{ color: C.sage }}>+ Add another item</button>
+                    <div className="text-[13px] font-semibold pt-1" style={{ color: C.ink, borderTop: `1px solid ${C.line}` }}>
+                      Basket total: {fmt(cartItems.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0))}
+                    </div>
                   </div>
                 )}
-                <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                <div className="flex gap-2">
-                  <input type="text" inputMode="decimal" placeholder="Sold for (₦)" value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                  <input type="text" inputMode="decimal" placeholder="Cost (optional)" value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                </div>
-                <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
-                  <Camera size={14} />{photoUploading ? 'Adding photo…' : saleForm.photo ? 'Photo added — tap to change' : 'Add a photo (optional)'}
-                  <input type="file" accept="image/*" capture="environment" onChange={handlePhotoSelect} className="hidden" />
-                </label>
-                {saleForm.photo && <img src={saleForm.photo} alt="Item" className="rounded-xl" style={{ maxHeight: '90px' }} />}
 
                 <div className="pt-1">
                   <div className="flex gap-1.5">
@@ -2033,10 +2121,14 @@ export default function ChaseIt() {
                         <input type="date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink, colorScheme: 'dark' }} />
                       </div>
                     </div>
-                    {saleForm.amount && <div className="text-[12.5px] font-medium" style={{ color: C.rust }}>Balance owed: {fmt(Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0)))}</div>}
+                    {(cartMode ? cartItems.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0) : Number(saleForm.amount)) > 0 && (
+                      <div className="text-[12.5px] font-medium" style={{ color: C.rust }}>
+                        Balance owed: {fmt(Math.max(0, (cartMode ? cartItems.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0) : Number(saleForm.amount)) - Number(saleForm.paidNow || 0)))}
+                      </div>
+                    )}
                   </div>
                 )}
-                <button onClick={addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : "Save sale"}</button>
+                <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : cartMode ? `Save ${cartItems.length > 1 ? 'items' : 'item'}` : "Save sale"}</button>
               </div>
             )}
 
