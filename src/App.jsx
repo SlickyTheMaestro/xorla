@@ -909,6 +909,7 @@ export default function ChaseIt() {
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [invoiceView, setInvoiceView] = useState('active');
   const [viewDate, setViewDate] = useState(todayKey());
+  const [staffFilter, setStaffFilter] = useState('');
   const [error, setError] = useState('');
   const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0', notes: '' });
   const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
@@ -1286,6 +1287,11 @@ export default function ChaseIt() {
   const viewedExpensesList = expenses.filter((e) => e.dateKey === viewDate);
   const viewedExpensesTotal = viewedExpensesList.reduce((a, e) => a + Number(e.amount), 0);
   const viewedProfit = viewedSalesTotal - viewedCOGS - viewedExpensesTotal;
+  // Staff filter narrows what's actually LISTED — the Profit card above stays whole-business, since expenses aren't fairly attributable to one rep
+  const filteredSales = viewedSales.filter((s) => !staffFilter || s.loggedBy === staffFilter);
+  const filteredSalesTotal = filteredSales.reduce((a, s) => a + Number(s.amount), 0);
+  const filteredExpensesList = viewedExpensesList.filter((e) => !staffFilter || e.loggedBy === staffFilter);
+  const filteredExpensesTotal = filteredExpensesList.reduce((a, e) => a + Number(e.amount), 0);
   const shiftDate = (dateKey, days) => { const d = new Date(dateKey + 'T00:00:00'); d.setDate(d.getDate() + days); return d.toLocaleDateString('sv-SE'); };
   const formatViewDate = (dateKey) => dateKey === todayKey() ? 'Today' : new Date(dateKey + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 
@@ -2055,12 +2061,22 @@ export default function ChaseIt() {
               </div>
             </div>
 
-            {viewedSales.length > 0 && (
-              <div className="text-[11px] mb-2.5" style={{ color: C.inkFaint }}>{fmt(viewedSalesTotal)} total · {viewedSales.length} sale{viewedSales.length !== 1 ? 's' : ''}</div>
+            {settings.staffList.length > 0 && (
+              <div className="flex items-center gap-1.5 mb-4 overflow-x-auto">
+                <span className="text-[10.5px] shrink-0" style={{ color: C.inkFaint }}>Rep:</span>
+                <button onClick={() => setStaffFilter('')} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={!staffFilter ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>All</button>
+                {settings.staffList.map((s) => (
+                  <button key={s.id} onClick={() => setStaffFilter(s.name)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={staffFilter === s.name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
+                ))}
+              </div>
             )}
-            {viewedSales.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No sales logged that day.</div>}
+
+            {filteredSales.length > 0 && (
+              <div className="text-[11px] mb-2.5" style={{ color: C.inkFaint }}>{fmt(filteredSalesTotal)} total · {filteredSales.length} sale{filteredSales.length !== 1 ? 's' : ''}{staffFilter ? ` · ${staffFilter}` : ''}</div>
+            )}
+            {filteredSales.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>{staffFilter ? `No sales from ${staffFilter} that day.` : 'No sales logged that day.'}</div>}
             <div>
-              {viewedSales.map((s, i) => (
+              {filteredSales.map((s, i) => (
                 <div key={s.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                   <div className="flex items-center gap-3 min-w-0">
                     {s.photo && <img src={s.photo} alt={s.item} className="w-9 h-9 rounded-lg object-cover shrink-0" />}
@@ -2221,16 +2237,26 @@ export default function ChaseIt() {
               </div>
             </div>
 
-            {viewedExpensesList.length > 0 && (
-              <div className="text-[11px] mb-2.5" style={{ color: C.inkFaint }}>{fmt(viewedExpensesTotal)} total</div>
+            {settings.staffList.length > 0 && (
+              <div className="flex items-center gap-1.5 mb-4 overflow-x-auto">
+                <span className="text-[10.5px] shrink-0" style={{ color: C.inkFaint }}>Rep:</span>
+                <button onClick={() => setStaffFilter('')} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={!staffFilter ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>All</button>
+                {settings.staffList.map((s) => (
+                  <button key={s.id} onClick={() => setStaffFilter(s.name)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={staffFilter === s.name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
+                ))}
+              </div>
             )}
-            {viewedExpensesList.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No expenses logged that day.</div>}
+
+            {filteredExpensesList.length > 0 && (
+              <div className="text-[11px] mb-2.5" style={{ color: C.inkFaint }}>{fmt(filteredExpensesTotal)} total{staffFilter ? ` · ${staffFilter}` : ''}</div>
+            )}
+            {filteredExpensesList.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>{staffFilter ? `No expenses from ${staffFilter} that day.` : 'No expenses logged that day.'}</div>}
             <div>
-              {viewedExpensesList.map((e, i) => (
+              {filteredExpensesList.map((e, i) => (
                 <div key={e.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                   <div>
                     <div className="text-[13.5px] font-medium">{e.item}</div>
-                    <div className="text-[11px]" style={{ color: C.inkFaint }}>{e.time} · {e.category}</div>
+                    <div className="text-[11px]" style={{ color: C.inkFaint }}>{e.time} · {e.category}{e.loggedBy ? ` · ${e.loggedBy}` : ''}</div>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="cx-mono text-[13.5px] font-medium" style={{ color: C.rust }}>-{fmt(e.amount)}</div>
