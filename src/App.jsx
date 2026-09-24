@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -879,6 +879,54 @@ export default function ChaseIt() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [showIOSSteps, setShowIOSSteps] = useState(false);
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const isStandalone = typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true);
+
+  useEffect(() => {
+    if (isStandalone) return; // already installed — never nag someone who's already using it as an app
+    const dismissed = localStorage.getItem('xorla:install-dismissed');
+
+    const handleBeforeInstall = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      if (!dismissed) setShowInstallBanner(true);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+
+    const handleInstalled = () => { setShowInstallBanner(false); setInstallPrompt(null); };
+    window.addEventListener('appinstalled', handleInstalled);
+
+    // iOS never fires beforeinstallprompt — show our own instructions instead, if not already dismissed
+    if (isIOS && !dismissed) setShowInstallBanner(true);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleInstalled);
+    };
+  }, [isIOS, isStandalone]);
+
+  const handleInstallClick = async () => {
+    if (isIOS) { setShowIOSSteps(true); return; }
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+    setShowInstallBanner(false);
+  };
+  const dismissInstallBanner = () => {
+    setShowInstallBanner(false);
+    setShowIOSSteps(false);
+    try { localStorage.setItem('xorla:install-dismissed', '1'); } catch (e) {}
+  };
+  const openInstallFromSettings = () => {
+    if (isIOS) { setTab('overview'); setShowInstallBanner(true); setShowIOSSteps(true); return; }
+    if (installPrompt) { handleInstallClick(); return; }
+    alert("Your browser doesn't support installing from here — on Android, look for \"Install app\" or \"Add to Home screen\" in your browser's menu (⋮).");
+  };
+
   const [resetToken, setResetToken] = useState(() => {
     if (typeof window === 'undefined') return null;
     const hash = window.location.hash || '';
@@ -1713,6 +1761,16 @@ export default function ChaseIt() {
               )}
             </div>
 
+            {!isStandalone && (
+              <button onClick={openInstallFromSettings} className="w-full rounded-xl px-4 py-3.5 flex items-center justify-between" style={{ border: `1px solid ${C.line}` }}>
+                <div className="flex items-center gap-2.5">
+                  <Download size={15} style={{ color: C.copper }} />
+                  <span className="text-[13.5px] font-semibold cx-display">Install Xorla app</span>
+                </div>
+                <ChevronRight size={16} style={{ color: C.inkFaint }} />
+              </button>
+            )}
+
             {/* ACCOUNT — no content to hide, stays simple */}
             <div className="rounded-xl px-4 py-3.5 flex items-center justify-between" style={{ border: `1px solid ${C.line}` }}>
               <div className="flex items-center gap-2.5">
@@ -1839,6 +1897,49 @@ export default function ChaseIt() {
           {/* ============ OVERVIEW TAB ============ */}
           {tab === 'overview' && (
             <>
+              {showInstallBanner && (
+                <div className="rounded-2xl p-4 mb-5 xorla-fade-up" style={{ background: `linear-gradient(135deg, ${C.copperSoft}, ${C.surface})`, border: `1px solid rgba(255,176,32,0.25)` }}>
+                  {!showIOSSteps ? (
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}>
+                        <Download size={18} style={{ color: C.bg }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13.5px] font-semibold cx-display mb-0.5">Add Xorla to your home screen</div>
+                        <div className="text-[11.5px] leading-relaxed mb-3" style={{ color: C.inkDim }}>Opens instantly, no browser tabs or typing the address again — feels like a real app.</div>
+                        <div className="flex gap-2">
+                          <button onClick={handleInstallClick} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>{isIOS ? 'How to add' : 'Install now'}</button>
+                          <button onClick={dismissInstallBanner} className="px-3 py-2 rounded-xl text-[12.5px] font-medium" style={{ color: C.inkFaint }}>Not now</button>
+                        </div>
+                      </div>
+                      <button onClick={dismissInstallBanner} className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="text-[13.5px] font-semibold cx-display">Add to your home screen</div>
+                        <button onClick={dismissInstallBanner} style={{ color: C.inkFaint }}><X size={16} /></button>
+                      </div>
+                      <div className="space-y-2.5">
+                        <div className="flex items-center gap-2.5 text-[12.5px]" style={{ color: C.inkDim }}>
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold" style={{ background: C.copperSoft, color: C.copper }}>1</div>
+                          <span>Tap the <Share size={13} className="inline mx-1" style={{ color: C.copper }} /> Share icon at the bottom of Safari</span>
+                        </div>
+                        <div className="flex items-center gap-2.5 text-[12.5px]" style={{ color: C.inkDim }}>
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold" style={{ background: C.copperSoft, color: C.copper }}>2</div>
+                          <span>Scroll down and tap <strong style={{ color: C.ink }}>"Add to Home Screen"</strong> <SquarePlus size={13} className="inline ml-1" style={{ color: C.copper }} /></span>
+                        </div>
+                        <div className="flex items-center gap-2.5 text-[12.5px]" style={{ color: C.inkDim }}>
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold" style={{ background: C.copperSoft, color: C.copper }}>3</div>
+                          <span>Tap <strong style={{ color: C.ink }}>"Add"</strong> in the top corner — done!</span>
+                        </div>
+                      </div>
+                      <button onClick={dismissInstallBanner} className="w-full mt-3.5 py-2 rounded-xl text-[12.5px] font-medium" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Got it</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="lg:grid lg:grid-cols-5 lg:gap-5 mb-5 xorla-fade-up">
                 <div className="lg:col-span-3 rounded-2xl p-5 mb-4 lg:mb-0" style={card}>
                   <div className="flex items-start justify-between mb-1">
