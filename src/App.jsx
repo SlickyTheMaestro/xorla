@@ -175,6 +175,15 @@ function loadImageAsDataURL(url) {
     .catch(() => null);
 }
 
+function getImageDimensions(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth || 1, height: img.naturalHeight || 1 });
+    img.onerror = () => resolve({ width: 1, height: 1 });
+    img.src = dataUrl;
+  });
+}
+
 async function downloadInvoicePDF(inv, settings) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -184,9 +193,21 @@ async function downloadInvoicePDF(inv, settings) {
   let logoDataUrl = null;
   if (settings.logoUrl) logoDataUrl = await loadImageAsDataURL(settings.logoUrl);
 
+  // Logo sits in a fixed, standard-size box (44x44pt) — image scales to fit inside it without stretching,
+  // and the business name always starts at the same X position regardless of the logo's actual shape.
+  const LOGO_BOX = 44;
   let textX = marginX;
   if (logoDataUrl) {
-    try { doc.addImage(logoDataUrl, 'JPEG', marginX, y - 28, 42, 42); textX = marginX + 54; } catch (e) {}
+    try {
+      const dims = await getImageDimensions(logoDataUrl);
+      const ratio = dims.width / dims.height;
+      let logoW = LOGO_BOX, logoH = LOGO_BOX;
+      if (ratio > 1) logoH = LOGO_BOX / ratio; else logoW = LOGO_BOX * ratio;
+      const offsetX = (LOGO_BOX - logoW) / 2;
+      const offsetY = (LOGO_BOX - logoH) / 2;
+      doc.addImage(logoDataUrl, 'JPEG', marginX + offsetX, y - 30 + offsetY, logoW, logoH);
+      textX = marginX + LOGO_BOX + 14;
+    } catch (e) {}
   }
 
   doc.setFont('helvetica', 'bold');
@@ -195,7 +216,15 @@ async function downloadInvoicePDF(inv, settings) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(90, 90, 90);
-  if (settings.ownerPhone) { y += 16; doc.text(`Tel: ${settings.ownerPhone}`, textX, y); }
+  if (settings.ownerPhone) { y += 15; doc.text(`Tel: ${settings.ownerPhone}`, textX, y); }
+  if (settings.businessEmail) { y += 14; doc.text(settings.businessEmail, textX, y); }
+  if (settings.businessAddress) {
+    const bizAddrLines = doc.splitTextToSize(settings.businessAddress, 220);
+    y += 14;
+    doc.text(bizAddrLines, textX, y);
+    y += (bizAddrLines.length - 1) * 12;
+  }
+  const businessBlockBottom = y;
 
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'bold');
@@ -208,7 +237,7 @@ async function downloadInvoicePDF(inv, settings) {
   doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, pageWidth - marginX, 94, { align: 'right' });
   doc.text(`Due: ${new Date(inv.dueDate).toLocaleDateString('en-GB')}`, pageWidth - marginX, 108, { align: 'right' });
 
-  y = 150;
+  y = Math.max(150, businessBlockBottom + 24, 130);
   doc.setDrawColor(220, 220, 220);
   doc.line(marginX, y, pageWidth - marginX, y);
   y += 28;
@@ -307,6 +336,18 @@ async function downloadInvoicePDF(inv, settings) {
     doc.text(settings.paymentLink, marginX, y);
   }
 
+  if (inv.notes) {
+    y += 34;
+    doc.setDrawColor(230, 230, 230);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 18;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9.5);
+    doc.setTextColor(90, 90, 90);
+    const noteLines = doc.splitTextToSize(inv.notes, pageWidth - marginX * 2);
+    doc.text(noteLines, marginX, y);
+  }
+
   doc.setFontSize(8);
   doc.setTextColor(150, 150, 150);
   doc.text('Generated with Xorla', marginX, doc.internal.pageSize.getHeight() - 30);
@@ -321,7 +362,7 @@ function fromSbSale(row) {
   return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null };
 }
 function fromSbInvoice(row) {
-  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '' };
+  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '', notes: row.notes || '' };
 }
 function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '' };
@@ -834,7 +875,7 @@ export default function ChaseIt() {
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [products, setProducts] = useState([]);
-  const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '' });
+  const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '' });
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -853,6 +894,8 @@ export default function ChaseIt() {
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [showProductForm, setShowProductForm] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
+  const [restockingId, setRestockingId] = useState(null);
+  const [restockAmount, setRestockAmount] = useState('');
   const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', imageBlob: null, imagePreview: null });
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
@@ -864,9 +907,10 @@ export default function ChaseIt() {
   const [savingSale, setSavingSale] = useState(false);
   const [savingExpense, setSavingExpense] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
+  const [invoiceView, setInvoiceView] = useState('active');
   const [viewDate, setViewDate] = useState(todayKey());
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0' });
+  const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0', notes: '' });
   const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
   const [expenseForm, setExpenseForm] = useState({ item: '', amount: '', category: 'Restock' });
   const [payingId, setPayingId] = useState(null);
@@ -894,8 +938,8 @@ export default function ChaseIt() {
     const business = businesses[0];
     let staffRoster = [];
     if (profile.role === 'owner') {
-      const staffRows = await sbRest('profiles', { accessToken, query: `?business_id=eq.${profile.business_id}&role=eq.staff&select=name` });
-      staffRoster = staffRows.map((r) => r.name);
+      const staffRows = await sbRest('profiles', { accessToken, query: `?business_id=eq.${profile.business_id}&role=eq.staff&select=id,name` });
+      staffRoster = staffRows.map((r) => ({ id: r.id, name: r.name }));
     }
     return { profile, business, staffRoster };
   }, []);
@@ -941,6 +985,8 @@ export default function ChaseIt() {
       ownerPhone: business.owner_phone || '',
       allowStaffExpenses: !!business.allow_staff_expenses,
       logoUrl: business.logo_url || null,
+      businessAddress: business.address || '',
+      businessEmail: business.email || '',
       staffList: staffRoster,
     }));
     loadBusinessData(sess.access_token);
@@ -980,6 +1026,14 @@ export default function ChaseIt() {
     setSettings((prev) => ({ ...prev, loggedIn: false, role: 'owner', activeStaff: '', businessName: '', staffList: [] }));
   }, [session]);
 
+  const removeStaff = async (staffId, staffName) => {
+    if (!window.confirm(`Remove ${staffName}? They'll be logged out immediately and won't be able to log back in.`)) return;
+    try {
+      await sbRest(`profiles?id=eq.${staffId}`, { method: 'DELETE', accessToken: session.access_token });
+      setSettings((prev) => ({ ...prev, staffList: prev.staffList.filter((s) => s.id !== staffId) }));
+    } catch (e) { alert(e.message); }
+  };
+
   useEffect(() => {
     (async () => {
       let loadedSettings = null;
@@ -1016,9 +1070,9 @@ export default function ChaseIt() {
     if (savingInvoice) return;
     setSavingInvoice(true);
     try {
-      const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: computedAmount, paid_amount: 0, due_date: form.dueDate, phone: form.phone, client_address: form.clientAddress, items: cleanItems, tax_rate: form.itemized ? Number(form.taxRate || 0) : 0 } });
+      const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: computedAmount, paid_amount: 0, due_date: form.dueDate, phone: form.phone, client_address: form.clientAddress, items: cleanItems, tax_rate: form.itemized ? Number(form.taxRate || 0) : 0, notes: form.notes } });
       setInvoices((prev) => [fromSbInvoice(rows[0]), ...prev]);
-      setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0' });
+      setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0', notes: '' });
       setShowForm(false);
     } catch (e) { setError(e.message); } finally { setSavingInvoice(false); }
   };
@@ -1132,6 +1186,18 @@ export default function ChaseIt() {
     catch (e) { alert(e.message); }
   };
 
+  const handleRestock = async (product) => {
+    const added = Number(restockAmount);
+    if (!added || added < 0) return;
+    const newStock = (product.stockQuantity || 0) + added;
+    try {
+      await sbRest(`products?id=eq.${product.id}`, { method: 'PATCH', accessToken: session.access_token, body: { stock_quantity: newStock } });
+      setProducts((prev) => prev.map((p) => p.id === product.id ? { ...p, stockQuantity: newStock } : p));
+      setRestockingId(null);
+      setRestockAmount('');
+    } catch (e) { alert(e.message); }
+  };
+
   // Picking a product (or changing quantity) auto-fills the sale's item/amount/cost — still editable afterward for discounts
   const applyProductToSale = (productId, qtyRaw) => {
     if (!productId) { setSaleForm((f) => ({ ...f, productId: '', quantity: qtyRaw })); return; }
@@ -1195,6 +1261,8 @@ export default function ChaseIt() {
       if ('customInstructions' in patch) bizPatch.custom_instructions = patch.customInstructions;
       if ('language' in patch) bizPatch.language = patch.language;
       if ('ownerPhone' in patch) bizPatch.owner_phone = patch.ownerPhone;
+      if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
+      if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
       if ('allowStaffExpenses' in patch) bizPatch.allow_staff_expenses = patch.allowStaffExpenses;
       if (Object.keys(bizPatch).length) {
         sbRest(`businesses?id=eq.${next.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: bizPatch }).catch((e) => console.error('Settings sync failed:', e));
@@ -1240,10 +1308,12 @@ export default function ChaseIt() {
 
   const sortedInvoices = [...invoices]
     .filter((inv) => !searchQuery || inv.clientName.toLowerCase().includes(searchQuery.toLowerCase()) || inv.invoiceNo.toLowerCase().includes(searchQuery.toLowerCase()))
+    .filter((inv) => invoiceView === 'paid' ? computeStatus(inv) === 'paid' : computeStatus(inv) !== 'paid')
     .sort((a, b) => {
       const order = { critical: 0, overdue: 1, dueToday: 2, soon: 3, upcoming: 4, paid: 5 };
       return order[computeStatus(a)] - order[computeStatus(b)];
     });
+  const paidInvoiceCount = invoices.filter((inv) => computeStatus(inv) === 'paid').length;
 
   const recentActivity = [...todaySales.map((s) => ({ ...s, kind: 'sale' })), ...todayExpensesList.map((e) => ({ ...e, kind: 'expense' }))]
     .sort((a, b) => b.time.localeCompare(a.time)).slice(0, 5);
@@ -1351,8 +1421,14 @@ export default function ChaseIt() {
                   <input type="text" inputMode="decimal" placeholder="How much did they pay now (₦)?" value={formatNumInput(saleForm.paidNow)} onChange={(e) => setSaleForm({ ...saleForm, paidNow: parseNumInput(e.target.value) })} className="w-full rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
                   <input type="text" placeholder="Customer's name" value={saleForm.customerName} onChange={(e) => setSaleForm({ ...saleForm, customerName: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={field} />
                   <div className="flex gap-2">
-                    <input type="tel" placeholder="Phone (for reminder)" value={saleForm.customerPhone} onChange={(e) => setSaleForm({ ...saleForm, customerPhone: e.target.value })} className="w-1/2 rounded-lg px-3 py-2 text-sm outline-none" style={field} />
-                    <input type="date" placeholder="Due date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-1/2 rounded-lg px-3 py-2 text-sm outline-none" style={field} />
+                    <div className="w-1/2">
+                      <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>PHONE</div>
+                      <input type="tel" placeholder="For reminder" value={saleForm.customerPhone} onChange={(e) => setSaleForm({ ...saleForm, customerPhone: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={field} />
+                    </div>
+                    <div className="w-1/2">
+                      <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>DUE DATE — when they'll pay</div>
+                      <input type="date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                    </div>
                   </div>
                   <div className="text-[10.5px]" style={{ color: C.inkFaint }}>Leave the date blank and we'll default to 7 days from now.</div>
                   {saleForm.amount && (
@@ -1490,10 +1566,21 @@ export default function ChaseIt() {
                 <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('contact') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
               </button>
               {openSections.has('contact') && (
-                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
-                  <div className="text-[11px] font-medium mb-2 mt-4" style={{ color: C.inkDim }}>YOUR WHATSAPP NUMBER</div>
-                  <input type="tel" placeholder="e.g. 2348012345678" value={draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                  <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Used to send your daily/weekly summary to yourself.</div>
+                <div className="px-4 pb-4 space-y-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <div className="mt-4">
+                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR WHATSAPP NUMBER</div>
+                    <input type="tel" placeholder="e.g. 2348012345678" value={draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Used to send your daily/weekly summary to yourself.</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS EMAIL (OPTIONAL)</div>
+                    <input type="email" placeholder="hello@yourbusiness.com" value={draft.businessEmail} onChange={(e) => setDraft({ ...draft, businessEmail: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS ADDRESS (OPTIONAL)</div>
+                    <textarea placeholder="Shop address, street, city" value={draft.businessAddress} onChange={(e) => setDraft({ ...draft, businessAddress: e.target.value })} rows={2} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
+                    <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your invoice PDFs.</div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1516,8 +1603,11 @@ export default function ChaseIt() {
                   </div>
                   {settings.staffList.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5 mb-5">
-                      {settings.staffList.map((name) => (
-                        <div key={name} className="px-2.5 py-1 rounded-full text-[12px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{name}</div>
+                      {settings.staffList.map((s) => (
+                        <div key={s.id} className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-[12px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>
+                          {s.name}
+                          <button onClick={() => removeStaff(s.id, s.name)} style={{ color: C.rust }}><X size={11} /></button>
+                        </div>
                       ))}
                     </div>
                   ) : (
@@ -1657,8 +1747,8 @@ export default function ChaseIt() {
             </div>
             {settings.staffList.length > 0 && (
               <div className="hidden md:flex items-center gap-1.5">
-                {settings.staffList.slice(0, 3).map((name) => (
-                  <button key={name} onClick={() => updateSettings({ activeStaff: name })} className="px-2.5 py-1.5 rounded-full text-[11px] font-medium" style={settings.activeStaff === name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{name}</button>
+                {settings.staffList.slice(0, 3).map((s) => (
+                  <button key={s.id} onClick={() => updateSettings({ activeStaff: s.name })} className="px-2.5 py-1.5 rounded-full text-[11px] font-medium" style={settings.activeStaff === s.name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
                 ))}
               </div>
             )}
@@ -1677,8 +1767,8 @@ export default function ChaseIt() {
           {settings.staffList.length > 0 && (
             <div className="md:hidden flex items-center gap-2 mb-5 overflow-x-auto">
               <span className="text-[11px] shrink-0" style={{ color: C.inkFaint }}>Logging as</span>
-              {settings.staffList.map((name) => (
-                <button key={name} onClick={() => updateSettings({ activeStaff: name })} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={settings.activeStaff === name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{name}</button>
+              {settings.staffList.map((s) => (
+                <button key={s.id} onClick={() => updateSettings({ activeStaff: s.name })} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={settings.activeStaff === s.name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
               ))}
             </div>
           )}
@@ -1847,13 +1937,13 @@ export default function ChaseIt() {
               <div className="rounded-2xl p-4 mb-4" style={card}>
                 <div className="text-[10.5px] font-medium tracking-wide uppercase mb-2.5" style={{ color: C.inkFaint }}>Today by team member</div>
                 <div className="space-y-2">
-                  {settings.staffList.map((name) => {
-                    const total = todaySales.filter((s) => s.loggedBy === name).reduce((a, s) => a + Number(s.amount), 0);
-                    const count = todaySales.filter((s) => s.loggedBy === name).length;
+                  {settings.staffList.map((s) => {
+                    const total = todaySales.filter((sale) => sale.loggedBy === s.name).reduce((a, sale) => a + Number(sale.amount), 0);
+                    const count = todaySales.filter((sale) => sale.loggedBy === s.name).length;
                     if (count === 0) return null;
                     return (
-                      <div key={name} className="flex items-center justify-between text-[12.5px]">
-                        <span style={{ color: C.inkDim }}>{name} · {count} sale{count !== 1 ? 's' : ''}</span>
+                      <div key={s.id} className="flex items-center justify-between text-[12.5px]">
+                        <span style={{ color: C.inkDim }}>{s.name} · {count} sale{count !== 1 ? 's' : ''}</span>
                         <span className="cx-mono font-medium">{fmt(total)}</span>
                       </div>
                     );
@@ -1918,8 +2008,14 @@ export default function ChaseIt() {
                       )}
                     </div>
                     <div className="flex gap-2">
-                      <input type="tel" placeholder="Phone" value={saleForm.customerPhone} onChange={(e) => setSaleForm({ ...saleForm, customerPhone: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }} />
-                      <input type="date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }} />
+                      <div className="w-1/2">
+                        <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>PHONE</div>
+                        <input type="tel" placeholder="For reminder" value={saleForm.customerPhone} onChange={(e) => setSaleForm({ ...saleForm, customerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }} />
+                      </div>
+                      <div className="w-1/2">
+                        <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>DUE DATE — when they'll pay</div>
+                        <input type="date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink, colorScheme: 'dark' }} />
+                      </div>
                     </div>
                     {saleForm.amount && <div className="text-[12.5px] font-medium" style={{ color: C.rust }}>Balance owed: {fmt(Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0)))}</div>}
                   </div>
@@ -2024,23 +2120,35 @@ export default function ChaseIt() {
               {products.map((p, i) => {
                 const isLow = p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold;
                 const isOut = p.stockQuantity === 0;
+                const isRestocking = restockingId === p.id;
                 return (
-                  <div key={p.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
-                    <div className="flex items-center gap-3 min-w-0">
-                      {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.bg }}><Package size={16} style={{ color: C.inkFaint }} /></div>}
-                      <div className="min-w-0">
-                        <div className="text-[13.5px] font-medium truncate">{p.name}</div>
-                        <div className="text-[11px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkFaint }}>
-                          <span>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}</span>
-                          {p.stockQuantity !== null && (
-                            <span className="px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold" style={isOut ? { background: 'rgba(226,98,75,0.15)', color: C.rust } : isLow ? { background: 'rgba(226,98,75,0.12)', color: C.rust } : { background: C.sageSoft, color: C.sage }}>
-                              {isOut ? 'Out of stock' : `${p.stockQuantity} in stock`}
-                            </span>
-                          )}
+                  <div key={p.id} className="py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.bg }}><Package size={16} style={{ color: C.inkFaint }} /></div>}
+                        <div className="min-w-0">
+                          <div className="text-[13.5px] font-medium truncate">{p.name}</div>
+                          <div className="text-[11px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkFaint }}>
+                            <span>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}</span>
+                            {p.stockQuantity !== null && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold" style={isOut ? { background: 'rgba(226,98,75,0.15)', color: C.rust } : isLow ? { background: 'rgba(226,98,75,0.12)', color: C.rust } : { background: C.sageSoft, color: C.sage }}>
+                                {isOut ? 'Out of stock' : `${p.stockQuantity} in stock`}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setRestockAmount(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>
+                        <button onClick={() => removeProduct(p.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
+                      </div>
                     </div>
-                    <button onClick={() => removeProduct(p.id)} className="text-[11px] shrink-0" style={{ color: C.inkFaint }}>Remove</button>
+                    {isRestocking && (
+                      <div className="flex gap-2 mt-2.5">
+                        <input type="number" min="0" autoFocus placeholder={p.stockQuantity === null ? 'Starting stock count' : 'Units received'} value={restockAmount} onChange={(e) => setRestockAmount(e.target.value)} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                        <button onClick={() => handleRestock(p)} className="px-4 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Save</button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -2176,10 +2284,17 @@ export default function ChaseIt() {
                   </div>
                 )}
                 <div className="flex gap-2">
-                  <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                  <input type="tel" placeholder="Phone (optional)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <div className="w-1/2">
+                    <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>DUE DATE — when payment is expected</div>
+                    <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                  </div>
+                  <div className="w-1/2">
+                    <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>PHONE (OPTIONAL)</div>
+                    <input type="tel" placeholder="For reminders" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  </div>
                 </div>
                 <textarea placeholder="Billing address (optional)" value={form.clientAddress} onChange={(e) => setForm({ ...form, clientAddress: e.target.value })} rows={2} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
+                <textarea placeholder="Note to add at the bottom of the invoice (optional) — e.g. 'Thank you for your business!'" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
                 <button onClick={addInvoice} disabled={savingInvoice} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingInvoice ? 0.6 : 1 }}>{savingInvoice ? "Saving…" : "Save invoice"}</button>
               </div>
             )}
@@ -2188,7 +2303,11 @@ export default function ChaseIt() {
               <span className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>Invoices</span>
               <span className="cx-mono text-[11px]" style={{ color: C.inkFaint }}>{invoices.length} total</span>
             </div>
-            {sortedInvoices.length === 0 && <div className="text-center text-[13px] py-10 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No invoices yet.</div>}
+            <div className="flex gap-1.5 mb-4 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <button onClick={() => setInvoiceView('active')} className="flex-1 py-2 rounded-lg text-[12px] font-semibold" style={invoiceView === 'active' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>Active</button>
+              <button onClick={() => setInvoiceView('paid')} className="flex-1 py-2 rounded-lg text-[12px] font-semibold" style={invoiceView === 'paid' ? { background: C.sage, color: C.bg } : { color: C.inkDim }}>Paid {paidInvoiceCount > 0 ? `(${paidInvoiceCount})` : ''}</button>
+            </div>
+            {sortedInvoices.length === 0 && <div className="text-center text-[13px] py-10 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>{invoiceView === 'paid' ? 'No paid invoices yet.' : 'Nothing active — nice.'}</div>}
 
             <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
               {sortedInvoices.map((inv) => {
