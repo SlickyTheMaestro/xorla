@@ -717,8 +717,8 @@ function AuthScreen({ onDone }) {
           await sbRpc('join_business_as_staff', auth.access_token, { p_business_code: form.code.trim().toUpperCase(), p_name: form.name.trim() });
         }
         await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
-        const ok = await onDone();
-        if (!ok) throw new Error("Logged in, but couldn't load your business. Please try again.");
+        const result = await onDone();
+        if (!result.ok) throw new Error(result.removed ? "Your access to this business has been removed. Contact the business owner if you think this is a mistake." : "Logged in, but couldn't load your business. Please try again.");
       } catch (e) { setError(e.message); } finally { setLoading(false); }
     };
     return wrap('Join your business', mode === 'login' ? 'Log back in.' : "Enter your employer's business code to join.", (
@@ -768,8 +768,8 @@ function AuthScreen({ onDone }) {
       if (mode === 'login') {
         auth = await sbSignIn(form.email.trim(), form.password);
         await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
-        const ok = await onDone();
-        if (!ok) throw new Error("Logged in, but couldn't load your business. Please try again.");
+        const bootResult = await onDone();
+        if (!bootResult.ok) throw new Error(bootResult.removed ? "This account no longer has access to a business." : "Logged in, but couldn't load your business. Please try again.");
       } else {
         auth = await sbSignUp(form.email.trim(), form.password);
         if (!auth.access_token) throw new Error('Account created, but no session came back — check that email confirmation is turned off in Supabase.');
@@ -995,13 +995,14 @@ export default function ChaseIt() {
   const bootstrap = useCallback(async () => {
     setAuthLoading(true);
     const sess = await loadSession();
-    if (!sess) { setAuthLoading(false); return false; }
+    if (!sess) { setAuthLoading(false); return { ok: false }; }
     try {
       const { profile, business, staffRoster } = await fetchProfileAndBusiness(sess.access_token, sess.user_id);
       applySession(sess, profile, business, staffRoster);
       setAuthLoading(false);
-      return true;
+      return { ok: true };
     } catch (e) {
+      const removed1 = e.message === 'Profile not found';
       try {
         const refreshed = await sbRefresh(sess.refresh_token);
         const newSess = { access_token: refreshed.access_token, refresh_token: refreshed.refresh_token, user_id: refreshed.user.id };
@@ -1009,12 +1010,12 @@ export default function ChaseIt() {
         const { profile, business, staffRoster } = await fetchProfileAndBusiness(newSess.access_token, newSess.user_id);
         applySession(newSess, profile, business, staffRoster);
         setAuthLoading(false);
-        return true;
+        return { ok: true };
       } catch (e2) {
         console.error('Bootstrap failed:', e, e2);
         await clearSession();
         setAuthLoading(false);
-        return false;
+        return { ok: false, removed: removed1 || e2.message === 'Profile not found' };
       }
     }
   }, [fetchProfileAndBusiness, applySession]);
@@ -1399,7 +1400,10 @@ export default function ChaseIt() {
                       {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                     </select>
                     {saleForm.productId && (
-                      <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-16 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
+                      <div>
+                        <div className="text-[9px] font-semibold text-center mb-1" style={{ color: C.inkFaint }}>QTY</div>
+                        <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-16 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1819,7 +1823,10 @@ export default function ChaseIt() {
                           {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                         </select>
                         {saleForm.productId && (
-                          <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-14 rounded-xl px-2 py-2.5 text-sm text-center outline-none cx-mono" style={field} />
+                          <div>
+                            <div className="text-[8.5px] font-semibold text-center mb-1" style={{ color: C.inkFaint }}>QTY</div>
+                            <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-14 rounded-xl px-2 py-2.5 text-sm text-center outline-none cx-mono" style={field} />
+                          </div>
                         )}
                       </div>
                     )}
@@ -1969,7 +1976,10 @@ export default function ChaseIt() {
                         {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                       </select>
                       {saleForm.productId && (
-                        <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-16 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
+                        <div>
+                          <div className="text-[9px] font-semibold text-center mb-1" style={{ color: C.inkFaint }}>QTY</div>
+                          <input type="number" min="1" value={saleForm.quantity} onChange={(e) => applyProductToSale(saleForm.productId, e.target.value)} className="w-16 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
+                        </div>
                       )}
                     </div>
                     {saleForm.productId && <div className="text-[10.5px] mt-1.5" style={{ color: C.inkFaint }}>Amount and cost below are auto-filled — still editable if you're giving a discount.</div>}
@@ -2096,8 +2106,14 @@ export default function ChaseIt() {
                   <input type="text" inputMode="decimal" placeholder="Selling price (₦)" value={formatNumInput(productForm.sellingPrice)} onChange={(e) => setProductForm({ ...productForm, sellingPrice: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 </div>
                 <div className="flex gap-2">
-                  <input type="number" min="0" placeholder="Stock on hand (optional)" value={productForm.stockQuantity} onChange={(e) => setProductForm({ ...productForm, stockQuantity: e.target.value })} className="w-1/2 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                  <input type="number" min="0" placeholder="Alert below" value={productForm.lowStockThreshold} onChange={(e) => setProductForm({ ...productForm, lowStockThreshold: e.target.value })} className="w-1/2 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  <div className="w-1/2">
+                    <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>STOCK ON HAND (OPTIONAL)</div>
+                    <input type="number" min="0" placeholder="e.g. 20" value={productForm.stockQuantity} onChange={(e) => setProductForm({ ...productForm, stockQuantity: e.target.value })} className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  </div>
+                  <div className="w-1/2">
+                    <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>ALERT BELOW — low stock warning</div>
+                    <input type="number" min="0" placeholder="e.g. 5" value={productForm.lowStockThreshold} onChange={(e) => setProductForm({ ...productForm, lowStockThreshold: e.target.value })} className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                  </div>
                 </div>
                 <div className="text-[10.5px] -mt-1.5" style={{ color: C.inkFaint }}>Leave "Stock on hand" blank if you don't want to track stock for this product.</div>
                 <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : 'Save product'}</button>
@@ -2262,14 +2278,28 @@ export default function ChaseIt() {
 
                 {form.itemized && (
                   <div className="rounded-xl p-3 space-y-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                    <div className="flex gap-1.5 text-[9.5px] font-semibold px-0.5" style={{ color: C.inkFaint }}>
+                      <span className="flex-1">ITEM</span>
+                      <span className="w-14 text-center">QTY</span>
+                      <span className="w-20">UNIT ₦</span>
+                      <span className="w-3.5" />
+                    </div>
                     {form.items.map((it, idx) => (
-                      <div key={idx} className="flex gap-1.5 items-center">
-                        <input type="text" placeholder="Item description" value={it.description} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], description: e.target.value }; setForm({ ...form, items }); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
-                        <input type="number" min="1" placeholder="Qty" value={it.quantity} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], quantity: e.target.value }; setForm({ ...form, items }); }} className="w-14 rounded-lg px-2 py-2 text-[12.5px] text-center outline-none cx-mono" style={field} />
-                        <input type="text" inputMode="decimal" placeholder="Unit ₦" value={formatNumInput(it.unitPrice)} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], unitPrice: parseNumInput(e.target.value) }; setForm({ ...form, items }); }} className="w-20 min-w-0 shrink-0 rounded-lg px-2 py-2 text-[12.5px] outline-none cx-mono" style={field} />
-                        {form.items.length > 1 && (
-                          <button type="button" onClick={() => setForm({ ...form, items: form.items.filter((_, i) => i !== idx) })} style={{ color: C.inkFaint }}><X size={14} /></button>
+                      <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
+                        {products.length > 0 && (
+                          <select value="" onChange={(e) => { const product = products.find((p) => p.id === e.target.value); if (!product) return; const items = [...form.items]; items[idx] = { ...items[idx], description: product.name, unitPrice: String(product.sellingPrice) }; setForm({ ...form, items }); }} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                            <option value="">Pick from your products… (optional)</option>
+                            {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
+                          </select>
                         )}
+                        <div className="flex gap-1.5 items-center">
+                          <input type="text" placeholder="Item description" value={it.description} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], description: e.target.value }; setForm({ ...form, items }); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
+                          <input type="number" min="1" placeholder="1" value={it.quantity} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], quantity: e.target.value }; setForm({ ...form, items }); }} className="w-14 rounded-lg px-2 py-2 text-[12.5px] text-center outline-none cx-mono" style={field} />
+                          <input type="text" inputMode="decimal" placeholder="0" value={formatNumInput(it.unitPrice)} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], unitPrice: parseNumInput(e.target.value) }; setForm({ ...form, items }); }} className="w-20 min-w-0 shrink-0 rounded-lg px-2 py-2 text-[12.5px] outline-none cx-mono" style={field} />
+                          {form.items.length > 1 && (
+                            <button type="button" onClick={() => setForm({ ...form, items: form.items.filter((_, i) => i !== idx) })} style={{ color: C.inkFaint }}><X size={14} /></button>
+                          )}
+                        </div>
                       </div>
                     ))}
                     <button type="button" onClick={() => setForm({ ...form, items: [...form.items, { description: '', quantity: '1', unitPrice: '' }] })} className="text-[11.5px] font-medium" style={{ color: C.sage }}>+ Add another item</button>
