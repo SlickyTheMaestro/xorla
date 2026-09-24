@@ -649,11 +649,11 @@ function AuthScreen({ onDone }) {
   if (step === 'role') {
     return wrap("Who's opening Xorla?", 'This decides what you\'ll see next.', (
       <>
-        <button onClick={() => setStep('owner')} className="w-full rounded-xl p-4 mb-2.5 text-left transition-all hover:border-opacity-100 active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} onMouseEnter={(e) => e.currentTarget.style.borderColor = C.sage} onMouseLeave={(e) => e.currentTarget.style.borderColor = C.line}>
+        <button onClick={() => { setStep('owner'); setMode('login'); }} className="w-full rounded-xl p-4 mb-2.5 text-left transition-all hover:border-opacity-100 active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} onMouseEnter={(e) => e.currentTarget.style.borderColor = C.sage} onMouseLeave={(e) => e.currentTarget.style.borderColor = C.line}>
           <div className="text-[13.5px] font-semibold">I'm the business owner</div>
           <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>Full dashboard — sales, invoices, expenses, team, and advice.</div>
         </button>
-        <button onClick={() => setStep('staff')} className="w-full rounded-xl p-4 text-left transition-all active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} onMouseEnter={(e) => e.currentTarget.style.borderColor = C.copper} onMouseLeave={(e) => e.currentTarget.style.borderColor = C.line}>
+        <button onClick={() => { setStep('staff'); setMode('login'); }} className="w-full rounded-xl p-4 text-left transition-all active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} onMouseEnter={(e) => e.currentTarget.style.borderColor = C.copper} onMouseLeave={(e) => e.currentTarget.style.borderColor = C.line}>
           <div className="text-[13.5px] font-semibold">I'm a sales rep / staff</div>
           <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>Straight to recording sales — nothing else.</div>
         </button>
@@ -671,7 +671,7 @@ function AuthScreen({ onDone }) {
     };
     return wrap('Reset your password', "We'll email you a link to set a new one.", (
       <>
-        <button onClick={() => { setStep('role'); setResetSent(false); setError(''); }} className="flex items-center gap-1 text-[12px] mb-4" style={{ color: C.inkFaint }}><ChevronLeft size={14} /> Back</button>
+        <button onClick={() => { setStep('role'); setResetSent(false); setError(''); setMode('login'); }} className="flex items-center gap-1 text-[12px] mb-4" style={{ color: C.inkFaint }}><ChevronLeft size={14} /> Back</button>
         {error && <div className="text-[12px] rounded-lg px-3 py-2 mb-3" style={{ background: 'rgba(226,98,75,0.12)', color: '#E2A090' }}>{error}</div>}
         {resetSent ? (
           <div className="rounded-xl p-4 text-[13px] leading-relaxed" style={{ background: C.sageSoft, color: C.sage }}>
@@ -723,7 +723,7 @@ function AuthScreen({ onDone }) {
     };
     return wrap('Join your business', mode === 'login' ? 'Log back in.' : "Enter your employer's business code to join.", (
       <>
-        <button onClick={() => setStep('role')} className="flex items-center gap-1 text-[12px] mb-4" style={{ color: C.inkFaint }}><ChevronLeft size={14} /> Back</button>
+        <button onClick={() => { setStep('role'); setMode('login'); }} className="flex items-center gap-1 text-[12px] mb-4" style={{ color: C.inkFaint }}><ChevronLeft size={14} /> Back</button>
         {error && <div className="text-[12px] rounded-lg px-3 py-2 mb-3" style={{ background: 'rgba(226,98,75,0.12)', color: '#E2A090' }}>{error}</div>}
         <div className="space-y-2.5 mb-4">
           {mode === 'signup' && (
@@ -784,7 +784,7 @@ function AuthScreen({ onDone }) {
 
   return wrap(mode === 'login' ? 'Welcome back' : 'Create your account', mode === 'login' ? 'Log in to see how your business is doing.' : 'Takes less than a minute to get started.', (
     <>
-      <button onClick={() => setStep('role')} className="flex items-center gap-1 text-[12px] mb-4" style={{ color: C.inkFaint }}><ChevronLeft size={14} /> Back</button>
+      <button onClick={() => { setStep('role'); setMode('login'); }} className="flex items-center gap-1 text-[12px] mb-4" style={{ color: C.inkFaint }}><ChevronLeft size={14} /> Back</button>
       {error && <div className="text-[12px] rounded-lg px-3 py-2 mb-3" style={{ background: 'rgba(226,98,75,0.12)', color: '#E2A090' }}>{error}</div>}
       <div className="space-y-2.5 mb-4">
         {mode === 'signup' && (
