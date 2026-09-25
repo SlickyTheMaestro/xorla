@@ -61,8 +61,9 @@ async function sbSetNewPassword(accessToken, password) {
 }
 
 async function sbRest(table, { method = 'GET', accessToken, query = '', body } = {}) {
-  const headers = { apikey: SB_KEY, 'Content-Type': 'application/json' };
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  // With no real session (public storefront visitors), authenticate as the anon key itself —
+  // this is what lets Postgres correctly resolve the request as role "anon" for public RLS policies.
+  const headers = { apikey: SB_KEY, 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken || SB_KEY}` };
   if (method !== 'GET') headers.Prefer = 'return=representation';
   const res = await fetch(`${SB_URL}/rest/v1/${table}${query}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   if (res.status === 204) return [];
@@ -369,6 +370,9 @@ function fromSbExpense(row) {
 }
 function fromSbProduct(row) {
   return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), lowStockThreshold: row.low_stock_threshold ?? 5 };
+}
+function fromSbOrder(row) {
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at };
 }
 
 function staticMessage(inv, settings) {
@@ -868,14 +872,15 @@ function ResetPasswordScreen({ accessToken, onDone }) {
   );
 }
 
-export default function ChaseIt() {
+function XorlaApp() {
   const [tab, setTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [invoices, setInvoices] = useState([]);
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [products, setProducts] = useState([]);
-  const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '' });
+  const [orders, setOrders] = useState([]);
+  const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '', storefrontEnabled: false });
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -997,16 +1002,18 @@ export default function ChaseIt() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
         sbRest('products', { accessToken, query: '?select=*&order=name.asc' }),
+        sbRest('orders', { accessToken, query: '?select=*&order=created_at.desc' }),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
       setExpenses(expenseRows.map(fromSbExpense));
       setProducts(productRows.map(fromSbProduct));
+      setOrders(orderRows.map(fromSbOrder));
     } catch (e) {
       console.error('Loading business data failed:', e);
     }
@@ -1038,6 +1045,7 @@ export default function ChaseIt() {
       logoUrl: business.logo_url || null,
       businessAddress: business.address || '',
       businessEmail: business.email || '',
+      storefrontEnabled: !!business.storefront_enabled,
       staffList: staffRoster,
     }));
     loadBusinessData(sess.access_token);
@@ -1288,6 +1296,37 @@ export default function ChaseIt() {
     catch (e) { alert(e.message); }
   };
 
+  const fulfillOrder = async (order) => {
+    if (!window.confirm(`Mark this order as fulfilled? It'll be logged as a real sale and stock will update.`)) return;
+    try {
+      const newSales = [];
+      for (const item of order.items) {
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description, amount: item.quantity * item.unitPrice, cost: item.quantity * (item.unitCost || 0), owed: 0 } });
+        newSales.push(rows[0]);
+        if (item.productId) {
+          const product = products.find((p) => p.id === item.productId);
+          if (product && product.stockQuantity !== null) {
+            const newStock = Math.max(0, product.stockQuantity - item.quantity);
+            await sbRest(`products?id=eq.${item.productId}`, { method: 'PATCH', accessToken: session.access_token, body: { stock_quantity: newStock } });
+            setProducts((prev) => prev.map((p) => p.id === item.productId ? { ...p, stockQuantity: newStock } : p));
+          }
+        }
+      }
+      setSales((prev) => [...newSales.map(fromSbSale), ...prev]);
+      await sbRest(`orders?id=eq.${order.id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'fulfilled' } });
+      setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: 'fulfilled' } : o));
+    } catch (e) { alert(e.message); }
+  };
+  const cancelOrder = async (id) => {
+    try { await sbRest(`orders?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'cancelled' } }); setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: 'cancelled' } : o)); }
+    catch (e) { alert(e.message); }
+  };
+  const removeOrder = async (id) => {
+    if (!window.confirm("Remove this order record? This can't be undone.")) return;
+    try { await sbRest(`orders?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setOrders((prev) => prev.filter((o) => o.id !== id)); }
+    catch (e) { alert(e.message); }
+  };
+
   const handleRestock = async (product) => {
     const added = Number(restockAmount);
     if (!added || added < 0) return;
@@ -1365,6 +1404,7 @@ export default function ChaseIt() {
       if ('ownerPhone' in patch) bizPatch.owner_phone = patch.ownerPhone;
       if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
       if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
+      if ('storefrontEnabled' in patch) bizPatch.storefront_enabled = patch.storefrontEnabled;
       if ('allowStaffExpenses' in patch) bizPatch.allow_staff_expenses = patch.allowStaffExpenses;
       if (Object.keys(bizPatch).length) {
         sbRest(`businesses?id=eq.${next.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: bizPatch }).catch((e) => console.error('Settings sync failed:', e));
@@ -1627,6 +1667,44 @@ export default function ChaseIt() {
               )}
             </div>
 
+            {/* STOREFRONT */}
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+              <button onClick={() => toggleSection('storefront')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <ShoppingBag size={15} style={{ color: C.copper }} />
+                  <span className="text-[13.5px] font-semibold cx-display">Storefront</span>
+                  {settings.storefrontEnabled && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>LIVE</span>}
+                </div>
+                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('storefront') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
+              </button>
+              {openSections.has('storefront') && (
+                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <div className="flex items-center justify-between mt-4">
+                    <div className="pr-4">
+                      <div className="text-[13px] font-medium mb-0.5">Public storefront</div>
+                      <div className="text-[11px]" style={{ color: C.inkFaint }}>Lets anyone browse your products and order — no login needed for them.</div>
+                    </div>
+                    <button onClick={() => setDraft({ ...draft, storefrontEnabled: !draft.storefrontEnabled })} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.storefrontEnabled ? C.sage : C.line }}>
+                      <div className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: C.bg, left: draft.storefrontEnabled ? '22px' : '2px' }} />
+                    </button>
+                  </div>
+                  {settings.storefrontEnabled && (
+                    <div className="mt-4">
+                      <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR STORE LINK</div>
+                      <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                        <span className="cx-mono text-[12px] truncate pr-2" style={{ color: C.sage }}>{window.location.origin}/store/{settings.businessCode}</span>
+                        <button onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/store/${settings.businessCode}`)} className="shrink-0 text-[11px] font-medium" style={{ color: C.copper }}>Copy</button>
+                      </div>
+                      <a href={`/store/${settings.businessCode}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.sage }}>Open your storefront →</a>
+                    </div>
+                  )}
+                  {!settings.storefrontEnabled && (
+                    <div className="text-[10.5px] mt-3" style={{ color: C.inkFaint }}>Toggle on and save to get your shareable link.</div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* CUSTOMER MESSAGES */}
             <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
               <button onClick={() => toggleSection('messages')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
@@ -1807,6 +1885,7 @@ export default function ChaseIt() {
             { id: 'overview', label: 'Overview', Icon: Home },
             { id: 'sales', label: 'Sales', Icon: ShoppingBag },
             { id: 'products', label: 'Products', Icon: Package },
+            { id: 'orders', label: 'Orders', Icon: Download },
             { id: 'expenses', label: 'Expenses', Icon: Receipt },
             { id: 'invoices', label: 'Invoices', Icon: Wallet },
             { id: 'advisor', label: 'Oga', Icon: Lightbulb },
@@ -1818,6 +1897,9 @@ export default function ChaseIt() {
               )}
               {id === 'products' && products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length}</span>
+              )}
+              {id === 'orders' && orders.filter((o) => o.status === 'pending').length > 0 && (
+                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{orders.filter((o) => o.status === 'pending').length}</span>
               )}
             </button>
           ))}
@@ -1897,6 +1979,20 @@ export default function ChaseIt() {
           {/* ============ OVERVIEW TAB ============ */}
           {tab === 'overview' && (
             <>
+              {orders.filter((o) => o.status === 'pending').length > 0 && (
+                <button onClick={() => setTab('orders')} className="w-full flex items-center justify-between rounded-2xl p-4 mb-5 xorla-fade-up text-left" style={{ background: C.sageSoft, border: `1px solid rgba(44,235,214,0.25)` }}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}>
+                      <ShoppingBag size={18} style={{ color: C.bg }} />
+                    </div>
+                    <div>
+                      <div className="text-[13.5px] font-semibold cx-display">{orders.filter((o) => o.status === 'pending').length} new order{orders.filter((o) => o.status === 'pending').length !== 1 ? 's' : ''} from your storefront</div>
+                      <div className="text-[11.5px]" style={{ color: C.inkDim }}>Tap to review and fulfill</div>
+                    </div>
+                  </div>
+                  <ChevronRight size={18} style={{ color: C.sage }} />
+                </button>
+              )}
               {showInstallBanner && (
                 <div className="rounded-2xl p-4 mb-5 xorla-fade-up" style={{ background: `linear-gradient(135deg, ${C.copperSoft}, ${C.surface})`, border: `1px solid rgba(255,176,32,0.25)` }}>
                   {!showIOSSteps ? (
@@ -2284,6 +2380,55 @@ export default function ChaseIt() {
                   <div className="flex items-center gap-3 shrink-0">
                     <div className="cx-mono text-[13.5px] font-medium">{fmt(s.amount)}</div>
                     <button onClick={() => removeSale(s.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* ============ ORDERS TAB ============ */}
+        {tab === 'orders' && (
+          <>
+            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>Orders placed through your storefront land here. Fulfilling one logs it as a real sale and updates your stock automatically.</div>
+            {orders.length === 0 && (
+              <div className="text-center text-[13px] py-10 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>
+                {settings.storefrontEnabled ? 'No orders yet — share your storefront link to start getting them.' : 'Turn on your storefront in Settings to start receiving orders here.'}
+              </div>
+            )}
+            <div className="space-y-3">
+              {orders.map((o) => (
+                <div key={o.id} className="rounded-2xl p-4" style={card}>
+                  <div className="flex items-start justify-between mb-2.5">
+                    <div>
+                      <div className="text-[13.5px] font-semibold">{o.customerName}</div>
+                      <div className="text-[11px]" style={{ color: C.inkFaint }}>{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
+                    </div>
+                    <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
+                      o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
+                      o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
+                      { background: 'rgba(226,98,75,0.12)', color: C.rust }
+                    }>{o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? 'Fulfilled' : 'Cancelled'}</span>
+                  </div>
+                  <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+                    {o.items.map((it, i) => (
+                      <div key={i} className="flex items-center justify-between text-[12.5px]">
+                        <span style={{ color: C.inkDim }}>{it.description} ×{it.quantity}</span>
+                        <span className="cx-mono">{fmt(it.quantity * it.unitPrice)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="cx-mono text-[14px] font-bold">{fmt(o.total)}</div>
+                    {o.status === 'pending' && (
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => cancelOrder(o.id)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
+                        <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Fulfill</button>
+                      </div>
+                    )}
+                    {o.status !== 'pending' && (
+                      <button onClick={() => removeOrder(o.id)} className="text-[11.5px]" style={{ color: C.inkFaint }}>Remove</button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2738,4 +2883,171 @@ export default function ChaseIt() {
       </div>
     </div>
   );
+}
+
+function Storefront({ businessCode }) {
+  const [loading, setLoading] = useState(true);
+  const [business, setBusiness] = useState(null);
+  const [storeProducts, setStoreProducts] = useState([]);
+  const [cart, setCart] = useState({});
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [orderSent, setOrderSent] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const businesses = await sbRest('businesses', { query: `?business_code=eq.${businessCode.toUpperCase()}&select=*` });
+        if (!businesses.length || !businesses[0].storefront_enabled) { setLoadError(true); setLoading(false); return; }
+        setBusiness(businesses[0]);
+        const rows = await sbRest('products', { query: `?business_id=eq.${businesses[0].id}&select=*&order=name.asc` });
+        setStoreProducts(rows.map(fromSbProduct));
+      } catch (e) { setLoadError(true); }
+      setLoading(false);
+    })();
+  }, [businessCode]);
+
+  const cartList = Object.entries(cart).filter(([, qty]) => qty > 0).map(([id, qty]) => ({ product: storeProducts.find((p) => p.id === id), qty })).filter((c) => c.product);
+  const cartTotal = cartList.reduce((a, c) => a + c.product.sellingPrice * c.qty, 0);
+  const cartCount = cartList.reduce((a, c) => a + c.qty, 0);
+
+  const changeQty = (product, delta) => {
+    setCart((prev) => {
+      const current = prev[product.id] || 0;
+      const max = product.stockQuantity !== null ? product.stockQuantity : Infinity;
+      const next = Math.max(0, Math.min(max, current + delta));
+      return { ...prev, [product.id]: next };
+    });
+  };
+
+  const submitOrder = async () => {
+    if (!customerName.trim() || cartList.length === 0) return;
+    setSubmitting(true);
+    try {
+      const items = cartList.map((c) => ({ productId: c.product.id, description: c.product.name, quantity: c.qty, unitPrice: c.product.sellingPrice, unitCost: c.product.costPrice || 0 }));
+      await sbRest('orders', { method: 'POST', body: { business_id: business.id, customer_name: customerName.trim(), customer_phone: customerPhone.trim(), items, total: cartTotal } });
+      if (business.owner_phone) {
+        const lines = cartList.map((c) => `• ${c.product.name} ×${c.qty} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
+        const msg = `New order from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}\n\nTotal: ${fmt(cartTotal)}`;
+        window.open(`https://wa.me/${business.owner_phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+      }
+      setOrderSent(true);
+    } catch (e) { alert("Couldn't send your order — please try again."); }
+    setSubmitting(false);
+  };
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg }}><Loader2 className="animate-spin" size={24} style={{ color: C.sage }} /></div>;
+  }
+  if (loadError || !business) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center" style={{ background: C.bg, color: C.ink }}>
+        <XorlaMark size={40} />
+        <div className="text-[16px] font-semibold cx-display mt-4 mb-1.5">Store not found</div>
+        <div className="text-[13px]" style={{ color: C.inkFaint }}>This storefront link isn't active right now.</div>
+      </div>
+    );
+  }
+  if (orderSent) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center" style={{ background: C.bg, color: C.ink }}>
+        <PartyPopper size={40} style={{ color: C.copper }} />
+        <div className="text-[18px] font-semibold cx-display mt-4 mb-1.5">Order sent!</div>
+        <div className="text-[13px] max-w-xs" style={{ color: C.inkFaint }}>{business.name} has received your order and will reach out to confirm.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen" style={{ background: C.bg, color: C.ink, paddingBottom: cartCount > 0 ? '90px' : '20px' }}>
+      <div className="max-w-xl mx-auto px-5 pt-8 pb-4">
+        <div className="flex items-center gap-3 mb-1">
+          {business.logo_url ? <img src={business.logo_url} alt={business.name} className="w-12 h-12 rounded-xl object-cover" /> : <XorlaMark size={40} />}
+          <div>
+            <div className="text-[18px] font-bold cx-display">{business.name}</div>
+            <div className="text-[11px]" style={{ color: C.inkFaint }}>Browse & order directly</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-xl mx-auto px-5">
+        {storeProducts.length === 0 && (
+          <div className="text-center text-[13px] py-16" style={{ color: C.inkFaint }}>No products listed yet — check back soon.</div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          {storeProducts.map((p) => {
+            const qty = cart[p.id] || 0;
+            const isOut = p.stockQuantity === 0;
+            return (
+              <div key={p.id} className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="w-full aspect-square flex items-center justify-center" style={{ background: C.bg }}>
+                  {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" /> : <Package size={28} style={{ color: C.inkFaint }} />}
+                </div>
+                <div className="p-3">
+                  <div className="text-[12.5px] font-medium mb-0.5 truncate">{p.name}</div>
+                  <div className="cx-mono text-[13px] font-semibold mb-2">{fmt(p.sellingPrice)}</div>
+                  {isOut ? (
+                    <div className="text-[11px] text-center py-1.5 rounded-lg" style={{ color: C.rust, background: 'rgba(226,98,75,0.1)' }}>Out of stock</div>
+                  ) : qty === 0 ? (
+                    <button onClick={() => changeQty(p, 1)} className="w-full py-1.5 rounded-lg text-[11.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Add</button>
+                  ) : (
+                    <div className="flex items-center justify-between rounded-lg" style={{ background: C.bg }}>
+                      <button onClick={() => changeQty(p, -1)} className="w-8 py-1.5 text-[14px] font-bold" style={{ color: C.copper }}>−</button>
+                      <span className="text-[12.5px] font-semibold cx-mono">{qty}</span>
+                      <button onClick={() => changeQty(p, 1)} className="w-8 py-1.5 text-[14px] font-bold" style={{ color: C.copper }}>+</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {cartCount > 0 && !showCheckout && (
+        <button onClick={() => setShowCheckout(true)} className="fixed bottom-5 left-5 right-5 max-w-xl mx-auto rounded-2xl py-4 flex items-center justify-between px-5" style={{ background: C.copper, color: C.bg, boxShadow: '0 8px 24px rgba(255,176,32,0.35)' }}>
+          <span className="text-[13.5px] font-semibold">{cartCount} item{cartCount !== 1 ? 's' : ''} in your order</span>
+          <span className="cx-mono text-[14px] font-bold">{fmt(cartTotal)}</span>
+        </button>
+      )}
+
+      {showCheckout && (
+        <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}>
+          <div className="w-full max-w-xl mx-auto rounded-t-3xl p-5 xorla-fade-up" style={{ background: C.surface, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-[15px] font-semibold cx-display">Your order</div>
+              <button onClick={() => setShowCheckout(false)} style={{ color: C.inkFaint }}><X size={18} /></button>
+            </div>
+            <div className="space-y-2 mb-4">
+              {cartList.map((c) => (
+                <div key={c.product.id} className="flex items-center justify-between text-[12.5px]">
+                  <span style={{ color: C.inkDim }}>{c.product.name} ×{c.qty}</span>
+                  <span className="cx-mono font-medium">{fmt(c.product.sellingPrice * c.qty)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between text-[14px] font-bold pt-3 mb-4" style={{ borderTop: `1px solid ${C.line}` }}>
+              <span>Total</span>
+              <span className="cx-mono">{fmt(cartTotal)}</span>
+            </div>
+            <input type="text" placeholder="Your name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-2.5" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
+            <input type="tel" placeholder="Phone number (optional)" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-4" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
+            <button onClick={submitOrder} disabled={submitting || !customerName.trim()} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: submitting || !customerName.trim() ? 0.6 : 1 }}>{submitting ? 'Sending…' : 'Send order'}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="text-center text-[10.5px] py-6" style={{ color: C.inkFaint }}>Powered by Xorla</div>
+    </div>
+  );
+}
+
+export default function Root() {
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
+  if (storeMatch) return <Storefront businessCode={storeMatch[1]} />;
+  return <XorlaApp />;
 }
