@@ -150,6 +150,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
+const SETTINGS_TITLES = { branding: 'Branding', storefront: 'Storefront', messages: 'Reminder messages', contact: 'Contact details', team: 'Staff & join code', security: 'App lock (PIN)' };
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
 
 function invoiceLineItems(inv) {
@@ -948,12 +949,14 @@ function XorlaApp() {
   const [showProductForm, setShowProductForm] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
   const [restockingId, setRestockingId] = useState(null);
+  const [editingProductId, setEditingProductId] = useState(null);
   const [restockAmount, setRestockAmount] = useState('');
   const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', imageBlob: null, imagePreview: null });
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
   const [heroUploading, setHeroUploading] = useState(false);
   const [openSections, setOpenSections] = useState(new Set(['branding']));
+  const [settingsPage, setSettingsPage] = useState(null);
   const toggleSection = (id) => setOpenSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [previousTab, setPreviousTab] = useState('overview');
   const [draft, setDraft] = useState(null);
@@ -1048,6 +1051,7 @@ function XorlaApp() {
       businessEmail: business.email || '',
       storefrontEnabled: !!business.storefront_enabled,
       heroImageUrl: business.hero_image_url || null,
+      heroImages: Array.isArray(business.hero_images) && business.hero_images.length ? business.hero_images : (business.hero_image_url ? [business.hero_image_url] : []),
       storefrontTagline: business.storefront_tagline || '',
       staffList: staffRoster,
     }));
@@ -1263,16 +1267,24 @@ function XorlaApp() {
     } catch (err) { console.error(err); } finally { setProductImageUploading(false); }
   };
 
+  const saveHeroImages = async (list) => {
+    await sbRest(`businesses?id=eq.${settings.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: { hero_images: list, hero_image_url: list[0] || null } });
+    setSettings((prev) => ({ ...prev, heroImages: list, heroImageUrl: list[0] || null }));
+  };
   const handleHeroSelect = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return;
+    const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
+    if ((settings.heroImages || []).length >= 5) { alert('You can have up to 5 banner photos. Remove one to add another.'); return; }
     setHeroUploading(true);
     try {
       const blob = await resizeImageToBlob(file, 1600, 0.82);
       const path = `${settings.businessId}/hero-${Date.now()}.jpg`;
       const url = await sbUploadImage(session.access_token, blob, path);
-      await sbRest(`businesses?id=eq.${settings.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: { hero_image_url: url } });
-      setSettings((prev) => ({ ...prev, heroImageUrl: url }));
+      await saveHeroImages([...(settings.heroImages || []), url]);
     } catch (err) { alert(err.message); } finally { setHeroUploading(false); }
+  };
+  const removeHeroImage = async (url) => {
+    if (!window.confirm('Remove this banner photo from your storefront?')) return;
+    try { await saveHeroImages((settings.heroImages || []).filter((u) => u !== url)); } catch (err) { alert(err.message); }
   };
 
   const handleLogoSelect = async (e) => {
@@ -1298,9 +1310,16 @@ function XorlaApp() {
         const path = `${settings.businessId}/${Date.now()}.jpg`;
         imageUrl = await sbUploadImage(session.access_token, productForm.imageBlob, path);
       }
-      const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, stock_quantity: productForm.stockQuantity === '' ? null : Number(productForm.stockQuantity), low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim() } });
-      setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
+      if (editingProductId) {
+        const existing = products.find((p) => p.id === editingProductId);
+        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim() } });
+        setProducts((prev) => prev.map((p) => p.id === editingProductId ? fromSbProduct(rows[0]) : p).sort((a, b) => a.name.localeCompare(b.name)));
+      } else {
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, stock_quantity: productForm.stockQuantity === '' ? null : Number(productForm.stockQuantity), low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim() } });
+        setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
+      }
       setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', imageBlob: null, imagePreview: null });
+      setEditingProductId(null);
       setShowProductForm(false);
     } catch (e) { alert(e.message); } finally { setSavingProduct(false); }
   };
@@ -1437,6 +1456,7 @@ function XorlaApp() {
   const todayExpenses = todayExpensesList.reduce((a, e) => a + Number(e.amount), 0);
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
+  const pendingOrderCount = orders.filter((o) => o.status === 'pending').length;
   const viewedSales = sales.filter((s) => s.dateKey === viewDate);
   const viewedSalesTotal = viewedSales.reduce((a, s) => a + Number(s.amount), 0);
   const viewedCOGS = viewedSales.reduce((a, s) => a + Number(s.cost || 0), 0);
@@ -1640,33 +1660,83 @@ function XorlaApp() {
     );
   }
 
+  const renderSettingsGroup = (title, rows) => (
+    <div>
+      {title && <div className="text-[11.5px] font-semibold uppercase tracking-wide px-3 mb-2" style={{ color: C.inkFaint }}>{title}</div>}
+      <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        {rows.map((r, i) => {
+          const inner = (
+            <>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: r.danger ? C.rustSoft : C.surfaceRaised }}>
+                <r.Icon size={16} style={{ color: r.danger ? C.rust : C.copper }} />
+              </div>
+              <span className="flex-1 text-left text-[14.5px] font-medium" style={{ color: r.danger ? C.rust : C.ink }}>{r.label}</span>
+              {r.toggle ? (
+                <span className="shrink-0 w-12 h-7 rounded-full relative transition-colors" style={{ background: r.on ? C.sage : C.line }}>
+                  <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: r.on ? '24px' : '4px' }} />
+                </span>
+              ) : !r.danger && (
+                <span className="flex items-center gap-1.5 shrink-0">
+                  {r.value && <span className="text-[13px]" style={{ color: r.valueColor || C.inkFaint }}>{r.value}</span>}
+                  <ChevronRight size={17} style={{ color: C.inkFaint }} />
+                </span>
+              )}
+            </>
+          );
+          const onClick = r.toggle ? r.onToggle : r.action ? r.action : () => setSettingsPage(r.id);
+          return (
+            <button key={r.label} onClick={onClick} role={r.toggle ? 'switch' : undefined} aria-checked={r.toggle ? r.on : undefined} className="w-full flex items-center gap-3 px-3.5 py-3 active:opacity-70" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+              {inner}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   if (tab === 'settings' && draft) {
     return (
       <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
         <div className="max-w-2xl mx-auto min-h-screen flex flex-col">
           <div className="flex items-center gap-3 p-5 pb-4" style={{ borderBottom: `1px solid ${C.line}` }}>
-            <button onClick={() => setTab(previousTab)} className="shrink-0 flex items-center gap-1" style={{ color: C.inkDim }}><ChevronLeft size={20} /><span className="text-[13px] font-medium">Back</span></button>
+            <button onClick={() => (settingsPage ? setSettingsPage(null) : setTab(previousTab))} className="shrink-0 flex items-center gap-1" style={{ color: C.inkDim }}><ChevronLeft size={20} /><span className="text-[13px] font-medium">Back</span></button>
             <div>
-              <div className="text-[15px] font-semibold cx-display mb-0.5">Business settings</div>
-              <div className="text-[12px]" style={{ color: C.inkFaint }}>Set these up once — nothing changes until you save.</div>
+              <div className="text-[16px] font-semibold cx-display">{SETTINGS_TITLES[settingsPage] || 'Settings'}</div>
+              {settingsPage === null && <div className="text-[12px]" style={{ color: C.inkFaint }}>Nothing changes until you tap Save.</div>}
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-3">
-
-            {/* BRANDING */}
-            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-              <button onClick={() => toggleSection('branding')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
-                <div className="flex items-center gap-2.5">
-                  <Camera size={15} style={{ color: C.copper }} />
-                  <span className="text-[13.5px] font-semibold cx-display">Branding</span>
-                </div>
-                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('branding') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
-              </button>
-              {openSections.has('branding') && (
-                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
-                  <div className="text-[11px] font-medium mb-2 mt-4" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
+          <div className="flex-1 overflow-y-auto px-4 py-5">
+            {settingsPage === null && (
+              <div className="space-y-6">
+                {renderSettingsGroup('Business', [
+                  { id: 'branding', Icon: Camera, label: 'Branding', value: settings.logoUrl ? 'Logo added' : 'Add logo' },
+                  { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
+                  { id: 'contact', Icon: Phone, label: 'Contact details', value: draft.ownerPhone ? '' : 'Not set' },
+                ])}
+                {renderSettingsGroup('Customers', [
+                  { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
+                ])}
+                {renderSettingsGroup('Team', [
+                  { id: 'team', Icon: Users, label: 'Staff & join code', value: `${settings.staffList.length} staff` },
+                  { toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) },
+                ])}
+                {renderSettingsGroup('Security', [
+                  { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: draft.pin ? 'On' : 'Off' },
+                ])}
+                {!isStandalone && renderSettingsGroup('App', [
+                  { action: openInstallFromSettings, Icon: Download, label: 'Install Xorla app', value: '' },
+                ])}
+                {renderSettingsGroup(null, [
+                  { action: logout, Icon: LogOut, label: 'Log out', danger: true },
+                ])}
+              </div>
+            )}
+            {settingsPage === 'branding' && (
+              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="px-4 pb-5 pt-1">
+                  <div className="text-[11px] font-medium mb-2 mt-3" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
                   <div className="flex items-center gap-3">
                     {settings.logoUrl ? (
                       <img src={settings.logoUrl} alt="Logo" className="w-14 h-14 rounded-xl object-cover" style={{ border: `1px solid ${C.line}` }} />
@@ -1680,22 +1750,12 @@ function XorlaApp() {
                   </div>
                   <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your downloadable invoice PDFs.</div>
                 </div>
-              )}
-            </div>
-
-            {/* STOREFRONT */}
-            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-              <button onClick={() => toggleSection('storefront')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
-                <div className="flex items-center gap-2.5">
-                  <ShoppingBag size={15} style={{ color: C.copper }} />
-                  <span className="text-[13.5px] font-semibold cx-display">Storefront</span>
-                  {settings.storefrontEnabled && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>LIVE</span>}
-                </div>
-                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('storefront') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
-              </button>
-              {openSections.has('storefront') && (
-                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
-                  <div className="flex items-center justify-between mt-4">
+              </div>
+            )}
+            {settingsPage === 'storefront' && (
+              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="px-4 pb-5 pt-1">
+                  <div className="flex items-center justify-between mt-3">
                     <div className="pr-4">
                       <div className="text-[13px] font-medium mb-0.5">Public storefront</div>
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>Lets anyone browse your products and order — no login needed for them.</div>
@@ -1706,22 +1766,24 @@ function XorlaApp() {
                   </div>
                   {settings.storefrontEnabled && (
                     <div className="mt-4">
-                      <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>STORE BANNER IMAGE</div>
-                      <label className="block rounded-xl overflow-hidden cursor-pointer mb-1.5 relative" style={{ border: `1px dashed ${C.line}`, aspectRatio: '16 / 7', background: C.bg }}>
-                        {settings.heroImageUrl ? (
-                          <img src={settings.heroImageUrl} alt="Store banner" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center gap-1.5" style={{ color: C.inkDim }}>
-                            <Camera size={18} />
-                            <span className="text-[11.5px] font-medium">{heroUploading ? 'Uploading…' : 'Upload a wide photo of your shop or products'}</span>
+                      <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BANNER PHOTOS ({(settings.heroImages || []).length}/5)</div>
+                      <div className="grid grid-cols-2 gap-2 mb-1.5">
+                        {(settings.heroImages || []).map((url, i) => (
+                          <div key={url} className="relative rounded-xl overflow-hidden" style={{ aspectRatio: '16 / 9', background: C.bg }}>
+                            <img src={url} alt={`Banner ${i + 1}`} className="w-full h-full object-cover" />
+                            {i === 0 && <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[9.5px] font-semibold" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>Shows first</span>}
+                            <button onClick={() => removeHeroImage(url)} className="absolute bottom-1.5 right-1.5 px-2 py-1 rounded-lg text-[10.5px] font-semibold" style={{ background: 'rgba(0,0,0,0.65)', color: '#fff' }}>Remove</button>
                           </div>
+                        ))}
+                        {(settings.heroImages || []).length < 5 && (
+                          <label className="rounded-xl cursor-pointer flex flex-col items-center justify-center gap-1 text-center px-2" style={{ aspectRatio: '16 / 9', border: `1px dashed ${C.line}`, background: C.bg, color: C.inkDim }}>
+                            <Camera size={16} />
+                            <span className="text-[11px] font-medium">{heroUploading ? 'Uploading…' : 'Add photo'}</span>
+                            <input type="file" accept="image/*" onChange={handleHeroSelect} className="hidden" disabled={heroUploading} />
+                          </label>
                         )}
-                        {settings.heroImageUrl && (
-                          <div className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>{heroUploading ? 'Uploading…' : 'Change'}</div>
-                        )}
-                        <input type="file" accept="image/*" onChange={handleHeroSelect} className="hidden" />
-                      </label>
-                      <div className="text-[10.5px] mb-4" style={{ color: C.inkFaint }}>This is the first thing customers see — a bright, wide photo works best.</div>
+                      </div>
+                      <div className="text-[10.5px] mb-4" style={{ color: C.inkFaint }}>Add up to 5 wide, bright photos — they slide automatically at the top of your store. Photos save as soon as they upload.</div>
 
                       <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>STORE TAGLINE</div>
                       <input type="text" maxLength={80} placeholder="e.g. Premium human hair, delivered in Aba" value={draft.storefrontTagline} onChange={(e) => setDraft({ ...draft, storefrontTagline: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-4" style={field} />
@@ -1738,21 +1800,12 @@ function XorlaApp() {
                     <div className="text-[10.5px] mt-3" style={{ color: C.inkFaint }}>Toggle on and save to get your shareable link.</div>
                   )}
                 </div>
-              )}
-            </div>
-
-            {/* CUSTOMER MESSAGES */}
-            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-              <button onClick={() => toggleSection('messages')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
-                <div className="flex items-center gap-2.5">
-                  <Send size={15} style={{ color: C.copper }} />
-                  <span className="text-[13.5px] font-semibold cx-display">Customer messages</span>
-                </div>
-                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('messages') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
-              </button>
-              {openSections.has('messages') && (
-                <div className="px-4 pb-4 space-y-4" style={{ borderTop: `1px solid ${C.line}` }}>
-                  <div className="mt-4">
+              </div>
+            )}
+            {settingsPage === 'messages' && (
+              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="px-4 pb-5 pt-1">
+                  <div className="mt-3">
                     <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>PAYMENT LINK</div>
                     <input type="text" placeholder="Paystack link, bank details, etc." value={draft.paymentLink} onChange={(e) => setDraft({ ...draft, paymentLink: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Added to the end of every reminder message automatically.</div>
@@ -1777,21 +1830,12 @@ function XorlaApp() {
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* CONTACT */}
-            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-              <button onClick={() => toggleSection('contact')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
-                <div className="flex items-center gap-2.5">
-                  <Phone size={15} style={{ color: C.copper }} />
-                  <span className="text-[13.5px] font-semibold cx-display">Your contact</span>
-                </div>
-                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('contact') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
-              </button>
-              {openSections.has('contact') && (
-                <div className="px-4 pb-4 space-y-4" style={{ borderTop: `1px solid ${C.line}` }}>
-                  <div className="mt-4">
+              </div>
+            )}
+            {settingsPage === 'contact' && (
+              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="px-4 pb-5 pt-1">
+                  <div className="mt-3">
                     <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR WHATSAPP NUMBER</div>
                     <input type="tel" placeholder="e.g. 2348012345678" value={draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Used to send your daily/weekly summary to yourself.</div>
@@ -1806,62 +1850,36 @@ function XorlaApp() {
                     <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your invoice PDFs.</div>
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* TEAM */}
-            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-              <button onClick={() => toggleSection('team')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
-                <div className="flex items-center gap-2.5">
-                  <Users size={15} style={{ color: C.copper }} />
-                  <span className="text-[13.5px] font-semibold cx-display">Team</span>
-                </div>
-                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('team') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
-              </button>
-              {openSections.has('team') && (
-                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
-                  <div className="text-[11px] mb-2 mt-4" style={{ color: C.inkFaint }}>Share this code with staff — they enter it once to join your business for good.</div>
+              </div>
+            )}
+            {settingsPage === 'team' && (
+              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="px-4 pb-5 pt-1">
+                  <div className="text-[11px] mb-2 mt-3" style={{ color: C.inkFaint }}>Share this code with staff — they enter it once to join your business for good.</div>
                   <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                     <span className="cx-mono text-[16px] font-bold tracking-[0.1em]" style={{ color: C.sage }}>{settings.businessCode}</span>
                     <button onClick={() => navigator.clipboard?.writeText(settings.businessCode)} className="text-[11px] font-medium" style={{ color: C.copper }}>Copy</button>
                   </div>
                   {settings.staffList.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5 mb-5">
+                    <div className="flex flex-wrap gap-1.5">
                       {settings.staffList.map((s) => (
-                        <div key={s.id} className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-[12px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>
+                        <div key={s.id} className="flex items-center gap-1.5 pl-3 pr-2.5 py-1.5 rounded-full text-[12.5px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>
                           {s.name}
-                          <button onClick={() => removeStaff(s.id, s.name)} style={{ color: C.rust }}><X size={11} /></button>
+                          <button onClick={() => removeStaff(s.id, s.name)} className="text-[11px] font-semibold ml-1 pl-2" style={{ color: C.rust, borderLeft: `1px solid ${C.line}` }}>Remove</button>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="text-[11.5px] mb-5" style={{ color: C.inkFaint }}>No staff have joined yet.</div>
+                    <div className="text-[11.5px]" style={{ color: C.inkFaint }}>No staff have joined yet.</div>
                   )}
-                  <div className="flex items-center justify-between">
-                    <div className="pr-4">
-                      <div className="text-[13px] font-medium mb-0.5">Let staff log expenses</div>
-                      <div className="text-[11px]" style={{ color: C.inkFaint }}>Off by default — turn on only if reps genuinely spend cash on your behalf (transport, restock, etc).</div>
-                    </div>
-                    <button onClick={() => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses })} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.allowStaffExpenses ? C.sage : C.line }}>
-                      <div className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: C.bg, left: draft.allowStaffExpenses ? '22px' : '2px' }} />
-                    </button>
-                  </div>
+                  
                 </div>
-              )}
-            </div>
-
-            {/* SECURITY */}
-            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
-              <button onClick={() => toggleSection('security')} className="w-full flex items-center justify-between gap-2 px-4 py-3.5">
-                <div className="flex items-center gap-2.5">
-                  <Lock size={15} style={{ color: C.copper }} />
-                  <span className="text-[13.5px] font-semibold cx-display">Security</span>
-                </div>
-                <ChevronRight size={16} style={{ color: C.inkFaint, transform: openSections.has('security') ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
-              </button>
-              {openSections.has('security') && (
-                <div className="px-4 pb-4" style={{ borderTop: `1px solid ${C.line}` }}>
-                  <div className="text-[11px] font-medium mb-1.5 mt-4" style={{ color: C.inkDim }}>APP LOCK (PIN)</div>
+              </div>
+            )}
+            {settingsPage === 'security' && (
+              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="px-4 pb-5 pt-1">
+                  <div className="text-[11px] font-medium mb-1.5 mt-3" style={{ color: C.inkDim }}>APP LOCK (PIN)</div>
                   <div className="text-[11px] mb-2.5 leading-relaxed" style={{ color: C.inkFaint }}>
                     Only the owner sets this — it's a quick screen lock for this device, so a staff member or customer picking up the phone can't browse your sales and money owed. It doesn't affect your login; it's separate and only lives on this device.
                   </div>
@@ -1872,27 +1890,8 @@ function XorlaApp() {
                   </div>
                   {draft.pin && <div className="text-[11px] mt-1.5" style={{ color: C.sage }}>PIN staged: will be set when you save.</div>}
                 </div>
-              )}
-            </div>
-
-            {!isStandalone && (
-              <button onClick={openInstallFromSettings} className="w-full rounded-xl px-4 py-3.5 flex items-center justify-between" style={{ border: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2.5">
-                  <Download size={15} style={{ color: C.copper }} />
-                  <span className="text-[13.5px] font-semibold cx-display">Install Xorla app</span>
-                </div>
-                <ChevronRight size={16} style={{ color: C.inkFaint }} />
-              </button>
-            )}
-
-            {/* ACCOUNT — no content to hide, stays simple */}
-            <div className="rounded-xl px-4 py-3.5 flex items-center justify-between" style={{ border: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2.5">
-                <LogOut size={15} style={{ color: C.rust }} />
-                <span className="text-[13.5px] font-semibold cx-display">Account</span>
               </div>
-              <button onClick={logout} className="text-[12.5px] font-medium" style={{ color: C.rust }}>Log out</button>
-            </div>
+            )}
           </div>
 
           <div className="flex gap-2.5 p-5 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
@@ -1952,7 +1951,7 @@ function XorlaApp() {
           {settings.pin && (
             <button onClick={() => setLocked(true)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkFaint }}><Lock size={15} /> Lock app</button>
           )}
-          <button onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setTab('settings'); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={15} /> Settings</button>
+          <button onClick={() => { setDraft({ ...settings }); setSettingsPage(null); setPreviousTab(tab); setTab('settings'); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={15} /> Settings</button>
           <button onClick={logout} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkFaint }}><LogOut size={15} /> Log out</button>
         </div>
       </aside>
@@ -1968,7 +1967,7 @@ function XorlaApp() {
           </div>
           <div className="flex items-center gap-4">
             {settings.pin && <button onClick={() => setLocked(true)} style={{ color: C.inkFaint }}><Lock size={16} /></button>}
-            <button onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setTab('settings'); }} style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={18} /></button>
+            <button onClick={() => { setDraft({ ...settings }); setSettingsPage(null); setPreviousTab(tab); setTab('settings'); }} style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={18} /></button>
           </div>
         </div>
 
@@ -2213,6 +2212,13 @@ function XorlaApp() {
 
         {tab === 'sales' && (
           <>
+            <div className="lg:hidden flex gap-1 p-1 mb-5 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <button onClick={() => setTab('sales')} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={tab === 'sales' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>Sales</button>
+              <button onClick={() => setTab('orders')} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === 'orders' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
+                Orders
+                {pendingOrderCount > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={tab === 'orders' ? { background: C.bg, color: C.copper } : { background: C.copper, color: C.bg }}>{pendingOrderCount}</span>}
+              </button>
+            </div>
             <div className="rounded-2xl p-5 mb-4" style={card}>
               <div className="flex items-end justify-between mb-4">
                 <div>
@@ -2426,6 +2432,13 @@ function XorlaApp() {
         {/* ============ ORDERS TAB ============ */}
         {tab === 'orders' && (
           <>
+            <div className="lg:hidden flex gap-1 p-1 mb-5 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <button onClick={() => setTab('sales')} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={tab === 'sales' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>Sales</button>
+              <button onClick={() => setTab('orders')} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === 'orders' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
+                Orders
+                {pendingOrderCount > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={tab === 'orders' ? { background: C.bg, color: C.copper } : { background: C.copper, color: C.bg }}>{pendingOrderCount}</span>}
+              </button>
+            </div>
             <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>Orders placed through your storefront land here. Fulfilling one logs it as a real sale and updates your stock automatically.</div>
             {orders.length === 0 && (
               <div className="text-center text-[13px] py-10 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>
@@ -2478,12 +2491,12 @@ function XorlaApp() {
             <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>Add what you sell once — pick it instantly when recording a sale, with cost and price auto-filled.</div>
 
             {!showProductForm ? (
-              <button onClick={() => setShowProductForm(true)} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add product</button>
+              <button onClick={() => { setEditingProductId(null); setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', imageBlob: null, imagePreview: null }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add product</button>
             ) : (
               <div className="rounded-2xl p-5 mb-6 space-y-3" style={card}>
                 <div className="flex items-center justify-between mb-1">
-                  <div className="text-[14px] font-semibold cx-display">New product</div>
-                  <button onClick={() => setShowProductForm(false)} style={{ color: C.inkFaint }}><X size={17} /></button>
+                  <div className="text-[14px] font-semibold cx-display">{editingProductId ? 'Edit product' : 'New product'}</div>
+                  <button onClick={() => { setShowProductForm(false); setEditingProductId(null); }} style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
                 <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
                   <Camera size={14} />{productImageUploading ? 'Adding photo…' : productForm.imagePreview ? 'Photo added — tap to change' : 'Add a product photo (optional)'}
@@ -2500,17 +2513,17 @@ function XorlaApp() {
                   <input type="text" inputMode="decimal" placeholder="Selling price (₦)" value={formatNumInput(productForm.sellingPrice)} onChange={(e) => setProductForm({ ...productForm, sellingPrice: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 </div>
                 <div className="flex gap-2">
-                  <div className="w-1/2">
+                  {!editingProductId && <div className="w-1/2">
                     <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>STOCK ON HAND (OPTIONAL)</div>
                     <input type="number" min="0" placeholder="e.g. 20" value={productForm.stockQuantity} onChange={(e) => setProductForm({ ...productForm, stockQuantity: e.target.value })} className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                  </div>
-                  <div className="w-1/2">
+                  </div>}
+                  <div className={editingProductId ? 'w-full' : 'w-1/2'}>
                     <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>ALERT BELOW — low stock warning</div>
                     <input type="number" min="0" placeholder="e.g. 5" value={productForm.lowStockThreshold} onChange={(e) => setProductForm({ ...productForm, lowStockThreshold: e.target.value })} className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                   </div>
                 </div>
-                <div className="text-[10.5px] -mt-1.5" style={{ color: C.inkFaint }}>Leave "Stock on hand" blank if you don't want to track stock for this product.</div>
-                <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : 'Save product'}</button>
+                <div className="text-[10.5px] -mt-1.5" style={{ color: C.inkFaint }}>{editingProductId ? 'To change how many you have, use Restock on the product.' : 'Leave "Stock on hand" blank if you don\'t want to track stock for this product.'}</div>
+                <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : editingProductId ? 'Save changes' : 'Save product'}</button>
               </div>
             )}
 
@@ -2549,6 +2562,7 @@ function XorlaApp() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">
+                        <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.sellingPrice || ''), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
                         <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setRestockAmount(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>
                         <button onClick={() => removeProduct(p.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
                       </div>
@@ -2910,8 +2924,11 @@ function XorlaApp() {
           { id: 'invoices', label: 'Invoices', Icon: Wallet },
         ].map(({ id, label, Icon }) => (
           <button key={id} onClick={() => setTab(id)} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
-            <Icon size={21} style={{ color: tab === id ? C.copper : C.inkFaint }} />
-            <span className="text-[10px] font-medium" style={{ color: tab === id ? C.copper : C.inkFaint }}>{label}</span>
+            <Icon size={21} style={{ color: (tab === id || (id === 'sales' && tab === 'orders')) ? C.copper : C.inkFaint }} />
+            <span className="text-[10px] font-medium" style={{ color: (tab === id || (id === 'sales' && tab === 'orders')) ? C.copper : C.inkFaint }}>{label}</span>
+            {id === 'sales' && pendingOrderCount > 0 && (
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{pendingOrderCount}</span>
+            )}
             {id === 'invoices' && needsAttention.length > 0 && (
               <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
             )}
@@ -2949,6 +2966,8 @@ function Storefront({ businessCode }) {
   const [activeCategory, setActiveCategory] = useState('All');
   const [query, setQuery] = useState('');
   const [sortBy, setSortBy] = useState('featured');
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [touchStartX, setTouchStartX] = useState(null);
 
   // Storefront-only font + a white browser bar, so it feels like the business's own shop, not the Xorla dashboard
   useEffect(() => {
@@ -2965,16 +2984,25 @@ function Storefront({ businessCode }) {
   useEffect(() => {
     (async () => {
       try {
-        const businesses = await sbRest('businesses', { query: `?business_code=eq.${businessCode.toUpperCase()}&select=*` });
-        if (!businesses.length || !businesses[0].storefront_enabled) { setLoadError(true); setLoading(false); return; }
-        setBusiness(businesses[0]);
-        document.title = businesses[0].name;
-        const rows = await sbRest('products', { query: `?business_id=eq.${businesses[0].id}&select=*&order=name.asc` });
-        setStoreProducts(rows.map(fromSbProduct));
+        // Secure function returns only shopper-safe fields — never cost prices or private settings
+        const store = await sbRpc('get_storefront', SB_KEY, { p_business_code: businessCode });
+        if (!store) { setLoadError(true); setLoading(false); return; }
+        setBusiness(store);
+        document.title = store.name;
+        setStoreProducts((store.products || []).map(fromSbProduct));
       } catch (e) { setLoadError(true); }
       setLoading(false);
     })();
   }, [businessCode]);
+
+  // Banner carousel auto-advance — every 5s, paused for people who've asked their phone to reduce motion
+  useEffect(() => {
+    const count = Array.isArray(business?.hero_images) ? business.hero_images.length : 0;
+    if (count < 2) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const t = setInterval(() => setHeroIndex((i) => (i + 1) % count), 5000);
+    return () => clearInterval(t);
+  }, [business]);
 
   const categories = ['All', ...[...new Set(storeProducts.map((p) => p.category).filter(Boolean))].sort()];
   const hasCategories = categories.length > 1;
@@ -3012,8 +3040,9 @@ function Storefront({ businessCode }) {
     if (!customerName.trim() || cartList.length === 0) return;
     setSubmitting(true);
     try {
-      const items = cartList.map((c) => ({ productId: c.product.id, description: c.product.name, quantity: c.qty, unitPrice: c.product.sellingPrice, unitCost: c.product.costPrice || 0 }));
-      await sbRest('orders', { method: 'POST', body: { business_id: business.id, customer_name: customerName.trim(), customer_phone: customerPhone.trim(), items, total: cartTotal } });
+      // Only product IDs + quantities are sent — the database looks up the real prices itself
+      const items = cartList.map((c) => ({ productId: c.product.id, quantity: c.qty }));
+      await sbRpc('place_order', SB_KEY, { p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items });
       if (business.owner_phone) {
         const lines = cartList.map((c) => `• ${c.product.name} ×${c.qty} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
         const msg = `New order from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}\n\nTotal: ${fmt(cartTotal)}`;
@@ -3126,7 +3155,8 @@ function Storefront({ businessCode }) {
 
   const heroTitle = business.name;
   const heroSub = business.storefront_tagline;
-  const hasHero = !!business.hero_image_url;
+  const heroImages = (Array.isArray(business.hero_images) && business.hero_images.length ? business.hero_images : [business.hero_image_url]).filter(Boolean);
+  const hasHero = heroImages.length > 0;
 
   return (
     <div style={page}>
@@ -3157,10 +3187,29 @@ function Storefront({ businessCode }) {
       </header>
 
       {/* Hero — the business's own photo and voice */}
-      <section className="max-w-6xl mx-auto md:px-8 md:pt-6">
-        <div className="relative overflow-hidden md:rounded-3xl flex items-center justify-center text-center" style={{ minHeight: hasHero ? 'clamp(280px, 48vw, 460px)' : 'clamp(200px, 30vw, 280px)', background: hasHero ? '#222' : S.tile }}>
-          {hasHero && <img src={business.hero_image_url} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-          {hasHero && <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.55) 100%)' }} />}
+      <section>
+        <div
+          className="relative overflow-hidden flex items-center justify-center text-center"
+          style={{ minHeight: hasHero ? 'clamp(300px, 42vw, 560px)' : 'clamp(200px, 26vw, 300px)', background: hasHero ? '#222' : S.tile }}
+          onTouchStart={(e) => setTouchStartX(e.touches[0].clientX)}
+          onTouchEnd={(e) => {
+            if (touchStartX === null || heroImages.length < 2) return;
+            const dx = e.changedTouches[0].clientX - touchStartX;
+            if (Math.abs(dx) > 40) setHeroIndex((i) => (i + (dx < 0 ? 1 : -1) + heroImages.length) % heroImages.length);
+            setTouchStartX(null);
+          }}
+        >
+          {heroImages.map((src, i) => (
+            <img key={src} src={src} alt="" aria-hidden={i !== heroIndex % heroImages.length} className="absolute inset-0 w-full h-full object-cover" style={{ opacity: i === heroIndex % heroImages.length ? 1 : 0, transition: 'opacity 900ms ease' }} />
+          ))}
+          {hasHero && <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.22) 0%, rgba(0,0,0,0.58) 100%)' }} />}
+          {heroImages.length > 1 && (
+            <div className="absolute bottom-5 left-0 right-0 flex justify-center gap-2 z-10">
+              {heroImages.map((_, i) => (
+                <button key={i} onClick={() => setHeroIndex(i)} aria-label={`Show banner photo ${i + 1}`} className="h-2 rounded-full transition-all" style={{ width: i === heroIndex % heroImages.length ? 22 : 8, background: i === heroIndex % heroImages.length ? '#fff' : 'rgba(255,255,255,0.5)' }} />
+              ))}
+            </div>
+          )}
           <div className="relative px-6 py-12 sf-rise">
             {business.logo_url && !hasHero && <img src={business.logo_url} alt="" className="w-16 h-16 rounded-full object-cover mx-auto mb-4" style={{ border: '3px solid #fff' }} />}
             <h1 className="font-extrabold leading-[1.05] mb-3" style={{ fontSize: 'clamp(34px, 6vw, 60px)', letterSpacing: '-0.025em', color: hasHero ? '#fff' : S.ink, textWrap: 'balance' }}>{heroTitle}</h1>
