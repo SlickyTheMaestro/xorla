@@ -369,7 +369,7 @@ function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '' };
 }
 function fromSbProduct(row) {
-  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), lowStockThreshold: row.low_stock_threshold ?? 5 };
+  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), lowStockThreshold: row.low_stock_threshold ?? 5, category: row.category || '' };
 }
 function fromSbOrder(row) {
   return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at };
@@ -880,7 +880,7 @@ function XorlaApp() {
   const [expenses, setExpenses] = useState([]);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '', storefrontEnabled: false });
+  const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '', storefrontEnabled: false, heroImageUrl: null, storefrontTagline: '' });
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -949,9 +949,10 @@ function XorlaApp() {
   const [savingProduct, setSavingProduct] = useState(false);
   const [restockingId, setRestockingId] = useState(null);
   const [restockAmount, setRestockAmount] = useState('');
-  const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', imageBlob: null, imagePreview: null });
+  const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', imageBlob: null, imagePreview: null });
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
+  const [heroUploading, setHeroUploading] = useState(false);
   const [openSections, setOpenSections] = useState(new Set(['branding']));
   const toggleSection = (id) => setOpenSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [previousTab, setPreviousTab] = useState('overview');
@@ -1046,6 +1047,8 @@ function XorlaApp() {
       businessAddress: business.address || '',
       businessEmail: business.email || '',
       storefrontEnabled: !!business.storefront_enabled,
+      heroImageUrl: business.hero_image_url || null,
+      storefrontTagline: business.storefront_tagline || '',
       staffList: staffRoster,
     }));
     loadBusinessData(sess.access_token);
@@ -1260,6 +1263,18 @@ function XorlaApp() {
     } catch (err) { console.error(err); } finally { setProductImageUploading(false); }
   };
 
+  const handleHeroSelect = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setHeroUploading(true);
+    try {
+      const blob = await resizeImageToBlob(file, 1600, 0.82);
+      const path = `${settings.businessId}/hero-${Date.now()}.jpg`;
+      const url = await sbUploadImage(session.access_token, blob, path);
+      await sbRest(`businesses?id=eq.${settings.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: { hero_image_url: url } });
+      setSettings((prev) => ({ ...prev, heroImageUrl: url }));
+    } catch (err) { alert(err.message); } finally { setHeroUploading(false); }
+  };
+
   const handleLogoSelect = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     setLogoUploading(true);
@@ -1283,9 +1298,9 @@ function XorlaApp() {
         const path = `${settings.businessId}/${Date.now()}.jpg`;
         imageUrl = await sbUploadImage(session.access_token, productForm.imageBlob, path);
       }
-      const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, stock_quantity: productForm.stockQuantity === '' ? null : Number(productForm.stockQuantity), low_stock_threshold: Number(productForm.lowStockThreshold) || 5 } });
+      const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, stock_quantity: productForm.stockQuantity === '' ? null : Number(productForm.stockQuantity), low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim() } });
       setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
-      setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', imageBlob: null, imagePreview: null });
+      setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', imageBlob: null, imagePreview: null });
       setShowProductForm(false);
     } catch (e) { alert(e.message); } finally { setSavingProduct(false); }
   };
@@ -1405,6 +1420,7 @@ function XorlaApp() {
       if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
       if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
       if ('storefrontEnabled' in patch) bizPatch.storefront_enabled = patch.storefrontEnabled;
+      if ('storefrontTagline' in patch) bizPatch.storefront_tagline = patch.storefrontTagline;
       if ('allowStaffExpenses' in patch) bizPatch.allow_staff_expenses = patch.allowStaffExpenses;
       if (Object.keys(bizPatch).length) {
         sbRest(`businesses?id=eq.${next.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: bizPatch }).catch((e) => console.error('Settings sync failed:', e));
@@ -1690,6 +1706,26 @@ function XorlaApp() {
                   </div>
                   {settings.storefrontEnabled && (
                     <div className="mt-4">
+                      <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>STORE BANNER IMAGE</div>
+                      <label className="block rounded-xl overflow-hidden cursor-pointer mb-1.5 relative" style={{ border: `1px dashed ${C.line}`, aspectRatio: '16 / 7', background: C.bg }}>
+                        {settings.heroImageUrl ? (
+                          <img src={settings.heroImageUrl} alt="Store banner" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center gap-1.5" style={{ color: C.inkDim }}>
+                            <Camera size={18} />
+                            <span className="text-[11.5px] font-medium">{heroUploading ? 'Uploading…' : 'Upload a wide photo of your shop or products'}</span>
+                          </div>
+                        )}
+                        {settings.heroImageUrl && (
+                          <div className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>{heroUploading ? 'Uploading…' : 'Change'}</div>
+                        )}
+                        <input type="file" accept="image/*" onChange={handleHeroSelect} className="hidden" />
+                      </label>
+                      <div className="text-[10.5px] mb-4" style={{ color: C.inkFaint }}>This is the first thing customers see — a bright, wide photo works best.</div>
+
+                      <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>STORE TAGLINE</div>
+                      <input type="text" maxLength={80} placeholder="e.g. Premium human hair, delivered in Aba" value={draft.storefrontTagline} onChange={(e) => setDraft({ ...draft, storefrontTagline: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-4" style={field} />
+
                       <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR STORE LINK</div>
                       <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                         <span className="cx-mono text-[12px] truncate pr-2" style={{ color: C.sage }}>{window.location.origin}/store/{settings.businessCode}</span>
@@ -2455,6 +2491,10 @@ function XorlaApp() {
                 </label>
                 {productForm.imagePreview && <img src={productForm.imagePreview} alt="" className="w-16 h-16 rounded-xl object-cover" />}
                 <input type="text" placeholder="Product name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                <input type="text" list="xorla-categories" placeholder="Category (optional) — e.g. Wigs, Shoes, Drinks" value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                <datalist id="xorla-categories">
+                  {[...new Set(products.map((p) => p.category).filter(Boolean))].map((c) => <option key={c} value={c} />)}
+                </datalist>
                 <div className="flex gap-2">
                   <input type="text" inputMode="decimal" placeholder="Cost price (₦)" value={formatNumInput(productForm.costPrice)} onChange={(e) => setProductForm({ ...productForm, costPrice: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                   <input type="text" inputMode="decimal" placeholder="Selling price (₦)" value={formatNumInput(productForm.sellingPrice)} onChange={(e) => setProductForm({ ...productForm, sellingPrice: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
@@ -2497,7 +2537,7 @@ function XorlaApp() {
                       <div className="flex items-center gap-3 min-w-0">
                         {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.bg }}><Package size={16} style={{ color: C.inkFaint }} /></div>}
                         <div className="min-w-0">
-                          <div className="text-[13.5px] font-medium truncate">{p.name}</div>
+                          <div className="text-[13.5px] font-medium truncate">{p.name}{p.category && <span className="ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{p.category}</span>}</div>
                           <div className="text-[11px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkFaint }}>
                             <span>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}</span>
                             {p.stockQuantity !== null && (
@@ -2885,6 +2925,16 @@ function XorlaApp() {
   );
 }
 
+const S = {
+  bg: '#FFFFFF',
+  tile: '#F1F2EF',
+  ink: '#17191A',
+  muted: '#6B706B',
+  line: '#E6E8E4',
+  soldOut: '#B4B8B2',
+};
+const SF_FONT = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+
 function Storefront({ businessCode }) {
   const [loading, setLoading] = useState(true);
   const [business, setBusiness] = useState(null);
@@ -2896,6 +2946,21 @@ function Storefront({ businessCode }) {
   const [submitting, setSubmitting] = useState(false);
   const [orderSent, setOrderSent] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [activeCategory, setActiveCategory] = useState('All');
+  const [query, setQuery] = useState('');
+  const [sortBy, setSortBy] = useState('featured');
+
+  // Storefront-only font + a white browser bar, so it feels like the business's own shop, not the Xorla dashboard
+  useEffect(() => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+    document.head.appendChild(link);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    const prevTheme = meta?.getAttribute('content');
+    meta?.setAttribute('content', '#FFFFFF');
+    return () => { link.remove(); if (meta && prevTheme) meta.setAttribute('content', prevTheme); };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -2903,12 +2968,33 @@ function Storefront({ businessCode }) {
         const businesses = await sbRest('businesses', { query: `?business_code=eq.${businessCode.toUpperCase()}&select=*` });
         if (!businesses.length || !businesses[0].storefront_enabled) { setLoadError(true); setLoading(false); return; }
         setBusiness(businesses[0]);
+        document.title = businesses[0].name;
         const rows = await sbRest('products', { query: `?business_id=eq.${businesses[0].id}&select=*&order=name.asc` });
         setStoreProducts(rows.map(fromSbProduct));
       } catch (e) { setLoadError(true); }
       setLoading(false);
     })();
   }, [businessCode]);
+
+  const categories = ['All', ...[...new Set(storeProducts.map((p) => p.category).filter(Boolean))].sort()];
+  const hasCategories = categories.length > 1;
+
+  const visibleProducts = storeProducts
+    .filter((p) => activeCategory === 'All' || p.category === activeCategory)
+    .filter((p) => !query.trim() || p.name.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((a, b) => {
+      if (sortBy === 'low') return a.sellingPrice - b.sellingPrice;
+      if (sortBy === 'high') return b.sellingPrice - a.sellingPrice;
+      const aOut = a.stockQuantity === 0 ? 1 : 0; const bOut = b.stockQuantity === 0 ? 1 : 0;
+      return aOut - bOut || a.name.localeCompare(b.name);
+    });
+
+  // Grouped into sections only when browsing "All" with categories in use and no search — otherwise one clean grid
+  const sections = (activeCategory === 'All' && hasCategories && !query.trim() && sortBy === 'featured')
+    ? categories.slice(1).map((cat) => ({ title: cat, items: visibleProducts.filter((p) => p.category === cat) }))
+        .concat([{ title: 'More', items: visibleProducts.filter((p) => !p.category) }])
+        .filter((s) => s.items.length)
+    : [{ title: null, items: visibleProducts }];
 
   const cartList = Object.entries(cart).filter(([, qty]) => qty > 0).map(([id, qty]) => ({ product: storeProducts.find((p) => p.id === id), qty })).filter((c) => c.product);
   const cartTotal = cartList.reduce((a, c) => a + c.product.sellingPrice * c.qty, 0);
@@ -2918,8 +3004,7 @@ function Storefront({ businessCode }) {
     setCart((prev) => {
       const current = prev[product.id] || 0;
       const max = product.stockQuantity !== null ? product.stockQuantity : Infinity;
-      const next = Math.max(0, Math.min(max, current + delta));
-      return { ...prev, [product.id]: next };
+      return { ...prev, [product.id]: Math.max(0, Math.min(max, current + delta)) };
     });
   };
 
@@ -2935,112 +3020,250 @@ function Storefront({ businessCode }) {
         window.open(`https://wa.me/${business.owner_phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
       }
       setOrderSent(true);
-    } catch (e) { alert("Couldn't send your order — please try again."); }
+      setShowCheckout(false);
+    } catch (e) { alert("Your order didn't go through. Check your connection and tap Send order again."); }
     setSubmitting(false);
   };
 
+  const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
+  const focusRing = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black';
+
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg }}><Loader2 className="animate-spin" size={24} style={{ color: C.sage }} /></div>;
+    return <div className="flex items-center justify-center" style={page}><Loader2 className="animate-spin" size={22} style={{ color: S.muted }} /></div>;
   }
   if (loadError || !business) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center" style={{ background: C.bg, color: C.ink }}>
-        <XorlaMark size={40} />
-        <div className="text-[16px] font-semibold cx-display mt-4 mb-1.5">Store not found</div>
-        <div className="text-[13px]" style={{ color: C.inkFaint }}>This storefront link isn't active right now.</div>
+      <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
+        <div className="text-[20px] font-bold mb-2">This store isn't open right now</div>
+        <div className="text-[14px] max-w-xs" style={{ color: S.muted }}>The link may be mistyped, or the business has paused its storefront. Ask them for their current link.</div>
       </div>
     );
   }
   if (orderSent) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center" style={{ background: C.bg, color: C.ink }}>
-        <PartyPopper size={40} style={{ color: C.copper }} />
-        <div className="text-[18px] font-semibold cx-display mt-4 mb-1.5">Order sent!</div>
-        <div className="text-[13px] max-w-xs" style={{ color: C.inkFaint }}>{business.name} has received your order and will reach out to confirm.</div>
+      <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
+        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-5" style={{ background: S.ink }}><Check size={26} color="#fff" /></div>
+        <div className="text-[24px] font-bold mb-2">Order sent to {business.name}</div>
+        <div className="text-[14px] max-w-sm mb-8" style={{ color: S.muted }}>They'll contact you{customerPhone ? ` on ${customerPhone}` : ''} to confirm your order and arrange payment and delivery.</div>
+        <button onClick={() => { setOrderSent(false); setCart({}); }} className={`px-6 py-3 rounded-full text-[14px] font-semibold ${focusRing}`} style={{ border: `1.5px solid ${S.ink}` }}>Back to the store</button>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen" style={{ background: C.bg, color: C.ink, paddingBottom: cartCount > 0 ? '90px' : '20px' }}>
-      <div className="max-w-xl mx-auto px-5 pt-8 pb-4">
-        <div className="flex items-center gap-3 mb-1">
-          {business.logo_url ? <img src={business.logo_url} alt={business.name} className="w-12 h-12 rounded-xl object-cover" /> : <XorlaMark size={40} />}
-          <div>
-            <div className="text-[18px] font-bold cx-display">{business.name}</div>
-            <div className="text-[11px]" style={{ color: C.inkFaint }}>Browse & order directly</div>
-          </div>
+  const renderProductCard = (p) => {
+    const qty = cart[p.id] || 0;
+    const isOut = p.stockQuantity === 0;
+    const fewLeft = p.stockQuantity !== null && p.stockQuantity > 0 && p.stockQuantity <= 3;
+    return (
+      <div>
+        <div className="relative w-full aspect-square rounded-2xl overflow-hidden mb-3 flex items-center justify-center" style={{ background: S.tile }}>
+          {p.imageUrl
+            ? <img src={p.imageUrl} alt={p.name} loading="lazy" className="w-full h-full object-cover" style={isOut ? { opacity: 0.45, filter: 'grayscale(1)' } : {}} />
+            : <Package size={32} style={{ color: S.soldOut }} />}
+          {isOut && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.muted }}>Sold out</span>}
+          {fewLeft && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.ink }}>Only {p.stockQuantity} left</span>}
         </div>
-      </div>
-
-      <div className="max-w-xl mx-auto px-5">
-        {storeProducts.length === 0 && (
-          <div className="text-center text-[13px] py-16" style={{ color: C.inkFaint }}>No products listed yet — check back soon.</div>
+        <div className="text-[14px] font-semibold leading-snug mb-2.5 line-clamp-2" style={{ minHeight: '2.6em', color: isOut ? S.muted : S.ink }}>{p.name}</div>
+        {isOut ? (
+          <div className="w-full py-2.5 rounded-xl text-center text-[13px] font-semibold" style={{ background: S.tile, color: S.soldOut }}>{fmt(p.sellingPrice)}</div>
+        ) : qty === 0 ? (
+          <button onClick={() => changeQty(p, 1)} aria-label={`Add ${p.name} to your order`} className={`w-full py-2.5 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform ${focusRing}`} style={{ background: S.ink, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+            <Plus size={15} strokeWidth={2.5} /> {fmt(p.sellingPrice)}
+          </button>
+        ) : (
+          <div className="w-full flex items-center justify-between rounded-xl" style={{ border: `1.5px solid ${S.ink}` }}>
+            <button onClick={() => changeQty(p, -1)} aria-label={`Remove one ${p.name}`} className={`w-11 py-2 text-[18px] font-semibold rounded-l-xl ${focusRing}`}>−</button>
+            <span className="text-[14px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{qty}</span>
+            <button onClick={() => changeQty(p, 1)} aria-label={`Add one more ${p.name}`} disabled={p.stockQuantity !== null && qty >= p.stockQuantity} className={`w-11 py-2 text-[18px] font-semibold rounded-r-xl ${focusRing}`} style={{ opacity: p.stockQuantity !== null && qty >= p.stockQuantity ? 0.3 : 1 }}>+</button>
+          </div>
         )}
-        <div className="grid grid-cols-2 gap-3">
-          {storeProducts.map((p) => {
-            const qty = cart[p.id] || 0;
-            const isOut = p.stockQuantity === 0;
-            return (
-              <div key={p.id} className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-                <div className="w-full aspect-square flex items-center justify-center" style={{ background: C.bg }}>
-                  {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" /> : <Package size={28} style={{ color: C.inkFaint }} />}
+      </div>
+    );
+  };
+
+  const renderOrderSummary = () => (
+    <div>
+      {cartList.length === 0 ? (
+        <div className="py-10 text-center text-[13.5px]" style={{ color: S.muted }}>Tap a product's price to add it here.</div>
+      ) : (
+        <>
+          <div className="space-y-3 mb-4">
+            {cartList.map((c) => (
+              <div key={c.product.id} className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center" style={{ background: S.tile }}>
+                  {c.product.imageUrl ? <img src={c.product.imageUrl} alt="" className="w-full h-full object-cover" /> : <Package size={16} style={{ color: S.soldOut }} />}
                 </div>
-                <div className="p-3">
-                  <div className="text-[12.5px] font-medium mb-0.5 truncate">{p.name}</div>
-                  <div className="cx-mono text-[13px] font-semibold mb-2">{fmt(p.sellingPrice)}</div>
-                  {isOut ? (
-                    <div className="text-[11px] text-center py-1.5 rounded-lg" style={{ color: C.rust, background: 'rgba(226,98,75,0.1)' }}>Out of stock</div>
-                  ) : qty === 0 ? (
-                    <button onClick={() => changeQty(p, 1)} className="w-full py-1.5 rounded-lg text-[11.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Add</button>
-                  ) : (
-                    <div className="flex items-center justify-between rounded-lg" style={{ background: C.bg }}>
-                      <button onClick={() => changeQty(p, -1)} className="w-8 py-1.5 text-[14px] font-bold" style={{ color: C.copper }}>−</button>
-                      <span className="text-[12.5px] font-semibold cx-mono">{qty}</span>
-                      <button onClick={() => changeQty(p, 1)} className="w-8 py-1.5 text-[14px] font-bold" style={{ color: C.copper }}>+</button>
-                    </div>
-                  )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13.5px] font-semibold truncate">{c.product.name}</div>
+                  <div className="text-[12.5px]" style={{ color: S.muted, fontVariantNumeric: 'tabular-nums' }}>{c.qty} × {fmt(c.product.sellingPrice)}</div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => changeQty(c.product, -1)} aria-label={`Remove one ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile }}>−</button>
+                  <button onClick={() => changeQty(c.product, 1)} aria-label={`Add one more ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile }}>+</button>
                 </div>
               </div>
-            );
-          })}
+            ))}
+          </div>
+          <div className="flex items-center justify-between py-4 mb-4" style={{ borderTop: `1px solid ${S.line}` }}>
+            <span className="text-[14px] font-semibold">Total</span>
+            <span className="text-[18px] font-extrabold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(cartTotal)}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const renderCheckoutFields = () => (
+    <div>
+      <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-name">Your name</label>
+      <input id="sf-name" type="text" autoComplete="name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+      <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-phone">Phone number</label>
+      <input id="sf-phone" type="tel" autoComplete="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="So they can confirm with you" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-2 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+      <div className="text-[12px] mb-5" style={{ color: S.muted }}>No payment now — {business.name} will contact you to confirm and arrange payment.</div>
+      <button onClick={submitOrder} disabled={submitting || !customerName.trim() || cartList.length === 0} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: submitting || !customerName.trim() || cartList.length === 0 ? 0.4 : 1 }}>{submitting ? 'Sending…' : `Send order · ${fmt(cartTotal)}`}</button>
+    </div>
+  );
+
+  const heroTitle = business.name;
+  const heroSub = business.storefront_tagline;
+  const hasHero = !!business.hero_image_url;
+
+  return (
+    <div style={page}>
+      <style>{`
+        @keyframes sf-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+        .sf-rise { animation: sf-rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) both; }
+        @media (prefers-reduced-motion: reduce) { .sf-rise { animation: none; } }
+        .sf-scroll::-webkit-scrollbar { display: none; }
+      `}</style>
+
+      {/* Top bar */}
+      <header className="sticky top-0 z-30" style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${S.line}` }}>
+        <div className="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {business.logo_url && <img src={business.logo_url} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />}
+            <span className="text-[16px] font-bold truncate">{business.name}</span>
+          </div>
+          <div className="hidden md:block flex-1 max-w-sm">
+            <div className="relative">
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: S.muted }} />
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products" className={`w-full rounded-full pl-10 pr-4 py-2.5 text-[13.5px] ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+            </div>
+          </div>
+          <button onClick={() => setShowCheckout(true)} className={`lg:hidden flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-semibold shrink-0 ${focusRing}`} style={{ background: cartCount ? S.ink : S.tile, color: cartCount ? '#fff' : S.ink }}>
+            <ShoppingBag size={15} /> {cartCount || 'Order'}
+          </button>
         </div>
+      </header>
+
+      {/* Hero — the business's own photo and voice */}
+      <section className="max-w-6xl mx-auto md:px-8 md:pt-6">
+        <div className="relative overflow-hidden md:rounded-3xl flex items-center justify-center text-center" style={{ minHeight: hasHero ? 'clamp(280px, 48vw, 460px)' : 'clamp(200px, 30vw, 280px)', background: hasHero ? '#222' : S.tile }}>
+          {hasHero && <img src={business.hero_image_url} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+          {hasHero && <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.55) 100%)' }} />}
+          <div className="relative px-6 py-12 sf-rise">
+            {business.logo_url && !hasHero && <img src={business.logo_url} alt="" className="w-16 h-16 rounded-full object-cover mx-auto mb-4" style={{ border: '3px solid #fff' }} />}
+            <h1 className="font-extrabold leading-[1.05] mb-3" style={{ fontSize: 'clamp(34px, 6vw, 60px)', letterSpacing: '-0.025em', color: hasHero ? '#fff' : S.ink, textWrap: 'balance' }}>{heroTitle}</h1>
+            {heroSub && <p className="mx-auto max-w-md text-[15px] md:text-[17px] leading-relaxed" style={{ color: hasHero ? 'rgba(255,255,255,0.88)' : S.muted }}>{heroSub}</p>}
+          </div>
+        </div>
+      </section>
+
+      <div className="max-w-6xl mx-auto px-5 md:px-8 pt-6 lg:pt-8 lg:grid lg:grid-cols-[1fr_340px] lg:gap-10" style={{ paddingBottom: cartCount ? '110px' : '40px' }}>
+        <main>
+          {/* Mobile search */}
+          <div className="md:hidden relative mb-4">
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: S.muted }} />
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products" className={`w-full rounded-full pl-10 pr-4 py-3 text-[14px] ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+          </div>
+
+          {/* Categories + sort */}
+          <div className="flex items-center justify-between gap-3 mb-7">
+            <div className="flex gap-1.5 overflow-x-auto sf-scroll" style={{ scrollbarWidth: 'none' }}>
+              {hasCategories && categories.map((cat) => (
+                <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-4 py-2 rounded-full text-[13.5px] font-semibold whitespace-nowrap transition-colors ${focusRing}`} style={activeCategory === cat ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{cat}</button>
+              ))}
+              {!hasCategories && <span className="text-[14px] font-semibold">{storeProducts.length} product{storeProducts.length !== 1 ? 's' : ''}</span>}
+            </div>
+            <label className="shrink-0 flex items-center gap-1.5 text-[13px] rounded-full px-3.5 py-2" style={{ background: S.tile }}>
+              <span style={{ color: S.muted }}>Sort</span>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="font-semibold bg-transparent outline-none cursor-pointer" style={{ color: S.ink }}>
+                <option value="featured">Featured</option>
+                <option value="low">Lowest price</option>
+                <option value="high">Highest price</option>
+              </select>
+            </label>
+          </div>
+
+          {storeProducts.length === 0 && (
+            <div className="py-20 text-center">
+              <div className="text-[17px] font-bold mb-1.5">Nothing on the shelves yet</div>
+              <div className="text-[14px]" style={{ color: S.muted }}>{business.name} is still adding products. Check back soon.</div>
+            </div>
+          )}
+          {storeProducts.length > 0 && visibleProducts.length === 0 && (
+            <div className="py-16 text-center">
+              <div className="text-[16px] font-bold mb-1.5">No products match "{query}"</div>
+              <button onClick={() => { setQuery(''); setActiveCategory('All'); }} className={`text-[14px] font-semibold underline underline-offset-4 ${focusRing}`}>Show all products</button>
+            </div>
+          )}
+
+          {sections.map((sec) => (
+            <section key={sec.title || 'all'} className="mb-10">
+              {sec.title && <h2 className="text-[22px] font-bold mb-4" style={{ letterSpacing: '-0.015em' }}>{sec.title}</h2>}
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-3 gap-x-4 gap-y-7">
+                {sec.items.map((p) => <React.Fragment key={p.id}>{renderProductCard(p)}</React.Fragment>)}
+              </div>
+            </section>
+          ))}
+        </main>
+
+        {/* Desktop order panel */}
+        <aside className="hidden lg:block">
+          <div className="sticky top-24 rounded-3xl p-6" style={{ border: `1px solid ${S.line}` }}>
+            <div className="text-[18px] font-bold mb-5">Your order</div>
+            {renderOrderSummary()}
+            {cartList.length > 0 && renderCheckoutFields()}
+          </div>
+        </aside>
       </div>
 
+      {/* Footer */}
+      <footer className="max-w-6xl mx-auto px-5 md:px-8 py-10 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-[13px]" style={{ borderTop: `1px solid ${S.line}`, color: S.muted }}>
+        <div>
+          <div className="font-semibold mb-0.5" style={{ color: S.ink }}>{business.name}</div>
+          {business.address && <div>{business.address}</div>}
+        </div>
+        <div className="text-[12px]">Store powered by Xorla</div>
+      </footer>
+
+      {/* Mobile order bar */}
       {cartCount > 0 && !showCheckout && (
-        <button onClick={() => setShowCheckout(true)} className="fixed bottom-5 left-5 right-5 max-w-xl mx-auto rounded-2xl py-4 flex items-center justify-between px-5" style={{ background: C.copper, color: C.bg, boxShadow: '0 8px 24px rgba(255,176,32,0.35)' }}>
-          <span className="text-[13.5px] font-semibold">{cartCount} item{cartCount !== 1 ? 's' : ''} in your order</span>
-          <span className="cx-mono text-[14px] font-bold">{fmt(cartTotal)}</span>
-        </button>
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 px-4 pt-3" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))', background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 35%)' }}>
+          <button onClick={() => setShowCheckout(true)} className={`w-full rounded-2xl py-4 px-5 flex items-center justify-between ${focusRing}`} style={{ background: S.ink, color: '#fff', boxShadow: '0 10px 30px rgba(23,25,26,0.25)' }}>
+            <span className="flex items-center gap-2.5 text-[14.5px] font-semibold">
+              <span className="w-6 h-6 rounded-full flex items-center justify-center text-[12px] font-bold" style={{ background: '#fff', color: S.ink }}>{cartCount}</span>
+              View order
+            </span>
+            <span className="text-[15px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(cartTotal)}</span>
+          </button>
+        </div>
       )}
 
+      {/* Mobile order sheet */}
       {showCheckout && (
-        <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}>
-          <div className="w-full max-w-xl mx-auto rounded-t-3xl p-5 xorla-fade-up" style={{ background: C.surface, maxHeight: '85vh', overflowY: 'auto' }}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-[15px] font-semibold cx-display">Your order</div>
-              <button onClick={() => setShowCheckout(false)} style={{ color: C.inkFaint }}><X size={18} /></button>
+        <div className="lg:hidden fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(23,25,26,0.45)' }} onClick={() => setShowCheckout(false)}>
+          <div className="w-full rounded-t-3xl p-5 sf-rise" style={{ background: '#fff', maxHeight: '88vh', overflowY: 'auto', paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full mx-auto mb-4" style={{ background: S.line }} />
+            <div className="flex items-center justify-between mb-5">
+              <div className="text-[19px] font-bold">Your order</div>
+              <button onClick={() => setShowCheckout(false)} aria-label="Close" className={`w-9 h-9 rounded-full flex items-center justify-center ${focusRing}`} style={{ background: S.tile }}><X size={17} /></button>
             </div>
-            <div className="space-y-2 mb-4">
-              {cartList.map((c) => (
-                <div key={c.product.id} className="flex items-center justify-between text-[12.5px]">
-                  <span style={{ color: C.inkDim }}>{c.product.name} ×{c.qty}</span>
-                  <span className="cx-mono font-medium">{fmt(c.product.sellingPrice * c.qty)}</span>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center justify-between text-[14px] font-bold pt-3 mb-4" style={{ borderTop: `1px solid ${C.line}` }}>
-              <span>Total</span>
-              <span className="cx-mono">{fmt(cartTotal)}</span>
-            </div>
-            <input type="text" placeholder="Your name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-2.5" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
-            <input type="tel" placeholder="Phone number (optional)" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-4" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
-            <button onClick={submitOrder} disabled={submitting || !customerName.trim()} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: submitting || !customerName.trim() ? 0.6 : 1 }}>{submitting ? 'Sending…' : 'Send order'}</button>
+            {renderOrderSummary()}
+            {cartList.length > 0 && renderCheckoutFields()}
           </div>
         </div>
       )}
-
-      <div className="text-center text-[10.5px] py-6" style={{ color: C.inkFaint }}>Powered by Xorla</div>
     </div>
   );
 }
