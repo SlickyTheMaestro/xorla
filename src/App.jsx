@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { jsPDF } from 'jspdf';
 import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
@@ -150,7 +150,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const SETTINGS_TITLES = { branding: 'Branding', storefront: 'Storefront', messages: 'Reminder messages', contact: 'Contact details', team: 'Staff & join code', security: 'App lock (PIN)' };
+const SETTINGS_TITLES = { branding: 'Name & logo', storefront: 'Storefront', messages: 'Reminder messages', contact: 'Contact details', team: 'Staff & join code', security: 'App lock (PIN)' };
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
 
 function invoiceLineItems(inv) {
@@ -1435,6 +1435,7 @@ function XorlaApp() {
       if ('tone' in patch) bizPatch.reminder_tone = patch.tone;
       if ('customInstructions' in patch) bizPatch.custom_instructions = patch.customInstructions;
       if ('language' in patch) bizPatch.language = patch.language;
+      if ('businessName' in patch && patch.businessName.trim()) bizPatch.name = patch.businessName.trim();
       if ('ownerPhone' in patch) bizPatch.owner_phone = patch.ownerPhone;
       if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
       if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
@@ -1711,7 +1712,7 @@ function XorlaApp() {
             {settingsPage === null && (
               <div className="space-y-6">
                 {renderSettingsGroup('Business', [
-                  { id: 'branding', Icon: Camera, label: 'Branding', value: settings.logoUrl ? 'Logo added' : 'Add logo' },
+                  { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
                   { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
                   { id: 'contact', Icon: Phone, label: 'Contact details', value: draft.ownerPhone ? '' : 'Not set' },
                 ])}
@@ -1736,7 +1737,10 @@ function XorlaApp() {
             {settingsPage === 'branding' && (
               <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
-                  <div className="text-[11px] font-medium mb-2 mt-3" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
+                  <div className="text-[11px] font-medium mb-2 mt-3" style={{ color: C.inkDim }}>BUSINESS NAME</div>
+                  <input type="text" maxLength={60} value={draft.businessName} onChange={(e) => setDraft({ ...draft, businessName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <div className="text-[11px] mt-1.5 mb-5" style={{ color: C.inkFaint }}>Shows on your storefront, invoices, and receipts. Saves when you tap Save.</div>
+                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
                   <div className="flex items-center gap-3">
                     {settings.logoUrl ? (
                       <img src={settings.logoUrl} alt="Logo" className="w-14 h-14 rounded-xl object-cover" style={{ border: `1px solid ${C.line}` }} />
@@ -1896,7 +1900,7 @@ function XorlaApp() {
 
           <div className="flex gap-2.5 p-5 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
             <button onClick={() => setTab(previousTab)} className="flex-1 rounded-xl py-2.5 text-[13px] font-medium" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Cancel</button>
-            <button onClick={() => { updateSettings(draft); setTab(previousTab); }} className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.sage, color: C.bg }}>Save settings</button>
+            <button onClick={() => { updateSettings({ ...draft, businessName: (draft.businessName || '').trim() || settings.businessName }); setTab(previousTab); }} className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.sage, color: C.bg }}>Save settings</button>
           </div>
         </div>
       </div>
@@ -2968,6 +2972,26 @@ function Storefront({ businessCode }) {
   const [sortBy, setSortBy] = useState('featured');
   const [heroIndex, setHeroIndex] = useState(0);
   const [touchStartX, setTouchStartX] = useState(null);
+  const [overHero, setOverHero] = useState(true);
+  const [catFade, setCatFade] = useState({ left: false, right: false });
+  const heroRef = useRef(null);
+  const catRef = useRef(null);
+
+  // Header floats transparent over the banner, then turns solid white once the banner scrolls away
+  useEffect(() => {
+    const onScroll = () => setOverHero(heroRef.current ? heroRef.current.getBoundingClientRect().bottom > 72 : false);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [loading]);
+
+  // Show a fade + arrow on whichever side of the category row has more pills hidden
+  const updateCatFade = () => {
+    const el = catRef.current;
+    if (!el) return;
+    setCatFade({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 });
+  };
+  const scrollCats = (dir) => catRef.current?.scrollBy({ left: dir * 180, behavior: 'smooth' });
 
   // Storefront-only font + a white browser bar, so it feels like the business's own shop, not the Xorla dashboard
   useEffect(() => {
@@ -3006,6 +3030,11 @@ function Storefront({ businessCode }) {
 
   const categories = ['All', ...[...new Set(storeProducts.map((p) => p.category).filter(Boolean))].sort()];
   const hasCategories = categories.length > 1;
+  useEffect(() => {
+    updateCatFade();
+    window.addEventListener('resize', updateCatFade);
+    return () => window.removeEventListener('resize', updateCatFade);
+  }, [categories.join('|'), loading]);
 
   const visibleProducts = storeProducts
     .filter((p) => activeCategory === 'All' || p.category === activeCategory)
@@ -3157,6 +3186,7 @@ function Storefront({ businessCode }) {
   const heroSub = business.storefront_tagline;
   const heroImages = (Array.isArray(business.hero_images) && business.hero_images.length ? business.hero_images : [business.hero_image_url]).filter(Boolean);
   const hasHero = heroImages.length > 0;
+  const overlay = hasHero && overHero;
 
   return (
     <div style={page}>
@@ -3168,29 +3198,31 @@ function Storefront({ businessCode }) {
       `}</style>
 
       {/* Top bar */}
-      <header className="sticky top-0 z-30" style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${S.line}` }}>
-        <div className="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5 min-w-0">
-            {business.logo_url && <img src={business.logo_url} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />}
-            <span className="text-[16px] font-bold truncate">{business.name}</span>
+      <header className="fixed top-0 inset-x-0 z-30 transition-all duration-300" style={overlay ? { background: 'linear-gradient(180deg, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0) 100%)' } : { background: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${S.line}` }}>
+        <div className="max-w-6xl mx-auto px-5 md:px-8 h-16 md:h-20 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            {business.logo_url && <img src={business.logo_url} alt="" className="w-9 h-9 md:w-11 md:h-11 rounded-xl object-cover shrink-0" style={overlay ? { boxShadow: '0 0 0 2px rgba(255,255,255,0.9)' } : {}} />}
+            <span className="text-[16px] md:text-[18px] font-bold truncate transition-colors" style={{ color: overlay ? '#fff' : S.ink, letterSpacing: '-0.01em' }}>{business.name}</span>
           </div>
           <div className="hidden md:block flex-1 max-w-sm">
             <div className="relative">
-              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: S.muted }} />
-              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products" className={`w-full rounded-full pl-10 pr-4 py-2.5 text-[13.5px] ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: overlay ? 'rgba(255,255,255,0.85)' : S.muted }} />
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products" className={`w-full rounded-full pl-10 pr-4 py-2.5 text-[13.5px] ${overlay ? 'placeholder-white/80' : ''} ${focusRing}`} style={overlay ? { background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff' } : { background: S.tile, border: '1px solid transparent', color: S.ink }} />
             </div>
           </div>
-          <button onClick={() => setShowCheckout(true)} className={`lg:hidden flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-semibold shrink-0 ${focusRing}`} style={{ background: cartCount ? S.ink : S.tile, color: cartCount ? '#fff' : S.ink }}>
+          <button onClick={() => setShowCheckout(true)} className={`lg:hidden flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-semibold shrink-0 ${focusRing}`} style={cartCount ? { background: overlay ? '#fff' : S.ink, color: overlay ? S.ink : '#fff' } : overlay ? { background: 'rgba(255,255,255,0.18)', color: '#fff', backdropFilter: 'blur(10px)' } : { background: S.tile, color: S.ink }}>
             <ShoppingBag size={15} /> {cartCount || 'Order'}
           </button>
         </div>
       </header>
+      {!hasHero && <div className="h-16 md:h-20" />}
 
       {/* Hero — the business's own photo and voice */}
       <section>
         <div
+          ref={heroRef}
           className="relative overflow-hidden flex items-center justify-center text-center"
-          style={{ minHeight: hasHero ? 'clamp(300px, 42vw, 560px)' : 'clamp(200px, 26vw, 300px)', background: hasHero ? '#222' : S.tile }}
+          style={{ minHeight: hasHero ? 'clamp(340px, 44vw, 600px)' : 'clamp(200px, 26vw, 300px)', background: hasHero ? '#222' : S.tile }}
           onTouchStart={(e) => setTouchStartX(e.touches[0].clientX)}
           onTouchEnd={(e) => {
             if (touchStartX === null || heroImages.length < 2) return;
@@ -3210,7 +3242,7 @@ function Storefront({ businessCode }) {
               ))}
             </div>
           )}
-          <div className="relative px-6 py-12 sf-rise">
+          <div className={`relative px-6 sf-rise ${hasHero ? "pt-24 pb-14 md:pt-28" : "py-12"}`}>
             {business.logo_url && !hasHero && <img src={business.logo_url} alt="" className="w-16 h-16 rounded-full object-cover mx-auto mb-4" style={{ border: '3px solid #fff' }} />}
             <h1 className="font-extrabold leading-[1.05] mb-3" style={{ fontSize: 'clamp(34px, 6vw, 60px)', letterSpacing: '-0.025em', color: hasHero ? '#fff' : S.ink, textWrap: 'balance' }}>{heroTitle}</h1>
             {heroSub && <p className="mx-auto max-w-md text-[15px] md:text-[17px] leading-relaxed" style={{ color: hasHero ? 'rgba(255,255,255,0.88)' : S.muted }}>{heroSub}</p>}
@@ -3227,14 +3259,28 @@ function Storefront({ businessCode }) {
           </div>
 
           {/* Categories + sort */}
-          <div className="flex items-center justify-between gap-3 mb-7">
-            <div className="flex gap-1.5 overflow-x-auto sf-scroll" style={{ scrollbarWidth: 'none' }}>
-              {hasCategories && categories.map((cat) => (
-                <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-4 py-2 rounded-full text-[13.5px] font-semibold whitespace-nowrap transition-colors ${focusRing}`} style={activeCategory === cat ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{cat}</button>
-              ))}
-              {!hasCategories && <span className="text-[14px] font-semibold">{storeProducts.length} product{storeProducts.length !== 1 ? 's' : ''}</span>}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-7">
+            <div className="relative min-w-0 flex-1">
+              <div ref={catRef} onScroll={updateCatFade} className="flex gap-1.5 overflow-x-auto sf-scroll" style={{ scrollbarWidth: 'none' }}>
+                {hasCategories && categories.map((cat) => (
+                  <button key={cat} onClick={(e) => { setActiveCategory(cat); e.currentTarget.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }); }} className={`px-4 py-2 rounded-full text-[13.5px] font-semibold whitespace-nowrap transition-colors ${focusRing}`} style={activeCategory === cat ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{cat}</button>
+                ))}
+                {!hasCategories && <span className="text-[14px] font-semibold py-2">{storeProducts.length} product{storeProducts.length !== 1 ? 's' : ''}</span>}
+              </div>
+              {catFade.left && (
+                <>
+                  <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-16" style={{ background: 'linear-gradient(90deg, #fff 35%, rgba(255,255,255,0))' }} />
+                  <button onClick={() => scrollCats(-1)} aria-label="Show previous categories" className={`absolute left-0 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center ${focusRing}`} style={{ background: '#fff', color: S.ink, boxShadow: '0 2px 10px rgba(23,25,26,0.14)' }}><ChevronLeft size={16} /></button>
+                </>
+              )}
+              {catFade.right && (
+                <>
+                  <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-16" style={{ background: 'linear-gradient(270deg, #fff 35%, rgba(255,255,255,0))' }} />
+                  <button onClick={() => scrollCats(1)} aria-label="Show more categories" className={`absolute right-0 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center ${focusRing}`} style={{ background: '#fff', color: S.ink, boxShadow: '0 2px 10px rgba(23,25,26,0.14)' }}><ChevronRight size={16} /></button>
+                </>
+              )}
             </div>
-            <label className="shrink-0 flex items-center gap-1.5 text-[13px] rounded-full px-3.5 py-2" style={{ background: S.tile }}>
+            <label className="self-end sm:self-auto shrink-0 flex items-center gap-1.5 text-[13px] rounded-full px-3.5 py-2" style={{ background: S.tile }}>
               <span style={{ color: S.muted }}>Sort</span>
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="font-semibold bg-transparent outline-none cursor-pointer" style={{ color: S.ink }}>
                 <option value="featured">Featured</option>
