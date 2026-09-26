@@ -1037,6 +1037,7 @@ function XorlaApp() {
       loggedIn: true,
       role: profile.role,
       activeStaff: profile.name,
+      myName: profile.name,
       businessName: business.name,
       businessId: business.id,
       businessCode: business.business_code,
@@ -1458,6 +1459,9 @@ function XorlaApp() {
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
   const pendingOrderCount = orders.filter((o) => o.status === 'pending').length;
+  const currentStaffNames = settings.staffList.map((s) => s.name);
+  const sellerOptions = [...new Set([...currentStaffNames, ...sales.map((s) => s.loggedBy), ...expenses.map((e) => e.loggedBy)].filter(Boolean))]
+    .sort((a, b) => (a === settings.myName ? -1 : b === settings.myName ? 1 : a.localeCompare(b)));
   const viewedSales = sales.filter((s) => s.dateKey === viewDate);
   const viewedSalesTotal = viewedSales.reduce((a, s) => a + Number(s.amount), 0);
   const viewedCOGS = viewedSales.reduce((a, s) => a + Number(s.cost || 0), 0);
@@ -2396,12 +2400,14 @@ function XorlaApp() {
               </div>
             </div>
 
-            {settings.staffList.length > 0 && (
+            {settings.role === 'owner' && sellerOptions.length > 1 && (
               <div className="flex items-center gap-1.5 mb-4 overflow-x-auto">
-                <span className="text-[10.5px] shrink-0" style={{ color: C.inkFaint }}>Rep:</span>
-                <button onClick={() => setStaffFilter('')} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={!staffFilter ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>All</button>
-                {settings.staffList.map((s) => (
-                  <button key={s.id} onClick={() => setStaffFilter(s.name)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={staffFilter === s.name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
+                <span className="text-[11px] font-medium shrink-0 mr-0.5" style={{ color: C.inkFaint }}>Recorded by</span>
+                <button onClick={() => setStaffFilter('')} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={!staffFilter ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Everyone</button>
+                {sellerOptions.map((name) => (
+                  <button key={name} onClick={() => setStaffFilter(name)} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={staffFilter === name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>
+                    {name === settings.myName ? 'You' : name}{!currentStaffNames.includes(name) && name !== settings.myName ? ' (former)' : ''}
+                  </button>
                 ))}
               </div>
             )}
@@ -2633,12 +2639,14 @@ function XorlaApp() {
               </div>
             </div>
 
-            {settings.staffList.length > 0 && (
+            {settings.role === 'owner' && sellerOptions.length > 1 && (
               <div className="flex items-center gap-1.5 mb-4 overflow-x-auto">
-                <span className="text-[10.5px] shrink-0" style={{ color: C.inkFaint }}>Rep:</span>
-                <button onClick={() => setStaffFilter('')} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={!staffFilter ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>All</button>
-                {settings.staffList.map((s) => (
-                  <button key={s.id} onClick={() => setStaffFilter(s.name)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={staffFilter === s.name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
+                <span className="text-[11px] font-medium shrink-0 mr-0.5" style={{ color: C.inkFaint }}>Recorded by</span>
+                <button onClick={() => setStaffFilter('')} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={!staffFilter ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Everyone</button>
+                {sellerOptions.map((name) => (
+                  <button key={name} onClick={() => setStaffFilter(name)} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={staffFilter === name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>
+                    {name === settings.myName ? 'You' : name}{!currentStaffNames.includes(name) && name !== settings.myName ? ' (former)' : ''}
+                  </button>
                 ))}
               </div>
             )}
