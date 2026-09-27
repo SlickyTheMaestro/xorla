@@ -3064,7 +3064,7 @@ function XorlaApp() {
           const below = tourRect.top + tourRect.height / 2 < vh / 2;
           cardStyle = below ? { top: tourRect.top + tourRect.height + pad + 12, left, width: cardW } : { bottom: vh - tourRect.top + pad + 12, left, width: cardW };
         } else {
-          cardStyle = { top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: cardW };
+          cardStyle = { top: 0, bottom: 0, left: (vw - cardW) / 2, width: cardW, display: 'flex', alignItems: 'center' };
         }
         const isLast = tourStep === tourSteps.length - 1;
         return (
@@ -3073,7 +3073,8 @@ function XorlaApp() {
             {tourRect && (
               <div className="absolute rounded-2xl pointer-events-none transition-all duration-300" style={{ top: tourRect.top - pad, left: tourRect.left - pad, width: tourRect.width + pad * 2, height: tourRect.height + pad * 2, boxShadow: '0 0 0 9999px rgba(3,10,9,0.78)', border: `2px solid ${C.copper}` }} />
             )}
-            <div className="absolute rounded-2xl p-5 xorla-fade-up" style={{ ...cardStyle, background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 20px 50px rgba(0,0,0,0.45)' }}>
+            <div className="absolute" style={cardStyle}>
+            <div className="w-full rounded-2xl p-5 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 20px 50px rgba(0,0,0,0.45)' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-semibold" style={{ color: C.copper }}>{tourStep + 1} of {tourSteps.length}</span>
                 {!isLast && <button onClick={endTour} className="text-[12px] font-medium" style={{ color: C.inkFaint }}>Skip tour</button>}
@@ -3091,6 +3092,7 @@ function XorlaApp() {
                   <button onClick={() => setTourStep(tourStep + 1)} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>{tourStep === 0 ? "Show me around" : 'Next'}</button>
                 )}
               </div>
+            </div>
             </div>
           </div>
         );
