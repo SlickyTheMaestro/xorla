@@ -438,17 +438,26 @@ function staticThankYou(inv) {
   const name = inv.clientName.split(' ')[0];
   return `Hi ${name}, thank you — we've received your full payment of ${fmt(inv.amount)} for Invoice #${inv.invoiceNo}. We really appreciate your business! 🙏`;
 }
-async function callClaude(prompt) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] }),
-  });
-  const data = await response.json();
-  if (!response.ok || data.error) {
-    throw new Error(data?.error?.message || `Request failed (${response.status})`);
+// All AI goes through Xorla's own backend (a Supabase Edge Function), which holds the secret key,
+// checks the user is logged in, and caps daily use. The app never talks to the AI company directly.
+let AI_ACCESS_TOKEN = null;
+function setAiAccessToken(token) { AI_ACCESS_TOKEN = token; }
+async function callClaude(prompt, task = 'oga') {
+  if (!AI_ACCESS_TOKEN) throw new Error('Please log in again to use Oga.');
+  let response;
+  try {
+    response = await fetch(`${SB_URL}/functions/v1/ai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${AI_ACCESS_TOKEN}` },
+      body: JSON.stringify({ task, prompt }),
+    });
+  } catch (e) {
+    throw new Error("Couldn't reach Oga. Check your internet connection and try again.");
   }
-  const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
-  if (!text) throw new Error('No response came back — try rephrasing your question.');
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error) throw new Error(data.error || "Oga couldn't answer just now. Please try again.");
+  const text = String(data.text || '').trim();
+  if (!text) throw new Error('No answer came back. Try rephrasing your question.');
   return text;
 }
 async function aiMessage(inv, settings) {
@@ -474,7 +483,7 @@ ${settings.paymentLink ? `Include this payment link naturally at the end: ${sett
 Write the entire message in ${LANGUAGE_LABEL[settings.language] || 'English'}.
 
 Write ONLY the WhatsApp message text, nothing else — no preamble, no quotation marks, no explanation. Keep it under 55 words. Sound natural and human, matching the tone described.`;
-  const text = await callClaude(prompt);
+  const text = await callClaude(prompt, 'message');
   return text || staticMessage(inv, settings);
 }
 async function aiThankYou(inv, settings) {
@@ -486,7 +495,7 @@ Amount paid in total: ${fmt(inv.amount)}
 Write the entire message in ${LANGUAGE_LABEL[settings.language] || 'English'}.
 
 Write ONLY the WhatsApp message text, nothing else. Keep it under 40 words. Sound genuinely appreciative and human.`;
-  const text = await callClaude(prompt);
+  const text = await callClaude(prompt, 'message');
   return text || staticThankYou(inv);
 }
 async function aiDailySummary(stats, settings) {
@@ -500,7 +509,7 @@ Overdue amount: ${fmt(stats.overdue)}
 Write the entire message in ${LANGUAGE_LABEL[settings.language] || 'English'}.
 
 Write ONLY the message text, nothing else. Keep it under 55 words, warm and motivating.`;
-  const text = await callClaude(prompt);
+  const text = await callClaude(prompt, 'summary');
   return text || `Today: ${fmt(stats.todayRevenue)} in sales, ${fmt(stats.todayExpenses)} in expenses, ${fmt(stats.net)} profit. ${fmt(stats.outstanding)} still owed to you. Keep going! 💪`;
 }
 
@@ -1172,6 +1181,22 @@ function XorlaApp() {
     }
   }, []);
 
+  // Renew the login token every 45 minutes while the app stays open (tokens expire after about an hour),
+  // so saves and Oga keep working for owners who leave Xorla open all day
+  useEffect(() => {
+    if (!session?.refresh_token) return;
+    const t = setInterval(async () => {
+      try {
+        const r = await sbRefresh(session.refresh_token);
+        const next = { access_token: r.access_token, refresh_token: r.refresh_token, user_id: r.user.id };
+        await saveSession(next);
+        setSession(next);
+        setAiAccessToken(next.access_token);
+      } catch (e) { console.error('Session renewal failed', e); }
+    }, 45 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [session?.refresh_token]);
+
   // Quietly refresh in the background every 20s so new entries from teammates show up without a manual reload
   useEffect(() => {
     if (!session) return;
@@ -1181,6 +1206,7 @@ function XorlaApp() {
 
   const applySession = useCallback((sess, profile, business, staffRoster, lockIfPin = false) => {
     setSession(sess);
+    setAiAccessToken(sess.access_token);
     const myPin = profile.role === 'owner' ? getStoredPin(sess.user_id) : '';
     setLocked(lockIfPin && !!myPin);
     setSettings((prev) => ({
@@ -1244,6 +1270,7 @@ function XorlaApp() {
     if (session) { try { await fetch(`${SB_URL}/auth/v1/logout`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}` } }); } catch (e) {} }
     await clearSession();
     setSession(null);
+    setAiAccessToken(null);
     setLocked(false);
     setSettings((prev) => ({ ...prev, loggedIn: false, role: 'owner', activeStaff: '', businessName: '', staffList: [], pin: '' }));
   }, [session]);
