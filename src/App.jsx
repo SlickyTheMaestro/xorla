@@ -150,7 +150,32 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const SETTINGS_TITLES = { branding: 'Name & logo', storefront: 'Storefront', messages: 'Reminder messages', contact: 'Contact details', team: 'Staff & join code', security: 'App lock (PIN)' };
+const SETTINGS_TITLES = { businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Reminder messages', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
+// WhatsApp needs full international format (2348031234567). People type local format (08031234567),
+// so convert Nigerian numbers automatically; numbers already in international format pass through.
+function toWhatsAppNumber(raw) {
+  let d = String(raw || '').replace(/[^0-9]/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('234')) { if (d[3] === '0') d = '234' + d.slice(4); return d; }
+  if (d.length === 11 && d.startsWith('0')) return '234' + d.slice(1);
+  if (d.length === 10 && /^[789]/.test(d)) return '234' + d;
+  return d;
+}
+function formatPhoneDisplay(raw) {
+  const d = toWhatsAppNumber(raw);
+  if (d.length === 13 && d.startsWith('234')) return `+234 ${d.slice(3, 6)} ${d.slice(6, 9)} ${d.slice(9)}`;
+  return d ? `+${d}` : '';
+}
+const BUSINESS_TERMS = {
+  products: { catalog: 'Products', item: 'product', Item: 'Product', soldPrompt: 'What did you sell?', intro: 'Add what you sell once — pick it instantly when recording a sale, with cost and price auto-filled.', tracksStock: true, typeLabel: 'Sells products' },
+  services: { catalog: 'Services', item: 'service', Item: 'Service', soldPrompt: 'What service did you do?', intro: 'Add the services you offer once — pick one instantly when recording a job, with your price filled in.', tracksStock: false, typeLabel: 'Offers services' },
+  both: { catalog: 'Catalog', item: 'item', Item: 'Item', soldPrompt: 'What did you sell or do?', intro: 'Add your products and services once — pick them instantly when recording a sale.', tracksStock: true, typeLabel: 'Products & services' },
+};
+const BUSINESS_TYPE_CHOICES = [
+  { id: 'products', title: 'I sell products', desc: 'Shops, boutiques, distributors, provisions — things you keep in stock.' },
+  { id: 'services', title: 'I offer services', desc: 'Salons, tailors, mechanics, photographers, repairs, consulting.' },
+  { id: 'both', title: 'Both', desc: 'For example, a salon that also sells hair products.' },
+];
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
 
 function invoiceLineItems(inv) {
@@ -882,6 +907,7 @@ function XorlaApp() {
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '', storefrontEnabled: false, heroImageUrl: null, storefrontTagline: '' });
+  const T = BUSINESS_TERMS[settings.businessType] || BUSINESS_TERMS.products;
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -927,6 +953,50 @@ function XorlaApp() {
     setShowIOSSteps(false);
     try { localStorage.setItem('xorla:install-dismissed', '1'); } catch (e) {}
   };
+  // ---------- First-time guided tour ----------
+  const [tourStep, setTourStep] = useState(null);
+  const [tourRect, setTourRect] = useState(null);
+  const tourKey = session ? `xorla:tour-done:${session.user_id}` : null;
+  const tourSteps = [
+    { target: null, title: 'Welcome to Xorla', body: "Here's a 30-second look at where everything is. You can skip anytime." },
+    { target: 'profit', title: 'Your real profit, at a glance', body: 'Money in, minus what your goods cost, minus what you spent. It updates as you record.' },
+    { target: 'nav-sales', title: T.tracksStock ? 'Record every sale here' : 'Record every job here', body: 'Tap Sales, then add what you sold. If someone still owes you, Xorla tracks it. Orders from your online store show up here too.' },
+    { target: 'nav-products', title: `Your ${T.catalog.toLowerCase()}`, body: `Add each ${T.item} once with its price. After that, recording a sale takes one tap.` },
+    { target: 'nav-invoices', title: 'Money people owe you', body: 'Every unpaid balance lives here, most urgent first, with a one-tap WhatsApp reminder.' },
+    { target: 'nav-expenses', title: 'What you spend', body: 'Log rent, transport, and restocking so your profit is the true number.' },
+    { target: 'settings', title: 'Make it yours', body: 'Your logo, WhatsApp number, online storefront, and team are all in Settings.' },
+    { target: null, title: "You're all set", body: `The best first step: add your first ${T.item}. You can replay this tour anytime from Settings.`, final: true },
+  ];
+  const endTour = () => { setTourStep(null); setTourRect(null); try { if (tourKey) localStorage.setItem(tourKey, '1'); } catch (e) {} };
+  const startTour = () => { setTab('overview'); setTourStep(0); };
+
+  // Start once, for owners, right after they've told us what kind of business they run
+  useEffect(() => {
+    if (!settings.loggedIn || settings.role !== 'owner' || !settings.businessType || !tourKey || tourStep !== null) return;
+    let done = false;
+    try { done = !!localStorage.getItem(tourKey); } catch (e) {}
+    if (!done) startTour();
+  }, [settings.loggedIn, settings.role, settings.businessType, tourKey]);
+
+  // Find the highlighted element (whichever copy is visible — bottom bar on phones, sidebar on desktop)
+  useEffect(() => {
+    if (tourStep === null) return;
+    const step = tourSteps[tourStep];
+    const measure = () => {
+      if (!step || !step.target) { setTourRect(null); return; }
+      const el = [...document.querySelectorAll(`[data-tour="${step.target}"]`)].find((n) => n.getBoundingClientRect().width > 0);
+      if (!el) { setTourRect(null); return; }
+      const r = el.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > window.innerHeight) { el.scrollIntoView({ block: 'center' }); }
+      const r2 = el.getBoundingClientRect();
+      setTourRect({ top: r2.top, left: r2.left, width: r2.width, height: r2.height });
+    };
+    const t = setTimeout(measure, 60);
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, { passive: true });
+    return () => { clearTimeout(t); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure); };
+  }, [tourStep, tab]);
+
   const openInstallFromSettings = () => {
     if (isIOS) { setTab('overview'); setShowInstallBanner(true); setShowIOSSteps(true); return; }
     if (installPrompt) { handleInstallClick(); return; }
@@ -957,6 +1027,7 @@ function XorlaApp() {
   const [heroUploading, setHeroUploading] = useState(false);
   const [openSections, setOpenSections] = useState(new Set(['branding']));
   const [settingsPage, setSettingsPage] = useState(null);
+  const [pendingBusinessType, setPendingBusinessType] = useState(null);
   const toggleSection = (id) => setOpenSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [previousTab, setPreviousTab] = useState('overview');
   const [draft, setDraft] = useState(null);
@@ -1047,6 +1118,7 @@ function XorlaApp() {
       language: business.language || 'english',
       ownerPhone: business.owner_phone || '',
       allowStaffExpenses: !!business.allow_staff_expenses,
+      businessType: business.business_type || null,
       logoUrl: business.logo_url || null,
       businessAddress: business.address || '',
       businessEmail: business.email || '',
@@ -1437,6 +1509,7 @@ function XorlaApp() {
       if ('customInstructions' in patch) bizPatch.custom_instructions = patch.customInstructions;
       if ('language' in patch) bizPatch.language = patch.language;
       if ('businessName' in patch && patch.businessName.trim()) bizPatch.name = patch.businessName.trim();
+      if ('businessType' in patch) bizPatch.business_type = patch.businessType;
       if ('ownerPhone' in patch) bizPatch.owner_phone = patch.ownerPhone;
       if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
       if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
@@ -1580,10 +1653,10 @@ function XorlaApp() {
             <div className="space-y-2.5">
               {products.length > 0 && (
                 <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-                  <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK A PRODUCT (OPTIONAL)</div>
+                  <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK {T.Item === 'Item' ? 'AN' : 'A'} {T.Item.toUpperCase()} (OPTIONAL)</div>
                   <div className="flex gap-2">
                     <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
-                      <option value="">Choose a product…</option>
+                      <option value="">Choose {T.Item === 'Item' ? 'an' : 'a'} {T.item}…</option>
                       {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                     </select>
                     {saleForm.productId && (
@@ -1595,7 +1668,7 @@ function XorlaApp() {
                   </div>
                 </div>
               )}
-              <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+              <input type="text" placeholder={T.soldPrompt} value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
               <div className="flex gap-2">
                 <input type="text" inputMode="decimal" placeholder="Sold for (₦)" value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <input type="text" inputMode="decimal" placeholder="Cost (optional)" value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
@@ -1665,6 +1738,25 @@ function XorlaApp() {
     );
   }
 
+  const renderBusinessTypeChoices = (selected, onPick) => (
+    <div className="space-y-2.5">
+      {BUSINESS_TYPE_CHOICES.map((opt) => {
+        const on = selected === opt.id;
+        return (
+          <button key={opt.id} onClick={() => onPick(opt.id)} className="w-full text-left rounded-2xl p-4 flex items-start gap-3 transition-colors active:scale-[0.99]" style={{ background: on ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${on ? C.copper : C.line}` }}>
+            <span className="mt-0.5 w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={{ border: `2px solid ${on ? C.copper : C.inkFaint}` }}>
+              {on && <span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copper }} />}
+            </span>
+            <span>
+              <span className="block text-[14.5px] font-semibold mb-0.5">{opt.title}</span>
+              <span className="block text-[12px] leading-relaxed" style={{ color: C.inkDim }}>{opt.desc}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   const renderSettingsGroup = (title, rows) => (
     <div>
       {title && <div className="text-[11.5px] font-semibold uppercase tracking-wide px-3 mb-2" style={{ color: C.inkFaint }}>{title}</div>}
@@ -1718,7 +1810,8 @@ function XorlaApp() {
                 {renderSettingsGroup('Business', [
                   { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
                   { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
-                  { id: 'contact', Icon: Phone, label: 'Contact details', value: draft.ownerPhone ? '' : 'Not set' },
+                  { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
+                  { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
                 {renderSettingsGroup('Customers', [
                   { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
@@ -1729,6 +1822,9 @@ function XorlaApp() {
                 ])}
                 {renderSettingsGroup('Security', [
                   { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: draft.pin ? 'On' : 'Off' },
+                ])}
+                {renderSettingsGroup('Help', [
+                  { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
                 ])}
                 {!isStandalone && renderSettingsGroup('App', [
                   { action: openInstallFromSettings, Icon: Download, label: 'Install Xorla app', value: '' },
@@ -1763,6 +1859,11 @@ function XorlaApp() {
             {settingsPage === 'storefront' && (
               <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
+                  {draft.storefrontEnabled && !draft.ownerPhone && (
+                    <button onClick={() => setSettingsPage('contact')} className="w-full text-left mt-3 rounded-xl px-3.5 py-3 text-[12px] leading-relaxed" style={{ background: C.rustSoft, color: C.rust }}>
+                      <strong>Add your WhatsApp number</strong> so storefront orders can reach you. Tap to add it →
+                    </button>
+                  )}
                   <div className="flex items-center justify-between mt-3">
                     <div className="pr-4">
                       <div className="text-[13px] font-medium mb-0.5">Public storefront</div>
@@ -1840,13 +1941,25 @@ function XorlaApp() {
                 </div>
               </div>
             )}
+            {settingsPage === 'businessType' && (
+              <div>
+                <div className="text-[12.5px] mb-4 px-1" style={{ color: C.inkDim }}>This changes the words and tools Xorla shows you. Your existing records aren't affected.</div>
+                {renderBusinessTypeChoices(draft.businessType || 'products', (id) => setDraft({ ...draft, businessType: id }))}
+              </div>
+            )}
             {settingsPage === 'contact' && (
               <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   <div className="mt-3">
-                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR WHATSAPP NUMBER</div>
-                    <input type="tel" placeholder="e.g. 2348012345678" value={draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                    <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Used to send your daily/weekly summary to yourself.</div>
+                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS WHATSAPP NUMBER</div>
+                    <input type="tel" inputMode="tel" placeholder="e.g. 0803 123 4567" value={draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    {draft.ownerPhone && toWhatsAppNumber(draft.ownerPhone).length >= 12 && (
+                      <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: C.sage }}>✓ Customers will reach you on {formatPhoneDisplay(draft.ownerPhone)}</div>
+                    )}
+                    {draft.ownerPhone && toWhatsAppNumber(draft.ownerPhone).length < 12 && (
+                      <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: C.rust }}>This number looks too short — check it's complete.</div>
+                    )}
+                    <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Storefront orders are sent here on WhatsApp, and so are your business summaries. Local format like 0803… is fine.</div>
                   </div>
                   <div>
                     <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS EMAIL (OPTIONAL)</div>
@@ -1927,19 +2040,19 @@ function XorlaApp() {
           {[
             { id: 'overview', label: 'Overview', Icon: Home },
             { id: 'sales', label: 'Sales', Icon: ShoppingBag },
-            { id: 'products', label: 'Products', Icon: Package },
+            { id: 'products', label: T.catalog, Icon: Package },
             { id: 'orders', label: 'Orders', Icon: Download },
             { id: 'expenses', label: 'Expenses', Icon: Receipt },
             { id: 'invoices', label: 'Invoices', Icon: Wallet },
             { id: 'advisor', label: 'Oga', Icon: Lightbulb },
           ].map(({ id, label, Icon }) => (
-            <button key={id} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: C.sageSoft, color: C.sage } : { color: C.inkDim }}>
+            <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: C.sageSoft, color: C.sage } : { color: C.inkDim }}>
               <Icon size={16} /> {label}
               {id === 'invoices' && needsAttention.length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
               )}
-              {id === 'products' && products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length > 0 && (
-                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length}</span>
+              {id === 'products' && products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length > 0 && (
+                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length}</span>
               )}
               {id === 'orders' && orders.filter((o) => o.status === 'pending').length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{orders.filter((o) => o.status === 'pending').length}</span>
@@ -1959,7 +2072,7 @@ function XorlaApp() {
           {settings.pin && (
             <button onClick={() => setLocked(true)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkFaint }}><Lock size={15} /> Lock app</button>
           )}
-          <button onClick={() => { setDraft({ ...settings }); setSettingsPage(null); setPreviousTab(tab); setTab('settings'); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={15} /> Settings</button>
+          <button data-tour="settings" onClick={() => { setDraft({ ...settings }); setSettingsPage(null); setPreviousTab(tab); setTab('settings'); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={15} /> Settings</button>
           <button onClick={logout} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkFaint }}><LogOut size={15} /> Log out</button>
         </div>
       </aside>
@@ -1975,7 +2088,7 @@ function XorlaApp() {
           </div>
           <div className="flex items-center gap-4">
             {settings.pin && <button onClick={() => setLocked(true)} style={{ color: C.inkFaint }}><Lock size={16} /></button>}
-            <button onClick={() => { setDraft({ ...settings }); setSettingsPage(null); setPreviousTab(tab); setTab('settings'); }} style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={18} /></button>
+            <button data-tour="settings" onClick={() => { setDraft({ ...settings }); setSettingsPage(null); setPreviousTab(tab); setTab('settings'); }} style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={18} /></button>
           </div>
         </div>
 
@@ -2080,7 +2193,7 @@ function XorlaApp() {
               )}
 
               <div className="lg:grid lg:grid-cols-5 lg:gap-5 mb-5 xorla-fade-up">
-                <div className="lg:col-span-3 rounded-2xl p-5 mb-4 lg:mb-0" style={card}>
+                <div data-tour="profit" className="lg:col-span-3 rounded-2xl p-5 mb-4 lg:mb-0" style={card}>
                   <div className="flex items-start justify-between mb-1">
                     <div>
                       <div className="text-[10.5px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>Profit today</div>
@@ -2117,7 +2230,7 @@ function XorlaApp() {
                     {products.length > 0 && (
                       <div className="flex gap-2">
                         <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
-                          <option value="">Pick a product…</option>
+                          <option value="">Pick {T.Item === 'Item' ? 'an' : 'a'} {T.item}…</option>
                           {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                         </select>
                         {saleForm.productId && (
@@ -2128,7 +2241,7 @@ function XorlaApp() {
                         )}
                       </div>
                     )}
-                    <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <input type="text" placeholder={T.soldPrompt} value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <div className="flex gap-2">
                       <input type="text" inputMode="decimal" placeholder="Sold for (₦)" value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                       <input type="text" inputMode="decimal" placeholder="Cost (optional)" value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
@@ -2204,7 +2317,7 @@ function XorlaApp() {
                   <div className="text-[13px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{summaryText}</div>
                   <div className="flex gap-2">
                     {settings.ownerPhone ? (
-                      <a href={`https://wa.me/${settings.ownerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(summaryText)}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-medium" style={{ background: C.sage, color: C.bg }}>
+                      <a href={`https://wa.me/${toWhatsAppNumber(settings.ownerPhone)}?text=${encodeURIComponent(summaryText)}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-medium" style={{ background: C.sage, color: C.bg }}>
                         <Send size={12} /> Send to my WhatsApp
                       </a>
                     ) : (
@@ -2280,10 +2393,10 @@ function XorlaApp() {
                   <>
                     {products.length > 0 && (
                       <div className="rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-                        <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK A PRODUCT (OPTIONAL)</div>
+                        <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK {T.Item === 'Item' ? 'AN' : 'A'} {T.Item.toUpperCase()} (OPTIONAL)</div>
                         <div className="flex gap-2">
                           <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
-                            <option value="">Choose a product…</option>
+                            <option value="">Choose {T.Item === 'Item' ? 'an' : 'a'} {T.item}…</option>
                             {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                           </select>
                           {saleForm.productId && (
@@ -2296,7 +2409,7 @@ function XorlaApp() {
                         {saleForm.productId && <div className="text-[10.5px] mt-1.5" style={{ color: C.inkFaint }}>Amount and cost below are auto-filled — still editable if you're giving a discount.</div>}
                       </div>
                     )}
-                    <input type="text" placeholder="What did you sell?" value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <input type="text" placeholder={T.soldPrompt} value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <div className="flex gap-2">
                       <input type="text" inputMode="decimal" placeholder="Sold for (₦)" value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                       <input type="text" inputMode="decimal" placeholder="Cost (optional)" value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
@@ -2316,7 +2429,7 @@ function XorlaApp() {
                       <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
                         {products.length > 0 && (
                           <select value={it.productId} onChange={(e) => applyProductToCartRow(idx, e.target.value)} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
-                            <option value="">Pick a product… (optional)</option>
+                            <option value="">Pick {T.Item === 'Item' ? 'an' : 'a'} {T.item}… (optional)</option>
                             {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                           </select>
                         )}
@@ -2498,14 +2611,14 @@ function XorlaApp() {
         {/* ============ PRODUCTS TAB ============ */}
         {tab === 'products' && (
           <>
-            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>Add what you sell once — pick it instantly when recording a sale, with cost and price auto-filled.</div>
+            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{T.intro}</div>
 
             {!showProductForm ? (
-              <button onClick={() => { setEditingProductId(null); setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', imageBlob: null, imagePreview: null }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add product</button>
+              <button onClick={() => { setEditingProductId(null); setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', imageBlob: null, imagePreview: null }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
             ) : (
               <div className="rounded-2xl p-5 mb-6 space-y-3" style={card}>
                 <div className="flex items-center justify-between mb-1">
-                  <div className="text-[14px] font-semibold cx-display">{editingProductId ? 'Edit product' : 'New product'}</div>
+                  <div className="text-[14px] font-semibold cx-display">{editingProductId ? `Edit ${T.item}` : `New ${T.item}`}</div>
                   <button onClick={() => { setShowProductForm(false); setEditingProductId(null); }} style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
                 <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
@@ -2513,7 +2626,7 @@ function XorlaApp() {
                   <input type="file" accept="image/*" onChange={handleProductPhotoSelect} className="hidden" />
                 </label>
                 {productForm.imagePreview && <img src={productForm.imagePreview} alt="" className="w-16 h-16 rounded-xl object-cover" />}
-                <input type="text" placeholder="Product name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                <input type="text" placeholder={`${T.Item} name`} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <input type="text" list="xorla-categories" placeholder="Category (optional) — e.g. Wigs, Shoes, Drinks" value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <datalist id="xorla-categories">
                   {[...new Set(products.map((p) => p.category).filter(Boolean))].map((c) => <option key={c} value={c} />)}
@@ -2522,6 +2635,7 @@ function XorlaApp() {
                   <input type="text" inputMode="decimal" placeholder="Cost price (₦)" value={formatNumInput(productForm.costPrice)} onChange={(e) => setProductForm({ ...productForm, costPrice: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                   <input type="text" inputMode="decimal" placeholder="Selling price (₦)" value={formatNumInput(productForm.sellingPrice)} onChange={(e) => setProductForm({ ...productForm, sellingPrice: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 </div>
+                {T.tracksStock && (<>
                 <div className="flex gap-2">
                   {!editingProductId && <div className="w-1/2">
                     <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>STOCK ON HAND (OPTIONAL)</div>
@@ -2533,25 +2647,26 @@ function XorlaApp() {
                   </div>
                 </div>
                 <div className="text-[10.5px] -mt-1.5" style={{ color: C.inkFaint }}>{editingProductId ? 'To change how many you have, use Restock on the product.' : 'Leave "Stock on hand" blank if you don\'t want to track stock for this product.'}</div>
-                <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : editingProductId ? 'Save changes' : 'Save product'}</button>
+                </>)}
+                <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : editingProductId ? 'Save changes' : `Save ${T.item}`}</button>
               </div>
             )}
 
-            <div className="text-[13px] font-semibold cx-display mb-2.5" style={{ color: C.inkDim }}>Your products</div>
-            {products.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>No products yet — add your first one above.</div>}
+            <div className="text-[13px] font-semibold cx-display mb-2.5" style={{ color: C.inkDim }}>Your {T.catalog.toLowerCase()}</div>
+            {products.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>{`No ${T.catalog.toLowerCase()} yet — add your first one above.`}</div>}
 
-            {products.some((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold) && (
+            {products.some((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold) && (
               <div className="rounded-2xl p-3.5 mb-4 flex items-start gap-2.5" style={{ background: 'rgba(226,98,75,0.1)', border: '1px solid rgba(226,98,75,0.25)' }}>
                 <Package size={15} className="shrink-0 mt-0.5" style={{ color: C.rust }} />
                 <div className="text-[12px]" style={{ color: '#E2A090' }}>
-                  Running low: {products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).map((p) => p.name).join(', ')}
+                  Running low: {products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).map((p) => p.name).join(', ')}
                 </div>
               </div>
             )}
 
             <div>
               {products.map((p, i) => {
-                const isLow = p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold;
+                const isLow = T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold;
                 const isOut = p.stockQuantity === 0;
                 const isRestocking = restockingId === p.id;
                 return (
@@ -2563,7 +2678,7 @@ function XorlaApp() {
                           <div className="text-[13.5px] font-medium truncate">{p.name}{p.category && <span className="ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{p.category}</span>}</div>
                           <div className="text-[11px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkFaint }}>
                             <span>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}</span>
-                            {p.stockQuantity !== null && (
+                            {T.tracksStock && p.stockQuantity !== null && (
                               <span className="px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold" style={isOut ? { background: 'rgba(226,98,75,0.15)', color: C.rust } : isLow ? { background: 'rgba(226,98,75,0.12)', color: C.rust } : { background: C.sageSoft, color: C.sage }}>
                                 {isOut ? 'Out of stock' : `${p.stockQuantity} in stock`}
                               </span>
@@ -2573,7 +2688,7 @@ function XorlaApp() {
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">
                         <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.sellingPrice || ''), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
-                        <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setRestockAmount(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>
+                        {T.tracksStock && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setRestockAmount(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
                         <button onClick={() => removeProduct(p.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
                       </div>
                     </div>
@@ -2718,7 +2833,7 @@ function XorlaApp() {
                       <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
                         {products.length > 0 && (
                           <select value="" onChange={(e) => { const product = products.find((p) => p.id === e.target.value); if (!product) return; const items = [...form.items]; items[idx] = { ...items[idx], description: product.name, unitPrice: String(product.sellingPrice) }; setForm({ ...form, items }); }} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
-                            <option value="">Pick from your products… (optional)</option>
+                            <option value="">Pick from your {T.catalog.toLowerCase()}… (optional)</option>
                             {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                           </select>
                         )}
@@ -2843,7 +2958,7 @@ function XorlaApp() {
                           </a>
                         )}
                         {inv.phone && status !== 'critical' && (
-                          <a href={`https://wa.me/${inv.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(isPaid ? thankMsg : message)}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>
+                          <a href={`https://wa.me/${toWhatsAppNumber(inv.phone)}?text=${encodeURIComponent(isPaid ? thankMsg : message)}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>
                             <Phone size={13} /> {isPaid ? 'Send thanks' : 'WhatsApp'}
                           </a>
                         )}
@@ -2926,16 +3041,71 @@ function XorlaApp() {
         </button>
       )}
 
+      {settings.loggedIn && settings.role === 'owner' && settings.businessType === null && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-5" style={{ background: 'rgba(3,10,9,0.8)', backdropFilter: 'blur(6px)' }}>
+          <div className="w-full max-w-md rounded-3xl p-6 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            <div className="text-[20px] font-bold cx-display mb-1.5">What does {settings.businessName || 'your business'} do?</div>
+            <div className="text-[13px] mb-5" style={{ color: C.inkDim }}>We'll set Xorla up to fit how you work. You can change this later in Settings.</div>
+            {renderBusinessTypeChoices(pendingBusinessType, setPendingBusinessType)}
+            <button onClick={() => pendingBusinessType && updateSettings({ businessType: pendingBusinessType })} disabled={!pendingBusinessType} className="w-full mt-5 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: pendingBusinessType ? 1 : 0.4 }}>Continue</button>
+          </div>
+        </div>
+      )}
+
+      {tourStep !== null && tourSteps[tourStep] && (() => {
+        const step = tourSteps[tourStep];
+        const pad = 6;
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const cardW = Math.min(320, vw - 24);
+        let cardStyle;
+        if (tourRect) {
+          const cx = tourRect.left + tourRect.width / 2;
+          const left = Math.max(12, Math.min(vw - cardW - 12, cx - cardW / 2));
+          const below = tourRect.top + tourRect.height / 2 < vh / 2;
+          cardStyle = below ? { top: tourRect.top + tourRect.height + pad + 12, left, width: cardW } : { bottom: vh - tourRect.top + pad + 12, left, width: cardW };
+        } else {
+          cardStyle = { top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: cardW };
+        }
+        const isLast = tourStep === tourSteps.length - 1;
+        return (
+          <div className="fixed inset-0 z-[80]" role="dialog" aria-modal="true" aria-label="App tour">
+            <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} style={tourRect ? {} : { background: 'rgba(3,10,9,0.78)' }} />
+            {tourRect && (
+              <div className="absolute rounded-2xl pointer-events-none transition-all duration-300" style={{ top: tourRect.top - pad, left: tourRect.left - pad, width: tourRect.width + pad * 2, height: tourRect.height + pad * 2, boxShadow: '0 0 0 9999px rgba(3,10,9,0.78)', border: `2px solid ${C.copper}` }} />
+            )}
+            <div className="absolute rounded-2xl p-5 xorla-fade-up" style={{ ...cardStyle, background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 20px 50px rgba(0,0,0,0.45)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-semibold" style={{ color: C.copper }}>{tourStep + 1} of {tourSteps.length}</span>
+                {!isLast && <button onClick={endTour} className="text-[12px] font-medium" style={{ color: C.inkFaint }}>Skip tour</button>}
+              </div>
+              <div className="text-[16px] font-bold cx-display mb-1.5">{step.title}</div>
+              <div className="text-[13px] leading-relaxed mb-4" style={{ color: C.inkDim }}>{step.body}</div>
+              <div className="flex items-center gap-2">
+                {tourStep > 0 && !isLast && <button onClick={() => setTourStep(tourStep - 1)} className="px-4 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Back</button>}
+                {isLast ? (
+                  <>
+                    <button onClick={endTour} className="px-4 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Finish</button>
+                    <button onClick={() => { endTour(); setTab('products'); setEditingProductId(null); setShowProductForm(true); }} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Add my first {T.item}</button>
+                  </>
+                ) : (
+                  <button onClick={() => setTourStep(tourStep + 1)} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>{tourStep === 0 ? "Show me around" : 'Next'}</button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Fixed bottom nav — mobile only, WhatsApp-style: always visible, never scrolls */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(10,31,28,0.97)', backdropFilter: 'blur(20px)', borderTop: `1px solid ${C.line}` }}>
         {[
           { id: 'overview', label: 'Overview', Icon: Home },
           { id: 'sales', label: 'Sales', Icon: ShoppingBag },
-          { id: 'products', label: 'Products', Icon: Package },
+          { id: 'products', label: T.catalog, Icon: Package },
           { id: 'expenses', label: 'Expenses', Icon: Receipt },
           { id: 'invoices', label: 'Invoices', Icon: Wallet },
         ].map(({ id, label, Icon }) => (
-          <button key={id} onClick={() => setTab(id)} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
+          <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
             <Icon size={21} style={{ color: (tab === id || (id === 'sales' && tab === 'orders')) ? C.copper : C.inkFaint }} />
             <span className="text-[10px] font-medium" style={{ color: (tab === id || (id === 'sales' && tab === 'orders')) ? C.copper : C.inkFaint }}>{label}</span>
             {id === 'sales' && pendingOrderCount > 0 && (
@@ -2944,8 +3114,8 @@ function XorlaApp() {
             {id === 'invoices' && needsAttention.length > 0 && (
               <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
             )}
-            {id === 'products' && products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length > 0 && (
-              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length}</span>
+            {id === 'products' && products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length > 0 && (
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length}</span>
             )}
           </button>
         ))}
@@ -3083,7 +3253,7 @@ function Storefront({ businessCode }) {
       if (business.owner_phone) {
         const lines = cartList.map((c) => `• ${c.product.name} ×${c.qty} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
         const msg = `New order from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}\n\nTotal: ${fmt(cartTotal)}`;
-        window.open(`https://wa.me/${business.owner_phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+        window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
       }
       setOrderSent(true);
       setShowCheckout(false);
@@ -3091,6 +3261,10 @@ function Storefront({ businessCode }) {
     setSubmitting(false);
   };
 
+  const isService = business?.business_type === 'services';
+  const W = isService
+    ? { your: 'Your request', send: 'Send request', view: 'View request', sent: 'Request sent to', short: 'Request', inYour: 'your request', empty: "Tap a service's price to add it here." }
+    : { your: 'Your order', send: 'Send order', view: 'View order', sent: 'Order sent to', short: 'Order', inYour: 'your order', empty: "Tap a product's price to add it here." };
   const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
   const focusRing = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black';
 
@@ -3109,8 +3283,8 @@ function Storefront({ businessCode }) {
     return (
       <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-5" style={{ background: S.ink }}><Check size={26} color="#fff" /></div>
-        <div className="text-[24px] font-bold mb-2">Order sent to {business.name}</div>
-        <div className="text-[14px] max-w-sm mb-8" style={{ color: S.muted }}>They'll contact you{customerPhone ? ` on ${customerPhone}` : ''} to confirm your order and arrange payment and delivery.</div>
+        <div className="text-[24px] font-bold mb-2">{W.sent} {business.name}</div>
+        <div className="text-[14px] max-w-sm mb-8" style={{ color: S.muted }}>They'll contact you{customerPhone ? ` on ${customerPhone}` : ''} to confirm {W.inYour} and arrange payment{isService ? '' : ' and delivery'}.</div>
         <button onClick={() => { setOrderSent(false); setCart({}); }} className={`px-6 py-3 rounded-full text-[14px] font-semibold ${focusRing}`} style={{ border: `1.5px solid ${S.ink}` }}>Back to the store</button>
       </div>
     );
@@ -3150,7 +3324,7 @@ function Storefront({ businessCode }) {
   const renderOrderSummary = () => (
     <div>
       {cartList.length === 0 ? (
-        <div className="py-10 text-center text-[13.5px]" style={{ color: S.muted }}>Tap a product's price to add it here.</div>
+        <div className="py-10 text-center text-[13.5px]" style={{ color: S.muted }}>{W.empty}</div>
       ) : (
         <>
           <div className="space-y-3 mb-4">
@@ -3186,7 +3360,7 @@ function Storefront({ businessCode }) {
       <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-phone">Phone number</label>
       <input id="sf-phone" type="tel" autoComplete="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="So they can confirm with you" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-2 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
       <div className="text-[12px] mb-5" style={{ color: S.muted }}>No payment now — {business.name} will contact you to confirm and arrange payment.</div>
-      <button onClick={submitOrder} disabled={submitting || !customerName.trim() || cartList.length === 0} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: submitting || !customerName.trim() || cartList.length === 0 ? 0.4 : 1 }}>{submitting ? 'Sending…' : `Send order · ${fmt(cartTotal)}`}</button>
+      <button onClick={submitOrder} disabled={submitting || !customerName.trim() || cartList.length === 0} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: submitting || !customerName.trim() || cartList.length === 0 ? 0.4 : 1 }}>{submitting ? 'Sending…' : `${W.send} · ${fmt(cartTotal)}`}</button>
     </div>
   );
 
@@ -3219,7 +3393,7 @@ function Storefront({ businessCode }) {
             </div>
           </div>
           <button onClick={() => setShowCheckout(true)} className={`lg:hidden flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-semibold shrink-0 ${focusRing}`} style={cartCount ? { background: overlay ? '#fff' : S.ink, color: overlay ? S.ink : '#fff' } : overlay ? { background: 'rgba(255,255,255,0.18)', color: '#fff', backdropFilter: 'blur(10px)' } : { background: S.tile, color: S.ink }}>
-            <ShoppingBag size={15} /> {cartCount || 'Order'}
+            <ShoppingBag size={15} /> {cartCount || W.short}
           </button>
         </div>
       </header>
@@ -3324,7 +3498,7 @@ function Storefront({ businessCode }) {
         {/* Desktop order panel */}
         <aside className="hidden lg:block">
           <div className="sticky top-24 rounded-3xl p-6" style={{ border: `1px solid ${S.line}` }}>
-            <div className="text-[18px] font-bold mb-5">Your order</div>
+            <div className="text-[18px] font-bold mb-5">{W.your}</div>
             {renderOrderSummary()}
             {cartList.length > 0 && renderCheckoutFields()}
           </div>
@@ -3346,7 +3520,7 @@ function Storefront({ businessCode }) {
           <button onClick={() => setShowCheckout(true)} className={`w-full rounded-2xl py-4 px-5 flex items-center justify-between ${focusRing}`} style={{ background: S.ink, color: '#fff', boxShadow: '0 10px 30px rgba(23,25,26,0.25)' }}>
             <span className="flex items-center gap-2.5 text-[14.5px] font-semibold">
               <span className="w-6 h-6 rounded-full flex items-center justify-center text-[12px] font-bold" style={{ background: '#fff', color: S.ink }}>{cartCount}</span>
-              View order
+              {W.view}
             </span>
             <span className="text-[15px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(cartTotal)}</span>
           </button>
@@ -3359,7 +3533,7 @@ function Storefront({ businessCode }) {
           <div className="w-full rounded-t-3xl p-5 sf-rise" style={{ background: '#fff', maxHeight: '88vh', overflowY: 'auto', paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
             <div className="w-10 h-1 rounded-full mx-auto mb-4" style={{ background: S.line }} />
             <div className="flex items-center justify-between mb-5">
-              <div className="text-[19px] font-bold">Your order</div>
+              <div className="text-[19px] font-bold">{W.your}</div>
               <button onClick={() => setShowCheckout(false)} aria-label="Close" className={`w-9 h-9 rounded-full flex items-center justify-center ${focusRing}`} style={{ background: S.tile }}><X size={17} /></button>
             </div>
             {renderOrderSummary()}
