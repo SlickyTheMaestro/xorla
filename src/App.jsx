@@ -569,39 +569,98 @@ async function sbUploadImage(accessToken, blob, path) {
   return `${SB_URL}/storage/v1/object/public/product-images/${path}`;
 }
 
-function LockScreen({ pin, onUnlock }) {
+// PINs are stored per account on this device — a different business logging in never inherits someone else's PIN
+function getStoredPin(userId) { try { return (userId && localStorage.getItem(`xorla:pin:${userId}`)) || ''; } catch (e) { return ''; } }
+function setStoredPin(userId, pin) { try { if (!userId) return; if (pin) localStorage.setItem(`xorla:pin:${userId}`, pin); else localStorage.removeItem(`xorla:pin:${userId}`); } catch (e) {} }
+
+function PinPad({ title, subtitle, error, onComplete, footer, top }) {
   const [entry, setEntry] = useState('');
   const [shake, setShake] = useState(false);
+  useEffect(() => { setEntry(''); }, [title]);
   const press = (d) => {
     if (entry.length >= 4) return;
     const next = entry + d; setEntry(next);
     if (next.length === 4) {
       setTimeout(() => {
-        if (next === pin) onUnlock();
-        else { setShake(true); setTimeout(() => { setShake(false); setEntry(''); }, 400); }
-      }, 120);
+        const ok = onComplete(next);
+        if (ok === false) { setShake(true); setTimeout(() => { setShake(false); setEntry(''); }, 450); }
+        else setEntry('');
+      }, 140);
     }
   };
+  const keyStyle = { color: C.ink, background: C.surfaceRaised };
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: C.bg, color: C.ink }}>
-      <div className="w-9 h-9 rounded-full flex items-center justify-center mb-5" style={{ background: C.copperSoft }}>
-        <Lock size={15} style={{ color: C.copper }} />
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 relative" style={{ background: C.bg, color: C.ink }}>
+      {top}
+      <div className="w-11 h-11 rounded-full flex items-center justify-center mb-5" style={{ background: C.copperSoft }}>
+        <Lock size={18} style={{ color: C.copper }} />
       </div>
-      <div className="text-[15px] font-medium mb-1">Enter your PIN</div>
-      <div className="text-xs mb-9" style={{ color: C.inkFaint }}>To open Xorla</div>
-      <div className={`flex gap-3.5 mb-10 ${shake ? 'animate-pulse' : ''}`}>
+      <div className="text-[17px] font-semibold cx-display mb-1.5 text-center">{title}</div>
+      <div className="text-[13px] mb-8 text-center max-w-[280px]" style={{ color: error ? C.rust : C.inkFaint }}>{error || subtitle}</div>
+      <div className={`flex gap-4 mb-10 ${shake ? 'animate-pulse' : ''}`} aria-live="polite" aria-label={`${entry.length} of 4 digits entered`}>
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="w-2.5 h-2.5 rounded-full transition-colors" style={{ background: i < entry.length ? C.copper : 'transparent', border: `1.5px solid ${i < entry.length ? C.copper : C.lineStrong}` }} />
+          <div key={i} className="w-3 h-3 rounded-full transition-colors" style={{ background: i < entry.length ? (shake ? C.rust : C.copper) : 'transparent', border: `1.5px solid ${i < entry.length ? (shake ? C.rust : C.copper) : C.lineStrong}` }} />
         ))}
       </div>
-      <div className="grid grid-cols-3 gap-4 w-full max-w-[240px]">
+      <div className="grid grid-cols-3 gap-4 w-full max-w-[260px]">
         {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-          <button key={d} onClick={() => press(d)} className="aspect-square rounded-full text-base font-medium" style={{ color: C.ink }}>{d}</button>
+          <button key={d} onClick={() => press(d)} className="aspect-square rounded-full text-[22px] font-medium active:scale-95 transition-transform" style={keyStyle}>{d}</button>
         ))}
         <div />
-        <button onClick={() => press('0')} className="aspect-square rounded-full text-base font-medium" style={{ color: C.ink }}>0</button>
-        <div />
+        <button onClick={() => press('0')} className="aspect-square rounded-full text-[22px] font-medium active:scale-95 transition-transform" style={keyStyle}>0</button>
+        <button onClick={() => setEntry((v) => v.slice(0, -1))} aria-label="Delete last digit" className="aspect-square rounded-full flex items-center justify-center active:scale-95 transition-transform" style={{ color: C.inkDim }}><Delete size={22} /></button>
       </div>
+      {footer && <div className="mt-8">{footer}</div>}
+    </div>
+  );
+}
+
+function LockScreen({ pin, businessName, onUnlock, onForgot }) {
+  return (
+    <PinPad
+      title={businessName ? `Welcome back to ${businessName}` : 'Enter your PIN'}
+      subtitle="Enter your 4-digit PIN to open Xorla"
+      onComplete={(code) => { if (code === pin) { onUnlock(); return true; } return false; }}
+      footer={<button onClick={onForgot} className="text-[13px] font-medium" style={{ color: C.copper }}>Forgot PIN? Log in with your password</button>}
+    />
+  );
+}
+
+// Set, change, or turn off the PIN. Changing or removing always asks for the current PIN first.
+function PinSetup({ currentPin, mode, onFinish, onCancel }) {
+  const [stage, setStage] = useState(currentPin ? 'verify' : 'new');
+  const [first, setFirst] = useState('');
+  const [error, setError] = useState('');
+  const titles = {
+    verify: mode === 'remove' ? 'Enter your PIN to turn it off' : 'Enter your current PIN',
+    new: currentPin ? 'Choose your new PIN' : 'Choose a 4-digit PIN',
+    confirm: 'Enter it once more to confirm',
+  };
+  const subtitles = {
+    verify: 'So we know it\'s really you.',
+    new: 'Avoid easy ones like 1234 or your birth year.',
+    confirm: 'Just making sure you remember it.',
+  };
+  const onComplete = (code) => {
+    if (stage === 'verify') {
+      if (code !== currentPin) { setError('That PIN is wrong — try again.'); return false; }
+      setError('');
+      if (mode === 'remove') { onFinish(''); return true; }
+      setStage('new'); return true;
+    }
+    if (stage === 'new') { setError(''); setFirst(code); setStage('confirm'); return true; }
+    if (code !== first) { setError("Those didn't match — choose your PIN again."); setFirst(''); setStage('new'); return false; }
+    onFinish(code); return true;
+  };
+  return (
+    <div className="fixed inset-0 z-[90]">
+      <PinPad
+        title={titles[stage]}
+        subtitle={subtitles[stage]}
+        error={error}
+        onComplete={onComplete}
+        top={<button onClick={onCancel} className="absolute top-6 left-5 flex items-center gap-1 text-[13px] font-medium" style={{ color: C.inkDim }}><ChevronLeft size={18} /> Cancel</button>}
+      />
     </div>
   );
 }
@@ -1042,6 +1101,8 @@ function XorlaApp() {
   const [heroUploading, setHeroUploading] = useState(false);
   const [openSections, setOpenSections] = useState(new Set(['branding']));
   const [settingsPage, setSettingsPage] = useState(null);
+  const [pinFlow, setPinFlow] = useState(null);
+  const [pinNotice, setPinNotice] = useState('');
   const [pendingBusinessType, setPendingBusinessType] = useState(null);
   const toggleSection = (id) => setOpenSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [previousTab, setPreviousTab] = useState('overview');
@@ -1116,13 +1177,16 @@ function XorlaApp() {
     return () => clearInterval(interval);
   }, [session, loadBusinessData]);
 
-  const applySession = useCallback((sess, profile, business, staffRoster) => {
+  const applySession = useCallback((sess, profile, business, staffRoster, lockIfPin = false) => {
     setSession(sess);
+    const myPin = profile.role === 'owner' ? getStoredPin(sess.user_id) : '';
+    setLocked(lockIfPin && !!myPin);
     setSettings((prev) => ({
       ...prev,
       loggedIn: true,
       role: profile.role,
       activeStaff: profile.name,
+      pin: myPin,
       myName: profile.name,
       businessName: business.name,
       businessId: business.id,
@@ -1146,13 +1210,13 @@ function XorlaApp() {
     loadBusinessData(sess.access_token);
   }, [loadBusinessData]);
 
-  const bootstrap = useCallback(async () => {
+  const bootstrap = useCallback(async (opts = {}) => {
     setAuthLoading(true);
     const sess = await loadSession();
     if (!sess) { setAuthLoading(false); return { ok: false }; }
     try {
       const { profile, business, staffRoster } = await fetchProfileAndBusiness(sess.access_token, sess.user_id);
-      applySession(sess, profile, business, staffRoster);
+      applySession(sess, profile, business, staffRoster, !opts.fresh);
       setAuthLoading(false);
       return { ok: true };
     } catch (e) {
@@ -1162,7 +1226,7 @@ function XorlaApp() {
         const newSess = { access_token: refreshed.access_token, refresh_token: refreshed.refresh_token, user_id: refreshed.user.id };
         await saveSession(newSess);
         const { profile, business, staffRoster } = await fetchProfileAndBusiness(newSess.access_token, newSess.user_id);
-        applySession(newSess, profile, business, staffRoster);
+        applySession(newSess, profile, business, staffRoster, !opts.fresh);
         setAuthLoading(false);
         return { ok: true };
       } catch (e2) {
@@ -1178,7 +1242,8 @@ function XorlaApp() {
     if (session) { try { await fetch(`${SB_URL}/auth/v1/logout`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}` } }); } catch (e) {} }
     await clearSession();
     setSession(null);
-    setSettings((prev) => ({ ...prev, loggedIn: false, role: 'owner', activeStaff: '', businessName: '', staffList: [] }));
+    setLocked(false);
+    setSettings((prev) => ({ ...prev, loggedIn: false, role: 'owner', activeStaff: '', businessName: '', staffList: [], pin: '' }));
   }, [session]);
 
   const removeStaff = async (staffId, staffName) => {
@@ -1191,9 +1256,7 @@ function XorlaApp() {
 
   useEffect(() => {
     (async () => {
-      let loadedSettings = null;
-      try { const v = localStorage.getItem(SETTINGS_KEY); if (v) { loadedSettings = JSON.parse(v); setSettings((prev) => ({ ...prev, pin: loadedSettings.pin || '' })); } } catch (e) {}
-      if (loadedSettings?.pin) setLocked(true);
+      try { localStorage.removeItem(SETTINGS_KEY); } catch (e) {} // retire the old device-wide PIN
       setLoaded(true);
       await bootstrap();
     })();
@@ -1516,7 +1579,7 @@ function XorlaApp() {
   const updateSettings = (patch) => {
     const next = { ...settings, ...patch };
     setSettings(next);
-    if ('pin' in patch) persistSettings(patch.pin);
+    if ('pin' in patch) setStoredPin(session?.user_id, patch.pin);
     if (session && next.businessId && settings.role === 'owner') {
       const bizPatch = {};
       if ('paymentLink' in patch) bizPatch.payment_link = patch.paymentLink;
@@ -1630,9 +1693,9 @@ function XorlaApp() {
   }
   if (!loaded || authLoading) return <div className="min-h-screen flex items-center justify-center cx-body" style={{ background: C.bg, color: C.inkDim }}>{fontStyle}<div className="text-sm">Loading…</div></div>;
   if (!session) {
-    return <>{fontStyle}<AuthScreen onDone={bootstrap} /></>;
+    return <>{fontStyle}<AuthScreen onDone={() => bootstrap({ fresh: true })} /></>;
   }
-  if (locked && settings.pin) return <>{fontStyle}<LockScreen pin={settings.pin} onUnlock={() => setLocked(false)} /></>;
+  if (locked && settings.pin) return <>{fontStyle}<LockScreen pin={settings.pin} businessName={settings.businessName} onUnlock={() => setLocked(false)} onForgot={() => { setStoredPin(session?.user_id, ''); setLocked(false); logout(); }} /></>;
 
   const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
   const card = { background: 'rgba(19,50,44,0.55)', backdropFilter: 'blur(16px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 1px 1px rgba(0,0,0,0.2), 0 16px 40px -20px rgba(0,0,0,0.7)' };
@@ -1819,6 +1882,21 @@ function XorlaApp() {
             </div>
           </div>
 
+          {pinFlow && (
+            <PinSetup
+              currentPin={pinFlow === 'set' ? '' : settings.pin}
+              mode={pinFlow}
+              onCancel={() => setPinFlow(null)}
+              onFinish={(newPin) => {
+                setStoredPin(session?.user_id, newPin);
+                setSettings((prev) => ({ ...prev, pin: newPin }));
+                setDraft((prev) => (prev ? { ...prev, pin: newPin } : prev));
+                setPinNotice(pinFlow === 'remove' ? 'PIN lock turned off.' : pinFlow === 'change' ? 'PIN changed.' : 'PIN lock is on.');
+                setPinFlow(null);
+                setTimeout(() => setPinNotice(''), 4000);
+              }}
+            />
+          )}
           <div className="flex-1 overflow-y-auto px-4 py-5">
             {settingsPage === null && (
               <div className="space-y-6">
@@ -1836,7 +1914,7 @@ function XorlaApp() {
                   { toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) },
                 ])}
                 {renderSettingsGroup('Security', [
-                  { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: draft.pin ? 'On' : 'Off' },
+                  { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
                 ])}
                 {renderSettingsGroup('Help', [
                   { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
@@ -2015,16 +2093,27 @@ function XorlaApp() {
             {settingsPage === 'security' && (
               <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
-                  <div className="text-[11px] font-medium mb-1.5 mt-3" style={{ color: C.inkDim }}>APP LOCK (PIN)</div>
-                  <div className="text-[11px] mb-2.5 leading-relaxed" style={{ color: C.inkFaint }}>
-                    Only the owner sets this — it's a quick screen lock for this device, so a staff member or customer picking up the phone can't browse your sales and money owed. It doesn't affect your login; it's separate and only lives on this device.
+                  <div className="flex items-center gap-3 mt-3 mb-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: settings.pin ? C.sageSoft : C.surfaceRaised }}>
+                      <Lock size={18} style={{ color: settings.pin ? C.sage : C.inkFaint }} />
+                    </div>
+                    <div>
+                      <div className="text-[14px] font-semibold">{settings.pin ? 'PIN lock is on' : 'PIN lock is off'}</div>
+                      <div className="text-[12px]" style={{ color: C.inkFaint }}>{settings.pin ? 'Xorla asks for your PIN whenever it\'s reopened on this phone.' : 'Anyone who picks up this phone can open Xorla.'}</div>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <input type="tel" maxLength={4} placeholder="4-digit PIN" value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} className="flex-1 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                    <button onClick={() => { if (newPin.length === 4) { setDraft({ ...draft, pin: newPin }); setNewPin(''); } }} disabled={newPin.length !== 4} className="px-4 rounded-xl text-[12px] font-medium" style={{ background: C.copper, color: C.bg, opacity: newPin.length === 4 ? 1 : 0.35 }}>{draft.pin ? 'Change' : 'Set'}</button>
-                    {draft.pin && <button onClick={() => setDraft({ ...draft, pin: '' })} className="px-3 rounded-xl text-[12px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Remove</button>}
+                  <div className="text-[11.5px] mb-4 leading-relaxed" style={{ color: C.inkFaint }}>
+                    A quick lock so a staff member or customer holding your phone can't see your sales and money owed. It's separate from your password, belongs to your account only, and lives on this phone.
                   </div>
-                  {draft.pin && <div className="text-[11px] mt-1.5" style={{ color: C.sage }}>PIN staged: will be set when you save.</div>}
+                  {settings.pin ? (
+                    <div className="flex gap-2">
+                      <button onClick={() => setPinFlow('change')} className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Change PIN</button>
+                      <button onClick={() => setPinFlow('remove')} className="flex-1 rounded-xl py-2.5 text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Turn off</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setPinFlow('set')} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Set up PIN</button>
+                  )}
+                  {pinNotice && <div className="text-[12px] mt-3 font-medium" style={{ color: C.sage }}>✓ {pinNotice}</div>}
                 </div>
               </div>
             )}
