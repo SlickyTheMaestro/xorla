@@ -1114,6 +1114,8 @@ function XorlaApp() {
   const [pinFlow, setPinFlow] = useState(null);
   const [pinNotice, setPinNotice] = useState('');
   const [saveNotice, setSaveNotice] = useState('');
+  const [aiNotice, setAiNotice] = useState('');
+  const showAiNotice = (msg) => { setAiNotice(msg); setTimeout(() => setAiNotice(''), 6000); };
   const [pendingBusinessType, setPendingBusinessType] = useState(null);
   const toggleSection = (id) => setOpenSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [previousTab, setPreviousTab] = useState('overview');
@@ -1598,12 +1600,12 @@ function XorlaApp() {
   const generateAI = async (inv) => {
     setAiLoadingId(inv.id);
     try { const msg = await aiMessage(inv, settings); setAiTexts((prev) => ({ ...prev, [inv.id]: msg })); }
-    catch (e) { console.error(e); } finally { setAiLoadingId(null); }
+    catch (e) { showAiNotice(`${e.message} Your standard reminder is still ready to send.`); } finally { setAiLoadingId(null); }
   };
   const generateThankYou = async (inv) => {
     setThankYouLoadingId(inv.id);
     try { const msg = await aiThankYou(inv, settings); setThankYouTexts((prev) => ({ ...prev, [inv.id]: msg })); }
-    catch (e) { console.error(e); } finally { setThankYouLoadingId(null); }
+    catch (e) { showAiNotice(`${e.message} Your standard thank-you note is still ready to send.`); } finally { setThankYouLoadingId(null); }
   };
   const updateSettings = (patch) => {
     const next = { ...settings, ...patch };
@@ -1690,7 +1692,7 @@ function XorlaApp() {
   const generateSummary = async () => {
     setSummaryLoading(true);
     try { const text = await aiDailySummary({ todayRevenue, saleCount: todaySales.length, todayExpenses, net: trueProfitToday, outstanding: totals.outstanding, overdue: totals.overdue }, settings); setSummaryText(text); }
-    catch (e) { console.error(e); } finally { setSummaryLoading(false); }
+    catch (e) { showAiNotice(e.message); } finally { setSummaryLoading(false); }
   };
 
   const runAdvisor = async (q) => {
@@ -1704,7 +1706,7 @@ function XorlaApp() {
       setAdvisorAnswer(text);
     } catch (e) {
       console.error(e);
-      setAdvisorAnswer(`Couldn't get an answer just now — ${e.message}. Give it another try.`);
+      setAdvisorAnswer(e.message);
     } finally { setAdvisorLoading(false); }
   };
 
@@ -3319,6 +3321,14 @@ function XorlaApp() {
           </div>
         );
       })()}
+
+      {aiNotice && (
+        <div role="status" className="fixed left-4 right-4 lg:left-auto lg:right-6 lg:w-[380px] bottom-24 lg:bottom-6 z-50 rounded-2xl px-4 py-3.5 flex items-start gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}>
+          <Lightbulb size={17} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
+          <div className="flex-1 text-[13px] leading-relaxed" style={{ color: C.ink }}>{aiNotice}</div>
+          <button onClick={() => setAiNotice('')} aria-label="Dismiss" style={{ color: C.inkFaint }}><X size={16} /></button>
+        </div>
+      )}
 
       {/* Fixed bottom nav — mobile only, WhatsApp-style: always visible, never scrolls */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(10,31,28,0.97)', backdropFilter: 'blur(20px)', borderTop: `1px solid ${C.line}` }}>
