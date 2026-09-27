@@ -150,6 +150,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType'];
 const SETTINGS_TITLES = { businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Reminder messages', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
@@ -1103,6 +1104,7 @@ function XorlaApp() {
   const [settingsPage, setSettingsPage] = useState(null);
   const [pinFlow, setPinFlow] = useState(null);
   const [pinNotice, setPinNotice] = useState('');
+  const [saveNotice, setSaveNotice] = useState('');
   const [pendingBusinessType, setPendingBusinessType] = useState(null);
   const toggleSection = (id) => setOpenSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [previousTab, setPreviousTab] = useState('overview');
@@ -1870,16 +1872,32 @@ function XorlaApp() {
   );
 
   if (tab === 'settings' && draft) {
+    const settingsDirty = EDITABLE_SETTINGS.some((k) => (draft[k] ?? '') !== (settings[k] ?? ''));
+    const saveSettingsDraft = () => {
+      const patch = {};
+      EDITABLE_SETTINGS.forEach((k) => { patch[k] = draft[k]; });
+      patch.businessName = (draft.businessName || '').trim() || settings.businessName;
+      updateSettings(patch);
+      setDraft((prev) => ({ ...prev, ...patch }));
+      setSettingsPage(null);
+      setSaveNotice('Changes saved');
+      setTimeout(() => setSaveNotice(''), 3000);
+    };
+    const leaveSettings = () => {
+      if (settingsDirty && !window.confirm('You have unsaved changes. Leave without saving?')) return;
+      setTab(previousTab);
+    };
     return (
       <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
         <div className="max-w-2xl mx-auto min-h-screen flex flex-col">
-          <div className="flex items-center gap-3 p-5 pb-4" style={{ borderBottom: `1px solid ${C.line}` }}>
-            <button onClick={() => (settingsPage ? setSettingsPage(null) : setTab(previousTab))} className="shrink-0 flex items-center gap-1" style={{ color: C.inkDim }}><ChevronLeft size={20} /><span className="text-[13px] font-medium">Back</span></button>
-            <div>
-              <div className="text-[16px] font-semibold cx-display">{SETTINGS_TITLES[settingsPage] || 'Settings'}</div>
-              {settingsPage === null && <div className="text-[12px]" style={{ color: C.inkFaint }}>Nothing changes until you tap Save.</div>}
-            </div>
+          <div className="sticky top-0 z-20 grid items-center h-14 px-2" style={{ gridTemplateColumns: '96px 1fr 96px', background: C.bg, borderBottom: `1px solid ${C.line}` }}>
+            <button onClick={() => (settingsPage ? setSettingsPage(null) : leaveSettings())} className="justify-self-start flex items-center gap-0.5 pl-1 pr-3 py-2 rounded-lg active:opacity-60" style={{ color: C.copper }}>
+              <ChevronLeft size={22} />
+              <span className="text-[14px] font-medium">{settingsPage ? 'Settings' : 'Back'}</span>
+            </button>
+            <div className="text-center text-[16px] font-semibold cx-display truncate">{SETTINGS_TITLES[settingsPage] || 'Settings'}</div>
+            <div />
           </div>
 
           {pinFlow && (
@@ -2119,10 +2137,17 @@ function XorlaApp() {
             )}
           </div>
 
-          <div className="flex gap-2.5 p-5 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
-            <button onClick={() => setTab(previousTab)} className="flex-1 rounded-xl py-2.5 text-[13px] font-medium" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Cancel</button>
-            <button onClick={() => { updateSettings({ ...draft, businessName: (draft.businessName || '').trim() || settings.businessName }); setTab(previousTab); }} className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.sage, color: C.bg }}>Save settings</button>
-          </div>
+          {settingsDirty ? (
+            <div className="sticky bottom-0 flex items-center gap-2.5 px-4 py-3.5 xorla-fade-up" style={{ background: C.surface, borderTop: `1px solid ${C.line}`, paddingBottom: 'max(14px, env(safe-area-inset-bottom))' }}>
+              <span className="flex-1 text-[12.5px] font-medium" style={{ color: C.inkDim }}>Unsaved changes</span>
+              <button onClick={() => setDraft({ ...settings })} className="px-4 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Discard</button>
+              <button onClick={saveSettingsDraft} className="px-5 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg }}>Save changes</button>
+            </div>
+          ) : saveNotice ? (
+            <div className="sticky bottom-0 flex items-center justify-center gap-2 px-4 py-3.5 text-[13px] font-medium xorla-fade-up" style={{ background: C.sageSoft, color: C.sage, paddingBottom: 'max(14px, env(safe-area-inset-bottom))' }}>
+              <Check size={16} /> {saveNotice}
+            </div>
+          ) : null}
         </div>
       </div>
     );
