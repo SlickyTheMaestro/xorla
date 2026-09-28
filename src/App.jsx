@@ -2167,10 +2167,12 @@ function XorlaApp() {
                   Automatic messages use a standard English wording approved by WhatsApp. For a personal message in Pidgin, Yoruba, Igbo, or Hausa, use the WhatsApp button on any invoice.
                 </div>
 
-                {waLog.length > 0 && (
-                  <div>
+                <div>
                     <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Recent automatic messages</div>
                     <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                      {waLog.length === 0 && (
+                        <div className="px-4 py-5 text-center text-[12.5px] leading-relaxed" style={{ color: C.inkFaint }}>No automatic messages yet. Every reminder and summary Xorla sends will be listed here, marked Sent or Failed.</div>
+                      )}
                       {waLog.map((m, i) => (
                         <div key={i} className="flex items-center justify-between gap-3 px-4 py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                           <div className="min-w-0">
@@ -2182,7 +2184,6 @@ function XorlaApp() {
                       ))}
                     </div>
                   </div>
-                )}
               </div>
             )}
             {settingsPage === 'businessType' && (
