@@ -150,8 +150,8 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType'];
-const SETTINGS_TITLES = { businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency'];
+const SETTINGS_TITLES = { automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -403,7 +403,7 @@ function fromSbSale(row) {
   return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null };
 }
 function fromSbInvoice(row) {
-  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '', notes: row.notes || '' };
+  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '', notes: row.notes || '', autoReminderCount: row.auto_reminder_count || 0 };
 }
 function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '' };
@@ -988,7 +988,7 @@ function XorlaApp() {
   const [expenses, setExpenses] = useState([]);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '', storefrontEnabled: false, heroImageUrl: null, storefrontTagline: '' });
+  const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '', storefrontEnabled: false, heroImageUrl: null, storefrontTagline: '', autoReminders: false, summaryFrequency: 'off' });
   const T = BUSINESS_TERMS[settings.businessType] || BUSINESS_TERMS.products;
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1122,6 +1122,28 @@ function XorlaApp() {
   const [settingsPage, setSettingsPage] = useState(null);
   const [pinFlow, setPinFlow] = useState(null);
   const [pinNotice, setPinNotice] = useState('');
+  const [waConnected, setWaConnected] = useState(null);
+  const [waTesting, setWaTesting] = useState(false);
+  const [waNotice, setWaNotice] = useState(null);
+  const [waLog, setWaLog] = useState([]);
+  const callWhatsApp = async (action) => {
+    const res = await fetch(`${SB_URL}/functions/v1/whatsapp`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ action }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || 'Something went wrong. Please try again.');
+    return data;
+  };
+  useEffect(() => {
+    if (settingsPage !== 'automation' || !session) return;
+    setWaNotice(null);
+    callWhatsApp('status').then((d) => setWaConnected(!!d.connected)).catch(() => setWaConnected(false));
+    sbRest('message_log', { accessToken: session.access_token, query: '?select=kind,to_phone,status,error,created_at&order=created_at.desc&limit=8' }).then(setWaLog).catch(() => setWaLog([]));
+  }, [settingsPage]);
+  const sendWhatsAppTest = async () => {
+    setWaTesting(true); setWaNotice(null);
+    try { await callWhatsApp('test'); setWaNotice({ ok: true, text: 'Test summary sent — check your WhatsApp.' }); }
+    catch (e) { setWaNotice({ ok: false, text: e.message }); }
+    finally { setWaTesting(false); }
+  };
   const [saveNotice, setSaveNotice] = useState('');
   const [aiNotice, setAiNotice] = useState('');
   const showAiNotice = (msg) => { setAiNotice(msg); setTimeout(() => setAiNotice(''), 6000); };
@@ -1236,6 +1258,8 @@ function XorlaApp() {
       language: business.language || 'english',
       ownerPhone: business.owner_phone || '',
       allowStaffExpenses: !!business.allow_staff_expenses,
+      autoReminders: !!business.auto_reminders_enabled,
+      summaryFrequency: business.summary_frequency || 'off',
       businessType: business.business_type || null,
       logoUrl: business.logo_url || null,
       businessAddress: business.address || '',
@@ -1634,6 +1658,8 @@ function XorlaApp() {
       if ('storefrontEnabled' in patch) bizPatch.storefront_enabled = patch.storefrontEnabled;
       if ('storefrontTagline' in patch) bizPatch.storefront_tagline = patch.storefrontTagline;
       if ('allowStaffExpenses' in patch) bizPatch.allow_staff_expenses = patch.allowStaffExpenses;
+      if ('autoReminders' in patch) bizPatch.auto_reminders_enabled = patch.autoReminders;
+      if ('summaryFrequency' in patch) bizPatch.summary_frequency = patch.summaryFrequency;
       if (Object.keys(bizPatch).length) {
         sbRest(`businesses?id=eq.${next.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: bizPatch }).catch((e) => console.error('Settings sync failed:', e));
       }
@@ -1966,6 +1992,7 @@ function XorlaApp() {
                   { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
                 ])}
                 {renderSettingsGroup('Customers', [
+                  { id: 'automation', Icon: Bell, label: 'Automatic WhatsApp', value: draft.autoReminders || draft.summaryFrequency !== 'off' ? 'On' : 'Off', valueColor: draft.autoReminders || draft.summaryFrequency !== 'off' ? C.sage : undefined },
                   { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
                 ])}
                 {renderSettingsGroup('Team', [
@@ -2091,6 +2118,71 @@ function XorlaApp() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+            {settingsPage === 'automation' && (
+              <div className="space-y-4">
+                <div className="rounded-2xl px-4 py-3.5 flex items-start gap-3" style={{ background: waConnected ? C.sageSoft : C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  <span className="mt-1 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: waConnected === null ? C.inkFaint : waConnected ? C.sage : C.copper }} />
+                  <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
+                    {waConnected === null ? 'Checking connection…' : waConnected
+                      ? <><strong style={{ color: C.ink }}>Connected.</strong> Xorla sends automatic messages every morning at 9am.</>
+                      : <><strong style={{ color: C.ink }}>Being connected.</strong> Choose your settings now; messages start automatically as soon as Xorla's WhatsApp line is live.</>}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  <button onClick={() => setDraft({ ...draft, autoReminders: !draft.autoReminders })} role="switch" aria-checked={draft.autoReminders} className="w-full flex items-start gap-3 px-4 py-4 text-left">
+                    <div className="flex-1">
+                      <div className="text-[14.5px] font-semibold mb-1">Automatic payment reminders</div>
+                      <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>Customers with an overdue balance and a phone number get a polite WhatsApp reminder, at most every 3 days and 3 times in total. After that, Xorla stops and flags them for you to call.</div>
+                    </div>
+                    <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.autoReminders ? C.sage : C.line }}>
+                      <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: draft.autoReminders ? '24px' : '4px' }} />
+                    </span>
+                  </button>
+                  <div className="px-4 py-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                    <div className="text-[14.5px] font-semibold mb-1">Business summary to your WhatsApp</div>
+                    <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>Sales, expenses, profit, and money owed to you, sent to {draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'your business number'}.</div>
+                    <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                      {[['off', 'Off'], ['weekly', 'Weekly'], ['monthly', 'Monthly']].map(([v, l]) => (
+                        <button key={v} onClick={() => setDraft({ ...draft, summaryFrequency: v })} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={draft.summaryFrequency === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+                      ))}
+                    </div>
+                    <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>{draft.summaryFrequency === 'weekly' ? 'Every Monday morning, covering the past 7 days.' : draft.summaryFrequency === 'monthly' ? 'On the 1st of each month, covering the month before.' : 'No summaries will be sent.'}</div>
+                    {!draft.ownerPhone && draft.summaryFrequency !== 'off' && (
+                      <button onClick={() => setSettingsPage('contact')} className="w-full text-left mt-3 rounded-xl px-3.5 py-2.5 text-[12px]" style={{ background: C.rustSoft, color: C.rust }}><strong>Add your WhatsApp number</strong> so summaries can reach you →</button>
+                    )}
+                  </div>
+                </div>
+
+                {waConnected && (
+                  <div>
+                    <button onClick={sendWhatsAppTest} disabled={waTesting} className="w-full rounded-xl py-3 text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink, opacity: waTesting ? 0.6 : 1 }}>{waTesting ? 'Sending…' : 'Send me a test summary now'}</button>
+                    {waNotice && <div className="text-[12px] mt-2 font-medium" style={{ color: waNotice.ok ? C.sage : C.rust }}>{waNotice.ok ? '✓ ' : ''}{waNotice.text}</div>}
+                  </div>
+                )}
+
+                <div className="text-[11.5px] leading-relaxed px-1" style={{ color: C.inkFaint }}>
+                  Automatic messages use a standard English wording approved by WhatsApp. For a personal message in Pidgin, Yoruba, Igbo, or Hausa, use the WhatsApp button on any invoice.
+                </div>
+
+                {waLog.length > 0 && (
+                  <div>
+                    <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Recent automatic messages</div>
+                    <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                      {waLog.map((m, i) => (
+                        <div key={i} className="flex items-center justify-between gap-3 px-4 py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-medium">{m.kind === 'reminder' ? 'Payment reminder' : m.kind === 'summary' ? 'Business summary' : 'Test summary'}</div>
+                            <div className="text-[11px] truncate" style={{ color: C.inkFaint }}>{formatPhoneDisplay(m.to_phone)} · {new Date(m.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                          </div>
+                          <span className="shrink-0 text-[11px] font-semibold" title={m.error || ''} style={{ color: m.status === 'sent' ? C.sage : C.rust }}>{m.status === 'sent' ? 'Sent' : 'Failed'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {settingsPage === 'businessType' && (
@@ -3153,6 +3245,7 @@ function XorlaApp() {
                           <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>
                             #{inv.invoiceNo} · due {new Date(inv.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                             {inv.items && inv.items.length > 0 && <span> · {inv.items.length} item{inv.items.length !== 1 ? 's' : ''}</span>}
+                            {inv.autoReminderCount > 0 && <span> · auto-reminded {inv.autoReminderCount}×</span>}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
