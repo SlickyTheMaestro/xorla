@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -151,7 +151,7 @@ function formatNumInput(v) {
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType'];
-const SETTINGS_TITLES = { businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Reminder messages', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
+const SETTINGS_TITLES = { businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -1047,9 +1047,18 @@ function XorlaApp() {
     { target: 'nav-invoices', title: 'Money people owe you', body: 'Every unpaid balance lives here, most urgent first, with a one-tap WhatsApp reminder.' },
     { target: 'nav-expenses', title: 'What you spend', body: 'Log rent, transport, and restocking so your profit is the true number.' },
     { target: 'settings', title: 'Make it yours', body: 'Your logo, WhatsApp number, online storefront, and team are all in Settings.' },
+    { target: 'oga', title: 'Ask Oga — in your language', body: 'Your business advisor. Ask about your sales, profit, or customers in English, Pidgin, Yoruba, Igbo, or Hausa. Tap Ask Oga to choose your language.' },
     { target: null, title: "You're all set", body: `The best first step: add your first ${T.item}. You can replay this tour anytime from Settings.`, final: true },
   ];
-  const endTour = () => { setTourStep(null); setTourRect(null); try { if (tourKey) localStorage.setItem(tourKey, '1'); } catch (e) {} };
+  const langIntroKey = session ? `xorla:lang-intro-seen:${session.user_id}` : null;
+  const [showLangIntro, setShowLangIntro] = useState(false);
+  useEffect(() => {
+    if (!langIntroKey || !tourKey || settings.role !== 'owner') return;
+    try { setShowLangIntro(!!localStorage.getItem(tourKey) && !localStorage.getItem(langIntroKey)); } catch (e) {}
+  }, [langIntroKey, tourKey, settings.role]);
+  const dismissLangIntro = () => { setShowLangIntro(false); try { if (langIntroKey) localStorage.setItem(langIntroKey, '1'); } catch (e) {} };
+
+  const endTour = () => { setTourStep(null); setTourRect(null); try { if (tourKey) localStorage.setItem(tourKey, '1'); if (langIntroKey) localStorage.setItem(langIntroKey, '1'); } catch (e) {} setShowLangIntro(false); };
   const startTour = () => { setTab('overview'); setTourStep(0); };
 
   // Start once, for owners, right after they've told us what kind of business they run
@@ -1953,6 +1962,9 @@ function XorlaApp() {
                   { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
                   { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
+                {renderSettingsGroup('Language', [
+                  { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
+                ])}
                 {renderSettingsGroup('Customers', [
                   { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
                 ])}
@@ -2306,6 +2318,20 @@ function XorlaApp() {
                   </div>
                   <ChevronRight size={18} style={{ color: C.sage }} />
                 </button>
+              )}
+              {showLangIntro && tourStep === null && (
+                <div className="rounded-2xl p-4 mb-5 flex items-start gap-3 xorla-fade-up" style={{ background: `linear-gradient(135deg, ${C.copperSoft}, ${C.surface})`, border: '1px solid rgba(255,176,32,0.25)' }}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><Globe size={18} style={{ color: C.bg }} /></div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold" style={{ background: C.copper, color: C.bg }}>NEW</span>
+                      <span className="text-[13.5px] font-semibold cx-display">Oga now speaks your language</span>
+                    </div>
+                    <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkDim }}>Ask Oga for advice, and send reminders to customers, in English, Pidgin, Yoruba, Igbo, or Hausa.</div>
+                    <button onClick={() => { dismissLangIntro(); setPreviousTab(tab); setTab('advisor'); }} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Choose my language</button>
+                  </div>
+                  <button onClick={dismissLangIntro} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
+                </div>
               )}
               {showInstallBanner && (
                 <div className="rounded-2xl p-4 mb-5 xorla-fade-up" style={{ background: `linear-gradient(135deg, ${C.copperSoft}, ${C.surface})`, border: `1px solid rgba(255,176,32,0.25)` }}>
@@ -3222,6 +3248,16 @@ function XorlaApp() {
             </div>
             <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>Your business advisor. Ask anything — answers are grounded in your real numbers, not generic tips.</div>
 
+            <div className="rounded-xl px-3.5 py-3 mb-4" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-1.5 text-[11.5px] font-semibold mb-2" style={{ color: C.inkDim }}><Globe size={13} style={{ color: C.copper }} /> Oga answers in</div>
+              <div className="flex flex-wrap gap-1.5">
+                {LANGUAGES.map((l) => (
+                  <button key={l.id} onClick={() => updateSettings({ language: l.id })} aria-pressed={settings.language === l.id} className="px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors" style={settings.language === l.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
+                ))}
+              </div>
+              <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>Your AI reminders, thank-you notes, and summaries use this language too.</div>
+            </div>
+
             <div className="flex flex-wrap gap-1.5 mb-4">
               {['How can I grow sales?', 'Why is my profit low?', 'Ideas to cut expenses', 'What should I focus on this week?'].map((q) => (
                 <button key={q} onClick={() => runAdvisor(q)} disabled={advisorLoading} className="px-3 py-1.5 rounded-full text-[11.5px]" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>{q}</button>
@@ -3256,6 +3292,7 @@ function XorlaApp() {
 
       {tab !== 'advisor' && (
         <button
+          data-tour="oga"
           onClick={() => { setPreviousTab(tab); setTab('advisor'); }}
           className="fixed bottom-24 lg:bottom-6 right-5 lg:right-6 z-40 flex items-center gap-2 pl-3.5 pr-4 py-3 rounded-full transition-transform active:scale-95"
           style={{ background: C.copper, color: C.bg, boxShadow: '0 8px 24px rgba(255,176,32,0.35)' }}
