@@ -1253,6 +1253,23 @@ function XorlaApp() {
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', ping); };
   }, [settings.role, session?.access_token]);
 
+  // Brand-coloured scrollbars on desktop, only while the Xorla dashboard is open
+  useEffect(() => {
+    const el = document.createElement('style');
+    el.id = 'xorla-scrollbars';
+    el.textContent = `
+      @media (pointer: fine) {
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: ${C.bg}; }
+        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, ${C.sage}, #12A898); border-radius: 999px; border: 2px solid ${C.bg}; }
+        ::-webkit-scrollbar-thumb:hover { background: ${C.sage}; }
+        ::-webkit-scrollbar-corner { background: transparent; }
+        @supports (-moz-appearance: none) { * { scrollbar-color: ${C.sage} ${C.bg}; scrollbar-width: thin; } }
+      }`;
+    document.head.appendChild(el);
+    return () => el.remove();
+  }, []);
+
   // Renew the login token every 45 minutes while the app stays open (tokens expire after about an hour),
   // so saves and Oga keep working for owners who leave Xorla open all day
   useEffect(() => {
@@ -2504,7 +2521,7 @@ function XorlaApp() {
           <div className="cx-display text-[19px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1" style={{ scrollbarWidth: 'thin' }}>
+        <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
         <nav className="space-y-1 mb-6">
           {[
             { id: 'overview', label: 'Overview', Icon: Home },
