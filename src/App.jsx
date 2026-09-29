@@ -117,7 +117,7 @@ const TONES = [
 const LANGUAGES = [
   { id: 'english', label: 'English' }, { id: 'pidgin', label: 'Pidgin' }, { id: 'yoruba', label: 'Yoruba' }, { id: 'igbo', label: 'Igbo' }, { id: 'hausa', label: 'Hausa' },
 ];
-const EXPENSE_CATEGORIES = ['Transport', 'Rent', 'Staff', 'Stock purchase', 'Other'];
+const EXPENSE_CATEGORIES = ['Transport', 'Fuel & power', 'Rent', 'Staff', 'Other'];
 const LANGUAGE_LABEL = { english: 'English', pidgin: 'Nigerian Pidgin English', yoruba: 'Yoruba', igbo: 'Igbo', hausa: 'Hausa' };
 
 function daysBetween(a, b) { const ms = 1000 * 60 * 60 * 24; return Math.round((b - a) / ms); }
@@ -2556,11 +2556,6 @@ function XorlaApp() {
                     <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
                   ))}
                 </div>
-                {expenseForm.category === 'Stock purchase' && productsAll.some((p) => Number(p.costPrice) > 0) && (
-                  <div className="rounded-xl px-3.5 py-2.5 text-[11.5px] leading-relaxed" style={{ background: C.copperSoft, color: C.ink }}>
-                    <strong>Heads up:</strong> your products have cost prices, so Xorla already subtracts what each item cost you when it sells. Logging the purchase here as well would count that money twice and make your profit look lower than it is. To add new stock, use Restock or Receive delivery in {T.catalog}.
-                  </div>
-                )}
                 <button onClick={addExpense} disabled={savingExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ border: `1px solid ${C.rust}`, color: C.rust, opacity: savingExpense ? 0.6 : 1 }}>{savingExpense ? "Saving…" : "Save expense"}</button>
               </div>
             </div>
@@ -4028,11 +4023,6 @@ function XorlaApp() {
                     <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
                   ))}
                 </div>
-                {expenseForm.category === 'Stock purchase' && productsAll.some((p) => Number(p.costPrice) > 0) && (
-                  <div className="rounded-xl px-3.5 py-2.5 text-[11.5px] leading-relaxed" style={{ background: C.copperSoft, color: C.ink }}>
-                    <strong>Heads up:</strong> your products have cost prices, so Xorla already subtracts what each item cost you when it sells. Logging the purchase here as well would count that money twice and make your profit look lower than it is. To add new stock, use Restock or Receive delivery in {T.catalog}.
-                  </div>
-                )}
                 <div className="text-[10.5px] -mt-1.5" style={{ color: C.inkFaint }}>Picking a category fills in the description too — type your own to override.</div>
                 <button onClick={addExpense} disabled={savingExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingExpense ? 0.6 : 1 }}>{savingExpense ? "Saving…" : "Save expense"}</button>
               </div>
