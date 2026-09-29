@@ -78,8 +78,11 @@ async function sbRpc(fnName, accessToken, params) {
     headers: { apikey: SB_KEY, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || data.error_description || 'Something went wrong setting up your business.');
+  // Some database actions succeed with an empty reply — only read a reply if there is one
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+  if (!res.ok) throw new Error((data && (data.message || data.error_description)) || 'Something went wrong. Please try again.');
   return data;
 }
 
@@ -150,7 +153,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName'];
 const SETTINGS_TITLES = { shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
@@ -400,7 +403,7 @@ function timeLabel(iso) { return new Date(iso).toLocaleTimeString('en-GB', { hou
 function dateKeyOf(iso) { return new Date(iso).toLocaleDateString('sv-SE'); }
 
 function fromSbSale(row) {
-  return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, soldAt: row.sold_at, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null, shopId: row.shop_id || null };
+  return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, soldAt: row.sold_at, basketId: row.basket_id || null, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null, shopId: row.shop_id || null };
 }
 function fromSbInvoice(row) {
   return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '', notes: row.notes || '', autoReminderCount: row.auto_reminder_count || 0, shopId: row.shop_id || null };
@@ -1011,8 +1014,10 @@ function XorlaApp() {
   // ---------- Multi-shop: the whole app follows the shop switcher ----------
   const isOwnerRole = settings.role === 'owner';
   // Locations are shops (they sell) or warehouses (storage only). Sales, staff, and the storefront only ever see shops.
-  const shops = locationsAll.filter((s) => (s.kind || 'shop') !== 'warehouse');
-  const warehouses = locationsAll.filter((s) => s.kind === 'warehouse');
+  const liveLocations = locationsAll.filter((s) => !s.archived);
+  const closedLocations = locationsAll.filter((s) => s.archived);
+  const shops = liveLocations.filter((s) => (s.kind || 'shop') !== 'warehouse');
+  const warehouses = liveLocations.filter((s) => s.kind === 'warehouse');
   const locations = [...shops, ...warehouses];
   const hasManyLocations = locations.length > 1;
   const mainShopId = (shops.find((s) => s.is_main) || shops[0])?.id || null;
@@ -1183,6 +1188,9 @@ function XorlaApp() {
   const [editingProductId, setEditingProductId] = useState(null);
   const [restockAmount, setRestockAmount] = useState('');
   const [restockShopId, setRestockShopId] = useState(null);
+  const [correctingId, setCorrectingId] = useState(null);
+  const [correctQty, setCorrectQty] = useState('');
+  const [correctShopId, setCorrectShopId] = useState(null);
   const [transferringId, setTransferringId] = useState(null);
   const [transferForm, setTransferForm] = useState({ from: '', to: '', qty: '' });
   const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null });
@@ -1421,6 +1429,8 @@ function XorlaApp() {
     setSession(null);
     setAiAccessToken(null);
     setLocked(false);
+    setTab('overview');
+    setSettingsPage(null);
     setSettings((prev) => ({ ...prev, loggedIn: false, role: 'owner', activeStaff: '', businessName: '', staffList: [], pin: '' }));
   }, [session]);
 
@@ -1446,6 +1456,30 @@ function XorlaApp() {
       setShopEdits((prev) => { const n = { ...prev }; delete n[shop.id]; return n; });
     } catch (e) { alert(e.message); }
   };
+  // Close a location that's shut down (history is kept), or reopen it
+  const closeLocation = async (loc) => {
+    const left = productShops.filter((r) => r.shop_id === loc.id && Number(r.stock_quantity) > 0);
+    if (left.length) {
+      const units = left.reduce((a, r) => a + Number(r.stock_quantity), 0);
+      alert(`${loc.name} still has ${units} item${units !== 1 ? 's' : ''} in stock. Move its remaining stock to another location first (Products → Send stock), then close it.`);
+      return;
+    }
+    if (!window.confirm(`Close ${loc.name}? It disappears from the app and your storefront, and staff lose access to it. Its past sales and records stay in your reports, and you can reopen it later.`)) return;
+    try {
+      await sbRest(`shops?id=eq.${loc.id}`, { method: 'PATCH', accessToken: session.access_token, body: { archived: true } });
+      await sbRest(`staff_shops?shop_id=eq.${loc.id}`, { method: 'DELETE', accessToken: session.access_token }).catch(() => {});
+      setShops((prev) => prev.map((s) => (s.id === loc.id ? { ...s, archived: true } : s)));
+      setStaffShops((prev) => prev.filter((ss) => ss.shop_id !== loc.id));
+      if (currentShopId === loc.id) setCurrentShopId('all');
+    } catch (e) { alert(e.message); }
+  };
+  const reopenLocation = async (loc) => {
+    try {
+      await sbRest(`shops?id=eq.${loc.id}`, { method: 'PATCH', accessToken: session.access_token, body: { archived: false } });
+      setShops((prev) => prev.map((s) => (s.id === loc.id ? { ...s, archived: false } : s)));
+    } catch (e) { alert(e.message); }
+  };
+
   const toggleStaffShop = async (profileId, shopId) => {
     const assigned = staffShops.filter((ss) => ss.profile_id === profileId);
     const has = assigned.some((ss) => ss.shop_id === shopId);
@@ -1576,8 +1610,10 @@ function XorlaApp() {
 
       // One sale row per product — keeps per-product analytics, COGS, and stock tracking accurate
       const newSales = [];
-      for (const it of cleanItems) {
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: 0 } });
+      // One basket = one receipt: every item shares a basket ID; the balance owed sits on the first item
+      const basketId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null;
+      for (const [idx, it] of cleanItems.entries()) {
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: idx === 0 ? owed : 0, ...(basketId ? { basket_id: basketId } : {}) } });
         newSales.push(rows[0]);
         if (it.productId) {
           const product = products.find((p) => p.id === it.productId);
@@ -1596,7 +1632,7 @@ function XorlaApp() {
         setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
 
-      setReceipt(makeReceipt({ id: newSales[0]?.id, items: cleanItems.map((it) => ({ name: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice })), total: totalAmount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId }));
+      setReceipt(makeReceipt({ id: basketId || newSales[0]?.id, items: cleanItems.map((it) => ({ name: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice })), total: totalAmount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId }));
       setCartItems([{ productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }]);
       setSaleForm((f) => ({ ...f, fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '' }));
       setShowSaleForm(false);
@@ -1764,6 +1800,19 @@ function XorlaApp() {
     } catch (e) { alert(e.message); }
   };
 
+  // Fix a stock mistake: set the real count; the difference is recorded as a correction
+  const handleCorrectCount = async (p) => {
+    const actual = Number(correctQty);
+    if (correctQty === '' || !Number.isFinite(actual) || actual < 0) return;
+    const shopId = activeShopId || (locations.some((s) => s.id === correctShopId) ? correctShopId : mainShopId);
+    const current = stockAt(p, shopId);
+    const delta = actual - current;
+    if (delta === 0) { setCorrectingId(null); return; }
+    if (!window.confirm(`Change ${p.name} at ${shopNameOf(shopId)} from ${current} to ${actual}? This is saved as a correction in your stock history.`)) return;
+    try { await changeStock(p.id, shopId, delta, 'correction'); setCorrectingId(null); setCorrectQty(''); }
+    catch (e) { alert(e.message); }
+  };
+
   // Move stock between shops (owner)
   const handleTransfer = async (product) => {
     const qty = Number(transferForm.qty);
@@ -1830,6 +1879,13 @@ function XorlaApp() {
     catch (e) { showAiNotice(`${e.message} Your standard thank-you note is still ready to send.`); } finally { setThankYouLoadingId(null); }
   };
   const updateSettings = (patch) => {
+    if ('myName' in patch) {
+      const nm = String(patch.myName || '').trim();
+      if (nm && nm !== settings.myName && session) {
+        patch = { ...patch, myName: nm, activeStaff: nm };
+        sbRpc('set_my_name', session.access_token, { p_name: nm }).then(() => loadBusinessData(session.access_token)).catch((e) => alert(e.message));
+      } else { patch = { ...patch }; delete patch.myName; }
+    }
     const next = { ...settings, ...patch };
     setSettings(next);
     if ('pin' in patch) setStoredPin(session?.user_id, patch.pin);
@@ -1865,6 +1921,7 @@ function XorlaApp() {
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
   const pendingOrderCount = orders.filter((o) => o.status === 'pending').length;
+  const unpaidInvoiceCount = invoices.filter((i) => computeStatus(i) !== 'paid').length;
   const currentStaffNames = settings.staffList.map((s) => s.name);
   const sellerOptions = [...new Set([...currentStaffNames, ...sales.map((s) => s.loggedBy), ...expenses.map((e) => e.loggedBy)].filter(Boolean))]
     .sort((a, b) => (a === settings.myName ? -1 : b === settings.myName ? 1 : a.localeCompare(b)));
@@ -2041,7 +2098,7 @@ function XorlaApp() {
   const fmtDay = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   const groupBatches = (rows) => {
     const map = new Map();
-    rows.forEach((t) => { if (!map.has(t.batch_id)) map.set(t.batch_id, []); map.get(t.batch_id).push(t); });
+    rows.forEach((t) => { const k = `${t.batch_id}|${t.to_shop}`; if (!map.has(k)) map.set(k, []); map.get(k).push(t); });
     return [...map.values()];
   };
   const productSelect = (value, onChange, placeholder = 'Choose an item…') => (
@@ -2055,10 +2112,10 @@ function XorlaApp() {
   const renderIncoming = (rows) => groupBatches(rows).map((batch) => {
     const first = batch[0];
     return (
-      <div key={first.batch_id} className="rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+      <div key={`${first.batch_id}|${first.to_shop}`} className="rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
         <div className="flex items-center gap-1.5 text-[12.5px] font-semibold mb-0.5">
           {first.kind === 'delivery' ? <Truck size={14} style={{ color: C.copper }} /> : <ArrowRight size={14} style={{ color: C.copper }} />}
-          {first.kind === 'delivery' ? 'Supplier delivery' : shopNameOf(first.from_shop)} → {shopNameOf(first.to_shop)}
+          <span>{first.kind === 'delivery' ? 'Supplier delivery' : shopNameOf(first.from_shop)} → <span style={{ color: C.copper }}>{shopNameOf(first.to_shop)}</span></span>
         </div>
         <div className="text-[11px] mb-2.5" style={{ color: C.inkFaint }}>Sent {fmtDay(first.created_at)}{first.sent_by_name ? ` by ${first.sent_by_name}` : ''}{first.note ? ` · ${first.note}` : ''}</div>
         <div className="space-y-2">
@@ -2241,7 +2298,12 @@ function XorlaApp() {
     paid: Math.max(0, (Number(total) || 0) - (Number(owed) || 0)),
     customerName: customerName || '', customerPhone: customerPhone || '',
   });
-  const receiptFromSale = (s) => makeReceipt({ id: s.id, items: [{ name: s.item, amount: Number(s.amount) }], total: s.amount, owed: s.owed, shopId: s.shopId, when: s.soldAt || Date.now() });
+  const receiptFromSale = (s) => {
+    const group = s.basketId ? salesAll.filter((x) => x.basketId === s.basketId).sort((a, b) => String(a.soldAt).localeCompare(String(b.soldAt))) : [s];
+    const total = group.reduce((a, x) => a + Number(x.amount || 0), 0);
+    const owed = group.reduce((a, x) => a + Number(x.owed || 0), 0);
+    return makeReceipt({ id: s.basketId || s.id, items: group.map((x) => ({ name: x.item, amount: Number(x.amount) })), total, owed, shopId: s.shopId, when: group[0].soldAt || Date.now() });
+  };
   const receiptText = (r) => {
     const line = '--------------------------------';
     return [
@@ -2380,7 +2442,7 @@ function XorlaApp() {
       <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
         <div className="sticky top-0 z-30" style={{ paddingTop: 'env(safe-area-inset-top)', background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderBottom: `1px solid ${C.line}` }}>
-          <div className="max-w-md mx-auto px-5 py-3">
+          <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <XorlaMark size={26} />
@@ -2393,62 +2455,17 @@ function XorlaApp() {
         </div>
         {renderReceiptModal()}
         {renderStockPanel()}
-        <div className="max-w-md mx-auto px-5 pt-6 pb-10">
+        <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-6 lg:pt-8 pb-10">
 
           <div className="mb-6">
             <div className="text-[12px]" style={{ color: C.inkFaint }}>Logging in as</div>
             <div className="text-[20px] font-bold cx-display">{settings.activeStaff}</div>
           </div>
 
-          <div className="rounded-2xl p-4 mb-5" style={card}>
-            <div className="text-[10.5px] uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Your sales today</div>
-            <div className="cx-mono text-[26px] font-extrabold">{fmt(myTodayTotal)}</div>
-            <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{myTodaySales.length} sale{myTodaySales.length !== 1 ? 's' : ''} logged</div>
-          </div>
-
-          {hasManyLocations && (() => {
-            const myIncoming = inTransit.filter((t) => myShops.some((s) => s.id === t.to_shop));
-            const myRequests = stockRequests.filter((r) => r.requested_by === session?.user_id).slice(0, 5);
-            const statusOf = (r) => r.status === 'pending' ? ['Waiting for approval', C.inkFaint]
-              : r.status === 'approved' ? ['On the way', C.copper]
-              : r.status === 'fulfilled' ? ['Arrived', C.sage]
-              : [`Declined${r.decline_reason ? ` — ${r.decline_reason}` : ''}`, C.rust];
-            return (
-              <div className="rounded-2xl p-4 mb-5 space-y-4" style={card}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[13.5px] font-semibold cx-display truncate">Stock for {shopNameOf(activeShopId || targetShopId)}</div>
-                    <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Running low? Ask for more here.</div>
-                  </div>
-                  <button onClick={() => { setStockError(''); setRequestForm({ lines: [{ productId: '', qty: '' }], note: '' }); setStockPanel('request'); }} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}><PackagePlus size={15} /> Request stock</button>
-                </div>
-                {stockError && !stockPanel && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{stockError}</div>}
-                {myIncoming.length > 0 && (
-                  <div>
-                    <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.copper }}>Arriving at your shop — check and confirm</div>
-                    <div className="space-y-2">{renderIncoming(myIncoming)}</div>
-                  </div>
-                )}
-                {myRequests.length > 0 && (
-                  <div>
-                    <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>My requests</div>
-                    <div className="space-y-1.5">
-                      {myRequests.map((r) => {
-                        const [label, color] = statusOf(r);
-                        return (
-                          <div key={r.id} className="flex items-start justify-between gap-3 text-[12.5px]">
-                            <span className="min-w-0" style={{ color: C.inkDim }}>{(r.items || []).map((it) => `${productName(it.productId)} ×${it.qty}`).join(', ')} <span style={{ color: C.inkFaint }}>· {fmtDay(r.created_at)}</span></span>
-                            <span className="shrink-0 font-semibold text-right" style={{ color }}>{label}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-
+          {/* Wide screens: recording on the left, today's numbers and stock on the right. Phones keep the original order. */}
+          <div className="flex flex-col lg:flex-row lg:items-start lg:gap-8">
+            <div className="contents lg:block lg:flex-1 lg:min-w-0">
+              <div className="order-3 lg:order-none">
           <div className="rounded-2xl p-5 mb-5" style={card}>
             <div className="text-[13.5px] font-semibold cx-display mb-3">Record a {T.sale}</div>
             {myShops.length > 1 && (
@@ -2518,7 +2535,8 @@ function XorlaApp() {
               <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
             </div>
           </div>
-
+              </div>
+              <div className="order-4 lg:order-none">
           {settings.allowStaffExpenses && (
             <div className="rounded-2xl p-5 mb-5" style={card}>
               <div className="text-[13.5px] font-semibold cx-display mb-3">Record an expense</div>
@@ -2547,7 +2565,61 @@ function XorlaApp() {
               </div>
             </div>
           )}
-
+              </div>
+            </div>
+            <div className="contents lg:block lg:w-[400px] lg:shrink-0">
+              <div className="order-1 lg:order-none">
+          <div className="rounded-2xl p-4 mb-5" style={card}>
+            <div className="text-[10.5px] uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Your sales today</div>
+            <div className="cx-mono text-[26px] font-extrabold">{fmt(myTodayTotal)}</div>
+            <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{myTodaySales.length} sale{myTodaySales.length !== 1 ? 's' : ''} logged</div>
+          </div>
+              </div>
+              <div className="order-2 lg:order-none">
+          {hasManyLocations && (() => {
+            const myIncoming = inTransit.filter((t) => myShops.some((s) => s.id === t.to_shop));
+            const myRequests = stockRequests.filter((r) => r.requested_by === session?.user_id).slice(0, 5);
+            const statusOf = (r) => r.status === 'pending' ? ['Waiting for approval', C.inkFaint]
+              : r.status === 'approved' ? ['On the way', C.copper]
+              : r.status === 'fulfilled' ? ['Arrived', C.sage]
+              : [`Declined${r.decline_reason ? ` — ${r.decline_reason}` : ''}`, C.rust];
+            return (
+              <div className="rounded-2xl p-4 mb-5 space-y-4" style={card}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[13.5px] font-semibold cx-display truncate">Stock for {shopNameOf(activeShopId || targetShopId)}</div>
+                    <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Running low? Ask for more here.</div>
+                  </div>
+                  <button onClick={() => { setStockError(''); setRequestForm({ lines: [{ productId: '', qty: '' }], note: '' }); setStockPanel('request'); }} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}><PackagePlus size={15} /> Request stock</button>
+                </div>
+                {stockError && !stockPanel && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{stockError}</div>}
+                {myIncoming.length > 0 && (
+                  <div>
+                    <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.copper }}>Arriving at your shop — check and confirm</div>
+                    <div className="space-y-2">{renderIncoming(myIncoming)}</div>
+                  </div>
+                )}
+                {myRequests.length > 0 && (
+                  <div>
+                    <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>My requests</div>
+                    <div className="space-y-1.5">
+                      {myRequests.map((r) => {
+                        const [label, color] = statusOf(r);
+                        return (
+                          <div key={r.id} className="flex items-start justify-between gap-3 text-[12.5px]">
+                            <span className="min-w-0" style={{ color: C.inkDim }}>{(r.items || []).map((it) => `${productName(it.productId)} ×${it.qty}`).join(', ')} <span style={{ color: C.inkFaint }}>· {fmtDay(r.created_at)}</span></span>
+                            <span className="shrink-0 font-semibold text-right" style={{ color }}>{label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+              </div>
+              <div className="order-5 lg:order-none">
           {myTodaySales.length > 0 && (
             <div className="rounded-2xl p-4" style={card}>
               <div className="text-[10.5px] uppercase tracking-wide mb-3" style={{ color: C.inkFaint }}>Logged today</div>
@@ -2564,6 +2636,9 @@ function XorlaApp() {
               </div>
             </div>
           )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -2704,7 +2779,10 @@ function XorlaApp() {
             {settingsPage === 'branding' && (
               <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
-                  <div className="text-[11px] font-medium mb-2 mt-3" style={{ color: C.inkDim }}>BUSINESS NAME</div>
+                  <div className="text-[11px] font-medium mb-2 mt-3" style={{ color: C.inkDim }}>YOUR NAME</div>
+                  <input type="text" maxLength={40} placeholder="e.g. Ikenna" value={draft.myName || ''} onChange={(e) => setDraft({ ...draft, myName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <div className="text-[11px] mt-1.5 mb-5" style={{ color: C.inkFaint }}>Your own name, shown on receipts ("Served by") and stock records. Your past records update too.</div>
+                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS NAME</div>
                   <input type="text" maxLength={60} value={draft.businessName} onChange={(e) => setDraft({ ...draft, businessName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   <div className="text-[11px] mt-1.5 mb-5" style={{ color: C.inkFaint }}>Shows on your storefront, invoices, and receipts. Saves when you tap Save.</div>
                   <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
@@ -2828,12 +2906,28 @@ function XorlaApp() {
                         <input aria-label="Shop address" placeholder="Address (optional)" value={edit.address ?? (s.address || '')} onChange={(e) => setShopEdits((p) => ({ ...p, [s.id]: { ...edit, address: e.target.value } }))} className="w-full rounded-xl px-3 py-2 text-[12.5px] outline-none" style={field} />
                         <div className="flex items-center justify-between">
                           <span className="text-[11px]" style={{ color: C.inkFaint }}>{isWarehouse ? 'Storage only — holds stock, never sells' : `${staffCount} staff assigned`}</span>
-                          {changed && <button onClick={() => saveShop(s)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save</button>}
+                          <span className="flex items-center gap-3">
+                            {s.id !== mainShopId && !changed && <button onClick={() => closeLocation(s)} className="text-[11.5px] font-medium" style={{ color: C.rust }}>Close location</button>}
+                            {changed && <button onClick={() => saveShop(s)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save</button>}
+                          </span>
                         </div>
                       </div>
                     );
                   })}
                 </div>
+                {closedLocations.length > 0 && (
+                  <div>
+                    <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Closed locations</div>
+                    <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                      {closedLocations.map((s, i) => (
+                        <div key={s.id} className="flex items-center justify-between px-4 py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                          <span className="text-[13px]" style={{ color: C.inkDim }}>{s.name}<span className="text-[11px]" style={{ color: C.inkFaint }}> · history kept</span></span>
+                          <button onClick={() => reopenLocation(s)} className="text-[12px] font-medium" style={{ color: C.sage }}>Reopen</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                   <div className="text-[13.5px] font-semibold mb-2.5">Add a location</div>
                   <div className="flex gap-1 p-1 mb-2 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
@@ -3062,7 +3156,10 @@ function XorlaApp() {
             <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: C.sageSoft, color: C.sage } : { color: C.inkDim }}>
               <Icon size={16} /> {label}
               {id === 'invoices' && needsAttention.length > 0 && (
-                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
+                <span title="Need action now" className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
+              )}
+              {id === 'invoices' && needsAttention.length === 0 && unpaidInvoiceCount > 0 && (
+                <span title="Unpaid invoices" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ border: `1.5px solid ${C.copper}`, color: C.copper }}>{unpaidInvoiceCount}</span>
               )}
               {id === 'products' && products.filter((p) => p.isLow).length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.isLow).length}</span>
@@ -3116,7 +3213,30 @@ function XorlaApp() {
             </div>
             <div className="relative flex-1 lg:flex-none lg:w-64">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
-              <input type="text" placeholder="Search invoices…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full rounded-xl pl-9 pr-3 py-2 text-[12.5px] outline-none" style={field} />
+              <input type="text" placeholder={`Search customers, ${T.catalog.toLowerCase()}, sales…`} aria-label="Search" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setSearchQuery('')} className="w-full rounded-xl pl-9 pr-8 py-2 text-[12.5px] outline-none" style={field} />
+              {searchQuery && <button onClick={() => setSearchQuery('')} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }}><X size={14} /></button>}
+              {searchQuery.trim() && tab !== 'invoices' && (() => {
+                const q = searchQuery.trim().toLowerCase();
+                const inv = invoices.filter((i) => i.clientName.toLowerCase().includes(q) || String(i.invoiceNo).toLowerCase().includes(q)).slice(0, 4);
+                const prods = products.filter((p) => p.name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q)).slice(0, 4);
+                const sls = salesAll.filter((s) => s.item.toLowerCase().includes(q) || (s.loggedBy || '').toLowerCase().includes(q)).slice(0, 4);
+                const none = !inv.length && !prods.length && !sls.length;
+                const head = (t) => <div className="px-3 pt-2.5 pb-1 text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>{t}</div>;
+                const row = (key, main, sub, onClick) => (
+                  <button key={key} onClick={onClick} className="w-full text-left px-3 py-2 flex items-center justify-between gap-3 hover:opacity-80">
+                    <span className="min-w-0 truncate text-[12.5px]" style={{ color: C.ink }}>{main}</span>
+                    <span className="shrink-0 text-[11px]" style={{ color: C.inkFaint }}>{sub}</span>
+                  </button>
+                );
+                return (
+                  <div className="absolute left-0 right-0 lg:left-auto lg:w-[360px] top-full mt-2 z-40 rounded-2xl overflow-hidden max-h-[60vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 16px 40px rgba(0,0,0,0.45)' }}>
+                    {none && <div className="px-4 py-5 text-[12.5px] text-center" style={{ color: C.inkFaint }}>Nothing matches "{searchQuery.trim()}"</div>}
+                    {inv.length > 0 && <>{head('Invoices')}{inv.map((i) => row(i.id, i.clientName, `#${i.invoiceNo} · ${fmt(Math.max(0, Number(i.amount) - Number(i.paidAmount || 0)))}`, () => setTab('invoices')))}</>}
+                    {prods.length > 0 && <>{head(T.catalog)}{prods.map((p) => row(p.id, p.name, fmt(p.sellingPrice), () => { setSearchQuery(''); setTab('products'); }))}</>}
+                    {sls.length > 0 && <>{head(`Recent ${T.salesTab.toLowerCase()}`)}{sls.map((s) => row(s.id, s.item, `${fmt(s.amount)} · ${new Date(s.soldAt || Date.now()).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`, () => { setSearchQuery(''); setViewDate(s.dateKey); setTab('sales'); }))}</>}
+                  </div>
+                );
+              })()}
             </div>
             {settings.staffList.length > 0 && <div className="hidden md:flex">{renderTeamPresence(true)}</div>}
             <button className="relative hidden sm:flex items-center justify-center w-9 h-9 rounded-xl shrink-0" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>
@@ -3799,13 +3919,25 @@ function XorlaApp() {
                             )}
                           </div>
                           {viewAllShops && hasManyLocations && p.stockQuantity !== null && (
-                            <div className="text-[10.5px] mt-1" style={{ color: C.inkFaint }}>{locations.map((s) => `${s.name}: ${stockAt(p, s.id)}`).join('  ·  ')}</div>
+                            <div className="mt-1.5 space-y-0.5 max-w-[260px]">
+                              {locations.map((s) => {
+                                const q = stockAt(p, s.id);
+                                const low = q <= p.lowStockThreshold;
+                                return (
+                                  <div key={s.id} className="flex items-center justify-between gap-3 text-[11px]">
+                                    <span className="truncate" style={{ color: C.inkFaint }}>{s.name}</span>
+                                    <span className="cx-mono font-semibold shrink-0" style={{ color: low ? C.rust : C.inkDim }}>{q}{low ? ' · low' : ''}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">
                         <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
-                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setRestockAmount(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
+                        {isOwnerRole && p.stockQuantity !== null && <button onClick={() => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); }} className="text-[11px] font-medium" style={{ color: C.inkDim }}>Fix count</button>}
+                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
                         {isOwnerRole && hasManyLocations && p.stockQuantity !== null && <button onClick={() => openSend({ productId: p.id, from: activeShopId || '' })} className="text-[11px] font-medium" style={{ color: C.copper }}>Send</button>}
                         <button onClick={() => removeProduct(p.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
                       </div>
@@ -3844,6 +3976,27 @@ function XorlaApp() {
                         <button onClick={() => handleRestock(p)} className="px-4 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Save</button>
                       </div>
                     )}
+                    {correctingId === p.id && (() => {
+                      const cShop = activeShopId || (locations.some((s) => s.id === correctShopId) ? correctShopId : mainShopId);
+                      return (
+                        <div className="rounded-xl p-3 mt-2.5 space-y-2.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                          <div className="text-[12px] font-semibold">Correct the count</div>
+                          {viewAllShops && hasManyLocations && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {locations.map((s) => (
+                                <button key={s.id} onClick={() => setCorrectShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={cShop === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name} ({stockAt(p, s.id)})</button>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <span className="flex-1 text-[12px]" style={{ color: C.inkDim }}>Real count at {shopNameOf(cShop)}</span>
+                            <input type="number" min="0" autoFocus placeholder={String(stockAt(p, cShop))} value={correctQty} onChange={(e) => setCorrectQty(e.target.value)} className="w-20 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
+                            <button onClick={() => handleCorrectCount(p)} disabled={correctQty === ''} className="px-4 py-2 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: correctQty === '' ? 0.4 : 1 }}>Save</button>
+                          </div>
+                          <div className="text-[11px] leading-relaxed" style={{ color: C.inkFaint }}>For fixing a typing mistake, or after counting what's really on the shelf. It's saved as a correction, so your stock history stays honest.</div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -4291,6 +4444,9 @@ function XorlaApp() {
             )}
             {id === 'invoices' && needsAttention.length > 0 && (
               <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
+            )}
+            {id === 'invoices' && needsAttention.length === 0 && unpaidInvoiceCount > 0 && (
+              <span className="absolute top-1.5 right-[22%] min-w-[16px] h-4 px-0.5 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.bg, border: `1.5px solid ${C.copper}`, color: C.copper }}>{unpaidInvoiceCount}</span>
             )}
             {id === 'products' && products.filter((p) => p.isLow).length > 0 && (
               <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.isLow).length}</span>
