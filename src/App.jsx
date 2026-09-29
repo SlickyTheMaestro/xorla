@@ -990,6 +990,7 @@ function XorlaApp() {
   const [ordersAll, setOrders] = useState([]);
   const [shops, setShops] = useState([]);
   const [staffShops, setStaffShops] = useState([]);
+  const [staffPresence, setStaffPresence] = useState([]);
   const [currentShopId, setCurrentShopId] = useState('all');
   const [recordShopId, setRecordShopId] = useState(null);
   const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '', storefrontEnabled: false, heroImageUrl: null, storefrontTagline: '', autoReminders: false, summaryFrequency: 'off' });
@@ -1219,7 +1220,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
@@ -1227,6 +1228,7 @@ function XorlaApp() {
         sbRest('orders', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('shops', { accessToken, query: '?select=*&order=created_at.asc' }).catch(() => []),
         sbRest('staff_shops', { accessToken, query: '?select=*' }).catch(() => []),
+        sbRest('profiles', { accessToken, query: '?role=eq.staff&select=id,name,last_seen_at' }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
@@ -1235,10 +1237,21 @@ function XorlaApp() {
       setOrders(orderRows.map(fromSbOrder));
       setShops(shopRows);
       setStaffShops(staffShopRows);
+      setStaffPresence(presenceRows);
     } catch (e) {
       console.error('Loading business data failed:', e);
     }
   }, []);
+
+  // Staff apps quietly report "I'm here" once a minute while open, so the owner can see who's online
+  useEffect(() => {
+    if (settings.role !== 'staff' || !session?.access_token) return;
+    const ping = () => { if (document.visibilityState === 'visible') sbRpc('touch_last_seen', session.access_token, {}).catch(() => {}); };
+    ping();
+    const t = setInterval(ping, 60 * 1000);
+    document.addEventListener('visibilitychange', ping);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', ping); };
+  }, [settings.role, session?.access_token]);
 
   // Renew the login token every 45 minutes while the app stays open (tokens expire after about an hour),
   // so saves and Oga keep working for owners who leave Xorla open all day
@@ -1829,6 +1842,40 @@ function XorlaApp() {
   const card = { background: 'rgba(19,50,44,0.55)', backdropFilter: 'blur(16px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 1px 1px rgba(0,0,0,0.2), 0 16px 40px -20px rgba(0,0,0,0.7)' };
 
   // One pill, top of every screen, only once there's a second shop
+  // Team presence: who has Xorla open right now, and who's been active today. Tapping someone opens their sales.
+  const presenceOf = (name) => {
+    const p = staffPresence.find((x) => x.name === name);
+    const seen = p?.last_seen_at ? new Date(p.last_seen_at) : null;
+    const online = !!seen && Date.now() - seen.getTime() < 150 * 1000;
+    const salesToday = salesAll.filter((s) => s.loggedBy === name && s.dateKey === todayKey()).length;
+    let label = online ? 'Online' : 'Not seen yet';
+    if (!online && seen) {
+      const mins = Math.round((Date.now() - seen.getTime()) / 60000);
+      label = mins < 60 ? `Seen ${mins}m ago` : mins < 1440 ? `Seen ${Math.round(mins / 60)}h ago` : `Seen ${seen.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+    }
+    return { online, label, salesToday };
+  };
+  const renderTeamPresence = (compact) => (
+    <div className="flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+      {!compact && <span className="text-[11px] font-medium shrink-0 mr-0.5" style={{ color: C.inkFaint }}>Team</span>}
+      {settings.staffList.map((s) => {
+        const pr = presenceOf(s.name);
+        return (
+          <button key={s.id} onClick={() => { setStaffFilter(s.name); setTab('sales'); }} title={`${pr.label}${pr.salesToday ? ` · ${pr.salesToday} ${T.sale}${pr.salesToday !== 1 ? 's' : ''} today` : ''}`} className="shrink-0 flex items-center gap-2 pl-2.5 pr-3 py-1.5 rounded-full text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            <span className="relative flex w-2 h-2 shrink-0">
+              {pr.online && <span className="absolute inline-flex w-full h-full rounded-full animate-ping" style={{ background: C.sage, opacity: 0.6 }} />}
+              <span className="relative inline-flex w-2 h-2 rounded-full" style={{ background: pr.online ? C.sage : C.inkFaint }} />
+            </span>
+            <span className="leading-tight">
+              <span className="block text-[12px] font-semibold" style={{ color: C.ink }}>{s.name}</span>
+              {!compact && <span className="block text-[10px]" style={{ color: pr.online ? C.sage : C.inkFaint }}>{pr.label}{pr.salesToday ? ` · ${pr.salesToday} today` : ''}</span>}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   const renderShopSwitcher = () => showShopSwitcher && (
     <div className="flex items-center gap-2 mb-5">
       <label className="relative flex items-center gap-2 pl-3.5 pr-9 py-2.5 rounded-full cursor-pointer" style={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong || C.line}` }}>
@@ -1882,6 +1929,14 @@ function XorlaApp() {
 
           <div className="rounded-2xl p-5 mb-5" style={card}>
             <div className="text-[13.5px] font-semibold cx-display mb-3">Record a {T.sale}</div>
+            {myShops.length > 1 && (
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2 mb-3 text-[12px]" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
+                <Store size={14} style={{ color: C.copper }} />
+                <span style={{ color: C.inkDim }}>Recording for</span>
+                <span className="font-semibold" style={{ color: C.ink }}>{shopNameOf(activeShopId)}</span>
+                <span className="ml-auto text-[11px]" style={{ color: C.inkFaint }}>change at the top</span>
+              </div>
+            )}
             <div className="space-y-2.5">
               {products.length > 0 && (
                 <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
@@ -1939,6 +1994,14 @@ function XorlaApp() {
           {settings.allowStaffExpenses && (
             <div className="rounded-2xl p-5 mb-5" style={card}>
               <div className="text-[13.5px] font-semibold cx-display mb-3">Record an expense</div>
+              {myShops.length > 1 && (
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2 mb-3 text-[12px]" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
+                <Store size={14} style={{ color: C.copper }} />
+                <span style={{ color: C.inkDim }}>Recording for</span>
+                <span className="font-semibold" style={{ color: C.ink }}>{shopNameOf(activeShopId)}</span>
+                <span className="ml-auto text-[11px]" style={{ color: C.inkFaint }}>change at the top</span>
+              </div>
+            )}
               <div className="space-y-2.5">
                 <input type="text" placeholder="What did you spend on?" value={expenseForm.item} onChange={(e) => setExpenseForm({ ...expenseForm, item: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <input type="text" inputMode="decimal" placeholder="Amount (₦)" value={formatNumInput(expenseForm.amount)} onChange={(e) => setExpenseForm({ ...expenseForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
@@ -2430,17 +2493,18 @@ function XorlaApp() {
   }
 
   return (
-    <div className="min-h-screen flex cx-body relative overflow-x-hidden" style={{ background: `radial-gradient(circle at 15% 0%, ${C.surface} 0%, ${C.bg} 45%)`, color: C.ink }}>
+    <div className="min-h-screen flex cx-body relative overflow-x-clip" style={{ background: `radial-gradient(circle at 15% 0%, ${C.surface} 0%, ${C.bg} 45%)`, color: C.ink }}>
       {fontStyle}
       <div className="xorla-orb" style={{ width: 500, height: 500, top: '-15%', left: '20%', background: C.sage, opacity: 0.06, position: 'fixed' }} />
 
       {/* Sidebar — desktop only */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 min-h-screen px-5 py-6 relative z-10" style={{ borderRight: `1px solid ${C.line}` }}>
+      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen px-5 py-6 z-20" style={{ borderRight: `1px solid ${C.line}` }}>
         <div className="flex items-center gap-2.5 mb-9 px-1">
           <div style={{ filter: `drop-shadow(0 0 12px ${C.sageSoft})` }}><XorlaMark size={30} /></div>
           <div className="cx-display text-[19px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</div>
         </div>
 
+        <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1" style={{ scrollbarWidth: 'thin' }}>
         <nav className="space-y-1 mb-6">
           {[
             { id: 'overview', label: 'Overview', Icon: Home },
@@ -2472,8 +2536,9 @@ function XorlaApp() {
           <div className="text-[11px] leading-relaxed mb-3" style={{ color: C.inkDim }}>Reminders that sound like you, in the language your customers speak.</div>
           <button onClick={() => setTab('invoices')} className="w-full rounded-lg py-2 text-[11.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Try it</button>
         </div>
+        </div>
 
-        <div className="mt-auto space-y-1">
+        <div className="pt-3 space-y-1 shrink-0" style={{ borderTop: `1px solid ${C.line}` }}>
           {settings.pin && (
             <button onClick={() => setLocked(true)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkFaint }}><Lock size={15} /> Lock app</button>
           )}
@@ -2486,7 +2551,7 @@ function XorlaApp() {
       <div className="flex-1 min-w-0 relative z-10">
 
         {/* Mobile brand bar */}
-        <div className="lg:hidden flex items-center justify-between px-5 pt-6 pb-1">
+        <div className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-5 pb-3" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))', background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderBottom: `1px solid ${C.line}` }}>
           <div className="flex items-center gap-2">
             <XorlaMark size={26} />
             <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
@@ -2509,13 +2574,7 @@ function XorlaApp() {
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
               <input type="text" placeholder="Search invoices…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full rounded-xl pl-9 pr-3 py-2 text-[12.5px] outline-none" style={field} />
             </div>
-            {settings.staffList.length > 0 && (
-              <div className="hidden md:flex items-center gap-1.5">
-                {settings.staffList.slice(0, 3).map((s) => (
-                  <button key={s.id} onClick={() => updateSettings({ activeStaff: s.name })} className="px-2.5 py-1.5 rounded-full text-[11px] font-medium" style={settings.activeStaff === s.name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
-                ))}
-              </div>
-            )}
+            {settings.staffList.length > 0 && <div className="hidden md:flex">{renderTeamPresence(true)}</div>}
             <button className="relative hidden sm:flex items-center justify-center w-9 h-9 rounded-xl shrink-0" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>
               <Bell size={15} />
               {needsAttention.length > 0 && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full" style={{ background: C.rust }} />}
@@ -2527,15 +2586,8 @@ function XorlaApp() {
             </button>
           </div>
 
-          {/* Mobile staff switcher */}
-          {settings.staffList.length > 0 && (
-            <div className="md:hidden flex items-center gap-2 mb-5 overflow-x-auto">
-              <span className="text-[11px] shrink-0" style={{ color: C.inkFaint }}>Logging as</span>
-              {settings.staffList.map((s) => (
-                <button key={s.id} onClick={() => updateSettings({ activeStaff: s.name })} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium shrink-0" style={settings.activeStaff === s.name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
-              ))}
-            </div>
-          )}
+          {/* Team presence (owner only) */}
+          {settings.staffList.length > 0 && <div className="md:hidden mb-4">{renderTeamPresence(false)}</div>}
           <div className="lg:hidden text-[11px] mb-6 mt-3" style={{ color: C.inkFaint }}>Sold something? Use Sales. Billing without a sale now? Use Invoices.</div>
 
           {/* ============ OVERVIEW TAB ============ */}
