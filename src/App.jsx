@@ -60,11 +60,11 @@ async function sbSetNewPassword(accessToken, password) {
   return data;
 }
 
-async function sbRest(table, { method = 'GET', accessToken, query = '', body } = {}) {
+async function sbRest(table, { method = 'GET', accessToken, query = '', body, upsert = false } = {}) {
   // With no real session (public storefront visitors), authenticate as the anon key itself —
   // this is what lets Postgres correctly resolve the request as role "anon" for public RLS policies.
   const headers = { apikey: SB_KEY, 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken || SB_KEY}` };
-  if (method !== 'GET') headers.Prefer = 'return=representation';
+  if (method !== 'GET') headers.Prefer = upsert ? 'return=representation,resolution=merge-duplicates' : 'return=representation';
   const res = await fetch(`${SB_URL}/rest/v1/${table}${query}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   if (res.status === 204) return [];
   const data = await res.json();
@@ -400,7 +400,7 @@ function timeLabel(iso) { return new Date(iso).toLocaleTimeString('en-GB', { hou
 function dateKeyOf(iso) { return new Date(iso).toLocaleDateString('sv-SE'); }
 
 function fromSbSale(row) {
-  return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null, shopId: row.shop_id || null };
+  return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, soldAt: row.sold_at, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null, shopId: row.shop_id || null };
 }
 function fromSbInvoice(row) {
   return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '', notes: row.notes || '', autoReminderCount: row.auto_reminder_count || 0, shopId: row.shop_id || null };
@@ -409,7 +409,7 @@ function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '', shopId: row.shop_id || null };
 }
 function fromSbProduct(row) {
-  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), lowStockThreshold: row.low_stock_threshold ?? 5, category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
+  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 function fromSbOrder(row) {
   return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null };
@@ -986,7 +986,8 @@ function XorlaApp() {
   const [invoicesAll, setInvoices] = useState([]);
   const [salesAll, setSales] = useState([]);
   const [expensesAll, setExpenses] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [productsAll, setProducts] = useState([]);
+  const [productShops, setProductShops] = useState([]);
   const [ordersAll, setOrders] = useState([]);
   const [shops, setShops] = useState([]);
   const [staffShops, setStaffShops] = useState([]);
@@ -1015,6 +1016,38 @@ function XorlaApp() {
   const expenses = expensesAll.filter(inActiveShop);
   const invoices = invoicesAll.filter(inActiveShop);
   const orders = ordersAll.filter(inActiveShop);
+
+  // Per-shop stock and prices. Viewing one shop shows its numbers; "All shops" shows totals.
+  const shopRow = (productId, shopId) => productShops.find((r) => r.product_id === productId && r.shop_id === shopId);
+  const stockAt = (p, shopId) => Number(shopRow(p.id, shopId)?.stock_quantity || 0);
+  const priceAt = (p, shopId) => {
+    const o = shopId ? shopRow(p.id, shopId)?.price_override : null;
+    return o !== null && o !== undefined ? Number(o) : Number(p.sellingPrice);
+  };
+  const stockShopIds = activeShopId ? [activeShopId] : myShops.map((s) => s.id);
+  const products = productsAll.map((p) => {
+    const tracked = p.trackStock && kindOf(p, settings.businessType) === 'product';
+    const lowShops = tracked ? stockShopIds.filter((id) => stockAt(p, id) <= p.lowStockThreshold) : [];
+    return {
+      ...p,
+      basePrice: Number(p.sellingPrice),
+      sellingPrice: priceAt(p, activeShopId || targetShopId),
+      stockQuantity: tracked ? stockShopIds.reduce((a, id) => a + stockAt(p, id), 0) : null,
+      lowShops: lowShops.map(shopNameOf),
+      isLow: T.tracksStock && lowShops.length > 0,
+    };
+  });
+  const hasShopPrices = (p) => productShops.some((r) => r.product_id === p.id && r.price_override !== null && r.price_override !== undefined);
+  const setLocalStock = (productId, shopId, qty) => setProductShops((prev) => {
+    const exists = prev.some((r) => r.product_id === productId && r.shop_id === shopId);
+    return exists ? prev.map((r) => (r.product_id === productId && r.shop_id === shopId ? { ...r, stock_quantity: qty } : r)) : [...prev, { product_id: productId, shop_id: shopId, stock_quantity: qty, price_override: null }];
+  });
+  // Every stock change goes through one safe database step, so simultaneous sales can't overwrite each other
+  const changeStock = async (productId, shopId, change, reason) => {
+    const next = await sbRpc('adjust_stock', session.access_token, { p_product_id: productId, p_shop_id: shopId, p_change: change, p_reason: reason });
+    setLocalStock(productId, shopId, Number(next));
+    return Number(next);
+  };
   const [loaded, setLoaded] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
@@ -1135,6 +1168,9 @@ function XorlaApp() {
   const [restockingId, setRestockingId] = useState(null);
   const [editingProductId, setEditingProductId] = useState(null);
   const [restockAmount, setRestockAmount] = useState('');
+  const [restockShopId, setRestockShopId] = useState(null);
+  const [transferringId, setTransferringId] = useState(null);
+  const [transferForm, setTransferForm] = useState({ from: '', to: '', qty: '' });
   const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null });
   const formIsService = settings.businessType === 'services' || (settings.businessType === 'both' && productForm.kind === 'service');
   const fieldLabel = 'text-[10.5px] font-semibold tracking-wide mb-1.5';
@@ -1176,6 +1212,8 @@ function XorlaApp() {
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [savingSale, setSavingSale] = useState(false);
+  const [receipt, setReceipt] = useState(null);
+  const [paperWidth, setPaperWidth] = useState(() => { try { return localStorage.getItem('xorla:paper') || '58'; } catch (e) { return '58'; } });
   const [cartMode, setCartMode] = useState(false);
   const [cartItems, setCartItems] = useState([{ productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }]);
   const [savingExpense, setSavingExpense] = useState(false);
@@ -1220,7 +1258,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
@@ -1229,6 +1267,7 @@ function XorlaApp() {
         sbRest('shops', { accessToken, query: '?select=*&order=created_at.asc' }).catch(() => []),
         sbRest('staff_shops', { accessToken, query: '?select=*' }).catch(() => []),
         sbRest('profiles', { accessToken, query: '?role=eq.staff&select=id,name,last_seen_at' }).catch(() => []),
+        sbRest('product_shops', { accessToken, query: '?select=*' }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
@@ -1238,6 +1277,7 @@ function XorlaApp() {
       setShops(shopRows);
       setStaffShops(staffShopRows);
       setStaffPresence(presenceRows);
+      setProductShops(productShopRows);
     } catch (e) {
       console.error('Loading business data failed:', e);
     }
@@ -1478,14 +1518,12 @@ function XorlaApp() {
         const product = products.find((p) => p.id === saleForm.productId);
         if (product && product.stockQuantity !== null) {
           const qtySold = Math.max(1, Number(saleForm.quantity) || 1);
-          const newStock = Math.max(0, product.stockQuantity - qtySold);
-          try {
-            await sbRest(`products?id=eq.${saleForm.productId}`, { method: 'PATCH', accessToken: session.access_token, body: { stock_quantity: newStock } });
-            setProducts((prev) => prev.map((p) => p.id === saleForm.productId ? { ...p, stockQuantity: newStock } : p));
-          } catch (e) { console.error('Stock update failed:', e); }
+          try { await changeStock(product.id, targetShopId, -qtySold, 'sale'); }
+          catch (e) { console.error('Stock update failed:', e); }
         }
       }
 
+      setReceipt(makeReceipt({ id: newSale.id, items: [{ name: saleForm.item, amount: Number(saleForm.amount) }], total: saleForm.amount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId }));
       setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
       setShowSaleForm(false);
     } catch (e) { console.error(e); alert(e.message); } finally { setSavingSale(false); }
@@ -1525,9 +1563,8 @@ function XorlaApp() {
         if (it.productId) {
           const product = products.find((p) => p.id === it.productId);
           if (product && product.stockQuantity !== null) {
-            const newStock = Math.max(0, product.stockQuantity - it.quantity);
-            await sbRest(`products?id=eq.${it.productId}`, { method: 'PATCH', accessToken: session.access_token, body: { stock_quantity: newStock } });
-            setProducts((prev) => prev.map((p) => p.id === it.productId ? { ...p, stockQuantity: newStock } : p));
+            try { await changeStock(product.id, targetShopId, -it.quantity, 'sale'); }
+            catch (e) { console.error('Stock update failed:', e); }
           }
         }
       }
@@ -1540,6 +1577,7 @@ function XorlaApp() {
         setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
 
+      setReceipt(makeReceipt({ id: newSales[0]?.id, items: cleanItems.map((it) => ({ name: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice })), total: totalAmount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId }));
       setCartItems([{ productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }]);
       setSaleForm((f) => ({ ...f, fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '' }));
       setShowSaleForm(false);
@@ -1617,13 +1655,38 @@ function XorlaApp() {
         const path = `${settings.businessId}/${Date.now()}.jpg`;
         imageUrl = await sbUploadImage(session.access_token, productForm.imageBlob, path);
       }
+      let savedId = editingProductId;
       if (editingProductId) {
         const existing = products.find((p) => p.id === editingProductId);
-        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { stock_quantity: null } : {}) } });
+        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) } });
         setProducts((prev) => prev.map((p) => p.id === editingProductId ? fromSbProduct(rows[0]) : p).sort((a, b) => a.name.localeCompare(b.name)));
       } else {
-        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, stock_quantity: formIsService || productForm.stockQuantity === '' ? null : Number(productForm.stockQuantity), low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '' } });
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '' } });
         setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
+        const startQty = Number(productForm.stockQuantity);
+        if (!formIsService && productForm.stockQuantity !== '' && startQty > 0) await changeStock(rows[0].id, targetShopId, startQty, 'initial');
+        savedId = rows[0].id;
+      }
+      // Optional per-shop prices: blank means "use the normal price"
+      if (isOwnerRole && shops.length > 1 && savedId) {
+        const changes = shops.map((s) => {
+          const raw = String((productForm.shopPrices || {})[s.id] ?? '').trim();
+          const value = raw === '' ? null : Number(parseNumInput(raw));
+          const had = shopRow(savedId, s.id)?.price_override;
+          return { shop: s.id, value: Number.isFinite(value) ? value : null, changed: (had ?? null) !== (Number.isFinite(value) ? value : null) };
+        }).filter((x) => x.changed);
+        if (changes.length) {
+          await sbRest('product_shops', { method: 'POST', accessToken: session.access_token, upsert: true, body: changes.map((x) => ({ product_id: savedId, shop_id: x.shop, price_override: x.value })) });
+          setProductShops((prev) => {
+            let next = [...prev];
+            changes.forEach((x) => {
+              const i = next.findIndex((r) => r.product_id === savedId && r.shop_id === x.shop);
+              if (i >= 0) next[i] = { ...next[i], price_override: x.value };
+              else next.push({ product_id: savedId, shop_id: x.shop, stock_quantity: null, price_override: x.value });
+            });
+            return next;
+          });
+        }
       }
       setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null });
       setEditingProductId(null);
@@ -1647,9 +1710,8 @@ function XorlaApp() {
         if (item.productId) {
           const product = products.find((p) => p.id === item.productId);
           if (product && product.stockQuantity !== null) {
-            const newStock = Math.max(0, product.stockQuantity - item.quantity);
-            await sbRest(`products?id=eq.${item.productId}`, { method: 'PATCH', accessToken: session.access_token, body: { stock_quantity: newStock } });
-            setProducts((prev) => prev.map((p) => p.id === item.productId ? { ...p, stockQuantity: newStock } : p));
+            try { await changeStock(product.id, order.shopId || mainShopId, -item.quantity, 'order'); }
+            catch (e) { console.error('Stock update failed:', e); }
           }
         }
       }
@@ -1671,12 +1733,28 @@ function XorlaApp() {
   const handleRestock = async (product) => {
     const added = Number(restockAmount);
     if (!added || added < 0) return;
-    const newStock = (product.stockQuantity || 0) + added;
+    const shopId = activeShopId || (shops.some((s) => s.id === restockShopId) ? restockShopId : mainShopId);
     try {
-      await sbRest(`products?id=eq.${product.id}`, { method: 'PATCH', accessToken: session.access_token, body: { stock_quantity: newStock } });
-      setProducts((prev) => prev.map((p) => p.id === product.id ? { ...p, stockQuantity: newStock } : p));
+      if (!product.trackStock) {
+        await sbRest(`products?id=eq.${product.id}`, { method: 'PATCH', accessToken: session.access_token, body: { track_stock: true } });
+        setProducts((prev) => prev.map((p) => (p.id === product.id ? { ...p, trackStock: true } : p)));
+      }
+      await changeStock(product.id, shopId, added, product.trackStock ? 'restock' : 'initial');
       setRestockingId(null);
       setRestockAmount('');
+    } catch (e) { alert(e.message); }
+  };
+
+  // Move stock between shops (owner)
+  const handleTransfer = async (product) => {
+    const qty = Number(transferForm.qty);
+    if (!qty || qty <= 0 || !transferForm.from || !transferForm.to) return;
+    try {
+      await sbRpc('transfer_stock', session.access_token, { p_product_id: product.id, p_from_shop: transferForm.from, p_to_shop: transferForm.to, p_qty: qty });
+      setLocalStock(product.id, transferForm.from, stockAt(product, transferForm.from) - qty);
+      setLocalStock(product.id, transferForm.to, stockAt(product, transferForm.to) + qty);
+      setTransferringId(null);
+      setTransferForm({ from: '', to: '', qty: '' });
     } catch (e) { alert(e.message); }
   };
 
@@ -1893,6 +1971,124 @@ function XorlaApp() {
     </div>
   );
 
+  // ---------- Receipts ----------
+  const makeReceipt = ({ id, items, total, owed, customerName, customerPhone, shopId, when }) => ({
+    no: String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase(),
+    date: new Date(when || Date.now()),
+    shopName: shops.length > 1 ? shopNameOf(shopId) : '',
+    staff: settings.activeStaff || '',
+    items, total: Number(total) || 0, owed: Number(owed) || 0,
+    paid: Math.max(0, (Number(total) || 0) - (Number(owed) || 0)),
+    customerName: customerName || '', customerPhone: customerPhone || '',
+  });
+  const receiptFromSale = (s) => makeReceipt({ id: s.id, items: [{ name: s.item, amount: Number(s.amount) }], total: s.amount, owed: s.owed, shopId: s.shopId, when: s.soldAt || Date.now() });
+  const receiptText = (r) => {
+    const line = '--------------------------------';
+    return [
+      settings.businessName, r.shopName, settings.businessAddress, settings.ownerPhone ? formatPhoneDisplay(settings.ownerPhone) : '', line,
+      `Receipt #${r.no}`, r.date.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      r.staff ? `Served by: ${r.staff}` : '', r.customerName ? `Customer: ${r.customerName}` : '', line,
+      ...r.items.map((it) => `${it.name}  ${fmt(it.amount)}`), line,
+      `TOTAL: ${fmt(r.total)}`, `Paid: ${fmt(r.paid)}`, r.owed > 0 ? `Balance owed: ${fmt(r.owed)}` : '', line,
+      'Thank you for your business!',
+    ].filter(Boolean).join('\n');
+  };
+  const printReceipt = () => {
+    try { localStorage.setItem('xorla:paper', paperWidth); } catch (e) {}
+    const style = document.createElement('style');
+    style.textContent = `@page { size: ${paperWidth}mm auto; margin: 0; }
+      @media print {
+        body * { visibility: hidden !important; }
+        .xorla-print-area, .xorla-print-area * { visibility: visible !important; }
+        .xorla-print-area { position: fixed !important; left: 0 !important; top: 0 !important; width: ${paperWidth}mm !important; max-width: none !important; margin: 0 !important; padding: 3mm !important; box-shadow: none !important; border-radius: 0 !important; }
+      }`;
+    document.head.appendChild(style);
+    setTimeout(() => { window.print(); setTimeout(() => style.remove(), 500); }, 50);
+  };
+
+  const renderReceiptModal = () => receipt && (
+    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center p-0 sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={() => setReceipt(null)}>
+      <div className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2 text-[15px] font-semibold cx-display"><Check size={17} style={{ color: C.sage }} /> {T.sale === 'job' ? 'Job' : 'Sale'} saved</div>
+          <button onClick={() => setReceipt(null)} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
+        </div>
+
+        <div className="flex justify-center mb-4 rounded-2xl py-4" style={{ background: C.bg }}>
+          <div className="xorla-print-area" style={{ width: paperWidth === '80' ? 300 : 230, background: '#fff', color: '#111', fontFamily: "'Courier New', ui-monospace, monospace", fontSize: 11.5, lineHeight: 1.45, padding: '14px 12px', boxShadow: '0 6px 20px rgba(0,0,0,0.35)' }}>
+            <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 14 }}>{settings.businessName}</div>
+            {receipt.shopName && <div style={{ textAlign: 'center' }}>{receipt.shopName}</div>}
+            {settings.businessAddress && <div style={{ textAlign: 'center' }}>{settings.businessAddress}</div>}
+            {settings.ownerPhone && <div style={{ textAlign: 'center' }}>{formatPhoneDisplay(settings.ownerPhone)}</div>}
+            <div style={{ borderTop: '1px dashed #999', margin: '8px 0' }} />
+            <div>Receipt #{receipt.no}</div>
+            <div>{receipt.date.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+            {receipt.staff && <div>Served by: {receipt.staff}</div>}
+            {receipt.customerName && <div>Customer: {receipt.customerName}</div>}
+            <div style={{ borderTop: '1px dashed #999', margin: '8px 0' }} />
+            {receipt.items.map((it, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ wordBreak: 'break-word' }}>{it.name}</span>
+                <span style={{ whiteSpace: 'nowrap' }}>{fmt(it.amount)}</span>
+              </div>
+            ))}
+            <div style={{ borderTop: '1px dashed #999', margin: '8px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 13 }}><span>TOTAL</span><span>{fmt(receipt.total)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Paid</span><span>{fmt(receipt.paid)}</span></div>
+            {receipt.owed > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>Balance owed</span><span>{fmt(receipt.owed)}</span></div>}
+            <div style={{ borderTop: '1px dashed #999', margin: '8px 0' }} />
+            <div style={{ textAlign: 'center' }}>Thank you for your business!</div>
+            <div style={{ textAlign: 'center', fontSize: 9.5, color: '#666', marginTop: 4 }}>Powered by Xorla</div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[12px]" style={{ color: C.inkDim }}>Receipt paper</span>
+          <div className="flex gap-1 p-1 rounded-lg" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            {['58', '80'].map((w) => (
+              <button key={w} onClick={() => { setPaperWidth(w); try { localStorage.setItem('xorla:paper', w); } catch (e) {} }} className="px-3 py-1 rounded-md text-[12px] font-semibold" style={paperWidth === w ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{w}mm</button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <button onClick={printReceipt} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Print receipt</button>
+          <a href={`https://wa.me/${receipt.customerPhone ? toWhatsAppNumber(receipt.customerPhone) : ''}?text=${encodeURIComponent(receiptText(receipt))}`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Send size={15} /> Send on WhatsApp</a>
+          <button onClick={() => setReceipt(null)} className="w-full py-2.5 text-[13px] font-medium" style={{ color: C.inkFaint }}>Done</button>
+        </div>
+        <div className="text-[11px] text-center mt-2 leading-relaxed" style={{ color: C.inkFaint }}>Printing works with printers your phone or computer can connect to, including most Bluetooth receipt printers.</div>
+      </div>
+    </div>
+  );
+
+  const cartTotalNow = cartItems.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0);
+  const renderCartEditor = () => (
+<div className="rounded-xl p-3 space-y-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                    <div className="text-[10.5px] mb-1" style={{ color: C.inkFaint }}>Everything this one customer is buying right now.</div>
+                    {cartItems.map((it, idx) => (
+                      <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
+                        {products.length > 0 && (
+                          <select value={it.productId} onChange={(e) => applyProductToCartRow(idx, e.target.value)} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                            <option value="">Pick {T.Item === 'Item' ? 'an' : 'a'} {T.item}… (optional)</option>
+                            {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
+                          </select>
+                        )}
+                        <div className="flex gap-1.5 items-center">
+                          <input type="text" placeholder="Item" value={it.description} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], description: e.target.value }; setCartItems(items); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
+                          <input type="number" min="1" placeholder="Qty" value={it.quantity} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], quantity: e.target.value }; setCartItems(items); }} className="w-14 rounded-lg px-2 py-2 text-[12.5px] text-center outline-none cx-mono" style={field} />
+                          <input type="text" inputMode="decimal" placeholder="₦ each" value={formatNumInput(it.unitPrice)} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], unitPrice: parseNumInput(e.target.value) }; setCartItems(items); }} className="w-20 min-w-0 shrink-0 rounded-lg px-2 py-2 text-[12.5px] outline-none cx-mono" style={field} />
+                          {cartItems.length > 1 && (
+                            <button onClick={() => setCartItems(cartItems.filter((_, i) => i !== idx))} style={{ color: C.inkFaint }}><X size={14} /></button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    <button onClick={() => setCartItems([...cartItems, { productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }])} className="text-[11.5px] font-medium" style={{ color: C.sage }}>+ Add another item</button>
+                    <div className="text-[13px] font-semibold pt-1" style={{ color: C.ink, borderTop: `1px solid ${C.line}` }}>
+                      Basket total: {fmt(cartItems.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0))}
+                    </div>
+                  </div>
+  );
+
   const renderShopSwitcher = () => showShopSwitcher && (
     <div className="flex items-center gap-2 mb-5">
       <label className="relative flex items-center gap-2 pl-3.5 pr-9 py-2.5 rounded-full cursor-pointer" style={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong || C.line}` }}>
@@ -1923,15 +2119,20 @@ function XorlaApp() {
     return (
       <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
-        <div className="max-w-md mx-auto px-5 py-8">
-          {renderShopSwitcher()}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <XorlaMark size={26} />
-              <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
+        <div className="sticky top-0 z-30" style={{ paddingTop: 'env(safe-area-inset-top)', background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderBottom: `1px solid ${C.line}` }}>
+          <div className="max-w-md mx-auto px-5 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <XorlaMark size={26} />
+                <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
+              </div>
+              <button onClick={logout} className="flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LogOut size={13} /> Log out</button>
             </div>
-            <button onClick={logout} className="flex items-center gap-1.5 text-[12px]" style={{ color: C.inkFaint }}><LogOut size={13} /> Log out</button>
+            {showShopSwitcher && <div className="mt-2.5">{renderShopSwitcher()}</div>}
           </div>
+        </div>
+        {renderReceiptModal()}
+        <div className="max-w-md mx-auto px-5 pt-6 pb-10">
 
           <div className="mb-6">
             <div className="text-[12px]" style={{ color: C.inkFaint }}>Logging in as</div>
@@ -1955,6 +2156,10 @@ function XorlaApp() {
               </div>
             )}
             <div className="space-y-2.5">
+              <button type="button" onClick={() => setCartMode(!cartMode)} className="flex items-center gap-1.5 text-[12px] font-medium py-0.5" style={{ color: C.copper }}>
+                {cartMode ? '− Just one item instead' : '+ Customer buying several different things?'}
+              </button>
+              {!cartMode && (<>
               {products.length > 0 && (
                 <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                   <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK {T.Item === 'Item' ? 'AN' : 'A'} {T.Item.toUpperCase()} (OPTIONAL)</div>
@@ -1977,6 +2182,8 @@ function XorlaApp() {
                 <input type="text" inputMode="decimal" placeholder={T.amountPh} value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <input type="text" inputMode="decimal" placeholder={T.costPh} value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
               </div>
+              </>)}
+              {cartMode && renderCartEditor()}
               <div>
                 <div className="text-[11.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>Did they pay the full amount?</div>
                 <div className="flex gap-1.5">
@@ -1999,12 +2206,12 @@ function XorlaApp() {
                     </div>
                   </div>
                   <div className="text-[10.5px]" style={{ color: C.inkFaint }}>Leave the date blank and we'll default to 7 days from now.</div>
-                  {saleForm.amount && (
-                    <div className="text-xs font-medium" style={{ color: C.rust }}>Balance owed: {fmt(Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0)))}</div>
+                  {(cartMode ? cartTotalNow > 0 : saleForm.amount) && (
+                    <div className="text-xs font-medium" style={{ color: C.rust }}>Balance owed: {fmt(Math.max(0, (cartMode ? cartTotalNow : Number(saleForm.amount)) - Number(saleForm.paidNow || 0)))}</div>
                   )}
                 </div>
               )}
-              <button onClick={addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
+              <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
             </div>
           </div>
 
@@ -2037,9 +2244,12 @@ function XorlaApp() {
               <div className="text-[10.5px] uppercase tracking-wide mb-3" style={{ color: C.inkFaint }}>Logged today</div>
               <div className="space-y-2.5">
                 {myTodaySales.map((s) => (
-                  <div key={s.id} className="flex items-center justify-between text-[12.5px]">
-                    <span style={{ color: C.inkDim }}>{s.item} · {s.time}</span>
-                    <span className="cx-mono font-medium">{fmt(s.amount)}</span>
+                  <div key={s.id} className="flex items-center justify-between gap-3 text-[12.5px]">
+                    <span className="min-w-0 truncate" style={{ color: C.inkDim }}>{s.item} · {s.time}</span>
+                    <span className="flex items-center gap-3 shrink-0">
+                      <span className="cx-mono font-medium">{fmt(s.amount)}</span>
+                      <button onClick={() => setReceipt(receiptFromSale(s))} className="text-[11px] font-medium" style={{ color: C.copper }}>Receipt</button>
+                    </span>
                   </div>
                 ))}
               </div>
@@ -2537,8 +2747,8 @@ function XorlaApp() {
               {id === 'invoices' && needsAttention.length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
               )}
-              {id === 'products' && products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length > 0 && (
-                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length}</span>
+              {id === 'products' && products.filter((p) => p.isLow).length > 0 && (
+                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.isLow).length}</span>
               )}
               {id === 'orders' && orders.filter((o) => o.status === 'pending').length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{orders.filter((o) => o.status === 'pending').length}</span>
@@ -2941,33 +3151,7 @@ function XorlaApp() {
                   </>
                 )}
 
-                {cartMode && (
-                  <div className="rounded-xl p-3 space-y-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-                    <div className="text-[10.5px] mb-1" style={{ color: C.inkFaint }}>Everything this one customer is buying right now.</div>
-                    {cartItems.map((it, idx) => (
-                      <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
-                        {products.length > 0 && (
-                          <select value={it.productId} onChange={(e) => applyProductToCartRow(idx, e.target.value)} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
-                            <option value="">Pick {T.Item === 'Item' ? 'an' : 'a'} {T.item}… (optional)</option>
-                            {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
-                          </select>
-                        )}
-                        <div className="flex gap-1.5 items-center">
-                          <input type="text" placeholder="Item" value={it.description} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], description: e.target.value }; setCartItems(items); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
-                          <input type="number" min="1" placeholder="Qty" value={it.quantity} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], quantity: e.target.value }; setCartItems(items); }} className="w-14 rounded-lg px-2 py-2 text-[12.5px] text-center outline-none cx-mono" style={field} />
-                          <input type="text" inputMode="decimal" placeholder="₦ each" value={formatNumInput(it.unitPrice)} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], unitPrice: parseNumInput(e.target.value) }; setCartItems(items); }} className="w-20 min-w-0 shrink-0 rounded-lg px-2 py-2 text-[12.5px] outline-none cx-mono" style={field} />
-                          {cartItems.length > 1 && (
-                            <button onClick={() => setCartItems(cartItems.filter((_, i) => i !== idx))} style={{ color: C.inkFaint }}><X size={14} /></button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    <button onClick={() => setCartItems([...cartItems, { productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }])} className="text-[11.5px] font-medium" style={{ color: C.sage }}>+ Add another item</button>
-                    <div className="text-[13px] font-semibold pt-1" style={{ color: C.ink, borderTop: `1px solid ${C.line}` }}>
-                      Basket total: {fmt(cartItems.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0))}
-                    </div>
-                  </div>
-                )}
+                {cartMode && renderCartEditor()}
 
                 <div className="pt-1">
                   <div className="flex gap-1.5">
@@ -3063,6 +3247,7 @@ function XorlaApp() {
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <div className="cx-mono text-[13.5px] font-medium">{fmt(s.amount)}</div>
+                    <button onClick={() => setReceipt(receiptFromSale(s))} className="text-[11px] font-medium" style={{ color: C.copper }}>Receipt</button>
                     <button onClick={() => removeSale(s.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
                   </div>
                 </div>
@@ -3222,7 +3407,7 @@ function XorlaApp() {
                     </div>
                     <div className="flex gap-2">
                       {!editingProductId && <div className="w-1/2">
-                        <div className={fieldLabel} style={{ color: C.inkFaint }}>STOCK ON HAND (OPTIONAL)</div>
+                        <div className={fieldLabel} style={{ color: C.inkFaint }}>{shops.length > 1 ? `STOCK AT ${shopNameOf(targetShopId).toUpperCase()}` : 'STOCK ON HAND (OPTIONAL)'}</div>
                         <input type="number" min="0" placeholder="e.g. 20" value={productForm.stockQuantity} onChange={(e) => setProductForm({ ...productForm, stockQuantity: e.target.value })} className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                       </div>}
                       <div className={editingProductId ? 'w-full' : 'w-1/2'}>
@@ -3233,6 +3418,20 @@ function XorlaApp() {
                     <div className="text-[11px] -mt-2" style={{ color: C.inkFaint }}>{editingProductId ? 'To change how many you have, use Restock on the product.' : "Leave stock blank if you don't want to track it for this product."}</div>
                   </>
                 )}
+                {isOwnerRole && shops.length > 1 && (
+                  <div className="rounded-xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                    <div className={fieldLabel} style={{ color: C.inkFaint }}>PRICE BY SHOP (OPTIONAL)</div>
+                    <div className="text-[11px] mb-3" style={{ color: C.inkFaint }}>Leave a shop blank to use the normal price{productForm.sellingPrice ? ` (${fmt(productForm.sellingPrice)})` : ''}.</div>
+                    <div className="space-y-2">
+                      {shops.map((s) => (
+                        <div key={s.id} className="flex items-center gap-2">
+                          <span className="flex-1 min-w-0 truncate text-[12.5px]" style={{ color: C.inkDim }}>{s.name}</span>
+                          <input type="text" inputMode="decimal" placeholder={productForm.sellingPrice ? formatNumInput(productForm.sellingPrice) : '₦'} value={formatNumInput((productForm.shopPrices || {})[s.id] || '')} onChange={(e) => setProductForm({ ...productForm, shopPrices: { ...(productForm.shopPrices || {}), [s.id]: parseNumInput(e.target.value) } })} className="w-32 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : editingProductId ? 'Save changes' : formIsService ? 'Save service' : 'Save product'}</button>
               </div>
             )}
@@ -3240,18 +3439,18 @@ function XorlaApp() {
             <div className="text-[13px] font-semibold cx-display mb-2.5" style={{ color: C.inkDim }}>Your {T.catalog.toLowerCase()}</div>
             {products.length === 0 && <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>{`No ${T.catalog.toLowerCase()} yet — add your first one above.`}</div>}
 
-            {products.some((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold) && (
+            {products.some((p) => p.isLow) && (
               <div className="rounded-2xl p-3.5 mb-4 flex items-start gap-2.5" style={{ background: 'rgba(226,98,75,0.1)', border: '1px solid rgba(226,98,75,0.25)' }}>
                 <Package size={15} className="shrink-0 mt-0.5" style={{ color: C.rust }} />
                 <div className="text-[12px]" style={{ color: '#E2A090' }}>
-                  Running low: {products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).map((p) => p.name).join(', ')}
+                  Running low: {products.filter((p) => p.isLow).map((p) => (viewAllShops && shops.length > 1 && p.lowShops.length ? `${p.name} (at ${p.lowShops.join(', ')})` : p.name)).join('; ')}
                 </div>
               </div>
             )}
 
             <div>
               {products.map((p, i) => {
-                const isLow = T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold;
+                const isLow = p.isLow;
                 const isOut = p.stockQuantity === 0;
                 const isRestocking = restockingId === p.id;
                 return (
@@ -3262,21 +3461,53 @@ function XorlaApp() {
                         <div className="min-w-0">
                           <div className="text-[13.5px] font-medium truncate">{p.name}{p.category && <span className="ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{p.category}</span>}</div>
                           <div className="text-[11px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkFaint }}>
-                            {kindOf(p, settings.businessType) === 'service' ? <span>{priceLabel(p)}{p.duration ? ` · ${p.duration}` : ''}{settings.businessType === 'both' ? ' · Service' : ''}</span> : <span>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}</span>}
+                            {kindOf(p, settings.businessType) === 'service' ? <span>{priceLabel(p)}{p.duration ? ` · ${p.duration}` : ''}{settings.businessType === 'both' ? ' · Service' : ''}</span> : <span>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}{shops.length > 1 && hasShopPrices(p) ? (viewAllShops ? ' · varies by shop' : '') : ''}</span>}
                             {T.tracksStock && kindOf(p, settings.businessType) === 'product' && p.stockQuantity !== null && (
                               <span className="px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold" style={isOut ? { background: 'rgba(226,98,75,0.15)', color: C.rust } : isLow ? { background: 'rgba(226,98,75,0.12)', color: C.rust } : { background: C.sageSoft, color: C.sage }}>
                                 {isOut ? 'Out of stock' : `${p.stockQuantity} in stock`}
                               </span>
                             )}
                           </div>
+                          {viewAllShops && shops.length > 1 && p.stockQuantity !== null && (
+                            <div className="text-[10.5px] mt-1" style={{ color: C.inkFaint }}>{shops.map((s) => `${s.name}: ${stockAt(p, s.id)}`).join('  ·  ')}</div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">
-                        <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.sellingPrice || ''), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
+                        <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setRestockAmount(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
+                        {isOwnerRole && shops.length > 1 && p.stockQuantity !== null && <button onClick={() => { setTransferringId(transferringId === p.id ? null : p.id); setRestockingId(null); setTransferForm({ from: activeShopId || '', to: '', qty: '' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Move</button>}
                         <button onClick={() => removeProduct(p.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
                       </div>
                     </div>
+                    {transferringId === p.id && (
+                      <div className="rounded-xl p-3 mt-2.5 space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                        <div className="text-[11.5px] font-semibold" style={{ color: C.inkDim }}>Move stock between shops</div>
+                        <div className="flex gap-2 items-center">
+                          <select value={transferForm.from} onChange={(e) => setTransferForm({ ...transferForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                            <option value="">From…</option>
+                            {shops.map((s) => <option key={s.id} value={s.id}>{s.name} ({stockAt(p, s.id)})</option>)}
+                          </select>
+                          <span style={{ color: C.inkFaint }}>→</span>
+                          <select value={transferForm.to} onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                            <option value="">To…</option>
+                            {shops.filter((s) => s.id !== transferForm.from).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex gap-2">
+                          <input type="number" min="1" placeholder="How many?" value={transferForm.qty} onChange={(e) => setTransferForm({ ...transferForm, qty: e.target.value })} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                          <button onClick={() => handleTransfer(p)} disabled={!transferForm.from || !transferForm.to || !Number(transferForm.qty)} className="px-4 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: !transferForm.from || !transferForm.to || !Number(transferForm.qty) ? 0.4 : 1 }}>Move</button>
+                        </div>
+                      </div>
+                    )}
+                    {isRestocking && viewAllShops && shops.length > 1 && (
+                      <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                        <span className="text-[11.5px]" style={{ color: C.inkDim }}>Into:</span>
+                        {shops.map((s) => (
+                          <button key={s.id} onClick={() => setRestockShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={(restockShopId || mainShopId) === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
+                        ))}
+                      </div>
+                    )}
                     {isRestocking && (
                       <div className="flex gap-2 mt-2.5">
                         <input type="number" min="0" autoFocus placeholder={p.stockQuantity === null ? 'Starting stock count' : 'Units received'} value={restockAmount} onChange={(e) => setRestockAmount(e.target.value)} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
@@ -3698,6 +3929,7 @@ function XorlaApp() {
         );
       })()}
 
+      {renderReceiptModal()}
       {aiNotice && (
         <div role="status" className="fixed left-4 right-4 lg:left-auto lg:right-6 lg:w-[380px] bottom-24 lg:bottom-6 z-50 rounded-2xl px-4 py-3.5 flex items-start gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}>
           <Lightbulb size={17} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
@@ -3724,8 +3956,8 @@ function XorlaApp() {
             {id === 'invoices' && needsAttention.length > 0 && (
               <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
             )}
-            {id === 'products' && products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length > 0 && (
-              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => T.tracksStock && p.stockQuantity !== null && p.stockQuantity <= p.lowStockThreshold).length}</span>
+            {id === 'products' && products.filter((p) => p.isLow).length > 0 && (
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.isLow).length}</span>
             )}
           </button>
         ))}
@@ -3761,6 +3993,8 @@ function Storefront({ businessCode }) {
   const [heroIndex, setHeroIndex] = useState(0);
   const [touchStartX, setTouchStartX] = useState(null);
   const [preferredTime, setPreferredTime] = useState('');
+  const [storeShopId, setStoreShopId] = useState(null);
+  const [switchingShop, setSwitchingShop] = useState(false);
   const [orderNote, setOrderNote] = useState('');
   const [overHero, setOverHero] = useState(true);
   const [catFade, setCatFade] = useState({ left: false, right: false });
@@ -3799,15 +4033,16 @@ function Storefront({ businessCode }) {
     (async () => {
       try {
         // Secure function returns only shopper-safe fields — never cost prices or private settings
-        const store = await sbRpc('get_storefront', SB_KEY, { p_business_code: businessCode });
+        const store = await sbRpc('get_storefront', SB_KEY, { p_business_code: businessCode, ...(storeShopId ? { p_shop_id: storeShopId } : {}) });
         if (!store) { setLoadError(true); setLoading(false); return; }
         setBusiness(store);
         document.title = store.name;
         setStoreProducts((store.products || []).map(fromSbProduct));
-      } catch (e) { setLoadError(true); }
+      } catch (e) { if (!business) setLoadError(true); }
       setLoading(false);
+      setSwitchingShop(false);
     })();
-  }, [businessCode]);
+  }, [businessCode, storeShopId]);
 
   // Banner carousel auto-advance — every 5s, paused for people who've asked their phone to reduce motion
   useEffect(() => {
@@ -3846,6 +4081,8 @@ function Storefront({ businessCode }) {
   const cartList = Object.entries(cart).filter(([, qty]) => qty > 0).map(([id, qty]) => ({ product: storeProducts.find((p) => p.id === id), qty })).filter((c) => c.product);
   const cartTotal = cartList.reduce((a, c) => a + c.product.sellingPrice * c.qty, 0);
   const cartCount = cartList.reduce((a, c) => a + c.qty, 0);
+  const storeShops = business?.shops || [];
+  const currentStoreShop = storeShops.find((sh) => sh.id === business?.shop_id) || storeShops[0];
   const cartHasService = cartList.some((c) => kindOf(c.product, business?.business_type) === 'service');
   const lineQtyText = (c) => {
     if (kindOf(c.product, business?.business_type) !== 'service') return ` ×${c.qty}`;
@@ -3868,11 +4105,12 @@ function Storefront({ businessCode }) {
       // Only product IDs + quantities are sent — the database looks up the real prices itself
       const items = cartList.map((c) => ({ productId: c.product.id, quantity: c.qty }));
       const when = preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      await sbRpc('place_order', SB_KEY, { p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim() });
+      await sbRpc('place_order', SB_KEY, { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim() });
       if (business.owner_phone) {
         const lines = cartList.map((c) => `• ${c.product.name}${lineQtyText(c)} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
         const extra = `${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
-        const msg = `New ${isService || cartHasService ? 'request' : 'order'} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}\n\nTotal: ${fmt(cartTotal)}${extra}`;
+        const shopLabel = storeShops.length > 1 ? ` for ${currentStoreShop?.name}` : '';
+        const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}\n\nTotal: ${fmt(cartTotal)}${extra}`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
       }
       setOrderSent(true);
@@ -4005,7 +4243,9 @@ function Storefront({ businessCode }) {
         </>
       )}
       <div className="text-[12px] mb-5" style={{ color: S.muted }}>No payment now — {business.name} will contact you to confirm{cartHasService ? ' the time' : ''} and arrange payment.</div>
-      <button onClick={submitOrder} disabled={submitting || !customerName.trim() || cartList.length === 0} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: submitting || !customerName.trim() || cartList.length === 0 ? 0.4 : 1 }}>{submitting ? 'Sending…' : `${W.send} · ${fmt(cartTotal)}`}</button>
+      <div className="sticky bottom-0 -mx-5 px-5 lg:-mx-6 lg:px-6 pt-3 pb-5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 22%)' }}>
+  <button onClick={submitOrder} disabled={submitting || !customerName.trim() || cartList.length === 0} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: submitting || !customerName.trim() || cartList.length === 0 ? 0.4 : 1 }}>{submitting ? 'Sending…' : `${W.send} · ${fmt(cartTotal)}`}</button>
+      </div>
     </div>
   );
 
@@ -4079,6 +4319,22 @@ function Storefront({ businessCode }) {
 
       <div className="max-w-6xl mx-auto px-5 md:px-8 pt-6 lg:pt-8 lg:grid lg:grid-cols-[1fr_340px] lg:gap-10" style={{ paddingBottom: cartCount ? '110px' : '40px' }}>
         <main>
+          {storeShops.length > 1 && (
+            <div className="mb-5 rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: S.tile }}>
+              <Store size={18} style={{ color: S.ink }} className="shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[11.5px]" style={{ color: S.muted }}>Shopping from</div>
+                <div className="relative">
+                  <select aria-label="Choose which shop to order from" value={currentStoreShop?.id || ''} onChange={(e) => { setSwitchingShop(true); setStoreShopId(e.target.value); }} className={`w-full appearance-none bg-transparent pr-6 text-[15px] font-bold outline-none cursor-pointer ${focusRing}`} style={{ color: S.ink }}>
+                    {storeShops.map((sh) => <option key={sh.id} value={sh.id}>{sh.name}</option>)}
+                  </select>
+                  <ChevronRight size={16} className="absolute right-0 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" style={{ color: S.muted }} />
+                </div>
+                {currentStoreShop?.address && <div className="text-[12px] truncate" style={{ color: S.muted }}>{currentStoreShop.address}</div>}
+              </div>
+              {switchingShop && <Loader2 size={16} className="animate-spin shrink-0" style={{ color: S.muted }} />}
+            </div>
+          )}
           {/* Mobile search */}
           <div className="md:hidden relative mb-4">
             <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: S.muted }} />
@@ -4142,7 +4398,7 @@ function Storefront({ businessCode }) {
 
         {/* Desktop order panel */}
         <aside className="hidden lg:block">
-          <div className="sticky top-24 rounded-3xl p-6" style={{ border: `1px solid ${S.line}` }}>
+          <div className="sticky top-24 rounded-3xl px-6 pt-6 overflow-y-auto" style={{ border: `1px solid ${S.line}`, maxHeight: 'calc(100vh - 7.5rem)', overscrollBehavior: 'contain' }}>
             <div className="text-[18px] font-bold mb-5">{W.your}</div>
             {renderOrderSummary()}
             {cartList.length > 0 && renderCheckoutFields()}
