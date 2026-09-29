@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -151,7 +151,7 @@ function formatNumInput(v) {
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency'];
-const SETTINGS_TITLES = { automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
+const SETTINGS_TITLES = { shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -400,19 +400,19 @@ function timeLabel(iso) { return new Date(iso).toLocaleTimeString('en-GB', { hou
 function dateKeyOf(iso) { return new Date(iso).toLocaleDateString('sv-SE'); }
 
 function fromSbSale(row) {
-  return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null };
+  return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null, shopId: row.shop_id || null };
 }
 function fromSbInvoice(row) {
-  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '', notes: row.notes || '', autoReminderCount: row.auto_reminder_count || 0 };
+  return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '', notes: row.notes || '', autoReminderCount: row.auto_reminder_count || 0, shopId: row.shop_id || null };
 }
 function fromSbExpense(row) {
-  return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '' };
+  return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '', shopId: row.shop_id || null };
 }
 function fromSbProduct(row) {
   return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), lowStockThreshold: row.low_stock_threshold ?? 5, category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '' };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null };
 }
 
 function staticMessage(inv, settings) {
@@ -983,15 +983,37 @@ function ResetPasswordScreen({ accessToken, onDone }) {
 function XorlaApp() {
   const [tab, setTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [invoices, setInvoices] = useState([]);
-  const [sales, setSales] = useState([]);
-  const [expenses, setExpenses] = useState([]);
+  const [invoicesAll, setInvoices] = useState([]);
+  const [salesAll, setSales] = useState([]);
+  const [expensesAll, setExpenses] = useState([]);
   const [products, setProducts] = useState([]);
-  const [orders, setOrders] = useState([]);
+  const [ordersAll, setOrders] = useState([]);
+  const [shops, setShops] = useState([]);
+  const [staffShops, setStaffShops] = useState([]);
+  const [currentShopId, setCurrentShopId] = useState('all');
+  const [recordShopId, setRecordShopId] = useState(null);
   const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '', storefrontEnabled: false, heroImageUrl: null, storefrontTagline: '', autoReminders: false, summaryFrequency: 'off' });
   const T = BUSINESS_TERMS[settings.businessType] || BUSINESS_TERMS.products;
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+
+  // ---------- Multi-shop: the whole app follows the shop switcher ----------
+  const isOwnerRole = settings.role === 'owner';
+  const mainShopId = (shops.find((s) => s.is_main) || shops[0])?.id || null;
+  const myShops = isOwnerRole ? shops : (() => {
+    const mine = shops.filter((s) => staffShops.some((ss) => ss.profile_id === session?.user_id && ss.shop_id === s.id));
+    return mine.length ? mine : shops.slice(0, 1);
+  })();
+  const viewAllShops = isOwnerRole && (currentShopId === 'all' || shops.length <= 1);
+  const activeShopId = viewAllShops ? null : (myShops.some((s) => s.id === currentShopId) ? currentShopId : myShops[0]?.id || null);
+  const targetShopId = activeShopId || (myShops.some((s) => s.id === recordShopId) ? recordShopId : null) || mainShopId;
+  const showShopSwitcher = myShops.length > 1;
+  const shopNameOf = (id) => (shops.find((s) => s.id === (id || mainShopId)) || {}).name || '';
+  const inActiveShop = (r) => viewAllShops || (r.shopId || mainShopId) === activeShopId;
+  const sales = salesAll.filter(inActiveShop);
+  const expenses = expensesAll.filter(inActiveShop);
+  const invoices = invoicesAll.filter(inActiveShop);
+  const orders = ordersAll.filter(inActiveShop);
   const [loaded, setLoaded] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
@@ -1197,18 +1219,22 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
         sbRest('products', { accessToken, query: '?select=*&order=name.asc' }),
         sbRest('orders', { accessToken, query: '?select=*&order=created_at.desc' }),
+        sbRest('shops', { accessToken, query: '?select=*&order=created_at.asc' }).catch(() => []),
+        sbRest('staff_shops', { accessToken, query: '?select=*' }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
       setExpenses(expenseRows.map(fromSbExpense));
       setProducts(productRows.map(fromSbProduct));
       setOrders(orderRows.map(fromSbOrder));
+      setShops(shopRows);
+      setStaffShops(staffShopRows);
     } catch (e) {
       console.error('Loading business data failed:', e);
     }
@@ -1310,6 +1336,42 @@ function XorlaApp() {
     setSettings((prev) => ({ ...prev, loggedIn: false, role: 'owner', activeStaff: '', businessName: '', staffList: [], pin: '' }));
   }, [session]);
 
+  const [newShopName, setNewShopName] = useState('');
+  const [shopEdits, setShopEdits] = useState({});
+  const [shopBusy, setShopBusy] = useState(false);
+  const addShop = async () => {
+    const name = newShopName.trim(); if (!name || shopBusy) return;
+    setShopBusy(true);
+    try {
+      const rows = await sbRest('shops', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name } });
+      setShops((prev) => [...prev, rows[0]]); setNewShopName('');
+    } catch (e) { alert(e.message); } finally { setShopBusy(false); }
+  };
+  const saveShop = async (shop) => {
+    const edit = shopEdits[shop.id]; if (!edit) return;
+    const name = (edit.name ?? shop.name).trim() || shop.name;
+    const address = (edit.address ?? shop.address ?? '').trim();
+    try {
+      await sbRest(`shops?id=eq.${shop.id}`, { method: 'PATCH', accessToken: session.access_token, body: { name, address } });
+      setShops((prev) => prev.map((s) => (s.id === shop.id ? { ...s, name, address } : s)));
+      setShopEdits((prev) => { const n = { ...prev }; delete n[shop.id]; return n; });
+    } catch (e) { alert(e.message); }
+  };
+  const toggleStaffShop = async (profileId, shopId) => {
+    const assigned = staffShops.filter((ss) => ss.profile_id === profileId);
+    const has = assigned.some((ss) => ss.shop_id === shopId);
+    if (has && assigned.length === 1) { alert('Everyone needs at least one shop. Add another shop for them first, then remove this one.'); return; }
+    try {
+      if (has) {
+        await sbRest(`staff_shops?profile_id=eq.${profileId}&shop_id=eq.${shopId}`, { method: 'DELETE', accessToken: session.access_token });
+        setStaffShops((prev) => prev.filter((ss) => !(ss.profile_id === profileId && ss.shop_id === shopId)));
+      } else {
+        await sbRest('staff_shops', { method: 'POST', accessToken: session.access_token, body: { profile_id: profileId, shop_id: shopId } });
+        setStaffShops((prev) => [...prev, { profile_id: profileId, shop_id: shopId }]);
+      }
+    } catch (e) { alert(e.message); }
+  };
+
   const removeStaff = async (staffId, staffName) => {
     if (!window.confirm(`Remove ${staffName}? They'll be logged out immediately and won't be able to log back in.`)) return;
     try {
@@ -1352,7 +1414,7 @@ function XorlaApp() {
     if (savingInvoice) return;
     setSavingInvoice(true);
     try {
-      const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: computedAmount, paid_amount: 0, due_date: form.dueDate, phone: form.phone, client_address: form.clientAddress, items: cleanItems, tax_rate: form.itemized ? Number(form.taxRate || 0) : 0, notes: form.notes } });
+      const rows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: form.clientName, invoice_no: form.invoiceNo, amount: computedAmount, paid_amount: 0, due_date: form.dueDate, phone: form.phone, client_address: form.clientAddress, items: cleanItems, tax_rate: form.itemized ? Number(form.taxRate || 0) : 0, notes: form.notes } });
       setInvoices((prev) => [fromSbInvoice(rows[0]), ...prev]);
       setForm({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0', notes: '' });
       setShowForm(false);
@@ -1372,13 +1434,13 @@ function XorlaApp() {
     setSavingSale(true);
     const owed = saleForm.fullyPaid ? 0 : Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0));
     try {
-      const saleRows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, owed } });
+      const saleRows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, owed } });
       const newSale = fromSbSale(saleRows[0]);
       setSales((prev) => [newSale, ...prev]);
 
       if (owed > 0) {
         const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
-        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${newSale.id.slice(-5)}`, amount: saleForm.amount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone, items: [{ description: saleForm.item, quantity: 1, unitPrice: Number(saleForm.amount) }] } });
+        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${newSale.id.slice(-5)}`, amount: saleForm.amount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone, items: [{ description: saleForm.item, quantity: 1, unitPrice: Number(saleForm.amount) }] } });
         setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
 
@@ -1428,7 +1490,7 @@ function XorlaApp() {
       // One sale row per product — keeps per-product analytics, COGS, and stock tracking accurate
       const newSales = [];
       for (const it of cleanItems) {
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: 0 } });
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: 0 } });
         newSales.push(rows[0]);
         if (it.productId) {
           const product = products.find((p) => p.id === it.productId);
@@ -1444,7 +1506,7 @@ function XorlaApp() {
       if (owed > 0) {
         const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
         const invItems = cleanItems.map((it) => ({ description: it.description, quantity: it.quantity, unitPrice: it.unitPrice }));
-        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${Date.now().toString().slice(-6)}`, amount: totalAmount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone, items: invItems } });
+        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${Date.now().toString().slice(-6)}`, amount: totalAmount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone, items: invItems } });
         setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
 
@@ -1460,7 +1522,7 @@ function XorlaApp() {
     if (savingExpense) return;
     setSavingExpense(true);
     try {
-      const rows = await sbRest('expenses', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: expenseForm.item, amount: expenseForm.amount, category: expenseForm.category } });
+      const rows = await sbRest('expenses', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: expenseForm.item, amount: expenseForm.amount, category: expenseForm.category } });
       setExpenses((prev) => [fromSbExpense(rows[0]), ...prev]);
       setExpenseForm({ item: '', amount: '', category: 'Restock' });
       setShowExpenseForm(false);
@@ -1550,7 +1612,7 @@ function XorlaApp() {
     try {
       const newSales = [];
       for (const item of order.items) {
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description, amount: item.quantity * item.unitPrice, cost: item.quantity * (item.unitCost || 0), owed: 0 } });
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: order.shopId || mainShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description, amount: item.quantity * item.unitPrice, cost: item.quantity * (item.unitCost || 0), owed: 0 } });
         newSales.push(rows[0]);
         if (item.productId) {
           const product = products.find((p) => p.id === item.productId);
@@ -1766,6 +1828,31 @@ function XorlaApp() {
   const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
   const card = { background: 'rgba(19,50,44,0.55)', backdropFilter: 'blur(16px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 1px 1px rgba(0,0,0,0.2), 0 16px 40px -20px rgba(0,0,0,0.7)' };
 
+  // One pill, top of every screen, only once there's a second shop
+  const renderShopSwitcher = () => showShopSwitcher && (
+    <div className="flex items-center gap-2 mb-5">
+      <label className="relative flex items-center gap-2 pl-3.5 pr-9 py-2.5 rounded-full cursor-pointer" style={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong || C.line}` }}>
+        <Store size={15} style={{ color: C.copper }} />
+        <span className="text-[13px] font-semibold">{viewAllShops ? 'All shops' : shopNameOf(activeShopId)}</span>
+        <ChevronRight size={15} className="absolute right-3 rotate-90" style={{ color: C.inkFaint }} />
+        <select aria-label="Choose shop" value={viewAllShops ? 'all' : activeShopId || ''} onChange={(e) => setCurrentShopId(e.target.value)} className="absolute inset-0 w-full opacity-0 cursor-pointer" style={{ colorScheme: 'dark' }}>
+          {isOwnerRole && <option value="all">All shops</option>}
+          {myShops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </label>
+      {viewAllShops && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Showing {shops.length} shops combined</span>}
+    </div>
+  );
+  // In "All shops", forms ask which shop a new record belongs to
+  const renderRecordShopPicker = () => (viewAllShops && shops.length > 1) && (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>For shop:</span>
+      {shops.map((s) => (
+        <button key={s.id} type="button" onClick={() => setRecordShopId(s.id)} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={targetShopId === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
+      ))}
+    </div>
+  );
+
   if (settings.role === 'staff') {
     const myTodaySales = sales.filter((s) => s.dateKey === todayKey() && s.loggedBy === settings.activeStaff);
     const myTodayTotal = myTodaySales.reduce((a, s) => a + Number(s.amount), 0);
@@ -1773,6 +1860,7 @@ function XorlaApp() {
       <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
         <div className="max-w-md mx-auto px-5 py-8">
+          {renderShopSwitcher()}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
               <XorlaMark size={26} />
@@ -1985,6 +2073,7 @@ function XorlaApp() {
                 {renderSettingsGroup('Business', [
                   { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
                   { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
+                  { id: 'shops', Icon: Store, label: 'Shops', value: `${shops.length} shop${shops.length !== 1 ? 's' : ''}` },
                   { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
                   { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
@@ -2120,6 +2209,40 @@ function XorlaApp() {
                 </div>
               </div>
             )}
+            {settingsPage === 'shops' && (
+              <div className="space-y-4">
+                <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Running more than one location? Add each shop here. Everything you record is kept per shop, and the switcher at the top lets you see one shop or all of them together.</div>
+                <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  {shops.map((s, i) => {
+                    const edit = shopEdits[s.id] || {};
+                    const changed = (edit.name !== undefined && edit.name !== s.name) || (edit.address !== undefined && edit.address !== (s.address || ''));
+                    const staffCount = staffShops.filter((ss) => ss.shop_id === s.id).length;
+                    return (
+                      <div key={s.id} className="px-4 py-4 space-y-2" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                        <div className="flex items-center gap-2">
+                          <Store size={15} style={{ color: C.copper }} />
+                          <input aria-label="Shop name" value={edit.name ?? s.name} onChange={(e) => setShopEdits((p) => ({ ...p, [s.id]: { ...edit, name: e.target.value } }))} className="flex-1 min-w-0 bg-transparent text-[14.5px] font-semibold outline-none rounded-lg px-2 py-1" style={{ border: `1px solid ${changed ? C.copper : 'transparent'}` }} />
+                          {i === 0 && <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold shrink-0" style={{ background: C.surfaceRaised, color: C.inkDim }}>MAIN</span>}
+                        </div>
+                        <input aria-label="Shop address" placeholder="Address (optional)" value={edit.address ?? (s.address || '')} onChange={(e) => setShopEdits((p) => ({ ...p, [s.id]: { ...edit, address: e.target.value } }))} className="w-full rounded-xl px-3 py-2 text-[12.5px] outline-none" style={field} />
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px]" style={{ color: C.inkFaint }}>{staffCount} staff assigned</span>
+                          {changed && <button onClick={() => saveShop(s)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save</button>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  <div className="text-[13.5px] font-semibold mb-2">Add a shop</div>
+                  <div className="flex gap-2">
+                    <input placeholder="e.g. Ariaria branch" value={newShopName} onChange={(e) => setNewShopName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addShop()} className="flex-1 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <button onClick={addShop} disabled={!newShopName.trim() || shopBusy} className="px-4 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: !newShopName.trim() || shopBusy ? 0.5 : 1 }}>{shopBusy ? 'Adding…' : 'Add'}</button>
+                  </div>
+                  <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>Shops save instantly. Next, choose which shops your staff work in under Staff & join code.</div>
+                </div>
+              </div>
+            )}
             {settingsPage === 'automation' && (
               <div className="space-y-4">
                 <div className="rounded-2xl px-4 py-3.5 flex items-start gap-3" style={{ background: waConnected ? C.sageSoft : C.surfaceRaised, border: `1px solid ${C.line}` }}>
@@ -2242,6 +2365,25 @@ function XorlaApp() {
                 </div>
               </div>
             )}
+            {settingsPage === 'team' && shops.length > 1 && settings.staffList.length > 0 && (
+              <div className="mt-4">
+                <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Which shops each person works in</div>
+                <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  {settings.staffList.map((st, i) => (
+                    <div key={st.id} className="px-4 py-3.5" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                      <div className="text-[13.5px] font-semibold mb-2">{st.name}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {shops.map((s) => {
+                          const on = staffShops.some((ss) => ss.profile_id === st.id && ss.shop_id === s.id);
+                          return <button key={s.id} onClick={() => toggleStaffShop(st.id, s.id)} aria-pressed={on} className="px-3 py-1.5 rounded-full text-[12px] font-medium flex items-center gap-1" style={on ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{on && <Check size={12} />}{s.name}</button>;
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[11px] mt-2 px-1" style={{ color: C.inkFaint }}>Staff only see and record for the shops they're in. Changes save instantly.</div>
+              </div>
+            )}
             {settingsPage === 'security' && (
               <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
@@ -2356,6 +2498,7 @@ function XorlaApp() {
         </div>
 
         <div className="max-w-6xl mx-auto px-5 md:px-8 py-6 lg:py-8 pb-28 lg:pb-24">
+          {renderShopSwitcher()}
 
           {/* Top bar */}
           <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -2426,6 +2569,34 @@ function XorlaApp() {
                   <button onClick={dismissLangIntro} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
                 </div>
               )}
+              {viewAllShops && shops.length > 1 && (() => {
+                const rows = shops.map((s) => {
+                  const list = salesAll.filter((x) => (x.shopId || mainShopId) === s.id && x.dateKey === todayKey());
+                  return { shop: s, total: list.reduce((a, x) => a + Number(x.amount), 0), count: list.length };
+                });
+                const top = Math.max(1, ...rows.map((r) => r.total));
+                return (
+                  <div className="rounded-2xl p-5 mb-5 xorla-fade-up" style={card}>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="text-[13.5px] font-semibold cx-display">Today by shop</div>
+                      <div className="text-[11px]" style={{ color: C.inkFaint }}>Tap a shop to see just that shop</div>
+                    </div>
+                    <div className="space-y-3">
+                      {rows.map((r) => (
+                        <button key={r.shop.id} onClick={() => setCurrentShopId(r.shop.id)} className="w-full text-left">
+                          <div className="flex items-center justify-between text-[13px] mb-1.5">
+                            <span className="font-medium">{r.shop.name}</span>
+                            <span className="cx-mono font-semibold">{fmt(r.total)} <span className="text-[11px] font-normal" style={{ color: C.inkFaint }}>· {r.count} {r.count === 1 ? T.sale : `${T.sale}s`}</span></span>
+                          </div>
+                          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}>
+                            <div className="h-full rounded-full" style={{ width: `${(r.total / top) * 100}%`, background: C.sage, transition: 'width 0.5s' }} />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               {showInstallBanner && (
                 <div className="rounded-2xl p-4 mb-5 xorla-fade-up" style={{ background: `linear-gradient(135deg, ${C.copperSoft}, ${C.surface})`, border: `1px solid rgba(255,176,32,0.25)` }}>
                   {!showIOSSteps ? (
@@ -2503,6 +2674,7 @@ function XorlaApp() {
 
                 <div className="lg:col-span-2 rounded-2xl p-5" style={card}>
                   <div className="text-[13.5px] font-semibold cx-display mb-3">Quick add {T.sale}</div>
+                  {viewAllShops && shops.length > 1 && <div className="mb-3">{renderRecordShopPicker()}</div>}
                   <div className="space-y-2.5">
                     {products.length > 0 && (
                       <div className="flex gap-2">
@@ -2662,6 +2834,7 @@ function XorlaApp() {
                   <div className="text-[14px] font-semibold cx-display">New sale</div>
                   <button onClick={() => setShowSaleForm(false)} style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
+                {renderRecordShopPicker()}
                 <button onClick={() => setCartMode(!cartMode)} className="flex items-center gap-1.5 text-[12px] font-medium py-1" style={{ color: C.copper }}>
                   {cartMode ? '− Just one item instead' : '+ Customer buying several different things?'}
                 </button>
@@ -2814,7 +2987,7 @@ function XorlaApp() {
                     <div className="min-w-0">
                       <div className="text-[13.5px] font-medium truncate">{s.item}</div>
                       <div className="text-[11px] flex items-center gap-1.5" style={{ color: C.inkFaint }}>
-                        {s.time}{s.loggedBy && <span>· {s.loggedBy}</span>}
+                        {s.time}{s.loggedBy && <span>· {s.loggedBy}</span>}{viewAllShops && shops.length > 1 && <span>· {shopNameOf(s.shopId)}</span>}
                         {s.owed > 0 && <span style={{ color: C.rust }}>· {fmt(s.owed)} owed</span>}
                       </div>
                     </div>
@@ -2851,7 +3024,7 @@ function XorlaApp() {
                   <div className="flex items-start justify-between mb-2.5">
                     <div>
                       <div className="text-[13.5px] font-semibold">{o.customerName}</div>
-                      <div className="text-[11px]" style={{ color: C.inkFaint }}>{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
+                      <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                     <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
                       o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
@@ -3064,6 +3237,7 @@ function XorlaApp() {
                   <div className="text-[14px] font-semibold cx-display">New expense</div>
                   <button onClick={() => setShowExpenseForm(false)} style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
+                {renderRecordShopPicker()}
                 <input type="text" placeholder="What did you spend on?" value={expenseForm.item} onChange={(e) => setExpenseForm({ ...expenseForm, item: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <input type="text" inputMode="decimal" placeholder="Amount (₦)" value={formatNumInput(expenseForm.amount)} onChange={(e) => setExpenseForm({ ...expenseForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <div className="flex flex-wrap gap-1.5">
@@ -3118,7 +3292,7 @@ function XorlaApp() {
                 <div key={e.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                   <div>
                     <div className="text-[13.5px] font-medium">{e.item}</div>
-                    <div className="text-[11px]" style={{ color: C.inkFaint }}>{e.time} · {e.category}{e.loggedBy ? ` · ${e.loggedBy}` : ''}</div>
+                    <div className="text-[11px]" style={{ color: C.inkFaint }}>{e.time} · {e.category}{e.loggedBy ? ` · ${e.loggedBy}` : ''}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(e.shopId)}` : ''}</div>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="cx-mono text-[13.5px] font-medium" style={{ color: C.rust }}>-{fmt(e.amount)}</div>
@@ -3141,6 +3315,7 @@ function XorlaApp() {
                   <div className="text-[14px] font-semibold cx-display">New invoice</div>
                   <button onClick={() => { setShowForm(false); setError(''); }} style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
+                {renderRecordShopPicker()}
                 {error && <div className="text-[12px] rounded-xl px-3.5 py-2.5" style={{ background: C.rustSoft, color: '#E39C87' }}>{error}</div>}
                 <div className="relative">
                   <input type="text" placeholder="Client name" value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -3247,6 +3422,7 @@ function XorlaApp() {
                             #{inv.invoiceNo} · due {new Date(inv.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                             {inv.items && inv.items.length > 0 && <span> · {inv.items.length} item{inv.items.length !== 1 ? 's' : ''}</span>}
                             {inv.autoReminderCount > 0 && <span> · auto-reminded {inv.autoReminderCount}×</span>}
+                            {viewAllShops && shops.length > 1 && <span> · {shopNameOf(inv.shopId)}</span>}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
