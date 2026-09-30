@@ -1432,6 +1432,11 @@ function XorlaApp() {
   }, []);
 
   // ---------- Push notifications ----------
+  const checkPush = () => {
+    if (!('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window)) return;
+    if (Notification.permission === 'denied') { setPushState('denied'); return; }
+    navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()).then((sub) => setPushState(sub ? 'on' : 'off')).catch(() => setPushState('off'));
+  };
   // Open the screen a notification points to: on first load (?tab=...) and when a notification is tapped while Xorla is open
   useEffect(() => {
     const openFrom = (href) => {
@@ -1451,8 +1456,10 @@ function XorlaApp() {
     if (!session) return;
     const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     if (!supported) { setPushState(isIOS && !isStandalone ? 'ios-install' : 'unsupported'); return; }
-    if (Notification.permission === 'denied') { setPushState('denied'); return; }
-    navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()).then((sub) => setPushState(sub ? 'on' : 'off')).catch(() => setPushState('off'));
+    checkPush();
+    const onVisible = () => { if (document.visibilityState === 'visible') checkPush(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [session?.user_id]);
 
   // Renew the login token every 45 minutes while the app stays open (tokens expire after about an hour),
@@ -2685,7 +2692,17 @@ function XorlaApp() {
     if (pushState === 'checking' || pushState === 'unsupported') return compact ? null : <div className="text-[12px]" style={{ color: C.inkFaint }}>This browser can't receive notifications. Try Chrome on Android, or install Xorla on your iPhone's Home Screen.</div>;
     const note = pushNote && <div className="text-[11.5px] mt-2 font-medium" style={{ color: pushNote.ok ? C.sage : C.rust }}>{pushNote.text}</div>;
     if (pushState === 'ios-install') return <div className="text-[12px] leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>On iPhone:</strong> add Xorla to your Home Screen first (Share → Add to Home Screen), then open it from there to turn on notifications.</div>;
-    if (pushState === 'denied') return <div className="text-[12px] leading-relaxed" style={{ color: C.inkDim }}>Notifications are blocked for Xorla on this phone. To allow them, open your browser's site settings for Xorla and set Notifications to Allow.</div>;
+    if (pushState === 'denied') return (
+      <div>
+        <div className="text-[12.5px] font-semibold mb-1.5" style={{ color: C.ink }}>Notifications are blocked on this phone</div>
+        <ol className="text-[12px] leading-relaxed space-y-1 mb-2.5" style={{ color: C.inkDim }}>
+          <li><strong style={{ color: C.ink }}>1.</strong> Phone <strong style={{ color: C.ink }}>Settings → Apps → Chrome → Notifications</strong>: switch them on</li>
+          <li><strong style={{ color: C.ink }}>2.</strong> In Chrome: <strong style={{ color: C.ink }}>⋮ → Settings → Site settings → Notifications</strong>: turn on "Sites can ask", and if Xorla is under Blocked, set it to Allow</li>
+          <li><strong style={{ color: C.ink }}>3.</strong> Come back here and tap the button below</li>
+        </ol>
+        <button onClick={checkPush} className="w-full rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink }}>I've allowed it — check again</button>
+      </div>
+    );
     if (pushState === 'off') return (
       <div>
         <button onClick={enablePush} disabled={pushBusy} className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: pushBusy ? 0.6 : 1 }}><Bell size={15} /> {pushBusy ? 'Turning on…' : 'Get these on your phone'}</button>
