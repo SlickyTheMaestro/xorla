@@ -1282,6 +1282,8 @@ function XorlaApp() {
   const [pushState, setPushState] = useState('checking'); // checking | unsupported | ios-install | denied | off | on
   const [pushBusy, setPushBusy] = useState(false);
   const [pushNote, setPushNote] = useState(null);
+  const badgeRef = useRef(0);
+  const lastBadgeRef = useRef(-1);
   const [insightDays, setInsightDays] = useState(30);
   const [correctingId, setCorrectingId] = useState(null);
   const [correctQty, setCorrectQty] = useState('');
@@ -1431,6 +1433,26 @@ function XorlaApp() {
     return () => el.remove();
   }, []);
 
+  // App icon badge: shows how many things are waiting; disappears when there's nothing left
+  useEffect(() => {
+    const n = badgeRef.current;
+    if (n === lastBadgeRef.current) return;
+    lastBadgeRef.current = n;
+    try {
+      if (n > 0 && navigator.setAppBadge) navigator.setAppBadge(n).catch(() => {});
+      else if (n === 0 && navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+    } catch (e) {}
+  });
+  // Opening Xorla clears its notifications from the phone's tray — the bell inside shows everything anyway
+  useEffect(() => {
+    const clearTray = () => {
+      if (document.visibilityState !== 'visible' || !('serviceWorker' in navigator)) return;
+      navigator.serviceWorker.ready.then((reg) => reg.getNotifications ? reg.getNotifications() : []).then((list) => list.forEach((note) => note.close())).catch(() => {});
+    };
+    clearTray();
+    document.addEventListener('visibilitychange', clearTray);
+    return () => document.removeEventListener('visibilitychange', clearTray);
+  }, []);
   // ---------- Push notifications ----------
   const checkPush = () => {
     if (!('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window)) return;
@@ -2608,6 +2630,7 @@ function XorlaApp() {
     return items;
   })();
   const notifUrgent = notifItems.some((i) => i.urgent);
+  badgeRef.current = notifItems.length;
   const renderBell = (extraClass = '') => (
     <button onClick={() => setNotifOpen((o) => !o)} aria-label={`Notifications${notifItems.length ? `, ${notifItems.length} waiting` : ''}`} aria-expanded={notifOpen} className={`relative flex items-center justify-center shrink-0 ${extraClass}`} style={{ color: notifOpen ? C.copper : C.inkDim }}>
       <Bell size={16} />
@@ -2714,7 +2737,7 @@ function XorlaApp() {
         <div className="flex items-center justify-between gap-3">
           <span className="flex items-center gap-2 text-[12.5px] font-semibold" style={{ color: C.sage }}><Check size={15} /> On for this phone</span>
           <span className="flex items-center gap-3 text-[12px] font-medium">
-            <button onClick={testPush} disabled={pushBusy} style={{ color: C.copper }}>Send a test</button>
+            {!compact && <button onClick={testPush} disabled={pushBusy} style={{ color: C.copper }}>Send a test</button>}
             <button onClick={disablePush} disabled={pushBusy} style={{ color: C.inkFaint }}>Turn off</button>
           </span>
         </div>
