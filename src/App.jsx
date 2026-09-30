@@ -1188,6 +1188,7 @@ function XorlaApp() {
   const [editingProductId, setEditingProductId] = useState(null);
   const [restockAmount, setRestockAmount] = useState('');
   const [restockShopId, setRestockShopId] = useState(null);
+  const [restockCost, setRestockCost] = useState('');
   const [correctingId, setCorrectingId] = useState(null);
   const [correctQty, setCorrectQty] = useState('');
   const [correctShopId, setCorrectShopId] = useState(null);
@@ -1785,18 +1786,37 @@ function XorlaApp() {
     catch (e) { alert(e.message); }
   };
 
+  // New stock at a new cost → average it with the stock already on hand, so profit stays accurate on old and new units
+  const totalStockOf = (productId) => (productsAll.find((p) => p.id === productId)?.trackStock ? locations.reduce((a, s) => a + stockAt({ id: productId }, s.id), 0) : 0);
+  const newAverageCost = (productId, addQty, unitCost) => {
+    const base = productsAll.find((p) => p.id === productId);
+    const oldCost = Number(base?.costPrice) || 0;
+    const onHand = totalStockOf(productId);
+    if (!(unitCost > 0) || !(addQty > 0)) return oldCost;
+    if (onHand <= 0 || oldCost <= 0) return Math.round(unitCost);
+    return Math.round((onHand * oldCost + addQty * unitCost) / (onHand + addQty));
+  };
+  const saveCostPrice = async (productId, cost) => {
+    await sbRest(`products?id=eq.${productId}`, { method: 'PATCH', accessToken: session.access_token, body: { cost_price: cost } });
+    setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, costPrice: cost } : p)));
+  };
+
   const handleRestock = async (product) => {
     const added = Number(restockAmount);
     if (!added || added < 0) return;
     const shopId = activeShopId || (locations.some((s) => s.id === restockShopId) ? restockShopId : mainShopId);
+    const unitCost = Number(parseNumInput(restockCost));
+    const nextCost = restockCost !== '' && unitCost > 0 ? newAverageCost(product.id, added, unitCost) : null;
     try {
       if (!product.trackStock) {
         await sbRest(`products?id=eq.${product.id}`, { method: 'PATCH', accessToken: session.access_token, body: { track_stock: true } });
         setProducts((prev) => prev.map((p) => (p.id === product.id ? { ...p, trackStock: true } : p)));
       }
       await changeStock(product.id, shopId, added, product.trackStock ? 'restock' : 'initial');
+      if (nextCost !== null && nextCost !== Number(product.costPrice)) await saveCostPrice(product.id, nextCost);
       setRestockingId(null);
       setRestockAmount('');
+      setRestockCost('');
     } catch (e) { alert(e.message); }
   };
 
@@ -2067,7 +2087,18 @@ function XorlaApp() {
     const items = [];
     deliveryForm.lines.forEach((l) => { if (!l.productId) return; Object.entries(l.split || {}).forEach(([shopId, q]) => { const qty = Number(q); if (qty > 0) items.push({ productId: l.productId, shopId, qty }); }); });
     if (!items.length) { setStockError('Add at least one item with a quantity.'); return; }
-    runStock(() => sbRpc('receive_delivery', session.access_token, { p_items: items, p_arrived: deliveryForm.arrived, p_note: deliveryForm.note }),
+    const costUpdates = deliveryForm.lines.map((l) => {
+      const qty = Object.values(l.split || {}).reduce((a, q) => a + (Number(q) || 0), 0);
+      const uc = Number(parseNumInput(l.cost || ''));
+      if (!l.productId || !(qty > 0) || !(uc > 0)) return null;
+      const next = newAverageCost(l.productId, qty, uc);
+      const base = productsAll.find((p) => p.id === l.productId);
+      return next !== Number(base?.costPrice) ? { productId: l.productId, cost: next } : null;
+    }).filter(Boolean);
+    runStock(async () => {
+      await sbRpc('receive_delivery', session.access_token, { p_items: items, p_arrived: deliveryForm.arrived, p_note: deliveryForm.note });
+      for (const u of costUpdates) await saveCostPrice(u.productId, u.cost);
+    },
       () => { setStockPanel(null); setDeliveryForm({ lines: [{ productId: '', split: {} }], arrived: true, note: '' }); });
   };
   const submitSend = () => {
@@ -2230,7 +2261,22 @@ function XorlaApp() {
                       <input type="number" min="0" placeholder="0" value={(l.split || {})[loc.id] || ''} onChange={(e) => setDeliveryForm({ ...deliveryForm, lines: deliveryForm.lines.map((x, j) => (j === i ? { ...x, split: { ...(x.split || {}), [loc.id]: e.target.value } } : x)) })} className="w-20 rounded-lg px-2 py-1.5 text-[13px] text-center outline-none cx-mono" style={field} />
                     </div>
                   ))}
-                  {l.productId && <div className="text-[11px] pl-1 font-medium" style={{ color: C.sage }}>Total: {Object.values(l.split || {}).reduce((a, q) => a + (Number(q) || 0), 0)}</div>}
+                  {l.productId && (() => {
+                    const total = Object.values(l.split || {}).reduce((a, q) => a + (Number(q) || 0), 0);
+                    const base = productsAll.find((p) => p.id === l.productId);
+                    const uc = Number(parseNumInput(l.cost || ''));
+                    const avg = uc > 0 && total > 0 ? newAverageCost(l.productId, total, uc) : null;
+                    return (
+                      <div className="pl-1 space-y-1.5 pt-1">
+                        <div className="text-[11px] font-medium" style={{ color: C.sage }}>Total: {total}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="flex-1 text-[12px]" style={{ color: C.inkDim }}>Cost per unit this time <span style={{ color: C.inkFaint }}>(optional)</span></span>
+                          <input type="text" inputMode="decimal" placeholder={fmt(base?.costPrice || 0)} value={formatNumInput(l.cost || '')} onChange={(e) => setDeliveryForm({ ...deliveryForm, lines: deliveryForm.lines.map((x, j) => (j === i ? { ...x, cost: parseNumInput(e.target.value) } : x)) })} className="w-28 rounded-lg px-2 py-1.5 text-[13px] text-right outline-none cx-mono" style={field} />
+                        </div>
+                        {avg !== null && avg !== Number(base?.costPrice) && <div className="text-[11px]" style={{ color: C.sage }}>New average cost: {fmt(avg)} (was {fmt(base?.costPrice || 0)})</div>}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
               <button onClick={() => setDeliveryForm({ ...deliveryForm, lines: [...deliveryForm.lines, { productId: '', split: {} }] })} className="text-[12px] font-medium" style={{ color: C.sage }}>+ Add another item</button>
@@ -3932,7 +3978,7 @@ function XorlaApp() {
                       <div className="flex items-center gap-2.5 shrink-0">
                         <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
                         {isOwnerRole && p.stockQuantity !== null && <button onClick={() => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); }} className="text-[11px] font-medium" style={{ color: C.inkDim }}>Fix count</button>}
-                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
+                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
                         {isOwnerRole && hasManyLocations && p.stockQuantity !== null && <button onClick={() => openSend({ productId: p.id, from: activeShopId || '' })} className="text-[11px] font-medium" style={{ color: C.copper }}>Send</button>}
                         <button onClick={() => removeProduct(p.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
                       </div>
@@ -3965,12 +4011,25 @@ function XorlaApp() {
                         ))}
                       </div>
                     )}
-                    {isRestocking && (
-                      <div className="flex gap-2 mt-2.5">
-                        <input type="number" min="0" autoFocus placeholder={p.stockQuantity === null ? 'Starting stock count' : 'Units received'} value={restockAmount} onChange={(e) => setRestockAmount(e.target.value)} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
-                        <button onClick={() => handleRestock(p)} className="px-4 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Save</button>
-                      </div>
-                    )}
+                    {isRestocking && (() => {
+                      const qty = Number(restockAmount);
+                      const uc = Number(parseNumInput(restockCost));
+                      const avg = restockCost !== '' && uc > 0 && qty > 0 ? newAverageCost(p.id, qty, uc) : null;
+                      return (
+                        <div className="mt-2.5 space-y-2">
+                          <div className="flex gap-2">
+                            <input type="number" min="0" autoFocus placeholder={p.stockQuantity === null ? 'Starting stock count' : 'Units received'} value={restockAmount} onChange={(e) => setRestockAmount(e.target.value)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                            <input type="text" inputMode="decimal" aria-label="Cost per unit this time (optional)" placeholder={`Cost each (${fmt(p.costPrice)})`} value={formatNumInput(restockCost)} onChange={(e) => setRestockCost(parseNumInput(e.target.value))} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                            <button onClick={() => handleRestock(p)} className="px-4 rounded-lg text-[12px] font-semibold shrink-0" style={{ background: C.sage, color: C.bg }}>Save</button>
+                          </div>
+                          <div className="text-[11px]" style={{ color: avg !== null && avg !== Number(p.costPrice) ? C.sage : C.inkFaint }}>
+                            {avg !== null && avg !== Number(p.costPrice)
+                              ? `New average cost: ${fmt(avg)} (was ${fmt(p.costPrice)})`
+                              : 'Paid a different price this time? Enter the cost per unit and Xorla keeps your profit accurate.'}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     {correctingId === p.id && (() => {
                       const cShop = activeShopId || (locations.some((s) => s.id === correctShopId) ? correctShopId : mainShopId);
                       return (
