@@ -155,7 +155,7 @@ function formatNumInput(v) {
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName'];
-const SETTINGS_TITLES = { shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
+const SETTINGS_TITLES = { notifications: 'Phone notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -193,6 +193,11 @@ function priceLabel(p) {
 // Items saved before "kind" existed follow the business type
 function kindOf(p, businessType) {
   return p.kind || (businessType === 'services' ? 'service' : 'product');
+}
+function base64UrlToUint8Array(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map((ch) => ch.charCodeAt(0)));
 }
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
 
@@ -1274,6 +1279,9 @@ function XorlaApp() {
   const [restockCost, setRestockCost] = useState('');
   const [productsView, setProductsView] = useState('list');
   const [notifOpen, setNotifOpen] = useState(false);
+  const [pushState, setPushState] = useState('checking'); // checking | unsupported | ios-install | denied | off | on
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushNote, setPushNote] = useState(null);
   const [insightDays, setInsightDays] = useState(30);
   const [correctingId, setCorrectingId] = useState(null);
   const [correctQty, setCorrectQty] = useState('');
@@ -1422,6 +1430,30 @@ function XorlaApp() {
     document.head.appendChild(el);
     return () => el.remove();
   }, []);
+
+  // ---------- Push notifications ----------
+  // Open the screen a notification points to: on first load (?tab=...) and when a notification is tapped while Xorla is open
+  useEffect(() => {
+    const openFrom = (href) => {
+      try {
+        const t = new URL(href, window.location.origin).searchParams.get('tab');
+        if (t && ['overview', 'sales', 'orders', 'products', 'expenses', 'invoices', 'advisor'].includes(t)) setTab(t);
+      } catch (e) {}
+    };
+    openFrom(window.location.href);
+    if (window.location.search.includes('tab=')) window.history.replaceState(null, '', window.location.pathname);
+    const onMsg = (e) => { if (e.data?.type === 'xorla-open') openFrom(e.data.url); };
+    navigator.serviceWorker?.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
+  }, []);
+  // Work out whether this phone can get notifications, and whether it already does
+  useEffect(() => {
+    if (!session) return;
+    const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    if (!supported) { setPushState(isIOS && !isStandalone ? 'ios-install' : 'unsupported'); return; }
+    if (Notification.permission === 'denied') { setPushState('denied'); return; }
+    navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()).then((sub) => setPushState(sub ? 'on' : 'off')).catch(() => setPushState('off'));
+  }, [session?.user_id]);
 
   // Renew the login token every 45 minutes while the app stays open (tokens expire after about an hour),
   // so saves and Oga keep working for owners who leave Xorla open all day
@@ -2605,9 +2637,74 @@ function XorlaApp() {
             ))}
           </div>
         )}
+        {renderPushControl(true) && <div className="px-4 py-3" style={{ borderTop: `1px solid ${C.line}`, background: C.surfaceRaised }}>{renderPushControl(true)}</div>}
       </div>
     </>
   );
+
+  const callPush = async (action) => {
+    const res = await fetch(`${SB_URL}/functions/v1/push`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ action }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || "Notifications aren't available right now.");
+    return data;
+  };
+  const enablePush = async () => {
+    setPushBusy(true); setPushNote(null);
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { setPushState(perm === 'denied' ? 'denied' : 'off'); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const { publicKey } = await callPush('config');
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToUint8Array(publicKey) });
+      const j = sub.toJSON();
+      await sbRpc('save_push_subscription', session.access_token, { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+      setPushState('on');
+      await callPush('test').catch(() => {});
+      setPushNote({ ok: true, text: "You're set. A test notification is on its way." });
+    } catch (e) { setPushNote({ ok: false, text: e.message }); }
+    finally { setPushBusy(false); }
+  };
+  const disablePush = async () => {
+    setPushBusy(true); setPushNote(null);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) { await sbRpc('delete_push_subscription', session.access_token, { p_endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe(); }
+      setPushState('off');
+    } catch (e) { setPushNote({ ok: false, text: e.message }); }
+    finally { setPushBusy(false); }
+  };
+  const testPush = async () => {
+    setPushBusy(true); setPushNote(null);
+    try { await callPush('test'); setPushNote({ ok: true, text: 'Test sent — check your notifications.' }); }
+    catch (e) { setPushNote({ ok: false, text: e.message }); }
+    finally { setPushBusy(false); }
+  };
+  // The same compact control everywhere: panel, Settings, staff screen
+  const renderPushControl = (compact = false) => {
+    if (pushState === 'checking' || pushState === 'unsupported') return compact ? null : <div className="text-[12px]" style={{ color: C.inkFaint }}>This browser can't receive notifications. Try Chrome on Android, or install Xorla on your iPhone's Home Screen.</div>;
+    const note = pushNote && <div className="text-[11.5px] mt-2 font-medium" style={{ color: pushNote.ok ? C.sage : C.rust }}>{pushNote.text}</div>;
+    if (pushState === 'ios-install') return <div className="text-[12px] leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>On iPhone:</strong> add Xorla to your Home Screen first (Share → Add to Home Screen), then open it from there to turn on notifications.</div>;
+    if (pushState === 'denied') return <div className="text-[12px] leading-relaxed" style={{ color: C.inkDim }}>Notifications are blocked for Xorla on this phone. To allow them, open your browser's site settings for Xorla and set Notifications to Allow.</div>;
+    if (pushState === 'off') return (
+      <div>
+        <button onClick={enablePush} disabled={pushBusy} className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: pushBusy ? 0.6 : 1 }}><Bell size={15} /> {pushBusy ? 'Turning on…' : 'Get these on your phone'}</button>
+        {note}
+      </div>
+    );
+    return (
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex items-center gap-2 text-[12.5px] font-semibold" style={{ color: C.sage }}><Check size={15} /> On for this phone</span>
+          <span className="flex items-center gap-3 text-[12px] font-medium">
+            <button onClick={testPush} disabled={pushBusy} style={{ color: C.copper }}>Send a test</button>
+            <button onClick={disablePush} disabled={pushBusy} style={{ color: C.inkFaint }}>Turn off</button>
+          </span>
+        </div>
+        {note}
+      </div>
+    );
+  };
 
   // ---------- Receipts ----------
   const makeReceipt = ({ id, items, total, owed, customerName, customerPhone, shopId, when }) => ({
@@ -2904,6 +3001,12 @@ function XorlaApp() {
                   <button onClick={() => { setStockError(''); setRequestForm({ lines: [{ productId: '', qty: '' }], note: '' }); setStockPanel('request'); }} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}><PackagePlus size={15} /> Request stock</button>
                 </div>
                 {stockError && !stockPanel && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{stockError}</div>}
+                {pushState !== 'on' && pushState !== 'checking' && pushState !== 'unsupported' && (
+                  <div className="rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                    <div className="text-[12px] mb-2" style={{ color: C.inkDim }}>Get a notification on this phone when stock is sent to your shop, or your request is answered.</div>
+                    {renderPushControl(true)}
+                  </div>
+                )}
                 {myIncoming.length > 0 && (
                   <div>
                     <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.copper }}>Arriving at your shop — check and confirm</div>
@@ -3078,6 +3181,9 @@ function XorlaApp() {
                 ])}
                 {renderSettingsGroup('Help', [
                   { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
+                ])}
+                {renderSettingsGroup('Notifications', [
+                  { id: 'notifications', Icon: Bell, label: 'Phone notifications', value: pushState === 'on' ? 'On' : pushState === 'denied' ? 'Blocked' : 'Off', valueColor: pushState === 'on' ? C.sage : undefined },
                 ])}
                 {!isStandalone && renderSettingsGroup('App', [
                   { action: openInstallFromSettings, Icon: Download, label: 'Install Xorla app', value: '' },
@@ -3319,6 +3425,30 @@ function XorlaApp() {
                       ))}
                     </div>
                   </div>
+              </div>
+            )}
+            {settingsPage === 'notifications' && (
+              <div className="space-y-4">
+                <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  <div className="text-[14.5px] font-semibold mb-1">Notifications on this phone</div>
+                  <div className="text-[12px] leading-relaxed mb-4" style={{ color: C.inkFaint }}>Only the things worth interrupting you for. Each phone or computer is turned on separately.</div>
+                  {renderPushControl(false)}
+                </div>
+                <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  <div className="text-[12px] font-semibold uppercase tracking-wide mb-2.5" style={{ color: C.inkFaint }}>What you'll get</div>
+                  <div className="space-y-2 text-[12.5px]" style={{ color: C.inkDim }}>
+                    {(isOwnerRole ? [
+                      ['New storefront orders', 'the moment they come in'],
+                      ['Stock requests', 'when a shop asks for more'],
+                      ['Overdue invoices', 'one summary each morning, not a buzz for each'],
+                    ] : [
+                      ['Stock on its way', 'when stock is sent to your shop'],
+                      ['Your stock requests', 'when they are approved or declined'],
+                    ]).map(([a, b]) => (
+                      <div key={a} className="flex items-start gap-2.5"><Check size={14} className="shrink-0 mt-0.5" style={{ color: C.sage }} /><span><strong style={{ color: C.ink }}>{a}</strong> — {b}</span></div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
             {settingsPage === 'businessType' && (
