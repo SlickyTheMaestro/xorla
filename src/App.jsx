@@ -1273,6 +1273,7 @@ function XorlaApp() {
   const [restockShopId, setRestockShopId] = useState(null);
   const [restockCost, setRestockCost] = useState('');
   const [productsView, setProductsView] = useState('list');
+  const [notifOpen, setNotifOpen] = useState(false);
   const [insightDays, setInsightDays] = useState(30);
   const [correctingId, setCorrectingId] = useState(null);
   const [correctQty, setCorrectQty] = useState('');
@@ -2552,6 +2553,62 @@ function XorlaApp() {
     );
   };
 
+  // ---------- Notification centre: everything waiting for the owner, in one place ----------
+  const notifItems = (() => {
+    const items = [];
+    const go = (t, extra) => () => { setNotifOpen(false); extra && extra(); setTab(t); };
+    if (pendingOrderCount > 0) items.push({ key: 'orders', urgent: false, Icon: ShoppingBag, title: `${pendingOrderCount} new ${T.order}${pendingOrderCount !== 1 ? 's' : ''} from your storefront`, sub: 'Review and fulfil', onClick: go('orders') });
+    if (isOwnerRole && pendingRequests.length > 0) items.push({ key: 'requests', urgent: false, Icon: PackagePlus, title: `${pendingRequests.length} stock request${pendingRequests.length !== 1 ? 's' : ''} from your shops`, sub: pendingRequests.slice(0, 2).map((r) => shopNameOf(r.shop_id)).join(', '), onClick: go('products', () => setProductsView('list')) });
+    if (needsAttention.length > 0) items.push({ key: 'invoices', urgent: true, Icon: PhoneCall, title: `${needsAttention.length} invoice${needsAttention.length !== 1 ? 's' : ''} need${needsAttention.length === 1 ? 's' : ''} follow-up`, sub: needsAttention.slice(0, 3).map((i) => i.clientName).join(', '), onClick: go('invoices') });
+    const arriving = isOwnerRole ? inTransit : inTransit.filter((t) => myShops.some((s) => s.id === t.to_shop));
+    if (arriving.length > 0) items.push({ key: 'transit', urgent: false, Icon: Truck, title: `${arriving.length} item${arriving.length !== 1 ? 's' : ''} on the way`, sub: 'Confirm what arrives', onClick: go('products', () => setProductsView('list')) });
+    const low = products.filter((p) => p.isLow);
+    if (low.length > 0) items.push({ key: 'low', urgent: false, Icon: Package, title: `${low.length} item${low.length !== 1 ? 's' : ''} running low`, sub: low.slice(0, 3).map((p) => p.name).join(', '), onClick: go('products', () => setProductsView('list')) });
+    const shortWeek = stockTransfers.filter((t) => t.status === 'received' && t.qty_received !== null && Number(t.qty_received) < Number(t.qty_sent) && Date.now() - new Date(t.received_at).getTime() < 7 * 86400000);
+    if (isOwnerRole && shortWeek.length > 0) items.push({ key: 'short', urgent: true, Icon: Truck, title: `${shortWeek.length} shortage${shortWeek.length !== 1 ? 's' : ''} this week`, sub: 'Items missing on arrival', onClick: go('products', () => setProductsView('list')) });
+    return items;
+  })();
+  const notifUrgent = notifItems.some((i) => i.urgent);
+  const renderBell = (extraClass = '') => (
+    <button onClick={() => setNotifOpen((o) => !o)} aria-label={`Notifications${notifItems.length ? `, ${notifItems.length} waiting` : ''}`} aria-expanded={notifOpen} className={`relative flex items-center justify-center shrink-0 ${extraClass}`} style={{ color: notifOpen ? C.copper : C.inkDim }}>
+      <Bell size={16} />
+      {notifItems.length > 0 && (
+        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: notifUrgent ? C.rust : C.copper, color: C.bg }}>{notifItems.length}</span>
+      )}
+    </button>
+  );
+  const renderNotifPanel = () => notifOpen && (
+    <>
+      <div className="fixed inset-0 z-[88]" onClick={() => setNotifOpen(false)} />
+      <div role="dialog" aria-label="Notifications" className="fixed z-[89] right-3 left-3 sm:left-auto sm:w-[360px] top-16 lg:top-[72px] rounded-2xl overflow-hidden xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
+        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+          <span className="text-[14px] font-semibold cx-display">Needs your attention</span>
+          <button onClick={() => setNotifOpen(false)} aria-label="Close" style={{ color: C.inkFaint }}><X size={16} /></button>
+        </div>
+        {notifItems.length === 0 ? (
+          <div className="px-4 py-8 text-center">
+            <Check size={22} className="mx-auto mb-2" style={{ color: C.sage }} />
+            <div className="text-[13.5px] font-semibold">You're all caught up</div>
+            <div className="text-[12px] mt-0.5" style={{ color: C.inkFaint }}>Nothing is waiting on you right now.</div>
+          </div>
+        ) : (
+          <div className="max-h-[60vh] overflow-y-auto">
+            {notifItems.map((it, i) => (
+              <button key={it.key} onClick={it.onClick} className="w-full text-left flex items-start gap-3 px-4 py-3.5 active:opacity-70" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: it.urgent ? C.rustSoft : C.copperSoft }}><it.Icon size={16} style={{ color: it.urgent ? C.rust : C.copper }} /></span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[13px] font-semibold">{it.title}</span>
+                  {it.sub && <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{it.sub}</span>}
+                </span>
+                <ChevronRight size={16} className="shrink-0 mt-2.5" style={{ color: C.inkFaint }} />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   // ---------- Receipts ----------
   const makeReceipt = ({ id, items, total, owed, customerName, customerPhone, shopId, when }) => ({
     no: String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase(),
@@ -3452,6 +3509,7 @@ function XorlaApp() {
             <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
           </div>
           <div className="flex items-center gap-4">
+            {renderBell('sm:hidden')}
             {settings.pin && <button onClick={() => setLocked(true)} style={{ color: C.inkFaint }}><Lock size={16} /></button>}
             <button data-tour="settings" onClick={() => { setDraft({ ...settings }); setSettingsPage(null); setPreviousTab(tab); setTab('settings'); }} style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={18} /></button>
           </div>
@@ -3493,10 +3551,7 @@ function XorlaApp() {
               })()}
             </div>
             {settings.staffList.length > 0 && <div className="hidden md:flex">{renderTeamPresence(true)}</div>}
-            <button className="relative hidden sm:flex items-center justify-center w-9 h-9 rounded-xl shrink-0" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>
-              <Bell size={15} />
-              {needsAttention.length > 0 && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full" style={{ background: C.rust }} />}
-            </button>
+            <span className="hidden sm:flex w-9 h-9 rounded-xl items-center justify-center shrink-0" style={{ border: `1px solid ${notifOpen ? C.copper : C.line}` }}>{renderBell()}</span>
             <button
               onClick={() => { if (tab === 'expenses') setShowExpenseForm(true); else if (tab === 'invoices') setShowForm(true); else { setTab('sales'); setShowSaleForm(true); } }}
               className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-semibold shrink-0" style={{ background: C.sage, color: C.bg }}>
@@ -4697,6 +4752,7 @@ function XorlaApp() {
 
       {renderReceiptModal()}
       {renderStockPanel()}
+      {renderNotifPanel()}
       {aiNotice && (
         <div role="status" className="fixed left-4 right-4 lg:left-auto lg:right-6 lg:w-[380px] bottom-24 lg:bottom-6 z-50 rounded-2xl px-4 py-3.5 flex items-start gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}>
           <Lightbulb size={17} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
