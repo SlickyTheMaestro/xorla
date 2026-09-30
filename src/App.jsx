@@ -201,6 +201,9 @@ function base64UrlToUint8Array(b64) {
 }
 const DEVICE_WORD = typeof navigator !== 'undefined' && /iPad|Tablet/i.test(navigator.userAgent) ? 'tablet'
   : typeof navigator !== 'undefined' && /Android|iPhone|iPod|Mobile/i.test(navigator.userAgent) ? 'phone' : 'computer';
+// Android browsers where web push is known not to deliver reliably (subscribing "works", but nothing arrives)
+const PUSH_UNRELIABLE_BROWSER = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent) && /(EdgA|OPR|OPT|Opera)/i.test(navigator.userAgent)
+  ? (/EdgA/i.test(navigator.userAgent) ? 'Edge' : 'Opera') : null;
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
 
 function invoiceLineItems(inv) {
@@ -2716,6 +2719,16 @@ function XorlaApp() {
   const renderPushControl = (compact = false) => {
     if (pushState === 'checking' || pushState === 'unsupported') return compact ? null : <div className="text-[12px]" style={{ color: C.inkFaint }}>This browser can't receive notifications. Try Chrome on Android, or install Xorla on your iPhone's Home Screen.</div>;
     const note = pushNote && <div className="text-[11.5px] mt-2 font-medium" style={{ color: pushNote.ok ? C.sage : C.rust }}>{pushNote.text}</div>;
+    if (PUSH_UNRELIABLE_BROWSER && (pushState === 'off' || pushState === 'on')) return (
+      <div>
+        <div className="text-[12px] leading-relaxed mb-2.5" style={{ color: C.inkDim }}>
+          <strong style={{ color: C.ink }}>Notifications on Android work reliably in Chrome.</strong> {PUSH_UNRELIABLE_BROWSER} on Android may say they're on but never deliver them — a known issue with the browser, not your phone.
+        </div>
+        <a href={`intent://${window.location.host}/#Intent;scheme=https;package=com.android.chrome;end`} className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Open Xorla in Chrome</a>
+        {pushState === 'on' && <button onClick={disablePush} disabled={pushBusy} className="w-full mt-2 text-[12px] font-medium" style={{ color: C.inkFaint }}>Turn off here</button>}
+        {note}
+      </div>
+    );
     if (pushState === 'ios-install') return <div className="text-[12px] leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>On iPhone:</strong> add Xorla to your Home Screen first (Share → Add to Home Screen), then open it from there to turn on notifications.</div>;
     if (pushState === 'denied') return (
       <div>
