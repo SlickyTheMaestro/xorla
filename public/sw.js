@@ -10,6 +10,8 @@ self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { title: 'Xorla', body: event.data ? event.data.text() : '' }; }
   const title = data.title || 'Xorla';
+  // Mark the app icon; Xorla sets the exact count (or clears it) when it's opened
+  try { if (self.navigator && self.navigator.setAppBadge) self.navigator.setAppBadge().catch(() => {}); } catch (e) {}
   event.waitUntil(self.registration.showNotification(title, {
     body: data.body || '',
     icon: '/icons/icon-192.png',
