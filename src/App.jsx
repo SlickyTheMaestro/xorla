@@ -404,7 +404,7 @@ function timeLabel(iso) { return new Date(iso).toLocaleTimeString('en-GB', { hou
 function dateKeyOf(iso) { return new Date(iso).toLocaleDateString('sv-SE'); }
 
 function fromSbSale(row) {
-  return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, soldAt: row.sold_at, basketId: row.basket_id || null, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null, shopId: row.shop_id || null };
+  return { id: row.id, item: row.item, amount: row.amount, cost: row.cost || 0, owed: row.owed || 0, soldAt: row.sold_at, basketId: row.basket_id || null, productId: row.product_id || null, quantity: Number(row.quantity) || 1, dateKey: dateKeyOf(row.sold_at), time: timeLabel(row.sold_at), loggedBy: row.logged_by_name || '', photo: null, shopId: row.shop_id || null };
 }
 function fromSbInvoice(row) {
   return { id: row.id, clientName: row.client_name, invoiceNo: row.invoice_no, amount: row.amount, paidAmount: row.paid_amount || 0, dueDate: row.due_date, phone: row.phone || '', loggedBy: row.logged_by_name || '', items: row.items || [], taxRate: row.tax_rate || 0, clientAddress: row.client_address || '', notes: row.notes || '', autoReminderCount: row.auto_reminder_count || 0, shopId: row.shop_id || null };
@@ -528,6 +528,9 @@ Business snapshot:
 - Total owed to them by customers: ${fmt(ctx.outstanding)}
 - Of which overdue: ${fmt(ctx.overdue)}
 - Invoices needing urgent follow-up right now: ${ctx.needsAttentionCount}
+
+Products over the last 30 days (${ctx.shopView || 'whole business'}), best sellers first:
+${ctx.productSummary || '- Not available.'}
 
 Owner's question: "${question}"
 
@@ -986,7 +989,7 @@ function ResetPasswordScreen({ accessToken, onDone }) {
 
 // Branded dropdown — a drop-in replacement for <select> that matches Xorla's look.
 // Takes the same <option> children and calls onChange({ target: { value } }) like a native select.
-function BrandSelect({ value, onChange, children, className = '', style = {}, disabled, 'aria-label': ariaLabel }) {
+function BrandSelect({ value, onChange, children, className = '', style = {}, disabled, icon, 'aria-label': ariaLabel }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [pos, setPos] = useState(null);
@@ -1035,7 +1038,10 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
         onClick={() => { setOpen((o) => !o); setActive(selIndex); }} onKeyDown={onKey}
         className={`${look} w-full flex items-center justify-between gap-2 text-left outline-none transition-colors`}
         style={{ ...style, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...(open ? { borderColor: C.copper } : {}) }}>
-        <span className="truncate" style={{ color: current && current.value !== '' ? C.ink : C.inkFaint }}>{current ? current.label : ''}</span>
+        <span className="flex items-center gap-2 min-w-0">
+          {icon}
+          <span className="truncate" style={{ color: current && current.value !== '' ? C.ink : C.inkFaint }}>{current ? current.label : ''}</span>
+        </span>
         <ChevronRight size={15} className="shrink-0" style={{ color: open ? C.copper : C.inkFaint, transform: `rotate(${open ? -90 : 90}deg)`, transition: 'transform .15s' }} />
       </button>
       {open && pos && createPortal(
@@ -1266,6 +1272,8 @@ function XorlaApp() {
   const [restockAmount, setRestockAmount] = useState('');
   const [restockShopId, setRestockShopId] = useState(null);
   const [restockCost, setRestockCost] = useState('');
+  const [productsView, setProductsView] = useState('list');
+  const [insightDays, setInsightDays] = useState(30);
   const [correctingId, setCorrectingId] = useState(null);
   const [correctQty, setCorrectQty] = useState('');
   const [correctShopId, setCorrectShopId] = useState(null);
@@ -1635,7 +1643,7 @@ function XorlaApp() {
     setSavingSale(true);
     const owed = saleForm.fullyPaid ? 0 : Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0));
     try {
-      const saleRows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, owed } });
+      const saleRows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, owed, product_id: saleForm.productId || null, quantity: saleForm.productId ? Math.max(1, Number(saleForm.quantity) || 1) : 1 } });
       const newSale = fromSbSale(saleRows[0]);
       setSales((prev) => [newSale, ...prev]);
 
@@ -1691,7 +1699,7 @@ function XorlaApp() {
       // One basket = one receipt: every item shares a basket ID; the balance owed sits on the first item
       const basketId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null;
       for (const [idx, it] of cleanItems.entries()) {
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: idx === 0 ? owed : 0, ...(basketId ? { basket_id: basketId } : {}) } });
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: idx === 0 ? owed : 0, product_id: it.productId || null, quantity: it.quantity, ...(basketId ? { basket_id: basketId } : {}) } });
         newSales.push(rows[0]);
         if (it.productId) {
           const product = products.find((p) => p.id === it.productId);
@@ -1838,7 +1846,7 @@ function XorlaApp() {
     try {
       const newSales = [];
       for (const item of order.items) {
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: order.shopId || mainShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description, amount: item.quantity * item.unitPrice, cost: item.quantity * (item.unitCost || 0), owed: 0 } });
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: order.shopId || mainShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description, amount: item.quantity * item.unitPrice, cost: item.quantity * (item.unitCost || 0), owed: 0, product_id: item.productId || null, quantity: item.quantity } });
         newSales.push(rows[0]);
         if (item.productId) {
           const product = products.find((p) => p.id === item.productId);
@@ -2080,13 +2088,44 @@ function XorlaApp() {
     catch (e) { showAiNotice(e.message); } finally { setSummaryLoading(false); }
   };
 
+  // ---------- Product performance (best sellers, fast and slow movers) ----------
+  const nameKey = (s) => String(s || '').replace(/\s*×\s*\d+\s*$/, '').trim().toLowerCase();
+  const productByName = new Map(productsAll.map((p) => [p.name.trim().toLowerCase(), p.id]));
+  const qtyFromName = (s) => { const m = String(s || '').match(/×\s*(\d+)\s*$/); return m ? Number(m[1]) : 1; };
+  const productPerformance = (days) => {
+    const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    const stats = new Map();
+    sales.forEach((s) => {
+      if (s.dateKey < since) return;
+      const pid = s.productId || productByName.get(nameKey(s.item));
+      if (!pid) return;
+      const units = s.productId ? s.quantity : qtyFromName(s.item);
+      const st = stats.get(pid) || { units: 0, revenue: 0, profit: 0, sales: 0 };
+      st.units += units; st.revenue += Number(s.amount) || 0; st.profit += (Number(s.amount) || 0) - (Number(s.cost) || 0); st.sales += 1;
+      stats.set(pid, st);
+    });
+    return products.map((p) => {
+      const st = stats.get(p.id) || { units: 0, revenue: 0, profit: 0, sales: 0 };
+      const perDay = st.units / days;
+      const daysLeft = p.stockQuantity !== null && perDay > 0 ? p.stockQuantity / perDay : null;
+      return { ...p, ...st, perDay, daysLeft };
+    });
+  };
+  const perfText = (rows) => {
+    const sold = rows.filter((r) => r.units > 0).sort((a, b) => b.revenue - a.revenue);
+    const slow = rows.filter((r) => r.units === 0 && (r.stockQuantity === null || r.stockQuantity > 0));
+    const lines = sold.slice(0, 12).map((r) => `- ${r.name}: ${r.units} sold, ${fmt(r.revenue)} revenue, ${fmt(r.profit)} profit${r.stockQuantity !== null ? `, ${r.stockQuantity} in stock${r.daysLeft !== null ? ` (~${Math.round(r.daysLeft)} days left at current pace)` : ''}` : ''}`);
+    if (slow.length) lines.push(`- Not sold at all in this period: ${slow.slice(0, 10).map((r) => `${r.name}${r.stockQuantity ? ` (${r.stockQuantity} in stock)` : ''}`).join(', ')}`);
+    return lines.length ? lines.join('\n') : '- No product sales recorded in this period yet.';
+  };
+
   const runAdvisor = async (q) => {
     if (!q || !q.trim()) return;
     setAdvisorQuestion(q);
     setAdvisorLoading(true);
     setAdvisorAnswer('');
     try {
-      const ctx = { trueProfitToday, todayRevenue, saleCount: todaySales.length, todayExpenses, weekTotal, outstanding: totals.outstanding, overdue: totals.overdue, needsAttentionCount: needsAttention.length };
+      const ctx = { trueProfitToday, todayRevenue, saleCount: todaySales.length, todayExpenses, weekTotal, outstanding: totals.outstanding, overdue: totals.overdue, needsAttentionCount: needsAttention.length , productSummary: perfText(productPerformance(30)), shopView: viewAllShops ? 'all shops combined' : shopNameOf(activeShopId) };
       const text = await aiAdvice(q, ctx, settings);
       setAdvisorAnswer(text);
     } catch (e) {
@@ -2418,6 +2457,101 @@ function XorlaApp() {
     );
   };
 
+  const renderInsights = () => {
+    const rows = productPerformance(insightDays);
+    const sold = rows.filter((r) => r.units > 0);
+    const unitWord = T.tracksStock ? 'sold' : 'done';
+    const byRevenue = [...sold].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+    const byPace = [...sold].sort((a, b) => b.perDay - a.perDay).slice(0, 5);
+    const byProfit = [...sold].filter((r) => r.profit > 0).sort((a, b) => b.profit - a.profit).slice(0, 5);
+    const slow = rows.filter((r) => r.units === 0 && (r.stockQuantity === null || r.stockQuantity > 0)).sort((a, b) => (b.stockQuantity || 0) - (a.stockQuantity || 0));
+    const soonOut = sold.filter((r) => r.daysLeft !== null && r.daysLeft <= 7).sort((a, b) => a.daysLeft - b.daysLeft);
+    const pace = (r) => (r.perDay >= 1 ? `~${Math.round(r.perDay)} a day` : r.perDay * 7 >= 1 ? `~${Math.round(r.perDay * 7)} a week` : `${r.units} in ${insightDays} days`);
+    const rankList = (items, valueOf, max, sub) => (
+      <div className="space-y-2.5">
+        {items.map((r, i) => (
+          <div key={r.id}>
+            <div className="flex items-center justify-between gap-3 text-[13px] mb-1">
+              <span className="min-w-0 truncate"><span className="cx-mono mr-2" style={{ color: C.inkFaint }}>{i + 1}</span>{r.name}</span>
+              <span className="shrink-0 cx-mono font-semibold">{sub(r)}</span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}>
+              <div className="h-full rounded-full" style={{ width: `${Math.max(4, (valueOf(r) / (max || 1)) * 100)}%`, background: C.sage }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+    const block = (title, hint, body) => (
+      <div className="rounded-2xl p-4 mb-4" style={card}>
+        <div className="text-[14px] font-semibold cx-display">{title}</div>
+        <div className="text-[11.5px] mb-3.5" style={{ color: C.inkFaint }}>{hint}</div>
+        {body}
+      </div>
+    );
+    return (
+      <>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="text-[12px]" style={{ color: C.inkFaint }}>{viewAllShops ? 'All shops combined' : shopNameOf(activeShopId)} · last {insightDays} days</div>
+          <div className="flex gap-1 p-1 rounded-lg shrink-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            {[7, 30, 90].map((d) => (
+              <button key={d} onClick={() => setInsightDays(d)} className="px-2.5 py-1 rounded-md text-[12px] font-semibold" style={insightDays === d ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{d}d</button>
+            ))}
+          </div>
+        </div>
+
+        {sold.length === 0 ? (
+          <div className="text-center rounded-2xl px-5 py-10 mb-4" style={{ border: `1px dashed ${C.line}` }}>
+            <div className="text-[14px] font-semibold mb-1">No {T.catalog.toLowerCase()} {unitWord} in the last {insightDays} days</div>
+            <div className="text-[12px]" style={{ color: C.inkFaint }}>Insights appear once sales are recorded by picking items from your {T.catalog.toLowerCase()}.</div>
+          </div>
+        ) : (
+          <>
+            {soonOut.length > 0 && (
+              <div className="rounded-2xl p-4 mb-4" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.3)' }}>
+                <div className="text-[13.5px] font-semibold mb-2" style={{ color: C.rust }}>Restock soon</div>
+                <div className="space-y-1.5">
+                  {soonOut.slice(0, 5).map((r) => (
+                    <div key={r.id} className="flex items-center justify-between gap-3 text-[12.5px]">
+                      <span className="min-w-0 truncate">{r.name}</span>
+                      <span className="shrink-0" style={{ color: C.inkDim }}>{r.stockQuantity} left · <strong style={{ color: C.rust }}>{r.daysLeft < 1 ? 'less than a day' : `about ${Math.round(r.daysLeft)} day${Math.round(r.daysLeft) !== 1 ? 's' : ''}`}</strong></span>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[11px] mt-2" style={{ color: C.inkDim }}>At the pace they're selling, these run out within a week.</div>
+              </div>
+            )}
+            {block('Best sellers', 'Bringing in the most money', rankList(byRevenue, (r) => r.revenue, byRevenue[0]?.revenue, (r) => fmt(r.revenue)))}
+            {block('Fastest moving', `How quickly each one ${T.tracksStock ? 'sells' : 'gets booked'}`, rankList(byPace, (r) => r.perDay, byPace[0]?.perDay, (r) => `${r.units} ${unitWord} · ${pace(r)}`))}
+            {byProfit.length > 0 && block('Most profitable', 'Money kept after what each one costs you', rankList(byProfit, (r) => r.profit, byProfit[0]?.profit, (r) => fmt(r.profit)))}
+          </>
+        )}
+
+        {slow.length > 0 && block(
+          T.tracksStock ? 'Slow or not selling' : 'Not booked lately',
+          T.tracksStock ? `No sales in the last ${insightDays} days` : `No bookings in the last ${insightDays} days`,
+          <>
+            <div className="space-y-1.5 mb-3">
+              {slow.slice(0, 8).map((r) => (
+                <div key={r.id} className="flex items-center justify-between gap-3 text-[12.5px]">
+                  <span className="min-w-0 truncate" style={{ color: C.inkDim }}>{r.name}</span>
+                  {r.stockQuantity !== null && <span className="shrink-0 cx-mono" style={{ color: C.inkFaint }}>{r.stockQuantity} in stock</span>}
+                </div>
+              ))}
+            </div>
+            <div className="text-[11.5px] leading-relaxed rounded-lg px-3 py-2" style={{ background: C.surfaceRaised, color: C.inkDim }}>
+              {T.tracksStock ? 'Money tied up here isn\'t working for you. Consider a discount, bundling it with a best seller, or ordering less next time.' : 'Consider promoting these on your storefront or WhatsApp status, or a special price for a limited time.'}
+            </div>
+          </>
+        )}
+
+        <button onClick={() => { setPreviousTab('products'); setTab('advisor'); runAdvisor(T.tracksStock ? 'Based on my sales, which products should I stock more of, and which should I reduce or stop?' : 'Based on my bookings, which services should I promote more, and which should I rethink?'); }} className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-semibold mb-2" style={{ border: `1px solid ${C.line}`, color: C.ink }}>
+          <Lightbulb size={15} style={{ color: C.copper }} /> Ask Oga what to {T.tracksStock ? 'stock more or less of' : 'focus on'}
+        </button>
+      </>
+    );
+  };
+
   // ---------- Receipts ----------
   const makeReceipt = ({ id, items, total, owed, customerName, customerPhone, shopId, when }) => ({
     no: String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase(),
@@ -2542,16 +2676,11 @@ function XorlaApp() {
   );
 
   const renderShopSwitcher = () => showShopSwitcher && (
-    <div className="flex items-center gap-2 mb-5">
-      <label className="relative flex items-center gap-2 pl-3.5 pr-9 py-2.5 rounded-full cursor-pointer" style={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong || C.line}` }}>
-        <Store size={15} style={{ color: C.copper }} />
-        <span className="text-[13px] font-semibold">{viewAllShops ? 'All shops' : shopNameOf(activeShopId)}</span>
-        <ChevronRight size={15} className="absolute right-3 rotate-90" style={{ color: C.inkFaint }} />
-        <BrandSelect aria-label="Choose shop" value={viewAllShops ? 'all' : activeShopId || ''} onChange={(e) => setCurrentShopId(e.target.value)} className="absolute inset-0 w-full opacity-0 cursor-pointer" style={{ colorScheme: 'dark' }}>
-          {isOwnerRole && <option value="all">All shops</option>}
-          {myShops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </BrandSelect>
-      </label>
+    <div className="flex items-center gap-3 mb-5 flex-wrap">
+      <BrandSelect aria-label="Choose shop" icon={<Store size={15} className="shrink-0" style={{ color: C.copper }} />} value={viewAllShops ? 'all' : activeShopId || ''} onChange={(e) => setCurrentShopId(e.target.value)} className="pl-3.5 pr-3 py-2.5 rounded-full text-[13px] font-semibold whitespace-nowrap" style={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong || C.line}`, maxWidth: 260 }}>
+        {isOwnerRole && <option value="all">All shops</option>}
+        {myShops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </BrandSelect>
       {viewAllShops && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Showing {shops.length} shops combined</span>}
     </div>
   );
@@ -3895,6 +4024,14 @@ function XorlaApp() {
         {/* ============ PRODUCTS TAB ============ */}
         {tab === 'products' && (
           <>
+            <div className="flex gap-1 p-1 mb-4 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              {[['list', T.catalog], ['insights', 'Insights']].map(([k, l]) => (
+                <button key={k} onClick={() => setProductsView(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={productsView === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
+                  {k === 'insights' && <TrendingUp size={14} />}{l}
+                </button>
+              ))}
+            </div>
+            {productsView === 'insights' ? renderInsights() : (<>
             <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{T.intro}</div>
             {renderStockCenter()}
 
@@ -4146,6 +4283,7 @@ function XorlaApp() {
                 );
               })}
             </div>
+            </>)}
           </>
         )}
 
