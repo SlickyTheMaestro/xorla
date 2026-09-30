@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
 import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
@@ -983,6 +984,82 @@ function ResetPasswordScreen({ accessToken, onDone }) {
   );
 }
 
+// Branded dropdown — a drop-in replacement for <select> that matches Xorla's look.
+// Takes the same <option> children and calls onChange({ target: { value } }) like a native select.
+function BrandSelect({ value, onChange, children, className = '', style = {}, disabled, 'aria-label': ariaLabel }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const [pos, setPos] = useState(null);
+  const ref = useRef(null);
+  const listRef = useRef(null);
+  const opts = React.Children.toArray(children)
+    .filter((ch) => ch && ch.type === 'option')
+    .map((ch) => ({ value: ch.props.value ?? '', label: React.Children.toArray(ch.props.children).join(''), disabled: !!ch.props.disabled }));
+  const selIndex = opts.findIndex((o) => String(o.value) === String(value ?? ''));
+  const current = opts[selIndex];
+  useEffect(() => {
+    if (!open) return;
+    // Draw the list at the page's top level, anchored to the button, so no card can cover it
+    const place = () => {
+      const r = ref.current?.getBoundingClientRect();
+      if (!r) return;
+      const below = window.innerHeight - r.bottom;
+      const up = below < 280 && r.top > below;
+      setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - Math.max(r.width, 180) - 8)), minWidth: r.width, ...(up ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }) });
+    };
+    place();
+    const away = (e) => { if (ref.current?.contains(e.target) || listRef.current?.contains(e.target)) return; setOpen(false); };
+    const onScroll = (e) => { if (listRef.current?.contains(e.target)) return; setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('touchstart', away);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', away); document.removeEventListener('touchstart', away);
+      window.removeEventListener('resize', place); window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [open]);
+  const pick = (o) => { if (!o || o.disabled) return; onChange && onChange({ target: { value: o.value } }); setOpen(false); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { setOpen(false); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) { setOpen(true); setActive(selIndex); } else setActive((a) => Math.min(opts.length - 1, a + 1)); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (open && active >= 0) pick(opts[active]); else { setOpen(true); setActive(selIndex); } }
+  };
+  // Width/flex classes belong on the wrapper; everything else styles the button
+  const layout = (className.match(/(^|\s)(flex-1|min-w-0|shrink-0|w-\S+)(?=\s|$)/g) || []).join(' ').trim();
+  const look = className.split(/\s+/).filter((k) => k && !/^(flex-1|min-w-0|shrink-0|w-\S+|appearance-none|outline-none)$/.test(k)).join(' ');
+  return (
+    <div ref={ref} className={`relative ${layout}`}>
+      <button type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel}
+        onClick={() => { setOpen((o) => !o); setActive(selIndex); }} onKeyDown={onKey}
+        className={`${look} w-full flex items-center justify-between gap-2 text-left outline-none transition-colors`}
+        style={{ ...style, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...(open ? { borderColor: C.copper } : {}) }}>
+        <span className="truncate" style={{ color: current && current.value !== '' ? C.ink : C.inkFaint }}>{current ? current.label : ''}</span>
+        <ChevronRight size={15} className="shrink-0" style={{ color: open ? C.copper : C.inkFaint, transform: `rotate(${open ? -90 : 90}deg)`, transition: 'transform .15s' }} />
+      </button>
+      {open && pos && createPortal(
+        <div ref={listRef} role="listbox" aria-label={ariaLabel} className="fixed z-[200] rounded-xl py-1.5 max-h-64 overflow-y-auto"
+          style={{ ...pos, width: 'max-content', maxWidth: 'min(340px, 90vw)', background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 16px 40px rgba(0,0,0,0.5)', fontFamily: "'Inter', sans-serif" }}>
+          {opts.map((o, i) => {
+            const sel = i === selIndex;
+            return (
+              <button key={i} type="button" role="option" aria-selected={sel} disabled={o.disabled}
+                onMouseEnter={() => setActive(i)} onClick={() => pick(o)}
+                className="w-full text-left px-3.5 py-2.5 text-[13px] flex items-center justify-between gap-4"
+                style={{ background: i === active ? C.surfaceRaised : 'transparent', color: o.value === '' ? C.inkFaint : sel ? C.copper : C.ink, fontWeight: sel ? 600 : 400, opacity: o.disabled ? 0.4 : 1 }}>
+                <span className="truncate">{o.label}</span>
+                {sel && o.value !== '' && <Check size={14} className="shrink-0" style={{ color: C.copper }} />}
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 function XorlaApp() {
   const [tab, setTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1796,6 +1873,13 @@ function XorlaApp() {
     if (onHand <= 0 || oldCost <= 0) return Math.round(unitCost);
     return Math.round((onHand * oldCost + addQty * unitCost) / (onHand + addQty));
   };
+  const costExplainer = (productId, qty, unitCost, next) => {
+    const base = productsAll.find((p) => p.id === productId);
+    const onHand = totalStockOf(productId);
+    const old = Number(base?.costPrice) || 0;
+    const tail = `From now on Xorla counts ${fmt(next)} each when working out your profit. Your selling price stays ${fmt(base?.sellingPrice || 0)}.`;
+    return onHand > 0 && old > 0 ? `You have ${onHand} at ${fmt(old)} + ${qty} new at ${fmt(unitCost)}. ${tail}` : tail;
+  };
   const saveCostPrice = async (productId, cost) => {
     await sbRest(`products?id=eq.${productId}`, { method: 'PATCH', accessToken: session.access_token, body: { cost_price: cost } });
     setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, costPrice: cost } : p)));
@@ -2133,10 +2217,10 @@ function XorlaApp() {
     return [...map.values()];
   };
   const productSelect = (value, onChange, placeholder = 'Choose an item…') => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+    <BrandSelect value={value} onChange={(e) => onChange(e.target.value)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
       <option value="">{placeholder}</option>
       {stockProducts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>
+    </BrandSelect>
   );
 
   // Incoming items with a "what arrived" box (owner sees all; staff see their shops)
@@ -2273,7 +2357,7 @@ function XorlaApp() {
                           <span className="flex-1 text-[12px]" style={{ color: C.inkDim }}>Cost per unit this time <span style={{ color: C.inkFaint }}>(optional)</span></span>
                           <input type="text" inputMode="decimal" placeholder={fmt(base?.costPrice || 0)} value={formatNumInput(l.cost || '')} onChange={(e) => setDeliveryForm({ ...deliveryForm, lines: deliveryForm.lines.map((x, j) => (j === i ? { ...x, cost: parseNumInput(e.target.value) } : x)) })} className="w-28 rounded-lg px-2 py-1.5 text-[13px] text-right outline-none cx-mono" style={field} />
                         </div>
-                        {avg !== null && avg !== Number(base?.costPrice) && <div className="text-[11px]" style={{ color: C.sage }}>New average cost: {fmt(avg)} (was {fmt(base?.costPrice || 0)})</div>}
+                        {avg !== null && avg !== Number(base?.costPrice) && <div className="text-[11px] leading-relaxed" style={{ color: C.sage }}>{costExplainer(l.productId, total, uc, avg)}</div>}
                       </div>
                     );
                   })()}
@@ -2296,15 +2380,15 @@ function XorlaApp() {
           {stockPanel === 'transfer' && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <select value={sendForm.from} onChange={(e) => setSendForm({ ...sendForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                <BrandSelect value={sendForm.from} onChange={(e) => setSendForm({ ...sendForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
                   <option value="">From…</option>
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
+                </BrandSelect>
                 <ArrowRight size={16} style={{ color: C.inkFaint }} className="shrink-0" />
-                <select value={sendForm.to} onChange={(e) => setSendForm({ ...sendForm, to: e.target.value })} disabled={!!sendForm.requestId} className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                <BrandSelect value={sendForm.to} onChange={(e) => setSendForm({ ...sendForm, to: e.target.value })} disabled={!!sendForm.requestId} className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
                   <option value="">To…</option>
                   {locations.filter((l) => l.id !== sendForm.from).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
+                </BrandSelect>
               </div>
               <div className="space-y-2.5">{sendForm.lines.map((_, i) => lineRow(sendForm.lines, (lines) => setSendForm({ ...sendForm, lines }), i, true))}</div>
               <button onClick={() => setSendForm({ ...sendForm, lines: [...sendForm.lines, { productId: '', qty: '' }] })} className="text-[12px] font-medium" style={{ color: C.sage }}>+ Add another item</button>
@@ -2435,10 +2519,10 @@ function XorlaApp() {
                     {cartItems.map((it, idx) => (
                       <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
                         {products.length > 0 && (
-                          <select value={it.productId} onChange={(e) => applyProductToCartRow(idx, e.target.value)} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value={it.productId} onChange={(e) => applyProductToCartRow(idx, e.target.value)} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
                             <option value="">Pick {T.Item === 'Item' ? 'an' : 'a'} {T.item}… (optional)</option>
                             {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
-                          </select>
+                          </BrandSelect>
                         )}
                         <div className="flex gap-1.5 items-center">
                           <input type="text" placeholder="Item" value={it.description} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], description: e.target.value }; setCartItems(items); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
@@ -2463,10 +2547,10 @@ function XorlaApp() {
         <Store size={15} style={{ color: C.copper }} />
         <span className="text-[13px] font-semibold">{viewAllShops ? 'All shops' : shopNameOf(activeShopId)}</span>
         <ChevronRight size={15} className="absolute right-3 rotate-90" style={{ color: C.inkFaint }} />
-        <select aria-label="Choose shop" value={viewAllShops ? 'all' : activeShopId || ''} onChange={(e) => setCurrentShopId(e.target.value)} className="absolute inset-0 w-full opacity-0 cursor-pointer" style={{ colorScheme: 'dark' }}>
+        <BrandSelect aria-label="Choose shop" value={viewAllShops ? 'all' : activeShopId || ''} onChange={(e) => setCurrentShopId(e.target.value)} className="absolute inset-0 w-full opacity-0 cursor-pointer" style={{ colorScheme: 'dark' }}>
           {isOwnerRole && <option value="all">All shops</option>}
           {myShops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        </BrandSelect>
       </label>
       {viewAllShops && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Showing {shops.length} shops combined</span>}
     </div>
@@ -2531,10 +2615,10 @@ function XorlaApp() {
                 <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                   <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK {T.Item === 'Item' ? 'AN' : 'A'} {T.Item.toUpperCase()} (OPTIONAL)</div>
                   <div className="flex gap-2">
-                    <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                    <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
                       <option value="">Choose {T.Item === 'Item' ? 'an' : 'a'} {T.item}…</option>
                       {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
-                    </select>
+                    </BrandSelect>
                     {saleForm.productId && (
                       <div>
                         <div className="text-[9px] font-semibold text-center mb-1" style={{ color: C.inkFaint }}>QTY</div>
@@ -3447,10 +3531,10 @@ function XorlaApp() {
                   <div className="space-y-2.5">
                     {products.length > 0 && (
                       <div className="flex gap-2">
-                        <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                        <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
                           <option value="">Pick {T.Item === 'Item' ? 'an' : 'a'} {T.item}…</option>
                           {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
-                        </select>
+                        </BrandSelect>
                         {saleForm.productId && (
                           <div>
                             <div className="text-[8.5px] font-semibold text-center mb-1" style={{ color: C.inkFaint }}>QTY</div>
@@ -3614,10 +3698,10 @@ function XorlaApp() {
                       <div className="rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                         <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>PICK {T.Item === 'Item' ? 'AN' : 'A'} {T.Item.toUpperCase()} (OPTIONAL)</div>
                         <div className="flex gap-2">
-                          <select value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
                             <option value="">Choose {T.Item === 'Item' ? 'an' : 'a'} {T.item}…</option>
                             {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
-                          </select>
+                          </BrandSelect>
                           {saleForm.productId && (
                             <div>
                               <div className="text-[9px] font-semibold text-center mb-1" style={{ color: C.inkFaint }}>QTY</div>
@@ -3861,18 +3945,18 @@ function XorlaApp() {
                       <div className={fieldLabel} style={{ color: C.inkFaint }}>YOUR RATE</div>
                       <div className="flex gap-2">
                         <input type="text" inputMode="decimal" placeholder="₦ amount" value={formatNumInput(productForm.sellingPrice)} onChange={(e) => setProductForm({ ...productForm, sellingPrice: parseNumInput(e.target.value) })} className="w-1/2 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                        <select value={productForm.priceUnit} onChange={(e) => setProductForm({ ...productForm, priceUnit: e.target.value })} className="w-1/2 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                        <BrandSelect value={productForm.priceUnit} onChange={(e) => setProductForm({ ...productForm, priceUnit: e.target.value })} className="w-1/2 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
                           {PRICE_UNITS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
+                        </BrandSelect>
                       </div>
                       {productForm.sellingPrice && <div className="text-[11.5px] mt-1.5" style={{ color: C.sage }}>Customers will see: {priceLabel({ sellingPrice: Number(productForm.sellingPrice), priceUnit: productForm.priceUnit })}</div>}
                     </div>
                     <div>
                       <div className={fieldLabel} style={{ color: C.inkFaint }}>HOW LONG IT TAKES (OPTIONAL)</div>
-                      <select value={productForm.duration} onChange={(e) => setProductForm({ ...productForm, duration: e.target.value })} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                      <BrandSelect value={productForm.duration} onChange={(e) => setProductForm({ ...productForm, duration: e.target.value })} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
                         <option value="">Not specified</option>
                         {DURATIONS.map((d) => <option key={d} value={d}>{d}</option>)}
-                      </select>
+                      </BrandSelect>
                     </div>
                     <div>
                       <div className={fieldLabel} style={{ color: C.inkFaint }}>WHAT'S INCLUDED (OPTIONAL)</div>
@@ -3987,15 +4071,15 @@ function XorlaApp() {
                       <div className="rounded-xl p-3 mt-2.5 space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                         <div className="text-[11.5px] font-semibold" style={{ color: C.inkDim }}>Move stock between shops</div>
                         <div className="flex gap-2 items-center">
-                          <select value={transferForm.from} onChange={(e) => setTransferForm({ ...transferForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value={transferForm.from} onChange={(e) => setTransferForm({ ...transferForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
                             <option value="">From…</option>
                             {shops.map((s) => <option key={s.id} value={s.id}>{s.name} ({stockAt(p, s.id)})</option>)}
-                          </select>
+                          </BrandSelect>
                           <span style={{ color: C.inkFaint }}>→</span>
-                          <select value={transferForm.to} onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value={transferForm.to} onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
                             <option value="">To…</option>
                             {shops.filter((s) => s.id !== transferForm.from).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                          </select>
+                          </BrandSelect>
                         </div>
                         <div className="flex gap-2">
                           <input type="number" min="1" placeholder="How many?" value={transferForm.qty} onChange={(e) => setTransferForm({ ...transferForm, qty: e.target.value })} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
@@ -4016,16 +4100,20 @@ function XorlaApp() {
                       const uc = Number(parseNumInput(restockCost));
                       const avg = restockCost !== '' && uc > 0 && qty > 0 ? newAverageCost(p.id, qty, uc) : null;
                       return (
-                        <div className="mt-2.5 space-y-2">
+                        <div className="rounded-xl p-3 mt-2.5 space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[12px] font-semibold">{p.stockQuantity === null ? 'Start tracking stock' : 'Restock'}</span>
+                            <button onClick={() => { setRestockingId(null); setRestockAmount(''); setRestockCost(''); }} aria-label="Close" className="p-1 -m-1 rounded-md" style={{ color: C.inkFaint }}><X size={16} /></button>
+                          </div>
                           <div className="flex gap-2">
                             <input type="number" min="0" autoFocus placeholder={p.stockQuantity === null ? 'Starting stock count' : 'Units received'} value={restockAmount} onChange={(e) => setRestockAmount(e.target.value)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
                             <input type="text" inputMode="decimal" aria-label="Cost per unit this time (optional)" placeholder={`Cost each (${fmt(p.costPrice)})`} value={formatNumInput(restockCost)} onChange={(e) => setRestockCost(parseNumInput(e.target.value))} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
                             <button onClick={() => handleRestock(p)} className="px-4 rounded-lg text-[12px] font-semibold shrink-0" style={{ background: C.sage, color: C.bg }}>Save</button>
                           </div>
-                          <div className="text-[11px]" style={{ color: avg !== null && avg !== Number(p.costPrice) ? C.sage : C.inkFaint }}>
+                          <div className="text-[11px] leading-relaxed" style={{ color: avg !== null && avg !== Number(p.costPrice) ? C.sage : C.inkFaint }}>
                             {avg !== null && avg !== Number(p.costPrice)
-                              ? `New average cost: ${fmt(avg)} (was ${fmt(p.costPrice)})`
-                              : 'Paid a different price this time? Enter the cost per unit and Xorla keeps your profit accurate.'}
+                              ? costExplainer(p.id, qty, uc, avg)
+                              : 'Paid a different price this time? Add the cost per unit. It only affects your profit figures — your selling price stays yours to set.'}
                           </div>
                         </div>
                       );
@@ -4034,7 +4122,10 @@ function XorlaApp() {
                       const cShop = activeShopId || (locations.some((s) => s.id === correctShopId) ? correctShopId : mainShopId);
                       return (
                         <div className="rounded-xl p-3 mt-2.5 space-y-2.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                          <div className="text-[12px] font-semibold">Correct the count</div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[12px] font-semibold">Correct the count</span>
+                            <button onClick={() => { setCorrectingId(null); setCorrectQty(''); }} aria-label="Close" className="p-1 -m-1 rounded-md" style={{ color: C.inkFaint }}><X size={16} /></button>
+                          </div>
                           {viewAllShops && hasManyLocations && (
                             <div className="flex flex-wrap gap-1.5">
                               {locations.map((s) => (
@@ -4187,10 +4278,10 @@ function XorlaApp() {
                     {form.items.map((it, idx) => (
                       <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
                         {products.length > 0 && (
-                          <select value="" onChange={(e) => { const product = products.find((p) => p.id === e.target.value); if (!product) return; const items = [...form.items]; items[idx] = { ...items[idx], description: product.name, unitPrice: String(product.sellingPrice) }; setForm({ ...form, items }); }} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value="" onChange={(e) => { const product = products.find((p) => p.id === e.target.value); if (!product) return; const items = [...form.items]; items[idx] = { ...items[idx], description: product.name, unitPrice: String(product.sellingPrice) }; setForm({ ...form, items }); }} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
                             <option value="">Pick from your {T.catalog.toLowerCase()}… (optional)</option>
                             {products.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
-                          </select>
+                          </BrandSelect>
                         )}
                         <div className="flex gap-1.5 items-center">
                           <input type="text" placeholder="Item description" value={it.description} onChange={(e) => { const items = [...form.items]; items[idx] = { ...items[idx], description: e.target.value }; setForm({ ...form, items }); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
