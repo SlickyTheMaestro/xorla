@@ -155,7 +155,7 @@ function formatNumInput(v) {
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName'];
-const SETTINGS_TITLES = { notifications: 'Phone notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
+const SETTINGS_TITLES = { notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -199,6 +199,8 @@ function base64UrlToUint8Array(b64) {
   const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
   return Uint8Array.from([...raw].map((ch) => ch.charCodeAt(0)));
 }
+const DEVICE_WORD = typeof navigator !== 'undefined' && /iPad|Tablet/i.test(navigator.userAgent) ? 'tablet'
+  : typeof navigator !== 'undefined' && /Android|iPhone|iPod|Mobile/i.test(navigator.userAgent) ? 'phone' : 'computer';
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
 
 function invoiceLineItems(inv) {
@@ -2717,7 +2719,7 @@ function XorlaApp() {
     if (pushState === 'ios-install') return <div className="text-[12px] leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>On iPhone:</strong> add Xorla to your Home Screen first (Share → Add to Home Screen), then open it from there to turn on notifications.</div>;
     if (pushState === 'denied') return (
       <div>
-        <div className="text-[12.5px] font-semibold mb-1.5" style={{ color: C.ink }}>Notifications are blocked on this phone</div>
+        <div className="text-[12.5px] font-semibold mb-1.5" style={{ color: C.ink }}>Notifications are blocked on this {DEVICE_WORD}</div>
         <ol className="text-[12px] leading-relaxed space-y-1 mb-2.5" style={{ color: C.inkDim }}>
           <li><strong style={{ color: C.ink }}>1.</strong> Phone <strong style={{ color: C.ink }}>Settings → Apps → Chrome → Notifications</strong>: switch them on</li>
           <li><strong style={{ color: C.ink }}>2.</strong> In Chrome: <strong style={{ color: C.ink }}>⋮ → Settings → Site settings → Notifications</strong>: turn on "Sites can ask", and if Xorla is under Blocked, set it to Allow</li>
@@ -2728,14 +2730,14 @@ function XorlaApp() {
     );
     if (pushState === 'off') return (
       <div>
-        <button onClick={enablePush} disabled={pushBusy} className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: pushBusy ? 0.6 : 1 }}><Bell size={15} /> {pushBusy ? 'Turning on…' : 'Get these on your phone'}</button>
+        <button onClick={enablePush} disabled={pushBusy} className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: pushBusy ? 0.6 : 1 }}><Bell size={15} /> {pushBusy ? 'Turning on…' : `Get these on this ${DEVICE_WORD}`}</button>
         {note}
       </div>
     );
     return (
       <div>
         <div className="flex items-center justify-between gap-3">
-          <span className="flex items-center gap-2 text-[12.5px] font-semibold" style={{ color: C.sage }}><Check size={15} /> On for this phone</span>
+          <span className="flex items-center gap-2 text-[12.5px] font-semibold" style={{ color: C.sage }}><Check size={15} /> On for this {DEVICE_WORD}</span>
           <span className="flex items-center gap-3 text-[12px] font-medium">
             {!compact && <button onClick={testPush} disabled={pushBusy} style={{ color: C.copper }}>Send a test</button>}
             <button onClick={disablePush} disabled={pushBusy} style={{ color: C.inkFaint }}>Turn off</button>
@@ -3043,7 +3045,7 @@ function XorlaApp() {
                 {stockError && !stockPanel && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{stockError}</div>}
                 {pushState !== 'on' && pushState !== 'checking' && pushState !== 'unsupported' && (
                   <div className="rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                    <div className="text-[12px] mb-2" style={{ color: C.inkDim }}>Get a notification on this phone when stock is sent to your shop, or your request is answered.</div>
+                    <div className="text-[12px] mb-2" style={{ color: C.inkDim }}>Get a notification on this {DEVICE_WORD} when stock is sent to your shop, or your request is answered.</div>
                     {renderPushControl(true)}
                   </div>
                 )}
@@ -3223,7 +3225,7 @@ function XorlaApp() {
                   { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
                 ])}
                 {renderSettingsGroup('Notifications', [
-                  { id: 'notifications', Icon: Bell, label: 'Phone notifications', value: pushState === 'on' ? 'On' : pushState === 'denied' ? 'Blocked' : 'Off', valueColor: pushState === 'on' ? C.sage : undefined },
+                  { id: 'notifications', Icon: Bell, label: 'Notifications', value: pushState === 'on' ? 'On' : pushState === 'denied' ? 'Blocked' : 'Off', valueColor: pushState === 'on' ? C.sage : undefined },
                 ])}
                 {!isStandalone && renderSettingsGroup('App', [
                   { action: openInstallFromSettings, Icon: Download, label: 'Install Xorla app', value: '' },
@@ -3470,8 +3472,8 @@ function XorlaApp() {
             {settingsPage === 'notifications' && (
               <div className="space-y-4">
                 <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-                  <div className="text-[14.5px] font-semibold mb-1">Notifications on this phone</div>
-                  <div className="text-[12px] leading-relaxed mb-4" style={{ color: C.inkFaint }}>Only the things worth interrupting you for. Each phone or computer is turned on separately.</div>
+                  <div className="text-[14.5px] font-semibold mb-1">Notifications on this {DEVICE_WORD}</div>
+                  <div className="text-[12px] leading-relaxed mb-4" style={{ color: C.inkFaint }}>Only the things worth interrupting you for. Each phone or computer is turned on separately — this only turns them on for the {DEVICE_WORD} you're using now.</div>
                   {renderPushControl(false)}
                 </div>
                 <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
