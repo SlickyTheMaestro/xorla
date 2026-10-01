@@ -2293,6 +2293,12 @@ function XorlaApp() {
   useEffect(() => {
     if (settingsPage !== 'plan' || !session) return;
     sbRpc('my_usage', session.access_token, {}).then(setUsage).catch(() => {});
+    if (!document.getElementById('xorla-jakarta')) {
+      const link = document.createElement('link');
+      link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+      document.head.appendChild(link);
+    }
     sbRpc('early_supporter_spots', session.access_token, {}).then((n) => setEarlySpots(typeof n === 'number' ? n : null)).catch(() => {});
   }, [settingsPage]);
 
@@ -2873,127 +2879,212 @@ function XorlaApp() {
   const renderPlanPage = () => {
     if (!planKnown) return <div className="text-[13px] px-1" style={{ color: C.inkFaint }}>Plans aren't switched on yet.</div>;
     const s = subscription;
-    const statusLabel = onTrial ? ['Trial', C.copper] : effPlan !== 'free' ? ['Active', C.sage] : ['Free', C.inkDim];
+    const display = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+    const GOLD = { top: '#FFC24A', mid: '#FFB020', deep: '#E89A0C', on: '#0A1F1C' };
+    const per = planInterval === 'monthly' ? 'a month' : 'a year';
+    // How much of the current period is left, for the bar on the membership card
+    const periodDays = onTrial ? 30 : s.billing_interval === 'yearly' ? 365 : 30;
+    const leftPct = planDaysLeft === null || effPlan === 'free' ? 0 : Math.max(2, Math.min(100, (planDaysLeft / periodDays) * 100));
+    const status = onTrial ? { label: 'Free trial', color: C.copper } : effPlan !== 'free' ? { label: 'Active', color: C.sage } : { label: s.status === 'expired' ? 'Plan ended' : 'Free', color: C.inkDim };
+
     const meter = (label, used, cap, note) => {
       const pct = cap ? Math.min(100, (used / cap) * 100) : 0;
       return (
-        <div key={label}>
-          <div className="flex items-center justify-between text-[12.5px] mb-1">
-            <span style={{ color: C.inkDim }}>{label}</span>
-            <span className="cx-mono font-semibold">{cap === null ? `${used} · unlimited` : cap === 0 ? (note || 'Not included') : `${used} of ${cap}`}</span>
+        <div key={label} className="rounded-xl p-3.5" style={{ background: C.surfaceRaised }}>
+          <div className="text-[12px] mb-1" style={{ color: C.inkDim }}>{label}</div>
+          <div className="text-[15px] font-semibold mb-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {cap === null ? <>{used} <span className="text-[12px] font-normal" style={{ color: C.inkFaint }}>of unlimited</span></>
+              : cap === 0 ? <span className="text-[13px] font-medium" style={{ color: C.inkFaint }}>{note || 'Not included'}</span>
+              : <>{used} <span className="text-[12px] font-normal" style={{ color: C.inkFaint }}>of {cap}</span></>}
           </div>
-          {cap ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, pct)}%`, background: pct >= 90 ? C.rust : C.sage }} /></div> : null}
+          {cap ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(234,245,242,0.08)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, pct)}%`, background: pct >= 90 ? C.rust : C.sage }} /></div> : null}
         </div>
       );
     };
-    const feature = (t) => <div key={t} className="flex items-start gap-2 text-[12.5px]" style={{ color: C.inkDim }}><Check size={14} className="shrink-0 mt-0.5" style={{ color: C.sage }} /><span>{t}</span></div>;
-    const planCard = (key, features) => {
+    const tick = (t, onGold) => (
+      <li key={t} className="flex items-start gap-2.5 text-[13.5px] leading-snug">
+        <Check size={15} strokeWidth={2.6} className="shrink-0 mt-[2px]" style={{ color: onGold ? GOLD.on : C.sage }} />
+        <span style={{ color: onGold ? GOLD.on : C.inkDim }}>{t}</span>
+      </li>
+    );
+    const priceBlock = (key, onGold) => {
       const price = planPrice(key, planInterval, key === 'business' ? planExtra : 0, earlyEligible);
       const regular = planPrice(key, planInterval, key === 'business' ? planExtra : 0, false);
-      const isCurrent = effPlan === key && !onTrial;
-      const per = planInterval === 'monthly' ? '/month' : '/year';
+      const sub = onGold ? 'rgba(10,31,28,0.72)' : C.inkFaint;
       return (
-        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1.5px solid ${isCurrent ? C.sage : C.line}` }}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[16px] font-bold cx-display">{PLAN_INFO[key].name}</span>
-            {isCurrent && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: C.sageSoft, color: C.sage }}>YOUR PLAN</span>}
+        <div className="mt-4">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span style={{ fontFamily: display, fontWeight: 800, fontSize: 34, letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums', color: onGold ? GOLD.on : C.ink }}>{fmt(price)}</span>
+            <span className="text-[13px]" style={{ color: sub }}>{per}</span>
+            {earlyEligible && regular > price && <span className="text-[13px] line-through" style={{ color: sub }}>{fmt(regular)}</span>}
           </div>
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-[22px] font-bold cx-mono">{fmt(price)}</span><span className="text-[12px]" style={{ color: C.inkFaint }}>{per}</span>
-            {earlyEligible && price < regular && <span className="text-[12px] line-through" style={{ color: C.inkFaint }}>{fmt(regular)}</span>}
-          </div>
-          {earlyEligible && price < regular && <div className="text-[11.5px] mb-3 font-medium" style={{ color: C.copper }}>Early-supporter price{earlyActive ? ` — yours until ${fmtDate(s.early_supporter_until)}` : ` for your first 12 months${earlySpots !== null ? ` · ${earlySpots} of 100 places left` : ''}`}</div>}
-          <div className="space-y-1.5 mb-4">{features.map(feature)}</div>
-          {key === 'business' && (
-            <div className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-4" style={{ background: C.surfaceRaised }}>
-              <div>
-                <div className="text-[12.5px] font-semibold">Locations: {3 + planExtra}</div>
-                <div className="text-[11px]" style={{ color: C.inkFaint }}>3 included · extra {fmt(PLAN_PRICES.extraShop[planInterval])}{per} each</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setPlanExtra(Math.max(0, planExtra - 1))} aria-label="One fewer location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: `1px solid ${C.line}` }}>−</button>
-                <button onClick={() => setPlanExtra(Math.min(50, planExtra + 1))} aria-label="One more location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: `1px solid ${C.line}` }}>+</button>
-              </div>
+          {earlyEligible && regular > price && (
+            <div className="text-[12px] mt-1" style={{ color: onGold ? GOLD.on : C.copper }}>
+              {earlyActive ? `Early-supporter price, yours until ${fmtDate(s.early_supporter_until)}` : `Early-supporter price for your first 12 months${earlySpots !== null ? `. ${earlySpots} of 100 places left` : ''}`}
             </div>
           )}
-          <button onClick={() => startCheckout(key)} disabled={!!billingBusy} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: billingBusy ? 0.6 : 1 }}>
-            {billingBusy === key ? 'Opening secure payment…' : `${isCurrent ? 'Renew' : 'Choose'} ${PLAN_INFO[key].name} · ${fmt(price)}`}
-          </button>
-          {isCurrent && <div className="text-[11px] mt-2 text-center" style={{ color: C.inkFaint }}>Renewing early adds to the time you have left.</div>}
-          {!isCurrent && effPlan !== 'free' && !onTrial && <div className="text-[11px] mt-2 text-center" style={{ color: C.inkFaint }}>Switching plans starts the new plan from today.</div>}
         </div>
       );
     };
+    const cta = (key, onGold) => {
+      const price = planPrice(key, planInterval, key === 'business' ? planExtra : 0, earlyEligible);
+      const isCurrent = effPlan === key && !onTrial;
+      const label = billingBusy === key ? 'Opening secure payment…' : `${isCurrent ? 'Renew' : 'Choose'} ${PLAN_INFO[key].name} for ${fmt(price)} ${per}`;
+      return (
+        <>
+          <button onClick={() => startCheckout(key)} disabled={!!billingBusy} className="w-full rounded-2xl py-3.5 text-[14px] font-bold transition-opacity"
+            style={{ ...(onGold ? { background: GOLD.on, color: GOLD.mid } : { background: 'transparent', color: C.sage, border: `1.5px solid ${C.sage}` }), opacity: billingBusy && billingBusy !== key ? 0.5 : 1 }}>{label}</button>
+          <div className="text-[11.5px] mt-2 text-center" style={{ color: onGold ? 'rgba(10,31,28,0.7)' : C.inkFaint }}>
+            {isCurrent ? 'Renewing early adds to the time you have left.' : effPlan !== 'free' && !onTrial ? 'Switching plans starts the new plan from today.' : 'Cancel anytime. Nothing renews without telling you.'}
+          </div>
+        </>
+      );
+    };
+    const proCurrent = effPlan === 'pro' && !onTrial;
+    const bizCurrent = effPlan === 'business' && !onTrial;
+
     return (
-      <div className="space-y-5">
-        {billingNote && <div className="rounded-xl px-4 py-3 text-[12.5px] font-medium" style={{ background: billingNote.ok ? C.sageSoft : C.rustSoft, color: billingNote.ok ? C.sage : C.rust }}>{billingNote.text}</div>}
-        {billingBusy === 'verify' && <div className="rounded-xl px-4 py-3 text-[12.5px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>Confirming your payment with Paystack…</div>}
+      <div className="space-y-6">
+        {billingNote && <div className="rounded-2xl px-4 py-3 text-[13px] font-medium" style={{ background: billingNote.ok ? C.sageSoft : C.rustSoft, color: billingNote.ok ? C.sage : C.rust }}>{billingNote.text}</div>}
+        {billingBusy === 'verify' && <div className="rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>Confirming your payment with Paystack…</div>}
 
-        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[18px] font-bold cx-display">{PLAN_INFO[effPlan].name}</span>
-            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: C.surfaceRaised, color: statusLabel[1] }}>{statusLabel[0].toUpperCase()}</span>
+        {/* Membership card */}
+        <div className="relative overflow-hidden rounded-[24px] p-5" style={{ background: 'linear-gradient(150deg, #134A43 0%, #0E2E29 55%, #0B2420 100%)', border: '1px solid rgba(31,217,196,0.22)' }}>
+          <div aria-hidden="true" className="absolute -right-10 -top-12 w-44 h-44 rounded-full" style={{ background: 'radial-gradient(circle, rgba(31,217,196,0.18), transparent 70%)' }} />
+          <div className="relative flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[12.5px]" style={{ color: C.inkDim }}>Current plan</div>
+              <div style={{ fontFamily: display, fontWeight: 800, fontSize: 30, letterSpacing: '-0.03em', lineHeight: 1.1 }}>{PLAN_INFO[effPlan].name}</div>
+            </div>
+            <span className="text-[12px] font-semibold px-3 py-1 rounded-full shrink-0" style={{ background: 'rgba(10,31,28,0.5)', color: status.color, border: `1px solid ${status.color}` }}>{status.label}</span>
           </div>
-          <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
-            {onTrial ? `Free Pro trial — ends ${fmtDate(s.trial_ends_at)} (${planDaysLeft} day${planDaysLeft !== 1 ? 's' : ''} left). No card needed.`
-              : effPlan !== 'free' ? (s.auto_renew ? `Renews automatically on ${fmtDate(s.current_period_end)}${s.card_last4 ? ` · ${s.card_brand || 'Card'} •••• ${s.card_last4}` : ''}.` : `Paid until ${fmtDate(s.current_period_end)}. We'll remind you 3 days before.`)
-              : s.status === 'expired' ? 'Your plan has ended, so you are on Free. Everything you recorded is still here — upgrade anytime to unlock it all again.'
-              : 'Free forever. Upgrade anytime.'}
+          <div className="relative text-[13px] leading-relaxed mt-2" style={{ color: C.inkDim }}>
+            {onTrial ? `Pro free trial. Ends ${fmtDate(s.trial_ends_at)}, no card needed.`
+              : effPlan !== 'free' ? (s.auto_renew ? `Renews automatically on ${fmtDate(s.current_period_end)}${s.card_last4 ? ` with ${s.card_brand || 'card'} ending ${s.card_last4}` : ''}.` : `Paid until ${fmtDate(s.current_period_end)}. We'll remind you 3 days before.`)
+              : s.status === 'expired' ? 'Your plan ended, so you are on Free. Everything you recorded is still here.'
+              : 'Free forever. Upgrade whenever you are ready.'}
           </div>
-          {earlyActive && <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: C.copper }}>Early-supporter price until {fmtDate(s.early_supporter_until)}</div>}
-          {effPlan !== 'free' && s.auto_renew && <button onClick={turnOffAutoRenew} disabled={!!billingBusy} className="text-[12px] font-medium mt-2.5" style={{ color: C.inkFaint }}>Turn off auto-renew</button>}
+          {effPlan !== 'free' && planDaysLeft !== null && (
+            <div className="relative mt-4">
+              <div className="flex justify-between text-[12px] mb-1.5"><span style={{ color: C.inkDim }}>{onTrial ? 'Trial' : 'This period'}</span><span className="font-semibold">{planDaysLeft} day{planDaysLeft !== 1 ? 's' : ''} left</span></div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(234,245,242,0.08)' }}><div className="h-full rounded-full" style={{ width: `${leftPct}%`, background: planDaysLeft <= 3 ? C.copper : C.sage }} /></div>
+            </div>
+          )}
+          {(earlyActive || (effPlan !== 'free' && s.auto_renew)) && (
+            <div className="relative flex items-center justify-between gap-3 mt-4 pt-3.5" style={{ borderTop: '1px solid rgba(234,245,242,0.1)' }}>
+              <span className="text-[12.5px]" style={{ color: earlyActive ? C.copper : C.inkDim }}>{earlyActive ? `Early-supporter price until ${fmtDate(s.early_supporter_until)}` : 'Auto-renew is on'}</span>
+              {effPlan !== 'free' && s.auto_renew && <button onClick={turnOffAutoRenew} disabled={!!billingBusy} className="text-[12.5px] font-medium shrink-0" style={{ color: C.inkFaint }}>Turn off auto-renew</button>}
+            </div>
+          )}
         </div>
 
-        <div className="rounded-2xl p-4 space-y-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-          <div className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>This month</div>
-          {meter('Oga questions & AI messages', usage?.ai_month ?? 0, planCaps.ai)}
-          {meter('Automatic WhatsApp reminders', usage?.wa_month ?? 0, planCaps.wa, 'Pro and Business')}
-          {meter('Staff', settings.staffList.length, planCaps.staff, 'Pro and Business')}
-          {meter('Locations', liveLocations.length, planCaps.locations)}
-          {meter(T.catalog, productsAll.length, planCaps.products)}
-        </div>
-
+        {/* Usage */}
         <div>
-          <div className="flex items-center justify-between mb-3 px-1">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Choose a plan</span>
-            <div className="flex gap-1 p-1 rounded-lg" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-              {[['monthly', 'Monthly'], ['yearly', 'Yearly · 2 months free']].map(([k, l]) => (
-                <button key={k} onClick={() => setPlanInterval(k)} className="px-2.5 py-1 rounded-md text-[11.5px] font-semibold" style={planInterval === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+          <h3 className="text-[14px] font-semibold mb-2.5 px-1">Used this month</h3>
+          <div className="grid grid-cols-2 gap-2">
+            {meter('Oga and AI messages', usage?.ai_month ?? 0, planCaps.ai)}
+            {meter('WhatsApp reminders', usage?.wa_month ?? 0, planCaps.wa, 'On Pro and Business')}
+            {meter('Staff', settings.staffList.length, planCaps.staff, 'On Pro and Business')}
+            {meter('Locations', liveLocations.length, planCaps.locations)}
+            {meter(T.catalog, productsAll.length, planCaps.products)}
+          </div>
+        </div>
+
+        {/* Plans */}
+        <div>
+          <h3 className="text-[18px] text-center mb-1" style={{ fontFamily: display, fontWeight: 800, letterSpacing: '-0.02em' }}>{effPlan === 'free' || onTrial ? 'Choose your plan' : 'Change or renew'}</h3>
+          <p className="text-[12.5px] text-center mb-4" style={{ color: C.inkFaint }}>Pay by card, transfer or USSD. Cancel anytime.</p>
+          <div className="flex justify-center mb-5">
+            <div role="group" aria-label="Billing period" className="inline-flex p-1 rounded-2xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <button onClick={() => setPlanInterval('monthly')} aria-pressed={planInterval === 'monthly'} className="px-4 py-2 rounded-xl text-[13px] font-semibold" style={planInterval === 'monthly' ? { background: C.ink, color: C.bg } : { color: C.inkDim }}>Monthly</button>
+              <button onClick={() => setPlanInterval('yearly')} aria-pressed={planInterval === 'yearly'} className="px-4 py-2 rounded-xl text-[13px] font-semibold flex items-center gap-2" style={planInterval === 'yearly' ? { background: C.ink, color: C.bg } : { color: C.inkDim }}>
+                Yearly <span className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: GOLD.mid, color: GOLD.on }}>2 months free</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+            {/* Pro — the gold card */}
+            <div className="relative rounded-[26px] p-6" style={{ background: `linear-gradient(155deg, ${GOLD.top} 0%, ${GOLD.mid} 45%, ${GOLD.deep} 100%)`, color: GOLD.on, boxShadow: '0 24px 60px rgba(255,176,32,0.18), inset 0 1px 0 rgba(255,255,255,0.35)' }}>
+              <div className="flex items-center justify-between">
+                <span style={{ fontFamily: display, fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em' }}>Pro</span>
+                <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: GOLD.on, color: GOLD.mid }}>{proCurrent ? 'Your plan' : 'Recommended'}</span>
+              </div>
+              <div className="text-[13px] mt-0.5" style={{ color: 'rgba(10,31,28,0.75)' }}>For a growing shop with staff</div>
+              {priceBlock('pro', true)}
+              <ul className="space-y-2 mt-5 mb-6">
+                {['Up to 3 staff, each with their own login', `Unlimited ${T.catalog.toLowerCase()}`, '150 questions to Oga a month, in 5 languages', '100 automatic WhatsApp reminders a month', 'Weekly or monthly WhatsApp summaries'].map((t) => tick(t, true))}
+              </ul>
+              {cta('pro', true)}
+            </div>
+
+            {/* Business */}
+            <div className="rounded-[26px] p-6" style={{ background: C.surface, border: `1.5px solid ${bizCurrent ? C.sage : C.line}` }}>
+              <div className="flex items-center justify-between">
+                <span style={{ fontFamily: display, fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em' }}>Business</span>
+                {bizCurrent && <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: C.sageSoft, color: C.sage }}>Your plan</span>}
+              </div>
+              <div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>For several shops or warehouses</div>
+              {priceBlock('business', false)}
+              <ul className="space-y-2 mt-5 mb-5">
+                {['Everything in Pro', 'Up to 10 staff across your locations', 'Deliveries, transfers and stock requests', '500 questions to Oga and 500 reminders a month'].map((t) => tick(t, false))}
+              </ul>
+              <div className="flex items-center justify-between rounded-2xl px-4 py-3 mb-5" style={{ background: C.surfaceRaised }}>
+                <div>
+                  <div className="text-[13.5px] font-semibold">{3 + planExtra} locations</div>
+                  <div className="text-[11.5px]" style={{ color: C.inkFaint }}>3 included. Extra ones are {fmt(PLAN_PRICES.extraShop[planInterval])} {per} each</div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => setPlanExtra(Math.max(0, planExtra - 1))} disabled={planExtra === 0} aria-label="One fewer location" className="w-9 h-9 rounded-xl text-[17px] font-bold" style={{ border: `1px solid ${C.line}`, opacity: planExtra === 0 ? 0.4 : 1 }}>−</button>
+                  <button onClick={() => setPlanExtra(Math.min(50, planExtra + 1))} aria-label="One more location" className="w-9 h-9 rounded-xl text-[17px] font-bold" style={{ border: `1px solid ${C.line}` }}>+</button>
+                </div>
+              </div>
+              {cta('business', false)}
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="text-[13px] font-semibold mb-2 px-1">How you'd like to pay</div>
+            <div className="grid grid-cols-2 gap-2">
+              {[['once', 'Pay now', 'Card, transfer or USSD. Renew when you choose.'], ['auto', 'Auto-renew', 'Saved card. Turn it off anytime.']].map(([k, l, d]) => (
+                <button key={k} onClick={() => setPayMode(k)} role="radio" aria-checked={payMode === k} className="rounded-2xl p-3.5 text-left" style={{ background: C.surface, border: `1.5px solid ${payMode === k ? C.copper : C.line}` }}>
+                  <span className="flex items-center gap-2 text-[13.5px] font-semibold" style={{ color: payMode === k ? C.copper : C.ink }}>
+                    <span className="w-4 h-4 rounded-full flex items-center justify-center" style={{ border: `2px solid ${payMode === k ? C.copper : C.inkFaint}` }}>{payMode === k && <span className="w-2 h-2 rounded-full" style={{ background: C.copper }} />}</span>{l}
+                  </span>
+                  <span className="block text-[11.5px] mt-1 leading-snug" style={{ color: C.inkFaint }}>{d}</span>
+                </button>
               ))}
             </div>
           </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {planCard('pro', ['Up to 3 staff', `Unlimited ${T.catalog.toLowerCase()}`, '150 Oga questions a month, in 5 languages', '100 automatic WhatsApp reminders a month', 'Weekly or monthly WhatsApp summaries'])}
-            {planCard('business', ['Everything in Pro', '3 locations (shops or warehouses), more as needed', 'Up to 10 staff', 'Deliveries, transfers and stock requests across locations', '500 Oga questions and 500 automatic reminders a month'])}
-          </div>
-          <div className="rounded-xl p-1 mt-3 flex gap-1" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-            {[['once', 'Pay now', 'Card, transfer or USSD'], ['auto', 'Auto-renew', 'Saved card, cancel anytime']].map(([k, l, d]) => (
-              <button key={k} onClick={() => setPayMode(k)} className="flex-1 rounded-lg px-3 py-2 text-left" style={payMode === k ? { background: C.surface, boxShadow: `0 0 0 1.5px ${C.copper}` } : {}}>
-                <span className="block text-[12.5px] font-semibold" style={{ color: payMode === k ? C.copper : C.ink }}>{l}</span>
-                <span className="block text-[11px]" style={{ color: C.inkFaint }}>{d}</span>
-              </button>
-            ))}
-          </div>
-          <div className="text-[11.5px] mt-3 px-1 leading-relaxed" style={{ color: C.inkFaint }}>
-            <strong style={{ color: C.inkDim }}>Free plan:</strong> 1 shop, owner only, up to 20 {T.catalog.toLowerCase()}, 10 Oga questions a month, plus your storefront, invoices and receipts.
-          </div>
+          <p className="text-[12px] mt-4 px-1 leading-relaxed" style={{ color: C.inkFaint }}>
+            On the Free plan you keep 1 shop run by you, up to 20 {T.catalog.toLowerCase()}, 10 questions to Oga a month, and your storefront, invoices and receipts.
+          </p>
         </div>
 
-        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-          <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2.5" style={{ color: C.inkFaint }}>Our promises</div>
-          <div className="space-y-1.5">
-            {['Monthly billing — cancel anytime, no lock-in.', 'A reminder 3 days before your plan ends. No surprise charges.', 'Your records are never deleted or held back. If you stop paying, you move to Free with everything intact.', 'Price changes are announced 30 days ahead, and current subscribers keep their price for 12 months.', 'Payments are handled securely by Paystack. Xorla never sees your card details.'].map(feature)}
+        {/* Promises */}
+        <div className="rounded-[22px] p-5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <h3 className="text-[14px] font-semibold mb-3">Our promises</h3>
+          <div className="space-y-3">
+            {[[CalendarClock, 'A reminder 3 days before your plan ends. Nothing renews by surprise.'], [Archive, 'Your records are never deleted. Stop paying and you move to Free with everything intact.'], [Tag, 'Price changes are announced 30 days ahead, and you keep your price for 12 months.'], [Lock, 'Paystack handles every payment. Xorla never sees your card details.']].map(([Icon, t]) => (
+              <div key={t} className="flex items-start gap-3">
+                <span className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Icon size={15} style={{ color: C.sage }} /></span>
+                <span className="text-[13px] leading-relaxed pt-1" style={{ color: C.inkDim }}>{t}</span>
+              </div>
+            ))}
           </div>
         </div>
 
         {payments.length > 0 && (
           <div>
-            <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Payment history</div>
-            <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            <h3 className="text-[14px] font-semibold mb-2.5 px-1">Payment history</h3>
+            <div className="rounded-[22px] overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
               {payments.map((pm, i) => (
-                <div key={pm.id} className="flex items-center justify-between px-4 py-3 text-[12.5px]" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
-                  <span><span className="font-semibold">{PLAN_INFO[pm.plan]?.name || pm.plan}</span> <span style={{ color: C.inkFaint }}>· {pm.billing_interval} · {fmtDate(pm.paid_at)}</span></span>
-                  <span className="cx-mono font-semibold">{fmt(pm.amount)}</span>
+                <div key={pm.id} className="flex items-center justify-between gap-3 px-4 py-3.5" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                  <div>
+                    <div className="text-[13.5px] font-semibold">{PLAN_INFO[pm.plan]?.name || pm.plan}, {pm.billing_interval}</div>
+                    <div className="text-[12px]" style={{ color: C.inkFaint }}>{fmtDate(pm.paid_at)}</div>
+                  </div>
+                  <span className="text-[14px] font-semibold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(pm.amount)}</span>
                 </div>
               ))}
             </div>
