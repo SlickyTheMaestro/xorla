@@ -155,7 +155,7 @@ function formatNumInput(v) {
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName'];
-const SETTINGS_TITLES = { notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -204,6 +204,21 @@ const DEVICE_WORD = typeof navigator !== 'undefined' && /iPad|Tablet/i.test(navi
 // Android browsers where web push is known not to deliver reliably (subscribing "works", but nothing arrives)
 const PUSH_UNRELIABLE_BROWSER = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent) && /(EdgA|OPR|OPT|Opera)/i.test(navigator.userAgent)
   ? (/EdgA/i.test(navigator.userAgent) ? 'Edge' : 'Opera') : null;
+const PLAN_INFO = {
+  free: { name: 'Free', staff: 0, locations: 1, products: 20, ai: 10, wa: 0 },
+  pro: { name: 'Pro', staff: 3, locations: 1, products: null, ai: 150, wa: 100 },
+  business: { name: 'Business', staff: 10, locations: 3, products: null, ai: 500, wa: 500 },
+};
+const PLAN_PRICES = {
+  pro: { monthly: 4500, yearly: 45000, earlyMonthly: 3000, earlyYearly: 30000 },
+  business: { monthly: 12000, yearly: 120000, earlyMonthly: 8000, earlyYearly: 80000 },
+  extraShop: { monthly: 3500, yearly: 35000 },
+};
+function planPrice(plan, interval, extraShops = 0, early = false) {
+  const p = PLAN_PRICES[plan]; if (!p) return 0;
+  const base = interval === 'monthly' ? (early ? p.earlyMonthly : p.monthly) : (early ? p.earlyYearly : p.yearly);
+  return base + (plan === 'business' ? Math.max(0, Math.floor(extraShops)) * PLAN_PRICES.extraShop[interval] : 0);
+}
 function todayKey() { return new Date().toLocaleDateString('sv-SE'); }
 
 function invoiceLineItems(inv) {
@@ -1284,6 +1299,59 @@ function XorlaApp() {
   const [restockCost, setRestockCost] = useState('');
   const [productsView, setProductsView] = useState('list');
   const [notifOpen, setNotifOpen] = useState(false);
+  const [subscription, setSubscription] = useState(null);
+  const [payments, setPayments] = useState([]);
+  const [usage, setUsage] = useState(null);
+  const [earlySpots, setEarlySpots] = useState(null);
+  const [planInterval, setPlanInterval] = useState('monthly');
+  const [planExtra, setPlanExtra] = useState(0);
+  const [payMode, setPayMode] = useState('once');
+  const [billingBusy, setBillingBusy] = useState(null);
+  const [billingNote, setBillingNote] = useState(null);
+  const [pendingPlanOpen, setPendingPlanOpen] = useState(false);
+  const [billingReturnRef, setBillingReturnRef] = useState(null);
+  const [limitPrompt, setLimitPrompt] = useState(null);
+  const [planBannerHidden, setPlanBannerHidden] = useState(false);
+  // ---------- Plan: what this business is on right now ----------
+  const planKnown = !!subscription;
+  const nowMs = Date.now();
+  const effPlan = !subscription ? 'pro'
+    : subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs ? 'pro'
+    : subscription.status === 'active' && new Date(subscription.current_period_end).getTime() > nowMs ? subscription.plan
+    : 'free';
+  const onTrial = planKnown && subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs;
+  const planEnd = !planKnown ? null : new Date(onTrial ? subscription.trial_ends_at : subscription.current_period_end || 0);
+  const planDaysLeft = planEnd ? Math.max(0, Math.ceil((planEnd.getTime() - nowMs) / 86400000)) : null;
+  const planCaps = { ...PLAN_INFO[effPlan], locations: PLAN_INFO[effPlan].locations + (effPlan === 'business' ? Number(subscription?.extra_shops || 0) : 0) };
+  const earlyActive = planKnown && subscription.early_supporter && new Date(subscription.early_supporter_until).getTime() > nowMs;
+  const earlyEligible = earlyActive || (planKnown && !subscription.early_supporter && (earlySpots === null || earlySpots > 0));
+  const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  // Open Settings → Your plan (from a notification, an upgrade prompt, or after paying)
+  useEffect(() => {
+    if (!settings.loggedIn || settings.role !== 'owner' || (!pendingPlanOpen && billingReturnRef === null)) return;
+    setDraft({ ...settings }); setSettingsPage('plan'); setPreviousTab('overview'); setTab('settings');
+    setPendingPlanOpen(false);
+    if (billingReturnRef !== null) {
+      const ref = billingReturnRef; setBillingReturnRef(null);
+      if (!ref) return;
+      setBillingBusy('verify'); setBillingNote(null);
+      callBilling('verify', { reference: ref })
+        .then((r) => {
+          if (r.ok) setBillingNote({ ok: true, text: `Payment received — thank you! You're on ${PLAN_INFO[r.plan]?.name || 'your new plan'}${r.until ? ` until ${fmtDate(r.until)}` : ''}.` });
+          else setBillingNote({ ok: false, text: r.status === 'abandoned' ? 'The payment was not completed. Nothing was charged.' : 'We could not confirm the payment yet. If money left your account, it will show here within a few minutes.' });
+          return loadBusinessData(session.access_token);
+        })
+        .catch((e) => setBillingNote({ ok: false, text: e.message }))
+        .finally(() => setBillingBusy(null));
+    }
+  }, [settings.loggedIn, settings.role, pendingPlanOpen, billingReturnRef]);
+  // Fresh usage and early-supporter places whenever the plan page opens
+  useEffect(() => {
+    if (settingsPage !== 'plan' || !session) return;
+    sbRpc('my_usage', session.access_token, {}).then(setUsage).catch(() => {});
+    sbRpc('early_supporter_spots', session.access_token, {}).then((n) => setEarlySpots(typeof n === 'number' ? n : null)).catch(() => {});
+  }, [settingsPage]);
   const [pushState, setPushState] = useState('checking'); // checking | unsupported | ios-install | denied | off | on
   const [pushBusy, setPushBusy] = useState(false);
   const [pushNote, setPushNote] = useState(null);
@@ -1382,7 +1450,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
@@ -1394,6 +1462,8 @@ function XorlaApp() {
         sbRest('product_shops', { accessToken, query: '?select=*' }).catch(() => []),
         sbRest('stock_transfers', { accessToken, query: '?select=*&order=created_at.desc&limit=300' }).catch(() => []),
         sbRest('stock_requests', { accessToken, query: '?select=*&order=created_at.desc&limit=100' }).catch(() => []),
+        sbRest('subscriptions', { accessToken, query: '?select=business_id,plan,billing_interval,extra_shops,status,trial_ends_at,current_period_end,early_supporter,early_supporter_until,auto_renew,card_last4,card_brand' }).catch(() => null),
+        sbRest('payments', { accessToken, query: '?select=*&order=paid_at.desc&limit=12' }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
@@ -1406,6 +1476,8 @@ function XorlaApp() {
       setProductShops(productShopRows);
       setStockTransfers(transferRows);
       setStockRequests(requestRows);
+      setSubscription(Array.isArray(subscriptionRows) && subscriptionRows[0] ? subscriptionRows[0] : null);
+      setPayments(paymentRows || []);
     } catch (e) {
       console.error('Loading business data failed:', e);
     }
@@ -1470,10 +1542,13 @@ function XorlaApp() {
       try {
         const t = new URL(href, window.location.origin).searchParams.get('tab');
         if (t && ['overview', 'sales', 'orders', 'products', 'expenses', 'invoices', 'advisor'].includes(t)) setTab(t);
+        if (t === 'plan') setPendingPlanOpen(true);
       } catch (e) {}
     };
     openFrom(window.location.href);
-    if (window.location.search.includes('tab=')) window.history.replaceState(null, '', window.location.pathname);
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('billing') === 'return') setBillingReturnRef(q.get('reference') || q.get('trxref') || '');
+    if (window.location.search.includes('tab=') || q.get('billing')) window.history.replaceState(null, '', window.location.pathname);
     const onMsg = (e) => { if (e.data?.type === 'xorla-open') openFrom(e.data.url); };
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
@@ -1593,6 +1668,12 @@ function XorlaApp() {
   const [shopBusy, setShopBusy] = useState(false);
   const addShop = async () => {
     const name = newShopName.trim(); if (!name || shopBusy) return;
+    if (planKnown && liveLocations.length >= planCaps.locations) {
+      setLimitPrompt(effPlan === 'business'
+        ? { title: `Your plan includes ${planCaps.locations} locations`, body: 'Add extra locations to your Business plan for ₦3,500 a month each, then open this one.' }
+        : { title: 'More locations come with Business', body: 'Run several shops and warehouses with stock transfers, deliveries and requests between them. Business includes 3 locations, with more as you grow.' });
+      return;
+    }
     setShopBusy(true);
     try {
       const rows = await sbRest('shops', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name, ...(newShopKind === 'warehouse' ? { kind: 'warehouse' } : {}) } });
@@ -1856,6 +1937,10 @@ function XorlaApp() {
   const addProduct = async () => {
     if (!productForm.name || !productForm.sellingPrice) return;
     if (savingProduct) return;
+    if (!editingProductId && planKnown && planCaps.products !== null && productsAll.length >= planCaps.products) {
+      setLimitPrompt({ title: `The Free plan includes ${planCaps.products} ${T.catalog.toLowerCase()}`, body: `Upgrade to Pro for unlimited ${T.catalog.toLowerCase()}, up to 3 staff, 150 Oga questions a month, and automatic WhatsApp reminders.` });
+      return;
+    }
     setSavingProduct(true);
     try {
       let imageUrl = null;
@@ -2761,6 +2846,174 @@ function XorlaApp() {
     );
   };
 
+  // ---------- Billing actions ----------
+  const callBilling = async (action, extra = {}) => {
+    const res = await fetch(`${SB_URL}/functions/v1/billing`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ action, ...extra }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || 'Payments are not available right now. Please try again.');
+    return data;
+  };
+  const startCheckout = async (plan) => {
+    setBillingBusy(plan); setBillingNote(null);
+    try {
+      const r = await callBilling('checkout', { plan, interval: planInterval, extraShops: plan === 'business' ? planExtra : 0, autoRenew: payMode === 'auto' });
+      window.location.href = r.url;   // Paystack's secure payment page; it brings them back here afterwards
+    } catch (e) { setBillingNote({ ok: false, text: e.message }); setBillingBusy(null); }
+  };
+  const turnOffAutoRenew = async () => {
+    if (!window.confirm('Turn off auto-renew? Your plan stays active until its end date, and your saved card is removed.')) return;
+    setBillingBusy('auto'); setBillingNote(null);
+    try { await callBilling('auto_renew_off'); await loadBusinessData(session.access_token); setBillingNote({ ok: true, text: 'Auto-renew is off and your card has been removed.' }); }
+    catch (e) { setBillingNote({ ok: false, text: e.message }); }
+    finally { setBillingBusy(null); }
+  };
+  const openPlanPage = () => { setLimitPrompt(null); setDraft({ ...settings }); setSettingsPage('plan'); setPreviousTab(tab === 'settings' ? 'overview' : tab); setTab('settings'); };
+
+  const renderPlanPage = () => {
+    if (!planKnown) return <div className="text-[13px] px-1" style={{ color: C.inkFaint }}>Plans aren't switched on yet.</div>;
+    const s = subscription;
+    const statusLabel = onTrial ? ['Trial', C.copper] : effPlan !== 'free' ? ['Active', C.sage] : ['Free', C.inkDim];
+    const meter = (label, used, cap, note) => {
+      const pct = cap ? Math.min(100, (used / cap) * 100) : 0;
+      return (
+        <div key={label}>
+          <div className="flex items-center justify-between text-[12.5px] mb-1">
+            <span style={{ color: C.inkDim }}>{label}</span>
+            <span className="cx-mono font-semibold">{cap === null ? `${used} · unlimited` : cap === 0 ? (note || 'Not included') : `${used} of ${cap}`}</span>
+          </div>
+          {cap ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, pct)}%`, background: pct >= 90 ? C.rust : C.sage }} /></div> : null}
+        </div>
+      );
+    };
+    const feature = (t) => <div key={t} className="flex items-start gap-2 text-[12.5px]" style={{ color: C.inkDim }}><Check size={14} className="shrink-0 mt-0.5" style={{ color: C.sage }} /><span>{t}</span></div>;
+    const planCard = (key, features) => {
+      const price = planPrice(key, planInterval, key === 'business' ? planExtra : 0, earlyEligible);
+      const regular = planPrice(key, planInterval, key === 'business' ? planExtra : 0, false);
+      const isCurrent = effPlan === key && !onTrial;
+      const per = planInterval === 'monthly' ? '/month' : '/year';
+      return (
+        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1.5px solid ${isCurrent ? C.sage : C.line}` }}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[16px] font-bold cx-display">{PLAN_INFO[key].name}</span>
+            {isCurrent && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: C.sageSoft, color: C.sage }}>YOUR PLAN</span>}
+          </div>
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-[22px] font-bold cx-mono">{fmt(price)}</span><span className="text-[12px]" style={{ color: C.inkFaint }}>{per}</span>
+            {earlyEligible && price < regular && <span className="text-[12px] line-through" style={{ color: C.inkFaint }}>{fmt(regular)}</span>}
+          </div>
+          {earlyEligible && price < regular && <div className="text-[11.5px] mb-3 font-medium" style={{ color: C.copper }}>Early-supporter price{earlyActive ? ` — yours until ${fmtDate(s.early_supporter_until)}` : ` for your first 12 months${earlySpots !== null ? ` · ${earlySpots} of 100 places left` : ''}`}</div>}
+          <div className="space-y-1.5 mb-4">{features.map(feature)}</div>
+          {key === 'business' && (
+            <div className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-4" style={{ background: C.surfaceRaised }}>
+              <div>
+                <div className="text-[12.5px] font-semibold">Locations: {3 + planExtra}</div>
+                <div className="text-[11px]" style={{ color: C.inkFaint }}>3 included · extra {fmt(PLAN_PRICES.extraShop[planInterval])}{per} each</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setPlanExtra(Math.max(0, planExtra - 1))} aria-label="One fewer location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: `1px solid ${C.line}` }}>−</button>
+                <button onClick={() => setPlanExtra(Math.min(50, planExtra + 1))} aria-label="One more location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: `1px solid ${C.line}` }}>+</button>
+              </div>
+            </div>
+          )}
+          <button onClick={() => startCheckout(key)} disabled={!!billingBusy} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: billingBusy ? 0.6 : 1 }}>
+            {billingBusy === key ? 'Opening secure payment…' : `${isCurrent ? 'Renew' : 'Choose'} ${PLAN_INFO[key].name} · ${fmt(price)}`}
+          </button>
+          {isCurrent && <div className="text-[11px] mt-2 text-center" style={{ color: C.inkFaint }}>Renewing early adds to the time you have left.</div>}
+          {!isCurrent && effPlan !== 'free' && !onTrial && <div className="text-[11px] mt-2 text-center" style={{ color: C.inkFaint }}>Switching plans starts the new plan from today.</div>}
+        </div>
+      );
+    };
+    return (
+      <div className="space-y-5">
+        {billingNote && <div className="rounded-xl px-4 py-3 text-[12.5px] font-medium" style={{ background: billingNote.ok ? C.sageSoft : C.rustSoft, color: billingNote.ok ? C.sage : C.rust }}>{billingNote.text}</div>}
+        {billingBusy === 'verify' && <div className="rounded-xl px-4 py-3 text-[12.5px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>Confirming your payment with Paystack…</div>}
+
+        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[18px] font-bold cx-display">{PLAN_INFO[effPlan].name}</span>
+            <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full" style={{ background: C.surfaceRaised, color: statusLabel[1] }}>{statusLabel[0].toUpperCase()}</span>
+          </div>
+          <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
+            {onTrial ? `Free Pro trial — ends ${fmtDate(s.trial_ends_at)} (${planDaysLeft} day${planDaysLeft !== 1 ? 's' : ''} left). No card needed.`
+              : effPlan !== 'free' ? (s.auto_renew ? `Renews automatically on ${fmtDate(s.current_period_end)}${s.card_last4 ? ` · ${s.card_brand || 'Card'} •••• ${s.card_last4}` : ''}.` : `Paid until ${fmtDate(s.current_period_end)}. We'll remind you 3 days before.`)
+              : s.status === 'expired' ? 'Your plan has ended, so you are on Free. Everything you recorded is still here — upgrade anytime to unlock it all again.'
+              : 'Free forever. Upgrade anytime.'}
+          </div>
+          {earlyActive && <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: C.copper }}>Early-supporter price until {fmtDate(s.early_supporter_until)}</div>}
+          {effPlan !== 'free' && s.auto_renew && <button onClick={turnOffAutoRenew} disabled={!!billingBusy} className="text-[12px] font-medium mt-2.5" style={{ color: C.inkFaint }}>Turn off auto-renew</button>}
+        </div>
+
+        <div className="rounded-2xl p-4 space-y-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>This month</div>
+          {meter('Oga questions & AI messages', usage?.ai_month ?? 0, planCaps.ai)}
+          {meter('Automatic WhatsApp reminders', usage?.wa_month ?? 0, planCaps.wa, 'Pro and Business')}
+          {meter('Staff', settings.staffList.length, planCaps.staff, 'Pro and Business')}
+          {meter('Locations', liveLocations.length, planCaps.locations)}
+          {meter(T.catalog, productsAll.length, planCaps.products)}
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-3 px-1">
+            <span className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Choose a plan</span>
+            <div className="flex gap-1 p-1 rounded-lg" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              {[['monthly', 'Monthly'], ['yearly', 'Yearly · 2 months free']].map(([k, l]) => (
+                <button key={k} onClick={() => setPlanInterval(k)} className="px-2.5 py-1 rounded-md text-[11.5px] font-semibold" style={planInterval === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {planCard('pro', ['Up to 3 staff', `Unlimited ${T.catalog.toLowerCase()}`, '150 Oga questions a month, in 5 languages', '100 automatic WhatsApp reminders a month', 'Weekly or monthly WhatsApp summaries'])}
+            {planCard('business', ['Everything in Pro', '3 locations (shops or warehouses), more as needed', 'Up to 10 staff', 'Deliveries, transfers and stock requests across locations', '500 Oga questions and 500 automatic reminders a month'])}
+          </div>
+          <div className="rounded-xl p-1 mt-3 flex gap-1" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            {[['once', 'Pay now', 'Card, transfer or USSD'], ['auto', 'Auto-renew', 'Saved card, cancel anytime']].map(([k, l, d]) => (
+              <button key={k} onClick={() => setPayMode(k)} className="flex-1 rounded-lg px-3 py-2 text-left" style={payMode === k ? { background: C.surface, boxShadow: `0 0 0 1.5px ${C.copper}` } : {}}>
+                <span className="block text-[12.5px] font-semibold" style={{ color: payMode === k ? C.copper : C.ink }}>{l}</span>
+                <span className="block text-[11px]" style={{ color: C.inkFaint }}>{d}</span>
+              </button>
+            ))}
+          </div>
+          <div className="text-[11.5px] mt-3 px-1 leading-relaxed" style={{ color: C.inkFaint }}>
+            <strong style={{ color: C.inkDim }}>Free plan:</strong> 1 shop, owner only, up to 20 {T.catalog.toLowerCase()}, 10 Oga questions a month, plus your storefront, invoices and receipts.
+          </div>
+        </div>
+
+        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2.5" style={{ color: C.inkFaint }}>Our promises</div>
+          <div className="space-y-1.5">
+            {['Monthly billing — cancel anytime, no lock-in.', 'A reminder 3 days before your plan ends. No surprise charges.', 'Your records are never deleted or held back. If you stop paying, you move to Free with everything intact.', 'Price changes are announced 30 days ahead, and current subscribers keep their price for 12 months.', 'Payments are handled securely by Paystack. Xorla never sees your card details.'].map(feature)}
+          </div>
+        </div>
+
+        {payments.length > 0 && (
+          <div>
+            <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Payment history</div>
+            <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              {payments.map((pm, i) => (
+                <div key={pm.id} className="flex items-center justify-between px-4 py-3 text-[12.5px]" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                  <span><span className="font-semibold">{PLAN_INFO[pm.plan]?.name || pm.plan}</span> <span style={{ color: C.inkFaint }}>· {pm.billing_interval} · {fmtDate(pm.paid_at)}</span></span>
+                  <span className="cx-mono font-semibold">{fmt(pm.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderLimitPrompt = () => limitPrompt && (
+    <div className="fixed inset-0 z-[92] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={() => setLimitPrompt(null)}>
+      <div className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-6 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-4" style={{ background: C.copperSoft }}><Sparkles size={20} style={{ color: C.copper }} /></div>
+        <div className="text-[17px] font-bold cx-display mb-1.5">{limitPrompt.title}</div>
+        <div className="text-[13px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{limitPrompt.body}</div>
+        <button onClick={openPlanPage} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-2" style={{ background: C.copper, color: C.bg }}>See plans</button>
+        <button onClick={() => setLimitPrompt(null)} className="w-full py-2.5 text-[13px] font-medium" style={{ color: C.inkFaint }}>Not now</button>
+      </div>
+    </div>
+  );
+
   // ---------- Receipts ----------
   const makeReceipt = ({ id, items, total, owed, customerName, customerPhone, shopId, when }) => ({
     no: String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase(),
@@ -2903,6 +3156,19 @@ function XorlaApp() {
     </div>
   );
 
+  if (settings.role === 'staff' && planKnown && planCaps.staff === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 cx-body" style={{ background: C.bg, color: C.ink }}>
+        {fontStyle}
+        <div className="max-w-sm w-full rounded-3xl p-6 text-center" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <XorlaMark size={34} />
+          <div className="text-[18px] font-bold cx-display mt-4 mb-2">Staff access is paused</div>
+          <div className="text-[13px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{settings.businessName || 'This business'}'s Xorla plan doesn't include staff right now. Nothing has been lost — ask the owner to renew, and you'll be able to record again straight away.</div>
+          <button onClick={logout} className="w-full rounded-xl py-3 text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Log out</button>
+        </div>
+      </div>
+    );
+  }
   if (settings.role === 'staff') {
     const myTodaySales = sales.filter((s) => s.dateKey === todayKey() && s.loggedBy === settings.activeStaff);
     const myTodayTotal = myTodaySales.reduce((a, s) => a + Number(s.amount), 0);
@@ -3195,6 +3461,7 @@ function XorlaApp() {
             <div />
           </div>
 
+          {renderLimitPrompt()}
           {pinFlow && (
             <PinSetup
               currentPin={pinFlow === 'set' ? '' : settings.pin}
@@ -3213,6 +3480,9 @@ function XorlaApp() {
           <div className="flex-1 overflow-y-auto px-4 py-5">
             {settingsPage === null && (
               <div className="space-y-6">
+                {isOwnerRole && planKnown && renderSettingsGroup('Plan', [
+                  { id: 'plan', Icon: Sparkles, label: 'Your plan', value: onTrial ? `Pro trial · ${planDaysLeft}d left` : PLAN_INFO[effPlan].name, valueColor: effPlan === 'free' ? undefined : C.sage },
+                ])}
                 {renderSettingsGroup('Business', [
                   { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
                   { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
@@ -3418,6 +3688,12 @@ function XorlaApp() {
             )}
             {settingsPage === 'automation' && (
               <div className="space-y-4">
+                {planKnown && effPlan === 'free' && (
+                  <div className="rounded-2xl px-4 py-3.5 flex items-center justify-between gap-3" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
+                    <span className="text-[12.5px]" style={{ color: C.ink }}>Automatic WhatsApp is part of <strong>Pro</strong> and <strong>Business</strong>.</span>
+                    <button onClick={openPlanPage} className="shrink-0 px-3.5 py-2 rounded-xl text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>See plans</button>
+                  </div>
+                )}
                 <div className="rounded-2xl px-4 py-3.5 flex items-start gap-3" style={{ background: waConnected ? C.sageSoft : C.surfaceRaised, border: `1px solid ${C.line}` }}>
                   <span className="mt-1 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: waConnected === null ? C.inkFaint : waConnected ? C.sage : C.copper }} />
                   <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
@@ -3482,6 +3758,7 @@ function XorlaApp() {
                   </div>
               </div>
             )}
+            {settingsPage === 'plan' && renderPlanPage()}
             {settingsPage === 'notifications' && (
               <div className="space-y-4">
                 <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
@@ -3777,6 +4054,25 @@ function XorlaApp() {
                   <ChevronRight size={18} style={{ color: C.sage }} />
                 </button>
               )}
+              {isOwnerRole && planKnown && !planBannerHidden && (() => {
+                const s = subscription;
+                let b = null;
+                if (onTrial && planDaysLeft <= 7) b = { tone: 'copper', title: `Your Pro trial ends in ${planDaysLeft} day${planDaysLeft !== 1 ? 's' : ''}`, body: 'Choose a plan to keep staff, Oga and more. Nothing is lost either way.', cta: 'See plans' };
+                else if (effPlan !== 'free' && !s.auto_renew && planDaysLeft !== null && planDaysLeft <= 3) b = { tone: 'copper', title: `Your ${PLAN_INFO[effPlan].name} plan ends in ${planDaysLeft} day${planDaysLeft !== 1 ? 's' : ''}`, body: 'Renew in a tap with card, transfer or USSD.', cta: 'Renew' };
+                else if (s.status === 'expired' && effPlan === 'free') b = { tone: 'neutral', title: "You're on the Free plan", body: 'Your plan ended, but everything you recorded is still here. Upgrade anytime to unlock staff, Oga and more.', cta: 'See plans' };
+                if (!b) return null;
+                return (
+                  <div className="rounded-2xl p-4 mb-5 flex items-start gap-3 xorla-fade-up" style={{ background: b.tone === 'copper' ? C.copperSoft : C.surfaceRaised, border: `1px solid ${b.tone === 'copper' ? 'rgba(255,176,32,0.25)' : C.line}` }}>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: b.tone === 'copper' ? C.copper : C.surface }}><Sparkles size={18} style={{ color: b.tone === 'copper' ? C.bg : C.copper }} /></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13.5px] font-semibold cx-display">{b.title}</div>
+                      <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{b.body}</div>
+                      <button onClick={openPlanPage} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>{b.cta}</button>
+                    </div>
+                    <button onClick={() => setPlanBannerHidden(true)} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
+                  </div>
+                );
+              })()}
               {showLangIntro && tourStep === null && (
                 <div className="rounded-2xl p-4 mb-5 flex items-start gap-3 xorla-fade-up" style={{ background: `linear-gradient(135deg, ${C.copperSoft}, ${C.surface})`, border: '1px solid rgba(255,176,32,0.25)' }}>
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><Globe size={18} style={{ color: C.bg }} /></div>
@@ -4938,6 +5234,7 @@ function XorlaApp() {
       {renderReceiptModal()}
       {renderStockPanel()}
       {renderNotifPanel()}
+      {renderLimitPrompt()}
       {aiNotice && (
         <div role="status" className="fixed left-4 right-4 lg:left-auto lg:right-6 lg:w-[380px] bottom-24 lg:bottom-6 z-50 rounded-2xl px-4 py-3.5 flex items-start gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}>
           <Lightbulb size={17} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
@@ -5457,9 +5754,77 @@ function Storefront({ businessCode }) {
   );
 }
 
+// Public pricing page — xorla.vercel.app/pricing (no login needed)
+function PricingPage() {
+  const [interval, setIntervalSel] = useState('monthly');
+  const [spots, setSpots] = useState(null);
+  useEffect(() => {
+    document.title = 'Xorla pricing — simple, honest plans';
+    sbRpc('early_supporter_spots', SB_KEY, {}).then((n) => setSpots(typeof n === 'number' ? n : null)).catch(() => {});
+  }, []);
+  const early = spots === null || spots > 0;
+  const per = interval === 'monthly' ? '/month' : '/year';
+  const tick = (t) => <li key={t} className="flex items-start gap-2 text-[13px]" style={{ color: C.inkDim }}><Check size={15} className="shrink-0 mt-0.5" style={{ color: C.sage }} /><span>{t}</span></li>;
+  const card = (key, title, blurb, features, highlight) => {
+    const price = key === 'free' ? 0 : planPrice(key, interval, 0, early);
+    const regular = key === 'free' ? 0 : planPrice(key, interval, 0, false);
+    return (
+      <div className="rounded-3xl p-6 flex flex-col" style={{ background: C.surface, border: `1.5px solid ${highlight ? C.copper : C.line}` }}>
+        {highlight && <div className="self-start text-[10.5px] font-bold px-2.5 py-1 rounded-full mb-3" style={{ background: C.copper, color: C.bg }}>MOST POPULAR</div>}
+        <div className="text-[19px] font-bold cx-display">{title}</div>
+        <div className="text-[12.5px] mb-4" style={{ color: C.inkFaint }}>{blurb}</div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-[30px] font-bold cx-mono">{key === 'free' ? '₦0' : fmt(price)}</span>
+          {key !== 'free' && <span className="text-[13px]" style={{ color: C.inkFaint }}>{per}</span>}
+        </div>
+        {key !== 'free' && early && price < regular && <div className="text-[12px] mt-1"><span className="line-through" style={{ color: C.inkFaint }}>{fmt(regular)}</span> <span className="font-semibold" style={{ color: C.copper }}>Early-supporter price, first 12 months</span></div>}
+        {key === 'business' && <div className="text-[12px] mt-1" style={{ color: C.inkFaint }}>Includes 3 locations · extra {fmt(PLAN_PRICES.extraShop[interval])}{per} each</div>}
+        <ul className="space-y-2 my-5 flex-1">{features.map(tick)}</ul>
+        <a href="/" className="block text-center rounded-xl py-3 text-[14px] font-semibold" style={highlight ? { background: C.copper, color: C.bg } : { border: `1px solid ${C.line}`, color: C.ink }}>{key === 'free' ? 'Start free' : 'Start your 30-day free trial'}</a>
+      </div>
+    );
+  };
+  return (
+    <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
+      <style>{`.cx-display { font-family: 'Inter', sans-serif; letter-spacing: -0.015em; } .cx-mono { font-family: 'Inter', sans-serif; font-variant-numeric: tabular-nums; } .cx-body { font-family: 'Inter', sans-serif; }`}</style>
+      <header className="max-w-6xl mx-auto px-5 lg:px-8 py-5 flex items-center justify-between">
+        <a href="/" className="flex items-center gap-2"><XorlaMark size={28} /><span className="text-[18px] font-extrabold cx-display">Xorla</span></a>
+        <a href="/" className="px-4 py-2 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Open Xorla</a>
+      </header>
+      <main className="max-w-6xl mx-auto px-5 lg:px-8 pb-16">
+        <div className="text-center max-w-2xl mx-auto pt-8 pb-10">
+          <h1 className="text-[32px] lg:text-[44px] font-extrabold cx-display leading-tight mb-3">Simple, honest pricing</h1>
+          <p className="text-[15px] leading-relaxed" style={{ color: C.inkDim }}>Every new business gets a free 30-day Pro trial, no card needed. Pay monthly by card, transfer or USSD, and cancel anytime.</p>
+          {early && spots !== null && <div className="inline-block mt-5 px-4 py-2 rounded-full text-[12.5px] font-semibold" style={{ background: C.copperSoft, color: C.copper }}>Early-supporter prices: {spots} of 100 places left</div>}
+          <div className="flex justify-center mt-6">
+            <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              {[['monthly', 'Monthly'], ['yearly', 'Yearly · 2 months free']].map(([k, l]) => (
+                <button key={k} onClick={() => setIntervalSel(k)} className="px-4 py-2 rounded-lg text-[13px] font-semibold" style={interval === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {card('free', 'Free', 'For getting started', ['1 shop, owner only', 'Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online storefront', '10 Oga questions a month'])}
+          {card('pro', 'Pro', 'For a growing shop with staff', ['Up to 3 staff', 'Unlimited products and services', '150 Oga questions a month, in 5 languages', '100 automatic WhatsApp reminders a month', 'Weekly or monthly WhatsApp summaries'], true)}
+          {card('business', 'Business', 'For several shops or warehouses', ['Everything in Pro', '3 locations, more as you grow', 'Up to 10 staff', 'Deliveries, transfers and stock requests', '500 Oga questions and 500 reminders a month'])}
+        </div>
+        <div className="max-w-2xl mx-auto mt-12 rounded-3xl p-6" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="text-[16px] font-bold cx-display mb-3">Our promises</div>
+          <ul className="space-y-2">
+            {['Monthly billing — cancel anytime, no lock-in.', 'A reminder 3 days before your plan ends. No surprise charges.', 'Your records are never deleted or held back. Stop paying and you move to Free with everything intact.', 'Price changes are announced 30 days ahead, and current subscribers keep their price for 12 months.', 'Payments are handled securely by Paystack. Xorla never sees your card details.'].map(tick)}
+          </ul>
+        </div>
+        <div className="text-center text-[12px] mt-10" style={{ color: C.inkFaint }}>Xorla is a product of PointBlank Softworks Ltd.</div>
+      </main>
+    </div>
+  );
+}
+
 export default function Root() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
   if (storeMatch) return <Storefront businessCode={storeMatch[1]} />;
+  if (path === '/pricing' || path === '/pricing/') return <PricingPage />;
   return <XorlaApp />;
 }
