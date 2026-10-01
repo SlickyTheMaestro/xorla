@@ -1312,46 +1312,6 @@ function XorlaApp() {
   const [billingReturnRef, setBillingReturnRef] = useState(null);
   const [limitPrompt, setLimitPrompt] = useState(null);
   const [planBannerHidden, setPlanBannerHidden] = useState(false);
-  // ---------- Plan: what this business is on right now ----------
-  const planKnown = !!subscription;
-  const nowMs = Date.now();
-  const effPlan = !subscription ? 'pro'
-    : subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs ? 'pro'
-    : subscription.status === 'active' && new Date(subscription.current_period_end).getTime() > nowMs ? subscription.plan
-    : 'free';
-  const onTrial = planKnown && subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs;
-  const planEnd = !planKnown ? null : new Date(onTrial ? subscription.trial_ends_at : subscription.current_period_end || 0);
-  const planDaysLeft = planEnd ? Math.max(0, Math.ceil((planEnd.getTime() - nowMs) / 86400000)) : null;
-  const planCaps = { ...PLAN_INFO[effPlan], locations: PLAN_INFO[effPlan].locations + (effPlan === 'business' ? Number(subscription?.extra_shops || 0) : 0) };
-  const earlyActive = planKnown && subscription.early_supporter && new Date(subscription.early_supporter_until).getTime() > nowMs;
-  const earlyEligible = earlyActive || (planKnown && !subscription.early_supporter && (earlySpots === null || earlySpots > 0));
-  const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-
-  // Open Settings → Your plan (from a notification, an upgrade prompt, or after paying)
-  useEffect(() => {
-    if (!settings.loggedIn || settings.role !== 'owner' || (!pendingPlanOpen && billingReturnRef === null)) return;
-    setDraft({ ...settings }); setSettingsPage('plan'); setPreviousTab('overview'); setTab('settings');
-    setPendingPlanOpen(false);
-    if (billingReturnRef !== null) {
-      const ref = billingReturnRef; setBillingReturnRef(null);
-      if (!ref) return;
-      setBillingBusy('verify'); setBillingNote(null);
-      callBilling('verify', { reference: ref })
-        .then((r) => {
-          if (r.ok) setBillingNote({ ok: true, text: `Payment received — thank you! You're on ${PLAN_INFO[r.plan]?.name || 'your new plan'}${r.until ? ` until ${fmtDate(r.until)}` : ''}.` });
-          else setBillingNote({ ok: false, text: r.status === 'abandoned' ? 'The payment was not completed. Nothing was charged.' : 'We could not confirm the payment yet. If money left your account, it will show here within a few minutes.' });
-          return loadBusinessData(session.access_token);
-        })
-        .catch((e) => setBillingNote({ ok: false, text: e.message }))
-        .finally(() => setBillingBusy(null));
-    }
-  }, [settings.loggedIn, settings.role, pendingPlanOpen, billingReturnRef]);
-  // Fresh usage and early-supporter places whenever the plan page opens
-  useEffect(() => {
-    if (settingsPage !== 'plan' || !session) return;
-    sbRpc('my_usage', session.access_token, {}).then(setUsage).catch(() => {});
-    sbRpc('early_supporter_spots', session.access_token, {}).then((n) => setEarlySpots(typeof n === 'number' ? n : null)).catch(() => {});
-  }, [settingsPage]);
   const [pushState, setPushState] = useState('checking'); // checking | unsupported | ios-install | denied | off | on
   const [pushBusy, setPushBusy] = useState(false);
   const [pushNote, setPushNote] = useState(null);
@@ -2294,6 +2254,47 @@ function XorlaApp() {
       .cx-ghost:active { opacity: 0.6; }
     `}</style>
   );
+
+  // ---------- Plan: what this business is on right now ----------
+  const planKnown = !!subscription;
+  const nowMs = Date.now();
+  const effPlan = !subscription ? 'pro'
+    : subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs ? 'pro'
+    : subscription.status === 'active' && new Date(subscription.current_period_end).getTime() > nowMs ? subscription.plan
+    : 'free';
+  const onTrial = planKnown && subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs;
+  const planEnd = !planKnown ? null : new Date(onTrial ? subscription.trial_ends_at : subscription.current_period_end || 0);
+  const planDaysLeft = planEnd ? Math.max(0, Math.ceil((planEnd.getTime() - nowMs) / 86400000)) : null;
+  const planCaps = { ...PLAN_INFO[effPlan], locations: PLAN_INFO[effPlan].locations + (effPlan === 'business' ? Number(subscription?.extra_shops || 0) : 0) };
+  const earlyActive = planKnown && subscription.early_supporter && new Date(subscription.early_supporter_until).getTime() > nowMs;
+  const earlyEligible = earlyActive || (planKnown && !subscription.early_supporter && (earlySpots === null || earlySpots > 0));
+  const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  // Open Settings → Your plan (from a notification, an upgrade prompt, or after paying)
+  useEffect(() => {
+    if (!settings.loggedIn || settings.role !== 'owner' || (!pendingPlanOpen && billingReturnRef === null)) return;
+    setDraft({ ...settings }); setSettingsPage('plan'); setPreviousTab('overview'); setTab('settings');
+    setPendingPlanOpen(false);
+    if (billingReturnRef !== null) {
+      const ref = billingReturnRef; setBillingReturnRef(null);
+      if (!ref) return;
+      setBillingBusy('verify'); setBillingNote(null);
+      callBilling('verify', { reference: ref })
+        .then((r) => {
+          if (r.ok) setBillingNote({ ok: true, text: `Payment received — thank you! You're on ${PLAN_INFO[r.plan]?.name || 'your new plan'}${r.until ? ` until ${fmtDate(r.until)}` : ''}.` });
+          else setBillingNote({ ok: false, text: r.status === 'abandoned' ? 'The payment was not completed. Nothing was charged.' : 'We could not confirm the payment yet. If money left your account, it will show here within a few minutes.' });
+          return loadBusinessData(session.access_token);
+        })
+        .catch((e) => setBillingNote({ ok: false, text: e.message }))
+        .finally(() => setBillingBusy(null));
+    }
+  }, [settings.loggedIn, settings.role, pendingPlanOpen, billingReturnRef]);
+  // Fresh usage and early-supporter places whenever the plan page opens
+  useEffect(() => {
+    if (settingsPage !== 'plan' || !session) return;
+    sbRpc('my_usage', session.access_token, {}).then(setUsage).catch(() => {});
+    sbRpc('early_supporter_spots', session.access_token, {}).then((n) => setEarlySpots(typeof n === 'number' ? n : null)).catch(() => {});
+  }, [settingsPage]);
 
   if (resetToken) {
     return <>{fontStyle}<ResetPasswordScreen accessToken={resetToken} onDone={() => { window.location.hash = ''; setResetToken(null); }} /></>;
