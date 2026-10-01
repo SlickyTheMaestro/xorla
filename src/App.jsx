@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -5756,68 +5756,150 @@ function Storefront({ businessCode }) {
 }
 
 // Public pricing page — xorla.vercel.app/pricing (no login needed)
+// Design: the Pro plan is a gold card (Xorla's warm gold) on the dark teal page; everything else stays quiet so it can shine.
 function PricingPage() {
   const [interval, setIntervalSel] = useState('monthly');
   const [spots, setSpots] = useState(null);
   useEffect(() => {
-    document.title = 'Xorla pricing — simple, honest plans';
+    document.title = 'Xorla pricing';
+    if (!document.getElementById('xorla-jakarta')) {
+      const link = document.createElement('link');
+      link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+      document.head.appendChild(link);
+    }
     sbRpc('early_supporter_spots', SB_KEY, {}).then((n) => setSpots(typeof n === 'number' ? n : null)).catch(() => {});
   }, []);
+
+  const P = { bg: '#0A1F1C', deep: '#07171A', surface: '#0F2B26', line: 'rgba(234,245,242,0.12)', ink: '#EAF5F2', muted: '#93B5AD', teal: '#1FD9C4', gold: '#FFB020', goldDeep: '#E89A0C', onGold: '#0A1F1C' };
+  const display = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
   const early = spots === null || spots > 0;
-  const per = interval === 'monthly' ? '/month' : '/year';
-  const tick = (t) => <li key={t} className="flex items-start gap-2 text-[13px]" style={{ color: C.inkDim }}><Check size={15} className="shrink-0 mt-0.5" style={{ color: C.sage }} /><span>{t}</span></li>;
-  const card = (key, title, blurb, features, highlight) => {
-    const price = key === 'free' ? 0 : planPrice(key, interval, 0, early);
-    const regular = key === 'free' ? 0 : planPrice(key, interval, 0, false);
-    return (
-      <div className="rounded-3xl p-6 flex flex-col" style={{ background: C.surface, border: `1.5px solid ${highlight ? C.copper : C.line}` }}>
-        {highlight && <div className="self-start text-[10.5px] font-bold px-2.5 py-1 rounded-full mb-3" style={{ background: C.copper, color: C.bg }}>MOST POPULAR</div>}
-        <div className="text-[19px] font-bold cx-display">{title}</div>
-        <div className="text-[12.5px] mb-4" style={{ color: C.inkFaint }}>{blurb}</div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-[30px] font-bold cx-mono">{key === 'free' ? '₦0' : fmt(price)}</span>
-          {key !== 'free' && <span className="text-[13px]" style={{ color: C.inkFaint }}>{per}</span>}
-        </div>
-        {key !== 'free' && early && price < regular && <div className="text-[12px] mt-1"><span className="line-through" style={{ color: C.inkFaint }}>{fmt(regular)}</span> <span className="font-semibold" style={{ color: C.copper }}>Early-supporter price, first 12 months</span></div>}
-        {key === 'business' && <div className="text-[12px] mt-1" style={{ color: C.inkFaint }}>Includes 3 locations · extra {fmt(PLAN_PRICES.extraShop[interval])}{per} each</div>}
-        <ul className="space-y-2 my-5 flex-1">{features.map(tick)}</ul>
-        <a href="/" className="block text-center rounded-xl py-3 text-[14px] font-semibold" style={highlight ? { background: C.copper, color: C.bg } : { border: `1px solid ${C.line}`, color: C.ink }}>{key === 'free' ? 'Start free' : 'Start your 30-day free trial'}</a>
+  const per = interval === 'monthly' ? 'a month' : 'a year';
+  const proPrice = planPrice('pro', interval, 0, early), proRegular = planPrice('pro', interval, 0, false);
+  const bizPrice = planPrice('business', interval, 0, early), bizRegular = planPrice('business', interval, 0, false);
+  const taken = spots === null ? null : 100 - spots;
+
+  const Tick = ({ t, onGold }) => (
+    <li className="flex items-start gap-2.5 text-[14px] leading-snug">
+      <Check size={16} strokeWidth={2.6} className="shrink-0 mt-[2px]" style={{ color: onGold ? P.onGold : P.teal }} />
+      <span style={{ color: onGold ? P.onGold : P.muted }}>{t}</span>
+    </li>
+  );
+  const Price = ({ value, regular, onGold }) => (
+    <div className="mt-5">
+      <div className="flex items-baseline gap-2">
+        <span style={{ fontFamily: display, fontWeight: 800, fontSize: 40, letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums', color: onGold ? P.onGold : P.ink }}>{fmt(value)}</span>
+        <span className="text-[14px]" style={{ color: onGold ? 'rgba(10,31,28,0.7)' : P.muted }}>{per}</span>
       </div>
-    );
-  };
+      {regular > value && <div className="text-[13px] mt-1" style={{ color: onGold ? 'rgba(10,31,28,0.75)' : P.muted }}>
+        <span className="line-through">{fmt(regular)}</span> for everyone else. Early-supporter price for your first 12 months.
+      </div>}
+    </div>
+  );
+
   return (
-    <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
-      <style>{`.cx-display { font-family: 'Inter', sans-serif; letter-spacing: -0.015em; } .cx-mono { font-family: 'Inter', sans-serif; font-variant-numeric: tabular-nums; } .cx-body { font-family: 'Inter', sans-serif; }`}</style>
-      <header className="max-w-6xl mx-auto px-5 lg:px-8 py-5 flex items-center justify-between">
-        <a href="/" className="flex items-center gap-2"><XorlaMark size={28} /><span className="text-[18px] font-extrabold cx-display">Xorla</span></a>
-        <a href="/" className="px-4 py-2 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Open Xorla</a>
-      </header>
-      <main className="max-w-6xl mx-auto px-5 lg:px-8 pb-16">
-        <div className="text-center max-w-2xl mx-auto pt-8 pb-10">
-          <h1 className="text-[32px] lg:text-[44px] font-extrabold cx-display leading-tight mb-3">Simple, honest pricing</h1>
-          <p className="text-[15px] leading-relaxed" style={{ color: C.inkDim }}>Every new business gets a free 30-day Pro trial, no card needed. Pay monthly by card, transfer or USSD, and cancel anytime.</p>
-          {early && spots !== null && <div className="inline-block mt-5 px-4 py-2 rounded-full text-[12.5px] font-semibold" style={{ background: C.copperSoft, color: C.copper }}>Early-supporter prices: {spots} of 100 places left</div>}
-          <div className="flex justify-center mt-6">
-            <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-              {[['monthly', 'Monthly'], ['yearly', 'Yearly · 2 months free']].map(([k, l]) => (
-                <button key={k} onClick={() => setIntervalSel(k)} className="px-4 py-2 rounded-lg text-[13px] font-semibold" style={interval === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+    <div className="min-h-screen" style={{ background: `radial-gradient(1200px 600px at 50% -10%, #12403A 0%, ${P.bg} 55%)`, color: P.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <style>{`
+        @keyframes xorla-rise { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
+        .xorla-gold-card { animation: xorla-rise 700ms cubic-bezier(.2,.8,.2,1) 150ms both; }
+        @media (prefers-reduced-motion: reduce) { .xorla-gold-card { animation: none; } }
+        .xorla-pricing a:focus-visible, .xorla-pricing button:focus-visible { outline: 2px solid ${P.teal}; outline-offset: 3px; }
+      `}</style>
+      <div className="xorla-pricing">
+        <header className="max-w-6xl mx-auto px-5 lg:px-8 py-5 flex items-center justify-between">
+          <a href="/" className="flex items-center gap-2.5"><XorlaMark size={28} /><span style={{ fontFamily: display, fontWeight: 800, fontSize: 19, letterSpacing: '-0.02em' }}>Xorla</span></a>
+          <a href="/" className="px-4 py-2 rounded-xl text-[13.5px] font-semibold" style={{ border: `1px solid ${P.line}`, color: P.ink }}>Log in</a>
+        </header>
+
+        <main className="max-w-6xl mx-auto px-5 lg:px-8 pb-20">
+          <section className="max-w-3xl pt-10 lg:pt-16 pb-10 lg:pb-14">
+            <h1 style={{ fontFamily: display, fontWeight: 800, fontSize: 'clamp(34px, 6vw, 60px)', lineHeight: 1.04, letterSpacing: '-0.035em' }}>
+              Costs less than the profit on one good sale.
+            </h1>
+            <p className="mt-5 text-[16px] lg:text-[17px] leading-relaxed max-w-xl" style={{ color: P.muted }}>
+              Every new business starts with 30 days of Pro, free and with no card. After that, pay monthly by card, transfer or USSD, and stop whenever you like.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-5">
+              <div role="group" aria-label="Billing period" className="inline-flex p-1 rounded-2xl" style={{ background: 'rgba(234,245,242,0.06)', border: `1px solid ${P.line}` }}>
+                {[['monthly', 'Monthly'], ['yearly', 'Yearly, 2 months free']].map(([k, l]) => (
+                  <button key={k} onClick={() => setIntervalSel(k)} aria-pressed={interval === k} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold transition-colors" style={interval === k ? { background: P.ink, color: P.bg } : { color: P.muted }}>{l}</button>
+                ))}
+              </div>
+              {early && taken !== null && (
+                <div className="min-w-[220px]">
+                  <div className="text-[13px] mb-1.5" style={{ color: P.ink }}><strong style={{ color: P.gold }}>{taken} of 100</strong> early-supporter places taken</div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(234,245,242,0.1)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(3, taken)}%`, background: P.gold }} /></div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section aria-label="Plans" className="grid gap-5 lg:grid-cols-[1fr_1.12fr_1fr] lg:items-center">
+            {/* Free */}
+            <div className="order-3 lg:order-1 rounded-[26px] p-7" style={{ border: `1px solid ${P.line}`, background: 'rgba(15,43,38,0.5)' }}>
+              <h2 style={{ fontFamily: display, fontWeight: 700, fontSize: 21 }}>Free</h2>
+              <p className="text-[14px] mt-1" style={{ color: P.muted }}>Run a one-person shop properly.</p>
+              <div className="mt-5" style={{ fontFamily: display, fontWeight: 800, fontSize: 40, letterSpacing: '-0.03em' }}>₦0</div>
+              <ul className="space-y-2.5 mt-6 mb-7">
+                {['1 shop, run by you', 'Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link', '10 questions to Oga a month'].map((t) => <Tick key={t} t={t} />)}
+              </ul>
+              <a href="/" className="block text-center rounded-2xl py-3.5 text-[15px] font-semibold" style={{ border: `1px solid ${P.line}`, color: P.ink }}>Start free</a>
+            </div>
+
+            {/* Pro — the gold card */}
+            <div className="xorla-gold-card order-1 lg:order-2 relative rounded-[30px] p-8 lg:py-10" style={{ background: `linear-gradient(155deg, #FFC24A 0%, ${P.gold} 45%, ${P.goldDeep} 100%)`, color: P.onGold, boxShadow: '0 30px 80px rgba(255,176,32,0.22), 0 2px 0 rgba(255,255,255,0.35) inset' }}>
+              <div className="flex items-center justify-between">
+                <h2 style={{ fontFamily: display, fontWeight: 800, fontSize: 24, letterSpacing: '-0.02em' }}>Pro</h2>
+                <span className="text-[12.5px] font-semibold px-3 py-1 rounded-full" style={{ background: P.onGold, color: P.gold }}>Recommended</span>
+              </div>
+              <p className="text-[14.5px] mt-1" style={{ color: 'rgba(10,31,28,0.78)' }}>For a growing shop with staff.</p>
+              <Price value={proPrice} regular={proRegular} onGold />
+              <ul className="space-y-2.5 mt-6 mb-8">
+                {['Up to 3 staff, each with their own login', 'Unlimited products and services', '150 questions to Oga a month, in 5 languages', '100 automatic WhatsApp payment reminders a month', 'Weekly or monthly business summaries on WhatsApp'].map((t) => <Tick key={t} t={t} onGold />)}
+              </ul>
+              <a href="/" className="block text-center rounded-2xl py-4 text-[15.5px] font-bold" style={{ background: P.onGold, color: P.gold }}>Start your 30-day free trial</a>
+              <p className="text-[12.5px] text-center mt-3" style={{ color: 'rgba(10,31,28,0.7)' }}>No card needed to start.</p>
+            </div>
+
+            {/* Business */}
+            <div className="order-2 lg:order-3 rounded-[26px] p-7" style={{ border: `1px solid ${P.line}`, background: 'rgba(15,43,38,0.5)' }}>
+              <h2 style={{ fontFamily: display, fontWeight: 700, fontSize: 21 }}>Business</h2>
+              <p className="text-[14px] mt-1" style={{ color: P.muted }}>For several shops or warehouses.</p>
+              <Price value={bizPrice} regular={bizRegular} />
+              <p className="text-[13px] mt-2" style={{ color: P.muted }}>Includes 3 locations. Each extra one is {fmt(PLAN_PRICES.extraShop[interval])} {per}.</p>
+              <ul className="space-y-2.5 mt-6 mb-7">
+                {['Everything in Pro', 'Up to 10 staff across your shops', 'Deliveries, stock transfers and requests between locations', '500 questions to Oga and 500 reminders a month', 'See every shop together, or one at a time'].map((t) => <Tick key={t} t={t} />)}
+              </ul>
+              <a href="/" className="block text-center rounded-2xl py-3.5 text-[15px] font-semibold" style={{ border: `1px solid ${P.teal}`, color: P.teal }}>Start your 30-day free trial</a>
+            </div>
+          </section>
+
+          <section aria-label="Our promises" className="mt-20 lg:mt-28">
+            <h2 className="max-w-xl" style={{ fontFamily: display, fontWeight: 800, fontSize: 'clamp(26px, 3.6vw, 36px)', letterSpacing: '-0.03em', lineHeight: 1.1 }}>No surprises. Written down.</h2>
+            <div className="grid gap-x-10 gap-y-7 mt-9 sm:grid-cols-2">
+              {[
+                [CalendarClock, 'A reminder before every renewal', 'We tell you 3 days before your plan ends. Nothing renews by surprise.'],
+                [Archive, 'Your records stay yours', 'Stop paying and you move to Free with every sale, invoice and customer still there.'],
+                [Tag, 'Prices you can plan around', 'Any change is announced 30 days ahead, and current subscribers keep their price for 12 months.'],
+                [Lock, 'Safe payments', 'Card, transfer and USSD payments are handled by Paystack. Xorla never sees your card details.'],
+              ].map(([Icon, title, body]) => (
+                <div key={title} className="flex gap-4">
+                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.1)' }}><Icon size={20} style={{ color: P.teal }} /></div>
+                  <div>
+                    <h3 className="text-[15.5px] font-semibold">{title}</h3>
+                    <p className="text-[14px] leading-relaxed mt-1 max-w-sm" style={{ color: P.muted }}>{body}</p>
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          {card('free', 'Free', 'For getting started', ['1 shop, owner only', 'Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online storefront', '10 Oga questions a month'])}
-          {card('pro', 'Pro', 'For a growing shop with staff', ['Up to 3 staff', 'Unlimited products and services', '150 Oga questions a month, in 5 languages', '100 automatic WhatsApp reminders a month', 'Weekly or monthly WhatsApp summaries'], true)}
-          {card('business', 'Business', 'For several shops or warehouses', ['Everything in Pro', '3 locations, more as you grow', 'Up to 10 staff', 'Deliveries, transfers and stock requests', '500 Oga questions and 500 reminders a month'])}
-        </div>
-        <div className="max-w-2xl mx-auto mt-12 rounded-3xl p-6" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-          <div className="text-[16px] font-bold cx-display mb-3">Our promises</div>
-          <ul className="space-y-2">
-            {['Monthly billing — cancel anytime, no lock-in.', 'A reminder 3 days before your plan ends. No surprise charges.', 'Your records are never deleted or held back. Stop paying and you move to Free with everything intact.', 'Price changes are announced 30 days ahead, and current subscribers keep their price for 12 months.', 'Payments are handled securely by Paystack. Xorla never sees your card details.'].map(tick)}
-          </ul>
-        </div>
-        <div className="text-center text-[12px] mt-10" style={{ color: C.inkFaint }}>Xorla is a product of PointBlank Softworks Ltd.</div>
-      </main>
+          </section>
+
+          <footer className="mt-20 pt-8 flex flex-wrap items-center justify-between gap-3 text-[13px]" style={{ borderTop: `1px solid ${P.line}`, color: P.muted }}>
+            <span>Xorla is made by PointBlank Softworks Ltd.</span>
+            <a href="/" style={{ color: P.teal }}>Open Xorla</a>
+          </footer>
+        </main>
+      </div>
     </div>
   );
 }
