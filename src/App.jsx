@@ -2292,6 +2292,7 @@ function XorlaApp() {
   // Fresh usage and early-supporter places whenever the plan page opens
   useEffect(() => {
     if (settingsPage !== 'plan' || !session) return;
+    setPlanExtra(Math.max(0, liveLocations.length - 3, effPlan === 'business' ? Number(subscription?.extra_shops || 0) : 0));
     sbRpc('my_usage', session.access_token, {}).then(setUsage).catch(() => {});
     if (!document.getElementById('xorla-jakarta')) {
       const link = document.createElement('link');
@@ -2898,6 +2899,7 @@ function XorlaApp() {
               : <>{used} <span className="text-[12px] font-normal" style={{ color: C.inkFaint }}>of {cap}</span></>}
           </div>
           {cap ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(234,245,242,0.08)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, pct)}%`, background: pct >= 90 ? C.rust : C.sage }} /></div> : null}
+          {cap && used > cap ? <div className="text-[11px] mt-1.5 leading-snug" style={{ color: C.rust }}>{used - cap} more than your plan covers</div> : null}
         </div>
       );
     };
@@ -2960,7 +2962,7 @@ function XorlaApp() {
           </div>
           <div className="relative text-[13px] leading-relaxed mt-2" style={{ color: C.inkDim }}>
             {onTrial ? `Pro free trial. Ends ${fmtDate(s.trial_ends_at)}, no card needed.`
-              : effPlan !== 'free' ? (s.auto_renew ? `Renews automatically on ${fmtDate(s.current_period_end)}${s.card_last4 ? ` with ${s.card_brand || 'card'} ending ${s.card_last4}` : ''}.` : `Paid until ${fmtDate(s.current_period_end)}. We'll remind you 3 days before.`)
+              : effPlan !== 'free' ? (s.auto_renew ? `Renews automatically on ${fmtDate(s.current_period_end)}${s.card_last4 ? ` with ${s.card_brand ? s.card_brand.charAt(0).toUpperCase() + s.card_brand.slice(1) : 'card'} ending ${s.card_last4}` : ''}.` : `Paid until ${fmtDate(s.current_period_end)}. We'll remind you 3 days before.`)
               : s.status === 'expired' ? 'Your plan ended, so you are on Free. Everything you recorded is still here.'
               : 'Free forever. Upgrade whenever you are ready.'}
           </div>
@@ -3029,6 +3031,11 @@ function XorlaApp() {
               <ul className="space-y-2 mt-5 mb-5">
                 {['Everything in Pro', 'Up to 10 staff across your locations', 'Deliveries, transfers and stock requests', '500 questions to Oga and 500 reminders a month'].map((t) => tick(t, false))}
               </ul>
+              {liveLocations.length > 3 + planExtra && (
+                <div className="rounded-2xl px-4 py-3 mb-2 text-[12.5px] leading-relaxed" style={{ background: C.rustSoft, color: C.ink }}>
+                  You have <strong>{liveLocations.length} locations</strong>. Add {liveLocations.length - 3 - planExtra} more below so your plan covers them all.
+                </div>
+              )}
               <div className="flex items-center justify-between rounded-2xl px-4 py-3 mb-5" style={{ background: C.surfaceRaised }}>
                 <div>
                   <div className="text-[13.5px] font-semibold">{3 + planExtra} locations</div>
