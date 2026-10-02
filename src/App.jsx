@@ -1311,6 +1311,7 @@ function XorlaApp() {
   const [pendingPlanOpen, setPendingPlanOpen] = useState(false);
   const [billingReturnRef, setBillingReturnRef] = useState(null);
   const [limitPrompt, setLimitPrompt] = useState(null);
+  const [seatOk, setSeatOk] = useState(null);
   const [planBannerHidden, setPlanBannerHidden] = useState(false);
   const [pushState, setPushState] = useState('checking'); // checking | unsupported | ios-install | denied | off | on
   const [pushBusy, setPushBusy] = useState(false);
@@ -2268,6 +2269,15 @@ function XorlaApp() {
   const planCaps = { ...PLAN_INFO[effPlan], locations: PLAN_INFO[effPlan].locations + (effPlan === 'business' ? Number(subscription?.extra_shops || 0) : 0) };
   const earlyActive = planKnown && subscription.early_supporter && new Date(subscription.early_supporter_until).getTime() > nowMs;
   const earlyEligible = earlyActive || (planKnown && !subscription.early_supporter && (earlySpots === null || earlySpots > 0));
+  // What the plan allows right now: multi-location tools, which locations are active, how many staff are over
+  const multiLocationOn = !planKnown || effPlan === 'business';
+  const pausedLocationIds = planKnown ? liveLocations.slice(planCaps.locations).map((l) => l.id) : [];
+  const isPausedLocation = (id) => !!id && pausedLocationIds.includes(id);
+  const staffOverBy = planKnown ? Math.max(0, settings.staffList.length - planCaps.staff) : 0;
+  useEffect(() => {
+    if (settings.role !== 'staff' || !session?.access_token || !planKnown) return;
+    sbRpc('staff_seat_ok', session.access_token, { p_profile: session.user_id }).then((ok) => setSeatOk(ok === false ? false : true)).catch(() => setSeatOk(true));
+  }, [settings.role, session?.access_token, planKnown, effPlan]);
   const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
   // Open Settings → Your plan (from a notification, an upgrade prompt, or after paying)
@@ -2448,6 +2458,16 @@ function XorlaApp() {
 
   const renderStockCenter = () => {
     if (!isOwnerRole || !hasManyLocations) return null;
+    if (!multiLocationOn) return (
+      <div className="rounded-2xl p-4 mb-6 flex items-start gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Truck size={18} style={{ color: C.copper }} /></div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[13.5px] font-semibold">Deliveries, transfers and stock requests are part of Business</div>
+          <div className="text-[12px] leading-relaxed mt-0.5 mb-3" style={{ color: C.inkDim }}>Your locations and everything recorded in them are all still here.</div>
+          <button onClick={openPlanPage} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>See plans</button>
+        </div>
+      </div>
+    );
     const shortages = stockTransfers.filter((t) => t.status === 'received' && t.qty_received !== null && Number(t.qty_received) < Number(t.qty_sent) && Date.now() - new Date(t.received_at).getTime() < 30 * 86400000).slice(0, 5);
     return (
       <div className="rounded-2xl p-4 mb-6 space-y-4" style={card}>
@@ -3240,29 +3260,29 @@ function XorlaApp() {
     <div className="flex items-center gap-3 mb-5 flex-wrap">
       <BrandSelect aria-label="Choose shop" icon={<Store size={15} className="shrink-0" style={{ color: C.copper }} />} value={viewAllShops ? 'all' : activeShopId || ''} onChange={(e) => setCurrentShopId(e.target.value)} className="pl-3.5 pr-3 py-2.5 rounded-full text-[13px] font-semibold whitespace-nowrap" style={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong || C.line}`, maxWidth: 260 }}>
         {isOwnerRole && <option value="all">All shops</option>}
-        {myShops.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        {myShops.map((s) => <option key={s.id} value={s.id}>{s.name}{isPausedLocation(s.id) ? ' (paused)' : ''}</option>)}
       </BrandSelect>
       {viewAllShops && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Showing {shops.length} shops combined</span>}
     </div>
   );
   // In "All shops", forms ask which shop a new record belongs to
-  const renderRecordShopPicker = () => (viewAllShops && shops.length > 1) && (
+  const renderRecordShopPicker = () => (viewAllShops && shops.filter((s) => !isPausedLocation(s.id)).length > 1) && (
     <div className="flex items-center gap-2 flex-wrap">
       <span className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>For shop:</span>
-      {shops.map((s) => (
+      {shops.filter((s) => !isPausedLocation(s.id)).map((s) => (
         <button key={s.id} type="button" onClick={() => { setRecordShopId(s.id); setSaleForm((f) => { if (!f.productId) return f; const base = productsAll.find((p) => p.id === f.productId); if (!base) return f; const qty = Math.max(1, Number(f.quantity) || 1); return { ...f, amount: String(priceAt(base, s.id) * qty) }; }); setCartItems((items) => items.map((it) => { if (!it.productId) return it; const base = productsAll.find((p) => p.id === it.productId); return base ? { ...it, unitPrice: String(priceAt(base, s.id)) } : it; })); }} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={targetShopId === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
       ))}
     </div>
   );
 
-  if (settings.role === 'staff' && planKnown && planCaps.staff === 0) {
+  if (settings.role === 'staff' && planKnown && (planCaps.staff === 0 || seatOk === false)) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
         <div className="max-w-sm w-full rounded-3xl p-6 text-center" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
           <XorlaMark size={34} />
           <div className="text-[18px] font-bold cx-display mt-4 mb-2">Staff access is paused</div>
-          <div className="text-[13px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{settings.businessName || 'This business'}'s Xorla plan doesn't include staff right now. Nothing has been lost — ask the owner to renew, and you'll be able to record again straight away.</div>
+          <div className="text-[13px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{settings.businessName || 'This business'}'s Xorla plan doesn't include your staff place right now. Nothing has been lost — ask the owner to renew, and you'll be able to record again straight away.</div>
           <button onClick={logout} className="w-full rounded-xl py-3 text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Log out</button>
         </div>
       </div>
@@ -3418,7 +3438,7 @@ function XorlaApp() {
                     <div className="text-[13.5px] font-semibold cx-display truncate">Stock for {shopNameOf(activeShopId || targetShopId)}</div>
                     <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Running low? Ask for more here.</div>
                   </div>
-                  <button onClick={() => { setStockError(''); setRequestForm({ lines: [{ productId: '', qty: '' }], note: '' }); setStockPanel('request'); }} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}><PackagePlus size={15} /> Request stock</button>
+{multiLocationOn ?                   <button onClick={() => { setStockError(''); setRequestForm({ lines: [{ productId: '', qty: '' }], note: '' }); setStockPanel('request'); }} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}><PackagePlus size={15} /> Request stock</button> : <span className="shrink-0 text-[11.5px] text-right max-w-[160px]" style={{ color: C.inkFaint }}>Requests are part of the Business plan</span>}
                 </div>
                 {stockError && !stockPanel && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{stockError}</div>}
                 {pushState !== 'on' && pushState !== 'checking' && pushState !== 'unsupported' && (
@@ -3746,7 +3766,7 @@ function XorlaApp() {
                         </div>
                         <input aria-label="Shop address" placeholder="Address (optional)" value={edit.address ?? (s.address || '')} onChange={(e) => setShopEdits((p) => ({ ...p, [s.id]: { ...edit, address: e.target.value } }))} className="w-full rounded-xl px-3 py-2 text-[12.5px] outline-none" style={field} />
                         <div className="flex items-center justify-between">
-                          <span className="text-[11px]" style={{ color: C.inkFaint }}>{isWarehouse ? 'Storage only — holds stock, never sells' : `${staffCount} staff assigned`}</span>
+                          <span className="text-[11px]" style={{ color: C.inkFaint }}>{isPausedLocation(s.id) ? 'Paused on your plan — records kept, no new sales' : isWarehouse ? 'Storage only — holds stock, never sells' : `${staffCount} staff assigned`}</span>
                           <span className="flex items-center gap-3">
                             {s.id !== mainShopId && !changed && <button onClick={() => closeLocation(s)} className="text-[11.5px] font-medium" style={{ color: C.rust }}>Close location</button>}
                             {changed && <button onClick={() => saveShop(s)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save</button>}
@@ -3922,6 +3942,12 @@ function XorlaApp() {
                     <span className="cx-mono text-[16px] font-bold tracking-[0.1em]" style={{ color: C.sage }}>{settings.businessCode}</span>
                     <button onClick={() => navigator.clipboard?.writeText(settings.businessCode)} className="text-[11px] font-medium" style={{ color: C.copper }}>Copy</button>
                   </div>
+                  {staffOverBy > 0 && (
+                    <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12px] leading-relaxed" style={{ background: C.rustSoft, color: C.ink }}>
+                      Your plan includes {planCaps.staff} staff place{planCaps.staff !== 1 ? 's' : ''}, and you have {settings.staffList.length}. The {staffOverBy} who joined most recently {staffOverBy !== 1 ? 'are' : 'is'} paused until you upgrade or remove someone.{' '}
+                      <button onClick={openPlanPage} className="font-semibold underline" style={{ color: C.copper }}>See plans</button>
+                    </div>
+                  )}
                   {settings.staffList.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {settings.staffList.map((s) => (
@@ -4078,6 +4104,12 @@ function XorlaApp() {
 
         <div className="max-w-6xl mx-auto px-5 md:px-8 py-6 lg:py-8 pb-28 lg:pb-24">
           {renderShopSwitcher()}
+          {activeShopId && isPausedLocation(activeShopId) && (
+            <div className="rounded-2xl px-4 py-3 mb-4 flex items-center justify-between gap-3" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.3)' }}>
+              <span className="text-[12.5px] leading-relaxed" style={{ color: C.ink }}><strong>{shopNameOf(activeShopId)} is paused on your plan.</strong> You can see its records, but new sales can't be recorded here.</span>
+              {isOwnerRole && <button onClick={openPlanPage} className="shrink-0 px-3.5 py-2 rounded-xl text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>See plans</button>}
+            </div>
+          )}
 
           {/* Top bar */}
           <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -4835,7 +4867,7 @@ function XorlaApp() {
                         <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
                         {isOwnerRole && p.stockQuantity !== null && <button onClick={() => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); }} className="text-[11px] font-medium" style={{ color: C.inkDim }}>Fix count</button>}
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
-                        {isOwnerRole && hasManyLocations && p.stockQuantity !== null && <button onClick={() => openSend({ productId: p.id, from: activeShopId || '' })} className="text-[11px] font-medium" style={{ color: C.copper }}>Send</button>}
+                        {isOwnerRole && hasManyLocations && multiLocationOn && p.stockQuantity !== null && <button onClick={() => openSend({ productId: p.id, from: activeShopId || '' })} className="text-[11px] font-medium" style={{ color: C.copper }}>Send</button>}
                         <button onClick={() => removeProduct(p.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
                       </div>
                     </div>
