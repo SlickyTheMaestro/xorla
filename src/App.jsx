@@ -154,7 +154,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings'];
 const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
@@ -181,13 +181,25 @@ const BUSINESS_TYPE_CHOICES = [
   { id: 'services', title: 'I offer services', desc: 'Salons, tailors, mechanics, photographers, repairs, consulting.' },
   { id: 'both', title: 'Both', desc: 'For example, a salon that also sells hair products.' },
 ];
-const PRICE_UNITS = [['fixed', 'Fixed price'], ['session', 'Per session'], ['hour', 'Per hour'], ['from', 'Starting from']];
+const PRICE_UNITS = [['fixed', 'Fixed price'], ['session', 'Per session'], ['hour', 'Per hour'], ['from', 'Starting from'], ['night', 'Per night (bookable)'], ['day', 'Per day (bookable)']];
+const isBookable = (p) => p && (p.priceUnit === 'night' || p.priceUnit === 'day');
+// What kind of service business: drives examples, default pricing, and the storefront's booking words
+const SERVICE_KINDS = {
+  personal_care: { label: 'Personal care', hint: 'Salons, barbers, spas, makeup', name: "e.g. Knotless braids, Men's haircut", category: 'e.g. Hair, Nails, Skin', unit: 'session' },
+  accommodation: { label: 'Accommodation', hint: 'Hotels, guest houses, shortlets', name: 'e.g. Deluxe room with balcony', category: 'e.g. Rooms, Suites, Apartments', unit: 'night', checkIn: 'Check in', checkOut: 'Check out', what: 'room' },
+  rentals: { label: 'Rentals', hint: 'Cars, event halls, equipment', name: 'e.g. Toyota Camry, 300-seat event hall', category: 'e.g. Cars, Halls, Equipment', unit: 'day', checkIn: 'Pick up', checkOut: 'Return', what: 'item' },
+  repairs: { label: 'Repairs & trades', hint: 'Mechanics, phones, tailoring', name: 'e.g. Engine service, Phone screen repair', category: 'e.g. Repairs, Servicing', unit: 'fixed' },
+  professional: { label: 'Professional services', hint: 'Consulting, design, accounting', name: 'e.g. Tax filing, Logo design', category: 'e.g. Consulting, Design', unit: 'fixed' },
+  events: { label: 'Events & media', hint: 'Photography, catering, MCs', name: 'e.g. Wedding photography, Event MC', category: 'e.g. Photography, Catering', unit: 'session' },
+};
 const DURATIONS = ['30 minutes', '1 hour', '1.5 hours', '2 hours', '3 hours', '4 hours', 'Half a day', 'Full day', '2+ days'];
 function priceLabel(p) {
   const amt = fmt(p.sellingPrice);
   if (p.priceUnit === 'hour') return `${amt} / hour`;
   if (p.priceUnit === 'session') return `${amt} / session`;
   if (p.priceUnit === 'from') return `From ${amt}`;
+  if (p.priceUnit === 'night') return `${amt} / night`;
+  if (p.priceUnit === 'day') return `${amt} / day`;
   return amt;
 }
 // Items saved before "kind" existed follow the business type
@@ -438,7 +450,7 @@ function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '', shopId: row.shop_id || null };
 }
 function fromSbProduct(row) {
-  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
+  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 function fromSbOrder(row) {
   return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null };
@@ -1101,6 +1113,13 @@ function XorlaApp() {
   const [productShops, setProductShops] = useState([]);
   const [stockTransfers, setStockTransfers] = useState([]);
   const [stockRequests, setStockRequests] = useState([]);
+  const [bookingsAll, setBookingsAll] = useState([]);
+  const [bookingPanel, setBookingPanel] = useState(false);
+  const [bookingForm, setBookingForm] = useState({ productId: '', checkIn: '', checkOut: '', units: '1', name: '', phone: '', note: '', paid: '' });
+  const [bookingAct, setBookingAct] = useState(null);
+  const [actForm, setActForm] = useState({ room: '', amount: '', reason: '' });
+  const [bookingBusy, setBookingBusy] = useState(false);
+  const [bookingError, setBookingError] = useState('');
   const [stockPanel, setStockPanel] = useState(null); // 'delivery' | 'transfer' | 'request'
   const [stockBusy, setStockBusy] = useState(false);
   const [stockError, setStockError] = useState('');
@@ -1362,6 +1381,7 @@ function XorlaApp() {
   const [aiNotice, setAiNotice] = useState('');
   const showAiNotice = (msg) => { setAiNotice(msg); setTimeout(() => setAiNotice(''), 6000); };
   const [pendingBusinessType, setPendingBusinessType] = useState(null);
+  const [pendingServiceKind, setPendingServiceKind] = useState(null);
   const toggleSection = (id) => setOpenSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [previousTab, setPreviousTab] = useState('overview');
   const [draft, setDraft] = useState(null);
@@ -1413,7 +1433,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
@@ -1427,6 +1447,7 @@ function XorlaApp() {
         sbRest('stock_requests', { accessToken, query: '?select=*&order=created_at.desc&limit=100' }).catch(() => []),
         sbRest('subscriptions', { accessToken, query: '?select=business_id,plan,billing_interval,extra_shops,status,trial_ends_at,current_period_end,early_supporter,early_supporter_until,auto_renew,card_last4,card_brand' }).catch(() => null),
         sbRest('payments', { accessToken, query: '?select=*&order=paid_at.desc&limit=12' }).catch(() => []),
+        sbRest('bookings', { accessToken, query: `?select=*&check_out=gte.${new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10)}&order=check_in.asc&limit=600` }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
@@ -1441,6 +1462,7 @@ function XorlaApp() {
       setStockRequests(requestRows);
       setSubscription(Array.isArray(subscriptionRows) && subscriptionRows[0] ? subscriptionRows[0] : null);
       setPayments(paymentRows || []);
+      setBookingsAll(bookingRows || []);
     } catch (e) {
       console.error('Loading business data failed:', e);
     }
@@ -1504,7 +1526,7 @@ function XorlaApp() {
     const openFrom = (href) => {
       try {
         const t = new URL(href, window.location.origin).searchParams.get('tab');
-        if (t && ['overview', 'sales', 'orders', 'products', 'expenses', 'invoices', 'advisor'].includes(t)) setTab(t);
+        if (t && ['overview', 'sales', 'orders', 'bookings', 'products', 'expenses', 'invoices', 'advisor'].includes(t)) setTab(t);
         if (t === 'plan') setPendingPlanOpen(true);
       } catch (e) {}
     };
@@ -1574,6 +1596,8 @@ function XorlaApp() {
       autoReminders: !!business.auto_reminders_enabled,
       summaryFrequency: business.summary_frequency || 'off',
       businessType: business.business_type || null,
+      serviceKind: business.service_kind || null,
+      staffConfirmBookings: business.staff_confirm_bookings !== false,
       logoUrl: business.logo_url || null,
       businessAddress: business.address || '',
       businessEmail: business.email || '',
@@ -1929,10 +1953,10 @@ function XorlaApp() {
       let savedId = editingProductId;
       if (editingProductId) {
         const existing = products.find((p) => p.id === editingProductId);
-        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) } });
+        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) } });
         setProducts((prev) => prev.map((p) => p.id === editingProductId ? fromSbProduct(rows[0]) : p).sort((a, b) => a.name.localeCompare(b.name)));
       } else {
-        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '' } });
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '' } });
         setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
         const startQty = Number(productForm.stockQuantity);
         if (!formIsService && productForm.stockQuantity !== '' && startQty > 0) await changeStock(rows[0].id, targetShopId, startQty, 'initial');
@@ -2139,6 +2163,8 @@ function XorlaApp() {
       if ('language' in patch) bizPatch.language = patch.language;
       if ('businessName' in patch && patch.businessName.trim()) bizPatch.name = patch.businessName.trim();
       if ('businessType' in patch) bizPatch.business_type = patch.businessType;
+      if ('serviceKind' in patch) bizPatch.service_kind = patch.serviceKind;
+      if ('staffConfirmBookings' in patch) bizPatch.staff_confirm_bookings = patch.staffConfirmBookings;
       if ('ownerPhone' in patch) bizPatch.owner_phone = patch.ownerPhone;
       if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
       if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
@@ -2780,10 +2806,237 @@ function XorlaApp() {
     );
   };
 
+  // ---------- Bookings: stays and rentals ----------
+  const bookables = productsAll.filter(isBookable);
+  const hasBookables = bookables.length > 0;
+  const deskShopId = activeShopId || targetShopId || mainShopId;
+  const bookings = bookingsAll.filter((b) => (viewAllShops ? true : b.shop_id === activeShopId));
+  const bkToday = todayKey();
+  const holdLive = (b) => b.status === 'requested' && b.hold_until && new Date(b.hold_until).getTime() > Date.now();
+  const occupies = (b) => b.status === 'confirmed' || b.status === 'checked_in' || holdLive(b);
+  const bookingRequests = bookings.filter(holdLive);
+  const arrivals = bookings.filter((b) => b.status === 'confirmed' && b.check_in <= bkToday);
+  const staying = bookings.filter((b) => b.status === 'checked_in');
+  const upcomingBookings = bookings.filter((b) => b.status === 'confirmed' && b.check_in > bkToday);
+  const canAnswerRequests = isOwnerRole || settings.staffConfirmBookings !== false;
+  const nightsBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 86400000);
+  const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const dayLabel = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const unitWord = (b) => (b.price_unit === 'day' ? 'day' : 'night');
+  const freeOn = (productId, shopId, day) => {
+    const p = productsAll.find((x) => x.id === productId); if (!p) return 0;
+    return (p.units || 1) - bookingsAll.filter((b) => b.product_id === productId && b.shop_id === shopId && occupies(b) && b.check_in <= day && b.check_out > day).reduce((a, b) => a + b.units, 0);
+  };
+  const freeFor = (productId, shopId, from, to) => {
+    if (!from || !to || to <= from) return null;
+    let min = Infinity; for (let d = from; d < to; d = addDays(d, 1)) min = Math.min(min, freeOn(productId, shopId, d));
+    return min === Infinity ? null : min;
+  };
+  const runBooking = async (fn, after) => {
+    setBookingBusy(true); setBookingError('');
+    try { await fn(); await loadBusinessData(session.access_token); after && after(); }
+    catch (e) { setBookingError(e.message); }
+    finally { setBookingBusy(false); }
+  };
+  const openNewBooking = () => {
+    setBookingError('');
+    setBookingForm({ productId: bookables[0]?.id || '', checkIn: bkToday, checkOut: addDays(bkToday, 1), units: '1', name: '', phone: '', note: '', paid: '' });
+    setBookingPanel(true);
+  };
+  const submitNewBooking = () => {
+    const f = bookingForm;
+    runBooking(() => sbRpc('create_booking', session.access_token, { p_shop_id: deskShopId, p_product_id: f.productId, p_check_in: f.checkIn, p_check_out: f.checkOut, p_units: Number(f.units) || 1, p_name: f.name, p_phone: f.phone, p_note: f.note, p_amount_paid: Number(parseNumInput(f.paid)) || 0 }),
+      () => setBookingPanel(false));
+  };
+  const openAct = (booking, action) => { setBookingError(''); setActForm({ room: booking.room_label || '', amount: '', reason: '' }); setBookingAct({ booking, action }); };
+  const submitAct = () => {
+    const { booking, action } = bookingAct;
+    runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: actForm.reason, p_room: actForm.room, p_amount: Number(parseNumInput(actForm.amount)) || 0 }),
+      () => setBookingAct(null));
+  };
+  const quickConfirm = (b) => runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: b.id, p_action: 'confirm' }));
+
+  const renderBookingRow = (b, actions) => (
+    <div key={b.id} className="rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[13.5px] font-semibold truncate">{b.customer_name}{b.room_label ? <span className="font-normal" style={{ color: C.inkFaint }}> · {b.room_label}</span> : null}</div>
+          <div className="text-[12px]" style={{ color: C.inkDim }}>{b.item_name}{b.units > 1 ? ` × ${b.units}` : ''}</div>
+          <div className="text-[12px]" style={{ color: C.inkFaint }}>{dayLabel(b.check_in)} → {dayLabel(b.check_out)} · {b.nights} {unitWord(b)}{b.nights !== 1 ? 's' : ''}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(b.shop_id)}` : ''}</div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-[13.5px] font-semibold cx-mono">{fmt(b.total)}</div>
+          {Number(b.amount_paid) > 0 && <div className="text-[11px]" style={{ color: C.sage }}>{fmt(b.amount_paid)} paid</div>}
+          {b.customer_phone && <a href={`https://wa.me/${toWhatsAppNumber(b.customer_phone)}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
+        </div>
+      </div>
+      {b.note && <div className="text-[11.5px] mt-1.5 italic" style={{ color: C.inkFaint }}>"{b.note}"</div>}
+      {actions && <div className="flex gap-2 mt-2.5">{actions}</div>}
+    </div>
+  );
+  const actBtn = (label, onClick, primary) => (
+    <button key={label} onClick={onClick} disabled={bookingBusy} className="flex-1 rounded-lg py-2 text-[12.5px] font-semibold" style={primary ? { background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{label}</button>
+  );
+
+  const renderBookingDesk = () => {
+    if (!hasBookables) return null;
+    const days = Array.from({ length: 14 }, (_, i) => addDays(bkToday, i));
+    const section = (title, color, list, empty, render) => (
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[13px] font-semibold" style={{ color }}>{title}</span>
+          <span className="text-[12px] cx-mono" style={{ color: C.inkFaint }}>{list.length}</span>
+        </div>
+        {list.length === 0 ? <div className="text-[12px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkFaint }}>{empty}</div> : <div className="space-y-2">{list.map(render)}</div>}
+      </div>
+    );
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[16px] font-bold cx-display">Bookings</div>
+            <div className="text-[12px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 ? 'All locations' : shopNameOf(deskShopId)} · {dayLabel(bkToday)}</div>
+          </div>
+          <button onClick={openNewBooking} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={15} /> New booking</button>
+        </div>
+        {bookingError && !bookingPanel && !bookingAct && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
+
+        {bookingRequests.length > 0 && section('Requests waiting for you', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
+          <span key="h" className="sr-only">Held until {new Date(b.hold_until).toLocaleString('en-GB')}</span>,
+          actBtn('Confirm', () => quickConfirm(b), true), actBtn('Decline', () => openAct(b, 'decline')),
+        ] : [<span key="w" className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to confirm</span>]))}
+        {bookingRequests.length > 0 && <div className="text-[11px] -mt-3" style={{ color: C.inkFaint }}>Requests hold the dates for 24 hours, then release automatically if not confirmed.</div>}
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          {section('Arriving', C.ink, arrivals, 'No arrivals today.', (b) => renderBookingRow(b, [actBtn('Check in', () => openAct(b, 'check_in'), true), actBtn('Cancel', () => openAct(b, 'cancel'))]))}
+          {section('Staying', C.ink, staying.filter((b) => b.check_out > bkToday), 'Nobody checked in.', (b) => renderBookingRow(b, [actBtn('Check out', () => openAct(b, 'check_out'))]))}
+          {section('Leaving today', C.copper, staying.filter((b) => b.check_out <= bkToday), 'Nobody leaving today.', (b) => renderBookingRow(b, [actBtn('Check out', () => openAct(b, 'check_out'), true)]))}
+        </div>
+
+        <div>
+          <div className="text-[13px] font-semibold mb-2">Available, next 14 days{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</div>
+          <div className="overflow-x-auto rounded-xl" style={{ border: `1px solid ${C.line}` }}>
+            <table className="text-[12px] min-w-full" style={{ borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: C.surfaceRaised }}>
+                  <th className="text-left font-semibold px-3 py-2 sticky left-0" style={{ background: C.surfaceRaised, minWidth: 130 }}>{SERVICE_KINDS[settings.serviceKind]?.what === 'item' ? 'Item' : 'Room'}</th>
+                  {days.map((d) => <th key={d} className="font-medium px-2 py-2 whitespace-nowrap" style={{ color: d === bkToday ? C.copper : C.inkFaint }}>{new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })}<br />{dayLabel(d)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {bookables.map((p) => (
+                  <tr key={p.id} style={{ borderTop: `1px solid ${C.line}` }}>
+                    <td className="px-3 py-2 sticky left-0 font-medium" style={{ background: C.surface }}>{p.name}<div className="text-[10.5px] font-normal" style={{ color: C.inkFaint }}>{p.units || 1} total</div></td>
+                    {days.map((d) => {
+                      const free = freeOn(p.id, deskShopId, d);
+                      return <td key={d} className="text-center px-2 py-2 cx-mono font-semibold" style={{ color: free <= 0 ? C.rust : free < (p.units || 1) ? C.copper : C.sage, background: free <= 0 ? C.rustSoft : 'transparent' }}>{free <= 0 ? 'Full' : free}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {upcomingBookings.length > 0 && section('Coming up', C.ink, upcomingBookings.slice(0, 12), '', (b) => renderBookingRow(b, [actBtn('Cancel', () => openAct(b, 'cancel'))]))}
+      </div>
+    );
+  };
+
+  // New booking, and the check-in / check-out / decline / cancel forms
+  const renderBookingPanels = () => {
+    if (!bookingPanel && !bookingAct) return null;
+    const close = () => { if (!bookingBusy) { setBookingPanel(false); setBookingAct(null); } };
+    let body = null, title = '', submit = null, submitLabel = '';
+    if (bookingPanel) {
+      const f = bookingForm; const p = productsAll.find((x) => x.id === f.productId);
+      const n = f.checkIn && f.checkOut ? nightsBetween(f.checkIn, f.checkOut) : 0;
+      const units = Math.max(1, Number(f.units) || 1);
+      const price = p ? priceAt(p, deskShopId) : 0;
+      const free = p ? freeFor(p.id, deskShopId, f.checkIn, f.checkOut) : null;
+      title = 'New booking'; submitLabel = 'Confirm booking'; submit = submitNewBooking;
+      body = (
+        <div className="space-y-3">
+          <BrandSelect value={f.productId} onChange={(e) => setBookingForm({ ...f, productId: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm" style={field}>
+            {bookables.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </BrandSelect>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[settings.serviceKind]?.checkIn || 'From'}
+              <input type="date" min={bkToday} value={f.checkIn} onChange={(e) => setBookingForm({ ...f, checkIn: e.target.value, checkOut: f.checkOut <= e.target.value ? addDays(e.target.value, 1) : f.checkOut })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
+            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[settings.serviceKind]?.checkOut || 'Until'}
+              <input type="date" min={f.checkIn ? addDays(f.checkIn, 1) : bkToday} value={f.checkOut} onChange={(e) => setBookingForm({ ...f, checkOut: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="number" min="1" max="20" placeholder="How many" value={f.units} onChange={(e) => setBookingForm({ ...f, units: e.target.value })} className="rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+            <input type="text" inputMode="decimal" placeholder="Paid now (₦)" value={formatNumInput(f.paid)} onChange={(e) => setBookingForm({ ...f, paid: parseNumInput(e.target.value) })} className="rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+          </div>
+          <input type="text" placeholder="Guest name" value={f.name} onChange={(e) => setBookingForm({ ...f, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+          <input type="tel" placeholder="Phone (optional)" value={f.phone} onChange={(e) => setBookingForm({ ...f, phone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+          <input type="text" placeholder="Note (optional)" value={f.note} onChange={(e) => setBookingForm({ ...f, note: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+          {p && n > 0 && (
+            <div className="rounded-xl px-3.5 py-3 text-[13px]" style={{ background: C.surfaceRaised }}>
+              <div className="flex justify-between"><span style={{ color: C.inkDim }}>{fmt(price)} × {n} {p.priceUnit === 'day' ? 'day' : 'night'}{n !== 1 ? 's' : ''}{units > 1 ? ` × ${units}` : ''}</span><strong className="cx-mono">{fmt(price * n * units)}</strong></div>
+              <div className="text-[12px] mt-1" style={{ color: free !== null && free < units ? C.rust : C.sage }}>{free === null ? '' : free < units ? (free <= 0 ? 'Fully booked for those dates' : `Only ${free} available for those dates`) : `${free} available for those dates`}</div>
+            </div>
+          )}
+        </div>
+      );
+    } else {
+      const { booking: b, action } = bookingAct;
+      const paidSoFar = Number(b.amount_paid) || 0, adding = Number(parseNumInput(actForm.amount)) || 0, balance = Math.max(0, Number(b.total) - paidSoFar - adding);
+      const labels = { check_in: ['Check in', 'Check in'], check_out: ['Check out', 'Check out'], decline: ['Decline request', 'Decline'], cancel: ['Cancel booking', 'Cancel booking'] };
+      [title, submitLabel] = labels[action]; submit = submitAct;
+      body = (
+        <div className="space-y-3">
+          {renderBookingRow(b, null)}
+          {action === 'check_in' && <input type="text" autoFocus placeholder={SERVICE_KINDS[settings.serviceKind]?.what === 'item' ? 'Which one? e.g. Car 2 (optional)' : 'Room number, e.g. Room 12 (optional)'} value={actForm.room} onChange={(e) => setActForm({ ...actForm, room: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
+          {(action === 'check_in' || action === 'check_out') && (
+            <>
+              <input type="text" inputMode="decimal" placeholder="Payment received now (₦)" value={formatNumInput(actForm.amount)} onChange={(e) => setActForm({ ...actForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+              <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
+                <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(b.total)}</span></div>
+                <div className="flex justify-between"><span style={{ color: C.inkDim }}>Paid so far</span><span className="cx-mono">{fmt(paidSoFar + adding)}</span></div>
+                <div className="flex justify-between font-semibold"><span>Balance</span><span className="cx-mono" style={{ color: balance > 0 ? C.rust : C.sage }}>{fmt(balance)}</span></div>
+                {action === 'check_out' && <div className="text-[11.5px] pt-1" style={{ color: C.inkFaint }}>{balance > 0 ? `The stay is recorded as a sale, and the ${fmt(balance)} still owed becomes an invoice you can follow up.` : 'The stay is recorded as a sale.'}</div>}
+              </div>
+            </>
+          )}
+          {(action === 'decline' || action === 'cancel') && <input type="text" autoFocus placeholder={action === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason (optional)'} value={actForm.reason} onChange={(e) => setActForm({ ...actForm, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
+        </div>
+      );
+    }
+    return (
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+        <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-[16px] font-semibold cx-display">{title}</div>
+            <button onClick={close} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
+          </div>
+          {body}
+          {bookingError && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
+          <button onClick={submit} disabled={bookingBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: bookingAct?.action === 'cancel' || bookingAct?.action === 'decline' ? C.rust : C.copper, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? 'Saving…' : submitLabel}</button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSalesSwitch = () => (
+    <div className="lg:hidden flex gap-1 p-1 mb-5 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+      {[['sales', T.salesTab, 0], ['orders', T.orders, pendingOrderCount], ...(hasBookables ? [['bookings', 'Bookings', bookingRequests.length]] : [])].map(([id, label, count]) => (
+        <button key={id} onClick={() => setTab(id)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === id ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
+          {label}
+          {count > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={tab === id ? { background: C.bg, color: C.copper } : { background: C.copper, color: C.bg }}>{count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+
   // ---------- Notification centre: everything waiting for the owner, in one place ----------
   const notifItems = (() => {
     const items = [];
     const go = (t, extra) => () => { setNotifOpen(false); extra && extra(); setTab(t); };
+    if (bookingRequests.length > 0 && canAnswerRequests) items.push({ key: 'bookreq', urgent: false, Icon: CalendarClock, title: `${bookingRequests.length} booking request${bookingRequests.length !== 1 ? 's' : ''} to answer`, sub: bookingRequests.slice(0, 2).map((b) => `${b.customer_name}, ${dayLabel(b.check_in)}`).join(' · '), onClick: go('bookings') });
+    if (arrivals.length > 0) items.push({ key: 'arrivals', urgent: false, Icon: CalendarClock, title: `${arrivals.length} arrival${arrivals.length !== 1 ? 's' : ''} today`, sub: arrivals.slice(0, 3).map((b) => b.customer_name).join(', '), onClick: go('bookings') });
     if (pendingOrderCount > 0) items.push({ key: 'orders', urgent: false, Icon: ShoppingBag, title: `${pendingOrderCount} new ${T.order}${pendingOrderCount !== 1 ? 's' : ''} from your storefront`, sub: 'Review and fulfil', onClick: go('orders') });
     if (isOwnerRole && pendingRequests.length > 0) items.push({ key: 'requests', urgent: false, Icon: PackagePlus, title: `${pendingRequests.length} stock request${pendingRequests.length !== 1 ? 's' : ''} from your shops`, sub: pendingRequests.slice(0, 2).map((r) => shopNameOf(r.shop_id)).join(', '), onClick: go('products', () => setProductsView('list')) });
     if (needsAttention.length > 0) items.push({ key: 'invoices', urgent: true, Icon: PhoneCall, title: `${needsAttention.length} invoice${needsAttention.length !== 1 ? 's' : ''} need${needsAttention.length === 1 ? 's' : ''} follow-up`, sub: needsAttention.slice(0, 3).map((i) => i.clientName).join(', '), onClick: go('invoices') });
@@ -3253,7 +3506,7 @@ function XorlaApp() {
             {receipt.owed > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>Balance owed</span><span>{fmt(receipt.owed)}</span></div>}
             <div style={{ borderTop: '1px dashed #999', margin: '8px 0' }} />
             <div style={{ textAlign: 'center' }}>Thank you for your business!</div>
-            <div style={{ textAlign: 'center', fontSize: 9.5, color: '#666', marginTop: 4 }}>Powered by Xorla</div>
+            {(!planKnown || effPlan === 'free') && <div style={{ textAlign: 'center', fontSize: 9.5, color: '#666', marginTop: 4 }}>Powered by Xorla</div>}
           </div>
         </div>
 
@@ -3356,6 +3609,7 @@ function XorlaApp() {
         </div>
         {renderReceiptModal()}
         {renderStockPanel()}
+        {renderBookingPanels()}
         <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-6 lg:pt-8 pb-10">
 
           <div className="mb-6">
@@ -3363,6 +3617,7 @@ function XorlaApp() {
             <div className="text-[20px] font-bold cx-display">{settings.activeStaff}</div>
           </div>
 
+          {hasBookables && <div className="rounded-2xl p-4 mb-5" style={card}>{renderBookingDesk()}</div>}
           {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} shops`,
             "Check the shop shown at the top before recording — that's where your sale is saved.")}
           {/* Wide screens: recording on the left, today's numbers and stock on the right. Phones keep the original order. */}
@@ -3548,6 +3803,19 @@ function XorlaApp() {
     );
   }
 
+  const renderServiceKindChoices = (selected, onPick) => (
+    <div className="mt-4">
+      <div className="text-[13px] font-semibold mb-2">What kind of services?</div>
+      <div className="grid grid-cols-2 gap-2">
+        {Object.entries(SERVICE_KINDS).map(([k, v]) => (
+          <button key={k} onClick={() => onPick(k)} className="text-left rounded-xl px-3 py-2.5" style={{ background: selected === k ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${selected === k ? C.copper : C.line}` }}>
+            <span className="block text-[12.5px] font-semibold" style={{ color: selected === k ? C.copper : C.ink }}>{v.label}</span>
+            <span className="block text-[11px] leading-snug mt-0.5" style={{ color: C.inkFaint }}>{v.hint}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
   const renderBusinessTypeChoices = (selected, onPick) => (
     <div className="space-y-2.5">
       {BUSINESS_TYPE_CHOICES.map((opt) => {
@@ -3669,6 +3937,7 @@ function XorlaApp() {
                 {renderSettingsGroup('Team', [
                   { id: 'team', Icon: Users, label: 'Staff & join code', value: `${settings.staffList.length} staff` },
                   { toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) },
+                  ...(hasBookables ? [{ toggle: true, Icon: CalendarClock, label: 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
                 ])}
                 {renderSettingsGroup('Security', [
                   { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
@@ -3957,6 +4226,7 @@ function XorlaApp() {
               <div>
                 <div className="text-[12.5px] mb-4 px-1" style={{ color: C.inkDim }}>This changes the words and tools Xorla shows you. Your existing records aren't affected.</div>
                 {renderBusinessTypeChoices(draft.businessType || 'products', (id) => setDraft({ ...draft, businessType: id }))}
+                {(draft.businessType === 'services' || draft.businessType === 'both') && renderServiceKindChoices(draft.serviceKind, (k) => setDraft({ ...draft, serviceKind: k }))}
               </div>
             )}
             {settingsPage === 'contact' && (
@@ -4098,6 +4368,7 @@ function XorlaApp() {
             { id: 'sales', label: T.salesTab, Icon: ShoppingBag },
             { id: 'products', label: T.catalog, Icon: Package },
             { id: 'orders', label: 'Orders', Icon: Download },
+            ...(hasBookables ? [{ id: 'bookings', label: 'Bookings', Icon: CalendarClock }] : []),
             { id: 'expenses', label: 'Expenses', Icon: Receipt },
             { id: 'invoices', label: 'Invoices', Icon: Wallet },
             { id: 'advisor', label: 'Oga', Icon: Lightbulb },
@@ -4515,13 +4786,7 @@ function XorlaApp() {
 
         {tab === 'sales' && (
           <>
-            <div className="lg:hidden flex gap-1 p-1 mb-5 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-              <button onClick={() => setTab('sales')} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={tab === 'sales' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{T.salesTab}</button>
-              <button onClick={() => setTab('orders')} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === 'orders' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
-                {T.orders}
-                {pendingOrderCount > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={tab === 'orders' ? { background: C.bg, color: C.copper } : { background: C.copper, color: C.bg }}>{pendingOrderCount}</span>}
-              </button>
-            </div>
+            {renderSalesSwitch()}
             <div className="rounded-2xl p-5 mb-4" style={card}>
               <div className="flex items-end justify-between mb-4">
                 <div>
@@ -4711,15 +4976,16 @@ function XorlaApp() {
         )}
 
         {/* ============ ORDERS TAB ============ */}
+        {tab === 'bookings' && (
+          <>
+            {renderSalesSwitch()}
+            {renderBookingDesk()}
+          </>
+        )}
+
         {tab === 'orders' && (
           <>
-            <div className="lg:hidden flex gap-1 p-1 mb-5 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-              <button onClick={() => setTab('sales')} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={tab === 'sales' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{T.salesTab}</button>
-              <button onClick={() => setTab('orders')} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === 'orders' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
-                {T.orders}
-                {pendingOrderCount > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={tab === 'orders' ? { background: C.bg, color: C.copper } : { background: C.copper, color: C.bg }}>{pendingOrderCount}</span>}
-              </button>
-            </div>
+            {renderSalesSwitch()}
             <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{T.tracksStock ? 'Orders placed through your storefront land here. Fulfilling one logs it as a real sale and updates your stock automatically.' : 'Service requests from your storefront land here, with the customer\'s preferred time. Marking one done logs it as a job.'}</div>
             {orders.length === 0 && (
               <div className="text-center text-[13px] py-10 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>
@@ -4787,7 +5053,7 @@ function XorlaApp() {
             {renderStockCenter()}
 
             {!showProductForm ? (
-              <button onClick={() => { setEditingProductId(null); setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
+              <button onClick={() => { setEditingProductId(null); setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[settings.serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
             ) : (
               <div className="rounded-2xl p-5 mb-6 space-y-4" style={card}>
                 <div className="flex items-center justify-between">
@@ -4816,12 +5082,12 @@ function XorlaApp() {
 
                 <div>
                   <div className={fieldLabel} style={{ color: C.inkFaint }}>{formIsService ? 'SERVICE NAME' : 'PRODUCT NAME'}</div>
-                  <input type="text" placeholder={formIsService ? "e.g. Knotless braids, Men's haircut, Engine service" : 'e.g. Bone-straight wig, 18 inches'} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <input type="text" placeholder={formIsService ? (SERVICE_KINDS[settings.serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : 'e.g. Bone-straight wig, 18 inches'} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 </div>
 
                 <div>
                   <div className={fieldLabel} style={{ color: C.inkFaint }}>CATEGORY (OPTIONAL)</div>
-                  <input type="text" list="xorla-categories" placeholder={formIsService ? 'e.g. Hair, Nails, Repairs, Alterations' : 'e.g. Wigs, Shoes, Drinks'} value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <input type="text" list="xorla-categories" placeholder={formIsService ? (SERVICE_KINDS[settings.serviceKind]?.category || 'e.g. Hair, Nails, Repairs, Alterations') : 'e.g. Wigs, Shoes, Drinks'} value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   <datalist id="xorla-categories">
                     {[...new Set(products.map((p) => p.category).filter(Boolean))].map((cat) => <option key={cat} value={cat} />)}
                   </datalist>
@@ -4839,6 +5105,13 @@ function XorlaApp() {
                       </div>
                       {productForm.sellingPrice && <div className="text-[11.5px] mt-1.5" style={{ color: C.sage }}>Customers will see: {priceLabel({ sellingPrice: Number(productForm.sellingPrice), priceUnit: productForm.priceUnit })}</div>}
                     </div>
+                    {['night', 'day'].includes(productForm.priceUnit) ? (
+                      <div>
+                        <div className={fieldLabel} style={{ color: C.inkFaint }}>HOW MANY DO YOU HAVE</div>
+                        <input type="number" min="1" max="500" placeholder={settings.serviceKind === 'accommodation' ? 'e.g. 5 rooms of this type' : 'e.g. 2'} value={productForm.units || ''} onChange={(e) => setProductForm({ ...productForm, units: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                        <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Customers can book this by date on your storefront. Xorla never lets more bookings overlap than you have.</div>
+                      </div>
+                    ) : (
                     <div>
                       <div className={fieldLabel} style={{ color: C.inkFaint }}>HOW LONG IT TAKES (OPTIONAL)</div>
                       <BrandSelect value={productForm.duration} onChange={(e) => setProductForm({ ...productForm, duration: e.target.value })} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
@@ -4846,6 +5119,7 @@ function XorlaApp() {
                         {DURATIONS.map((d) => <option key={d} value={d}>{d}</option>)}
                       </BrandSelect>
                     </div>
+                    )}
                     <div>
                       <div className={fieldLabel} style={{ color: C.inkFaint }}>WHAT'S INCLUDED (OPTIONAL)</div>
                       <textarea rows={2} maxLength={160} placeholder="e.g. Includes wash, blow-dry, and styling" value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
@@ -4948,7 +5222,7 @@ function XorlaApp() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">
-                        <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
+                        <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
                         {isOwnerRole && p.stockQuantity !== null && !isPausedLocation(activeShopId) && <button onClick={() => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); }} className="text-[11px] font-medium" style={{ color: C.inkDim }}>Fix count</button>}
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
                         {isOwnerRole && hasManyLocations && multiLocationOn && p.stockQuantity !== null && <button onClick={() => openSend({ productId: p.id, from: activeShopId || '' })} className="text-[11px] font-medium" style={{ color: C.copper }}>Send</button>}
@@ -5395,7 +5669,8 @@ function XorlaApp() {
             <div className="text-[20px] font-bold cx-display mb-1.5">What does {settings.businessName || 'your business'} do?</div>
             <div className="text-[13px] mb-5" style={{ color: C.inkDim }}>We'll set Xorla up to fit how you work. You can change this later in Settings.</div>
             {renderBusinessTypeChoices(pendingBusinessType, setPendingBusinessType)}
-            <button onClick={() => pendingBusinessType && updateSettings({ businessType: pendingBusinessType })} disabled={!pendingBusinessType} className="w-full mt-5 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: pendingBusinessType ? 1 : 0.4 }}>Continue</button>
+            {(pendingBusinessType === 'services' || pendingBusinessType === 'both') && renderServiceKindChoices(pendingServiceKind, setPendingServiceKind)}
+            <button onClick={() => pendingBusinessType && updateSettings({ businessType: pendingBusinessType, ...(pendingServiceKind && pendingBusinessType !== 'products' ? { serviceKind: pendingServiceKind } : {}) })} disabled={!pendingBusinessType} className="w-full mt-5 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: pendingBusinessType ? 1 : 0.4 }}>Continue</button>
           </div>
         </div>
       )}
@@ -5448,6 +5723,7 @@ function XorlaApp() {
 
       {renderReceiptModal()}
       {renderStockPanel()}
+      {renderBookingPanels()}
       {renderNotifPanel()}
       {renderLimitPrompt()}
       {aiNotice && (
@@ -5468,8 +5744,8 @@ function XorlaApp() {
           { id: 'invoices', label: 'Invoices', Icon: Wallet },
         ].map(({ id, label, Icon }) => (
           <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
-            <Icon size={21} style={{ color: (tab === id || (id === 'sales' && tab === 'orders')) ? C.copper : C.inkFaint }} />
-            <span className="text-[10px] font-medium" style={{ color: (tab === id || (id === 'sales' && tab === 'orders')) ? C.copper : C.inkFaint }}>{label}</span>
+            <Icon size={21} style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || tab === 'bookings'))) ? C.copper : C.inkFaint }} />
+            <span className="text-[10px] font-medium" style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || tab === 'bookings'))) ? C.copper : C.inkFaint }}>{label}</span>
             {id === 'sales' && pendingOrderCount > 0 && (
               <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{pendingOrderCount}</span>
             )}
@@ -5517,6 +5793,26 @@ function Storefront({ businessCode }) {
   const [touchStartX, setTouchStartX] = useState(null);
   const [preferredTime, setPreferredTime] = useState('');
   const [storeShopId, setStoreShopId] = useState(null);
+  // Bookings (hotels and rentals): chosen dates, live availability, and the booking form
+  const [stayIn, setStayIn] = useState('');
+  const [stayOut, setStayOut] = useState('');
+  const [stayFree, setStayFree] = useState({});
+  const [bookItem, setBookItem] = useState(null);
+  const [bookUnits, setBookUnits] = useState(1);
+  const [bookName, setBookName] = useState('');
+  const [bookPhone, setBookPhone] = useState('');
+  const [bookNote, setBookNote] = useState('');
+  const [bookBusy, setBookBusy] = useState(false);
+  const [bookError, setBookError] = useState('');
+  const [bookingSent, setBookingSent] = useState(null);
+  const [dateNudge, setDateNudge] = useState(false);
+  const datesValid = !!stayIn && !!stayOut && stayOut > stayIn;
+  useEffect(() => {
+    if (!datesValid || !business) { setStayFree({}); return; }
+    sbRpc('storefront_availability', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_check_in: stayIn, p_check_out: stayOut })
+      .then((rows) => setStayFree(Object.fromEntries((rows || []).map((r) => [r.productId, r.free]))))
+      .catch(() => setStayFree({}));
+  }, [stayIn, stayOut, business?.shop_id]);
   const [switchingShop, setSwitchingShop] = useState(false);
   const [orderNote, setOrderNote] = useState('');
   const [overHero, setOverHero] = useState(true);
@@ -5660,6 +5956,19 @@ function Storefront({ businessCode }) {
       </div>
     );
   }
+  if (bookingSent) {
+    return (
+      <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
+        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-5" style={{ background: S.ink }}><Check size={26} color="#fff" /></div>
+        <div className="text-[24px] font-bold mb-2">Booking request sent</div>
+        <div className="text-[15px] font-semibold mb-1">{bookingSent.item}{bookingSent.units > 1 ? ` × ${bookingSent.units}` : ''}</div>
+        <div className="text-[14px] mb-1" style={{ color: S.muted }}>{bookingSent.dates} · {bookingSent.nights}</div>
+        <div className="text-[18px] font-bold mb-4" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(bookingSent.total)}</div>
+        <div className="text-[14px] max-w-sm mb-8 leading-relaxed" style={{ color: S.muted }}>{business.name} has 24 hours to confirm. Your dates are held for you until then, and they'll contact you{bookingSent.phone ? ` on ${bookingSent.phone}` : ''} about payment.</div>
+        <button onClick={() => setBookingSent(null)} className={`px-6 py-3 rounded-full text-[14px] font-semibold ${focusRing}`} style={{ border: `1.5px solid ${S.ink}` }}>Back to {business.name}</button>
+      </div>
+    );
+  }
   if (orderSent) {
     return (
       <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
@@ -5671,7 +5980,120 @@ function Storefront({ businessCode }) {
     );
   }
 
+  const kindWords = SERVICE_KINDS[business.service_kind] || {};
+  const anyNightly = storeProducts.some((p) => p.priceUnit === 'night');
+  const inLabel = kindWords.checkIn || (anyNightly ? 'Check in' : 'From');
+  const outLabel = kindWords.checkOut || (anyNightly ? 'Check out' : 'Until');
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const plusDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const stayNights = datesValid ? Math.round((new Date(stayOut + 'T00:00:00Z') - new Date(stayIn + 'T00:00:00Z')) / 86400000) : 0;
+  const prettyDay = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const unitWordOf = (p) => (p.priceUnit === 'day' ? 'day' : 'night');
+  const renderDateBar = () => (
+    <div id="xorla-dates" className="rounded-3xl p-4 mb-6 transition-shadow" style={{ background: '#fff', boxShadow: dateNudge ? `0 0 0 3px ${S.ink}` : '0 8px 30px rgba(23,25,26,0.08)', border: `1px solid ${S.line}` }}>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block">
+          <span className="block text-[12px] font-semibold mb-1" style={{ color: S.muted }}>{inLabel}</span>
+          <input type="date" min={todayStr} value={stayIn} onChange={(e) => { setStayIn(e.target.value); setDateNudge(false); if (!stayOut || stayOut <= e.target.value) setStayOut(plusDays(e.target.value, 1)); }} className={`w-full rounded-xl px-3 py-2.5 text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+        </label>
+        <label className="block">
+          <span className="block text-[12px] font-semibold mb-1" style={{ color: S.muted }}>{outLabel}</span>
+          <input type="date" min={stayIn ? plusDays(stayIn, 1) : todayStr} value={stayOut} onChange={(e) => { setStayOut(e.target.value); setDateNudge(false); }} className={`w-full rounded-xl px-3 py-2.5 text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+        </label>
+      </div>
+      <div className="text-[13px] mt-3" style={{ color: S.muted }}>
+        {datesValid ? <><strong style={{ color: S.ink }}>{stayNights} {anyNightly ? 'night' : 'day'}{stayNights !== 1 ? 's' : ''}</strong> · {prettyDay(stayIn)} to {prettyDay(stayOut)}. Prices and availability below are for these dates.</> : 'Choose your dates to see prices and what\'s available.'}
+      </div>
+    </div>
+  );
+  const askForDates = () => { setDateNudge(true); document.getElementById('xorla-dates')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  const openBook = (p) => {
+    if (!datesValid) { askForDates(); return; }
+    setBookError(''); setBookUnits(1); setBookItem(p);
+  };
+  const renderBookableCard = (p) => {
+    const free = datesValid ? (stayFree[p.id] ?? null) : null;
+    const full = free !== null && free <= 0;
+    return (
+      <div className="flex flex-col">
+        <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden mb-3 flex items-center justify-center" style={{ background: S.tile }}>
+          {p.imageUrl ? <img src={p.imageUrl} alt={p.name} loading="lazy" className="w-full h-full object-cover" style={full ? { opacity: 0.5, filter: 'grayscale(1)' } : {}} /> : <Sparkles size={30} style={{ color: S.soldOut }} />}
+          {full && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.muted }}>Booked for these dates</span>}
+          {!full && free !== null && free <= 2 && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.ink }}>Only {free} left for your dates</span>}
+        </div>
+        <div className="text-[15px] font-semibold leading-snug" style={{ color: full ? S.muted : S.ink }}>{p.name}</div>
+        {p.description && <div className="text-[13px] leading-snug mt-1 line-clamp-2" style={{ color: S.muted }}>{p.description}</div>}
+        <div className="mt-2">
+          <span className="text-[16px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(p.sellingPrice)}</span>
+          <span className="text-[13px]" style={{ color: S.muted }}> / {unitWordOf(p)}</span>
+          {datesValid && <div className="text-[13px] mt-0.5" style={{ color: S.ink }}>{stayNights} {unitWordOf(p)}{stayNights !== 1 ? 's' : ''}: <strong>{fmt(p.sellingPrice * stayNights)}</strong></div>}
+        </div>
+        <div className="flex-1 min-h-[12px]" />
+        <button onClick={() => !full && openBook(p)} disabled={full} className={`w-full py-2.5 rounded-xl text-[14px] font-semibold ${focusRing}`} style={full ? { background: S.tile, color: S.soldOut } : { background: S.ink, color: '#fff' }}>
+          {full ? 'Not available' : datesValid ? 'Book' : 'Choose dates to book'}
+        </button>
+      </div>
+    );
+  };
+  const submitBooking = async () => {
+    if (!bookName.trim()) { setBookError('Please enter your name.'); return; }
+    setBookBusy(true); setBookError('');
+    try {
+      await sbRpc('place_booking', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_product_id: bookItem.id, p_check_in: stayIn, p_check_out: stayOut, p_units: bookUnits, p_name: bookName.trim(), p_phone: bookPhone.trim(), p_note: bookNote.trim() });
+      const total = bookItem.sellingPrice * stayNights * bookUnits;
+      const nightsText = `${stayNights} ${unitWordOf(bookItem)}${stayNights !== 1 ? 's' : ''}`;
+      if (business.owner_phone) {
+        const msg = `New booking request from ${bookName.trim()}${bookPhone ? ` (${bookPhone.trim()})` : ''}:\n\n${bookItem.name}${bookUnits > 1 ? ` × ${bookUnits}` : ''}\n${prettyDay(stayIn)} to ${prettyDay(stayOut)} (${nightsText})\nTotal: ${fmt(total)}${bookNote.trim() ? `\nNote: ${bookNote.trim()}` : ''}\n\nThe dates are held for 24 hours. Confirm it in Xorla.`;
+        window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
+      }
+      setBookingSent({ item: bookItem.name, units: bookUnits, dates: `${prettyDay(stayIn)} to ${prettyDay(stayOut)}`, nights: nightsText, total, phone: bookPhone.trim() });
+      setBookItem(null); setBookName(''); setBookPhone(''); setBookNote('');
+    } catch (e) { setBookError(e.message); }
+    finally { setBookBusy(false); }
+  };
+  const renderBookSheet = () => {
+    if (!bookItem) return null;
+    const free = stayFree[bookItem.id] ?? bookItem.units ?? 1;
+    const maxUnits = Math.max(1, Math.min(20, free));
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(23,25,26,0.5)' }} onClick={() => !bookBusy && setBookItem(null)}>
+        <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 max-h-[92vh] overflow-y-auto" style={{ background: '#fff', color: S.ink }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <div className="text-[20px] font-bold leading-tight">{bookItem.name}</div>
+            <button onClick={() => setBookItem(null)} aria-label="Close" className={focusRing} style={{ color: S.muted }}><X size={20} /></button>
+          </div>
+          <div className="text-[14px] mb-5" style={{ color: S.muted }}>{prettyDay(stayIn)} to {prettyDay(stayOut)} · {stayNights} {unitWordOf(bookItem)}{stayNights !== 1 ? 's' : ''}</div>
+          {maxUnits > 1 && (
+            <div className="flex items-center justify-between rounded-2xl px-4 py-3 mb-4" style={{ background: S.tile }}>
+              <span className="text-[14px] font-semibold">How many</span>
+              <div className="flex items-center gap-3">
+                <button onClick={() => setBookUnits(Math.max(1, bookUnits - 1))} aria-label="One fewer" className={`w-9 h-9 rounded-full text-[18px] font-semibold ${focusRing}`} style={{ background: '#fff' }}>−</button>
+                <span className="text-[16px] font-bold w-5 text-center" style={{ fontVariantNumeric: 'tabular-nums' }}>{bookUnits}</span>
+                <button onClick={() => setBookUnits(Math.min(maxUnits, bookUnits + 1))} aria-label="One more" disabled={bookUnits >= maxUnits} className={`w-9 h-9 rounded-full text-[18px] font-semibold ${focusRing}`} style={{ background: '#fff', opacity: bookUnits >= maxUnits ? 0.35 : 1 }}>+</button>
+              </div>
+            </div>
+          )}
+          <label className="block text-[13px] font-semibold mb-1.5" htmlFor="bk-name">Your name</label>
+          <input id="bk-name" value={bookName} onChange={(e) => setBookName(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+          <label className="block text-[13px] font-semibold mb-1.5" htmlFor="bk-phone">Phone number</label>
+          <input id="bk-phone" type="tel" value={bookPhone} onChange={(e) => setBookPhone(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+          <label className="block text-[13px] font-semibold mb-1.5" htmlFor="bk-note">Anything they should know? <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
+          <textarea id="bk-note" rows={2} value={bookNote} onChange={(e) => setBookNote(e.target.value)} placeholder="e.g. Arriving late, need an extra bed" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 resize-none ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+          <div className="flex items-center justify-between py-3 mb-1" style={{ borderTop: `1px solid ${S.line}` }}>
+            <span className="text-[14px]" style={{ color: S.muted }}>{fmt(bookItem.sellingPrice)} × {stayNights}{bookUnits > 1 ? ` × ${bookUnits}` : ''}</span>
+            <span className="text-[20px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(bookItem.sellingPrice * stayNights * bookUnits)}</span>
+          </div>
+          <div className="text-[12.5px] mb-4" style={{ color: S.muted }}>No payment now. Your dates are held for 24 hours while {business.name} confirms.</div>
+          {bookError && <div className="text-[13px] rounded-xl px-4 py-3 mb-3" style={{ background: '#FDECEA', color: '#B42318' }}>{bookError}</div>}
+          <button onClick={submitBooking} disabled={bookBusy} className={`w-full py-3.5 rounded-xl text-[15px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: bookBusy ? 0.6 : 1 }}>{bookBusy ? 'Sending…' : 'Request booking'}</button>
+        </div>
+      </div>
+    );
+  };
+  const hasStoreBookables = storeProducts.some(isBookable);
+
   const renderProductCard = (p) => {
+    if (isBookable(p)) return renderBookableCard(p);
     const qty = cart[p.id] || 0;
     const svc = kindOf(p, business.business_type) === 'service';
     const isOut = !svc && p.stockQuantity === 0;
@@ -5842,6 +6264,7 @@ function Storefront({ businessCode }) {
 
       <div className="max-w-6xl mx-auto px-5 md:px-8 pt-6 lg:pt-8 lg:grid lg:grid-cols-[1fr_340px] lg:gap-10" style={{ paddingBottom: cartCount ? '110px' : '40px' }}>
         <main>
+          {hasStoreBookables && renderDateBar()}
           {storeShops.length > 1 && (
             <div className="mb-5 rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: S.tile }}>
               <Store size={18} style={{ color: S.ink }} className="shrink-0" />
@@ -5930,12 +6353,13 @@ function Storefront({ businessCode }) {
       </div>
 
       {/* Footer */}
+      {renderBookSheet()}
       <footer className="max-w-6xl mx-auto px-5 md:px-8 py-10 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-[13px]" style={{ borderTop: `1px solid ${S.line}`, color: S.muted }}>
         <div>
           <div className="font-semibold mb-0.5" style={{ color: S.ink }}>{business.name}</div>
           {business.address && <div>{business.address}</div>}
         </div>
-        <div className="text-[12px]">Store powered by Xorla</div>
+        {business.show_branding !== false && <div className="text-[12px]">Store powered by Xorla</div>}
       </footer>
 
       {/* Mobile order bar */}
