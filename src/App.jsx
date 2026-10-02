@@ -2903,7 +2903,10 @@ function XorlaApp() {
             <div className="text-[16px] font-bold cx-display">Bookings</div>
             <div className="text-[12px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 ? 'All locations' : shopNameOf(deskShopId)} · {dayLabel(bkToday)}</div>
           </div>
-          <button onClick={openNewBooking} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={15} /> New booking</button>
+          <div className="flex items-center gap-2 shrink-0">
+            {isOwnerRole && <button onClick={() => setTab('products')} className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-[13px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}><Package size={15} /> <span className="hidden sm:inline">{T.catalog}</span><span className="sm:hidden">{settings.serviceKind === 'rentals' ? 'Rentals' : 'Rooms'}</span></button>}
+            <button onClick={openNewBooking} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={15} /> New booking</button>
+          </div>
         </div>
         {bookingError && !bookingPanel && !bookingAct && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
 
@@ -3028,7 +3031,7 @@ function XorlaApp() {
 
   const renderSalesSwitch = () => (
     <div className="lg:hidden flex gap-1 p-1 mb-5 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-      {[['sales', T.salesTab, 0], ['orders', T.orders, pendingOrderCount], ...(hasBookables ? [['bookings', 'Bookings', bookingRequests.length]] : [])].map(([id, label, count]) => (
+      {[['sales', T.salesTab, 0], ['orders', T.orders, pendingOrderCount]].map(([id, label, count]) => (
         <button key={id} onClick={() => setTab(id)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === id ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
           {label}
           {count > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={tab === id ? { background: C.bg, color: C.copper } : { background: C.copper, color: C.bg }}>{count}</span>}
@@ -4984,7 +4987,6 @@ function XorlaApp() {
         {/* ============ ORDERS TAB ============ */}
         {tab === 'bookings' && (
           <>
-            {renderSalesSwitch()}
             {renderBookingDesk()}
           </>
         )}
@@ -5737,16 +5739,25 @@ function XorlaApp() {
 
       {/* Fixed bottom nav — mobile only, WhatsApp-style: always visible, never scrolls */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(10,31,28,0.97)', backdropFilter: 'blur(20px)', borderTop: `1px solid ${C.line}` }}>
-        {[
+        {(hasBookables ? [
+          { id: 'overview', label: 'Overview', Icon: Home },
+          { id: 'bookings', label: 'Bookings', Icon: CalendarClock },
+          { id: 'sales', label: T.salesTab, Icon: ShoppingBag },
+          { id: 'expenses', label: 'Expenses', Icon: Receipt },
+          { id: 'invoices', label: 'Invoices', Icon: Wallet },
+        ] : [
           { id: 'overview', label: 'Overview', Icon: Home },
           { id: 'sales', label: T.salesTab, Icon: ShoppingBag },
           { id: 'products', label: T.catalog, Icon: Package },
           { id: 'expenses', label: 'Expenses', Icon: Receipt },
           { id: 'invoices', label: 'Invoices', Icon: Wallet },
-        ].map(({ id, label, Icon }) => (
+        ]).map(({ id, label, Icon }) => (
           <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
-            <Icon size={21} style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || tab === 'bookings'))) ? C.copper : C.inkFaint }} />
-            <span className="text-[10px] font-medium" style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || tab === 'bookings'))) ? C.copper : C.inkFaint }}>{label}</span>
+            <Icon size={21} style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || (tab === 'bookings' && !hasBookables))) || (id === 'bookings' && tab === 'products')) ? C.copper : C.inkFaint }} />
+            <span className="text-[10px] font-medium" style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || (tab === 'bookings' && !hasBookables))) || (id === 'bookings' && tab === 'products')) ? C.copper : C.inkFaint }}>{label}</span>
+            {id === 'bookings' && bookingRequests.length > 0 && (
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{bookingRequests.length}</span>
+            )}
             {id === 'sales' && pendingOrderCount > 0 && (
               <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{pendingOrderCount}</span>
             )}
