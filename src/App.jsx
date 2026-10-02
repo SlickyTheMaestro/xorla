@@ -1223,7 +1223,7 @@ function XorlaApp() {
   const [tourRect, setTourRect] = useState(null);
   const tourKey = session ? `xorla:tour-done:${session.user_id}` : null;
   const tourSteps = [
-    { target: null, title: 'Welcome to Xorla', body: "Here's a 30-second look at where everything is. You can skip anytime." },
+    { target: null, title: 'Welcome to Xorla', body: "Here's a 30-second look at where everything is. You can skip anytime.", trialIntro: true },
     { target: 'profit', title: 'Your real profit, at a glance', body: 'Money in, minus what your goods cost, minus what you spent. It updates as you record.' },
     { target: 'nav-sales', title: T.tracksStock ? 'Record every sale here' : 'Record every job here', body: `Tap ${T.salesTab}, then add what you ${T.tracksStock ? 'sold' : 'did'}. If someone still owes you, Xorla tracks it. ${T.orders} from your online store show up here too.` },
     { target: 'nav-products', title: `Your ${T.catalog.toLowerCase()}`, body: `Add each ${T.item} once with its price. After that, recording a sale takes one tap.` },
@@ -4236,10 +4236,39 @@ function XorlaApp() {
                   <ChevronRight size={18} style={{ color: C.sage }} />
                 </button>
               )}
-              {isOwnerRole && liveLocations.length >= 2 && tipReady('multi') && renderTip('multi', Store, `You now have ${liveLocations.length} locations`,
-                `Switch between them at the top, or see them all together.${multiLocationOn ? ' In Products you can record deliveries and send stock between them.' : ''}`)}
-              {isOwnerRole && settings.staffList.length >= 1 && tipReady('staff') && renderTip('staff', Users, `${settings.staffList[0].name} has joined your team`,
-                "Their sales are recorded with their name. The Team row at the top shows who's online — tap someone to see their sales.")}
+              {isOwnerRole && (() => {
+                // Only one tip at a time, most important first; the next appears once this one is dismissed
+                if (onTrial && planDaysLeft > 7 && tipReady('trialWelcome')) return (
+                  <div className="rounded-[22px] p-5 mb-5 xorla-fade-up relative overflow-hidden" style={{ background: 'linear-gradient(150deg, #134A43 0%, #0E2E29 60%, #0B2420 100%)', border: '1px solid rgba(31,217,196,0.25)' }}>
+                    <div aria-hidden="true" className="absolute -right-12 -top-14 w-48 h-48 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.16), transparent 70%)' }} />
+                    <div className="relative flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[12.5px] font-semibold" style={{ color: C.copper }}>Your free trial</div>
+                        <div className="text-[19px] font-bold cx-display leading-snug mt-0.5">Everything is included for {planDaysLeft} days</div>
+                      </div>
+                      <button onClick={() => dismissTip('trialWelcome')} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
+                    </div>
+                    <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2.5 mt-4">
+                      {[[Users, 'Up to 10 staff, each with their own login'], [Store, 'Several shops and warehouses, with stock transfers'], [Lightbulb, '500 questions to Oga a month, in 5 languages'], [Send, 'Automatic WhatsApp payment reminders']].map(([Icon, t]) => (
+                        <div key={t} className="flex items-start gap-2.5 text-[13px]" style={{ color: C.ink }}>
+                          <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.12)' }}><Icon size={14} style={{ color: C.sage }} /></span>
+                          <span className="pt-1 leading-snug">{t}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="relative text-[12px] leading-relaxed mt-4" style={{ color: C.inkDim }}>No card needed. When the trial ends, choose the plan that fits. Anything beyond it pauses, and nothing is ever deleted.</div>
+                    <div className="relative flex gap-2 mt-4">
+                      <button onClick={() => dismissTip('trialWelcome')} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Got it</button>
+                      <button onClick={openPlanPage} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>See plans</button>
+                    </div>
+                  </div>
+                );
+                if (liveLocations.length >= 2 && tipReady('multi')) return renderTip('multi', Store, `You now have ${liveLocations.length} locations`,
+                  `Switch between them at the top, or see them all together.${multiLocationOn ? ' In Products you can record deliveries and send stock between them.' : ''}`);
+                if (settings.staffList.length >= 1 && tipReady('staff')) return renderTip('staff', Users, `${settings.staffList[0].name} has joined your team`,
+                  "Their sales are recorded with their name. The Team row at the top shows who's online — tap someone to see their sales.");
+                return null;
+              })()}
               {isOwnerRole && planKnown && !planBannerHidden && (() => {
                 const s = subscription;
                 let b = null;
@@ -5399,7 +5428,7 @@ function XorlaApp() {
                 {!isLast && <button onClick={endTour} className="text-[12px] font-medium" style={{ color: C.inkFaint }}>Skip tour</button>}
               </div>
               <div className="text-[16px] font-bold cx-display mb-1.5">{step.title}</div>
-              <div className="text-[13px] leading-relaxed mb-4" style={{ color: C.inkDim }}>{step.body}{step.trialNote && onTrial ? ` Your free trial includes everything for ${planDaysLeft} more day${planDaysLeft !== 1 ? 's' : ''}.` : ''}</div>
+              <div className="text-[13px] leading-relaxed mb-4" style={{ color: C.inkDim }}>{step.trialIntro && onTrial ? `Your free trial includes everything for the next ${planDaysLeft} day${planDaysLeft !== 1 ? 's' : ''}. ` : ''}{step.body}{step.trialNote && onTrial ? ` Your free trial includes everything for ${planDaysLeft} more day${planDaysLeft !== 1 ? 's' : ''}.` : ''}</div>
               <div className="flex items-center gap-2">
                 {tourStep > 0 && !isLast && <button onClick={() => setTourStep(tourStep - 1)} className="px-4 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Back</button>}
                 {isLast ? (
