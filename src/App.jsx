@@ -1312,6 +1312,7 @@ function XorlaApp() {
   const [billingReturnRef, setBillingReturnRef] = useState(null);
   const [limitPrompt, setLimitPrompt] = useState(null);
   const [seatOk, setSeatOk] = useState(null);
+  const [copiedKey, setCopiedKey] = useState(null);
   const [tipsSeen, setTipsSeen] = useState(null);
   const [planBannerHidden, setPlanBannerHidden] = useState(false);
   const [pushState, setPushState] = useState('checking'); // checking | unsupported | ios-install | denied | off | on
@@ -2025,7 +2026,7 @@ function XorlaApp() {
   const handleRestock = async (product) => {
     const added = Number(restockAmount);
     if (!added || added < 0) return;
-    const shopId = activeShopId || (locations.some((s) => s.id === restockShopId) ? restockShopId : mainShopId);
+    const shopId = activeShopId || (locations.some((s) => s.id === restockShopId && !isPausedLocation(s.id)) ? restockShopId : mainShopId);
     const unitCost = Number(parseNumInput(restockCost));
     const nextCost = restockCost !== '' && unitCost > 0 ? newAverageCost(product.id, added, unitCost) : null;
     try {
@@ -2045,7 +2046,7 @@ function XorlaApp() {
   const handleCorrectCount = async (p) => {
     const actual = Number(correctQty);
     if (correctQty === '' || !Number.isFinite(actual) || actual < 0) return;
-    const shopId = activeShopId || (locations.some((s) => s.id === correctShopId) ? correctShopId : mainShopId);
+    const shopId = activeShopId || (locations.some((s) => s.id === correctShopId && !isPausedLocation(s.id)) ? correctShopId : mainShopId);
     const current = stockAt(p, shopId);
     const delta = actual - current;
     if (delta === 0) { setCorrectingId(null); return; }
@@ -2275,7 +2276,7 @@ function XorlaApp() {
   // ---------- Plan: what this business is on right now ----------
   const planKnown = !!subscription;
   const nowMs = Date.now();
-  const effPlan = !subscription ? 'pro'
+  const effPlan = !subscription ? 'business'
     : subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs ? 'business'
     : subscription.status === 'active' && new Date(subscription.current_period_end).getTime() > nowMs ? subscription.plan
     : 'free';
@@ -2317,6 +2318,14 @@ function XorlaApp() {
       <button onClick={() => dismissTip(id)} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
     </div>
   );
+  const copyText = async (key, text) => {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) {   // older browsers: fall back to a hidden text box
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (err) {} ta.remove();
+    }
+    setCopiedKey(key); setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
+  };
   const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
   // Open Settings → Your plan (from a notification, an upgrade prompt, or after paying)
@@ -3747,7 +3756,7 @@ function XorlaApp() {
                       <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR STORE LINK</div>
                       <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                         <span className="cx-mono text-[12px] truncate pr-2" style={{ color: C.sage }}>{window.location.origin}/store/{settings.businessCode}</span>
-                        <button onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/store/${settings.businessCode}`)} className="shrink-0 text-[11px] font-medium" style={{ color: C.copper }}>Copy</button>
+                        <button onClick={() => copyText('store', `${window.location.origin}/store/${settings.businessCode}`)} className="shrink-0 text-[11px] font-medium" style={{ color: copiedKey === 'store' ? C.sage : C.copper }}>{copiedKey === 'store' ? '✓ Copied' : 'Copy'}</button>
                       </div>
                       <a href={`/store/${settings.businessCode}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.sage }}>Open your storefront →</a>
                     </div>
@@ -3982,7 +3991,7 @@ function XorlaApp() {
                   <div className="text-[11px] mb-2 mt-3" style={{ color: C.inkFaint }}>Share this code with staff — they enter it once to join your business for good.</div>
                   <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                     <span className="cx-mono text-[16px] font-bold tracking-[0.1em]" style={{ color: C.sage }}>{settings.businessCode}</span>
-                    <button onClick={() => navigator.clipboard?.writeText(settings.businessCode)} className="text-[11px] font-medium" style={{ color: C.copper }}>Copy</button>
+                    <button onClick={() => copyText('code', settings.businessCode)} className="text-[11px] font-medium" style={{ color: copiedKey === 'code' ? C.sage : C.copper }}>{copiedKey === 'code' ? '✓ Copied' : 'Copy'}</button>
                   </div>
                   {staffOverBy > 0 && (
                     <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12px] leading-relaxed" style={{ background: C.rustSoft, color: C.ink }}>
@@ -4911,8 +4920,8 @@ function XorlaApp() {
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">
                         <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
-                        {isOwnerRole && p.stockQuantity !== null && <button onClick={() => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); }} className="text-[11px] font-medium" style={{ color: C.inkDim }}>Fix count</button>}
-                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
+                        {isOwnerRole && p.stockQuantity !== null && !isPausedLocation(activeShopId) && <button onClick={() => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); }} className="text-[11px] font-medium" style={{ color: C.inkDim }}>Fix count</button>}
+                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
                         {isOwnerRole && hasManyLocations && multiLocationOn && p.stockQuantity !== null && <button onClick={() => openSend({ productId: p.id, from: activeShopId || '' })} className="text-[11px] font-medium" style={{ color: C.copper }}>Send</button>}
                         <button onClick={() => removeProduct(p.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
                       </div>
@@ -4940,7 +4949,7 @@ function XorlaApp() {
                     {isRestocking && viewAllShops && hasManyLocations && (
                       <div className="flex items-center gap-2 mt-2.5 flex-wrap">
                         <span className="text-[11.5px]" style={{ color: C.inkDim }}>Into:</span>
-                        {locations.map((s) => (
+                        {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
                           <button key={s.id} onClick={() => setRestockShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={(restockShopId || mainShopId) === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
                         ))}
                       </div>
@@ -4978,7 +4987,7 @@ function XorlaApp() {
                           </div>
                           {viewAllShops && hasManyLocations && (
                             <div className="flex flex-wrap gap-1.5">
-                              {locations.map((s) => (
+                              {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
                                 <button key={s.id} onClick={() => setCorrectShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={cShop === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name} ({stockAt(p, s.id)})</button>
                               ))}
                             </div>
