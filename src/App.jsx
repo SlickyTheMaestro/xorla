@@ -185,12 +185,12 @@ const PRICE_UNITS = [['fixed', 'Fixed price'], ['session', 'Per session'], ['hou
 const isBookable = (p) => p && (p.priceUnit === 'night' || p.priceUnit === 'day');
 // What kind of service business: drives examples, default pricing, and the storefront's booking words
 const SERVICE_KINDS = {
-  personal_care: { label: 'Personal care', hint: 'Salons, barbers, spas, makeup', name: "e.g. Knotless braids, Men's haircut", category: 'e.g. Hair, Nails, Skin', unit: 'session' },
-  accommodation: { label: 'Accommodation', hint: 'Hotels, guest houses, shortlets', name: 'e.g. Deluxe room with balcony', category: 'e.g. Rooms, Suites, Apartments', unit: 'night', checkIn: 'Check in', checkOut: 'Check out', what: 'room' },
-  rentals: { label: 'Rentals', hint: 'Cars, event halls, equipment', name: 'e.g. Toyota Camry, 300-seat event hall', category: 'e.g. Cars, Halls, Equipment', unit: 'day', checkIn: 'Pick up', checkOut: 'Return', what: 'item' },
-  repairs: { label: 'Repairs & trades', hint: 'Mechanics, phones, tailoring', name: 'e.g. Engine service, Phone screen repair', category: 'e.g. Repairs, Servicing', unit: 'fixed' },
-  professional: { label: 'Professional services', hint: 'Consulting, design, accounting', name: 'e.g. Tax filing, Logo design', category: 'e.g. Consulting, Design', unit: 'fixed' },
-  events: { label: 'Events & media', hint: 'Photography, catering, MCs', name: 'e.g. Wedding photography, Event MC', category: 'e.g. Photography, Catering', unit: 'session' },
+  personal_care: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. Includes wash, blow-dry and styling', label: 'Personal care', hint: 'Salons, barbers, spas, makeup', name: "e.g. Knotless braids, Men's haircut", category: 'e.g. Hair, Nails, Skin', unit: 'session' },
+  accommodation: { includesLabel: 'ROOM FEATURES', includes: 'e.g. King bed, en-suite bathroom, breakfast for two, Wi-Fi', label: 'Accommodation', hint: 'Hotels, guest houses, shortlets', name: 'e.g. Deluxe room with balcony', category: 'e.g. Rooms, Suites, Apartments', unit: 'night', checkIn: 'Check in', checkOut: 'Check out', what: 'room' },
+  rentals: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. Driver included, fuel not included', label: 'Rentals', hint: 'Cars, event halls, equipment', name: 'e.g. Toyota Camry, 300-seat event hall', category: 'e.g. Cars, Halls, Equipment', unit: 'day', checkIn: 'Pick up', checkOut: 'Return', what: 'item' },
+  repairs: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. Labour included, parts charged separately', label: 'Repairs & trades', hint: 'Mechanics, phones, tailoring', name: 'e.g. Engine service, Phone screen repair', category: 'e.g. Repairs, Servicing', unit: 'fixed' },
+  professional: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. Two rounds of changes, delivered in 5 days', label: 'Professional services', hint: 'Consulting, design, accounting', name: 'e.g. Tax filing, Logo design', category: 'e.g. Consulting, Design', unit: 'fixed' },
+  events: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. 6 hours of coverage, 200 edited photos', label: 'Events & media', hint: 'Photography, catering, MCs', name: 'e.g. Wedding photography, Event MC', category: 'e.g. Photography, Catering', unit: 'session' },
 };
 const DURATIONS = ['30 minutes', '1 hour', '1.5 hours', '2 hours', '3 hours', '4 hours', 'Half a day', 'Full day', '2+ days'];
 function priceLabel(p) {
@@ -1829,7 +1829,7 @@ function XorlaApp() {
     if (!productId) { items[idx] = { ...items[idx], productId: '' }; setCartItems(items); return; }
     const product = products.find((p) => p.id === productId);
     if (!product) return;
-    items[idx] = { ...items[idx], productId, description: product.name, unitPrice: String(product.sellingPrice), unitCost: String(product.costPrice) };
+    items[idx] = { ...items[idx], productId, description: product.name, unitPrice: String(product.sellingPrice), unitCost: String(kindOf(product, settings.businessType) === 'service' ? 0 : product.costPrice) };
     setCartItems(items);
   };
 
@@ -1953,10 +1953,10 @@ function XorlaApp() {
       let savedId = editingProductId;
       if (editingProductId) {
         const existing = products.find((p) => p.id === editingProductId);
-        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) } });
+        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) } });
         setProducts((prev) => prev.map((p) => p.id === editingProductId ? fromSbProduct(rows[0]) : p).sort((a, b) => a.name.localeCompare(b.name)));
       } else {
-        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: productForm.costPrice || 0, selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '' } });
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '' } });
         setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
         const startQty = Number(productForm.stockQuantity);
         if (!formIsService && productForm.stockQuantity !== '' && startQty > 0) await changeStock(rows[0].id, targetShopId, startQty, 'initial');
@@ -2104,7 +2104,7 @@ function XorlaApp() {
       quantity: qtyRaw,
       item: qty > 1 ? `${product.name} ×${qty}` : product.name,
       amount: (Number(product.sellingPrice) * qty).toString(),
-      cost: (Number(product.costPrice) * qty).toString(),
+      cost: (kindOf(product, settings.businessType) === 'service' ? 0 : Number(product.costPrice) * qty).toString(),
     }));
   };
 
@@ -5121,13 +5121,8 @@ function XorlaApp() {
                     </div>
                     )}
                     <div>
-                      <div className={fieldLabel} style={{ color: C.inkFaint }}>WHAT'S INCLUDED (OPTIONAL)</div>
-                      <textarea rows={2} maxLength={160} placeholder="e.g. Includes wash, blow-dry, and styling" value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
-                    </div>
-                    <div>
-                      <div className={fieldLabel} style={{ color: C.inkFaint }}>MATERIALS COST (OPTIONAL)</div>
-                      <input type="text" inputMode="decimal" placeholder="₦ per job" value={formatNumInput(productForm.costPrice)} onChange={(e) => setProductForm({ ...productForm, costPrice: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                      <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>What supplies cost you each time you do this job — hair, thread, oil, parts. Used to work out your real profit. Private to you.</div>
+                      <div className={fieldLabel} style={{ color: C.inkFaint }}>{SERVICE_KINDS[settings.serviceKind]?.includesLabel || "WHAT'S INCLUDED"} (OPTIONAL)</div>
+                      <textarea rows={2} maxLength={160} placeholder={SERVICE_KINDS[settings.serviceKind]?.includes || 'e.g. Includes wash, blow-dry and styling'} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
                     </div>
                   </>
                 ) : (
