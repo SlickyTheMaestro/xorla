@@ -1229,7 +1229,7 @@ function XorlaApp() {
     { target: 'nav-products', title: `Your ${T.catalog.toLowerCase()}`, body: `Add each ${T.item} once with its price. After that, recording a sale takes one tap.` },
     { target: 'nav-invoices', title: 'Money people owe you', body: 'Every unpaid balance lives here, most urgent first, with a one-tap WhatsApp reminder.' },
     { target: 'nav-expenses', title: 'What you spend', body: 'Log rent, transport, and restocking so your profit is the true number.' },
-    { target: 'settings', title: 'Make it yours', body: 'Your logo, WhatsApp number, online storefront, and team are all in Settings.' },
+    { target: 'settings', title: 'Make it yours', body: 'Your logo, WhatsApp number, online storefront, team, and your plan are all in Settings.', trialNote: true },
     { target: 'oga', title: 'Ask Oga — in your language', body: 'Your business advisor. Ask about your sales, profit, or customers in English, Pidgin, Yoruba, Igbo, or Hausa. Tap Ask Oga to choose your language.' },
     { target: null, title: "You're all set", body: `The best first step: add your first ${T.item}. You can replay this tour anytime from Settings.`, final: true },
   ];
@@ -1312,6 +1312,7 @@ function XorlaApp() {
   const [billingReturnRef, setBillingReturnRef] = useState(null);
   const [limitPrompt, setLimitPrompt] = useState(null);
   const [seatOk, setSeatOk] = useState(null);
+  const [tipsSeen, setTipsSeen] = useState(null);
   const [planBannerHidden, setPlanBannerHidden] = useState(false);
   const [pushState, setPushState] = useState('checking'); // checking | unsupported | ios-install | denied | off | on
   const [pushBusy, setPushBusy] = useState(false);
@@ -1665,6 +1666,21 @@ function XorlaApp() {
       await sbRest(`staff_shops?shop_id=eq.${loc.id}`, { method: 'DELETE', accessToken: session.access_token }).catch(() => {});
       setShops((prev) => prev.map((s) => (s.id === loc.id ? { ...s, archived: true } : s)));
       setStaffShops((prev) => prev.filter((ss) => ss.shop_id !== loc.id));
+      if (currentShopId === loc.id) setCurrentShopId('all');
+    } catch (e) { alert(e.message); }
+  };
+  // A location that has never recorded anything (e.g. made by mistake) can be deleted outright
+  const locationUnused = (id) => !salesAll.some((x) => x.shopId === id) && !expensesAll.some((x) => x.shopId === id)
+    && !invoicesAll.some((x) => x.shopId === id) && !ordersAll.some((x) => x.shopId === id)
+    && !stockTransfers.some((t) => t.to_shop === id || t.from_shop === id) && !stockRequests.some((r) => r.shop_id === id)
+    && !productShops.some((r) => r.shop_id === id && Number(r.stock_quantity) !== 0 && r.stock_quantity !== null);
+  const deleteLocation = async (loc) => {
+    if (!window.confirm(`Delete ${loc.name} permanently? It has never been used, so nothing recorded is lost.`)) return;
+    try {
+      await sbRpc('delete_unused_location', session.access_token, { p_shop: loc.id });
+      setShops((prev) => prev.filter((s) => s.id !== loc.id));
+      setStaffShops((prev) => prev.filter((ss) => ss.shop_id !== loc.id));
+      setProductShops((prev) => prev.filter((r) => r.shop_id !== loc.id));
       if (currentShopId === loc.id) setCurrentShopId('all');
     } catch (e) { alert(e.message); }
   };
@@ -2260,7 +2276,7 @@ function XorlaApp() {
   const planKnown = !!subscription;
   const nowMs = Date.now();
   const effPlan = !subscription ? 'pro'
-    : subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs ? 'pro'
+    : subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs ? 'business'
     : subscription.status === 'active' && new Date(subscription.current_period_end).getTime() > nowMs ? subscription.plan
     : 'free';
   const onTrial = planKnown && subscription.status === 'trial' && new Date(subscription.trial_ends_at).getTime() > nowMs;
@@ -2278,6 +2294,29 @@ function XorlaApp() {
     if (settings.role !== 'staff' || !session?.access_token || !planKnown) return;
     sbRpc('staff_seat_ok', session.access_token, { p_profile: session.user_id }).then((ok) => setSeatOk(ok === false ? false : true)).catch(() => setSeatOk(true));
   }, [settings.role, session?.access_token, planKnown, effPlan]);
+  // One-time tips: shown once, at the moment a feature first matters
+  const tipsKey = session ? `xorla:tips:${session.user_id}` : null;
+  useEffect(() => {
+    if (!tipsKey) return;
+    try { setTipsSeen(JSON.parse(localStorage.getItem(tipsKey) || '{}')); } catch (e) { setTipsSeen({}); }
+  }, [tipsKey]);
+  const dismissTip = (id) => setTipsSeen((prev) => {
+    const next = { ...(prev || {}), [id]: true };
+    try { if (tipsKey) localStorage.setItem(tipsKey, JSON.stringify(next)); } catch (e) {}
+    return next;
+  });
+  const tipReady = (id) => tipsSeen !== null && !tipsSeen[id] && planKnown && tourStep === null;
+  const renderTip = (id, Icon, title, body) => (
+    <div key={id} className="rounded-2xl p-4 mb-5 flex items-start gap-3 xorla-fade-up" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.25)' }}>
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><Icon size={18} style={{ color: C.bg }} /></div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[13.5px] font-semibold cx-display">{title}</div>
+        <div className="text-[12.5px] leading-relaxed mt-0.5 mb-2.5" style={{ color: C.inkDim }}>{body}</div>
+        <button onClick={() => dismissTip(id)} className="px-4 py-1.5 rounded-xl text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Got it</button>
+      </div>
+      <button onClick={() => dismissTip(id)} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
+    </div>
+  );
   const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
   // Open Settings → Your plan (from a notification, an upgrade prompt, or after paying)
@@ -2981,7 +3020,7 @@ function XorlaApp() {
             <span className="text-[12px] font-semibold px-3 py-1 rounded-full shrink-0" style={{ background: 'rgba(10,31,28,0.5)', color: status.color, border: `1px solid ${status.color}` }}>{status.label}</span>
           </div>
           <div className="relative text-[13px] leading-relaxed mt-2" style={{ color: C.inkDim }}>
-            {onTrial ? `Pro free trial. Ends ${fmtDate(s.trial_ends_at)}, no card needed.`
+            {onTrial ? `Free trial of everything, including Business. Ends ${fmtDate(s.trial_ends_at)}, no card needed. Then choose the plan that fits.`
               : effPlan !== 'free' ? (s.auto_renew ? `Renews automatically on ${fmtDate(s.current_period_end)}${s.card_last4 ? ` with ${s.card_brand ? s.card_brand.charAt(0).toUpperCase() + s.card_brand.slice(1) : 'card'} ending ${s.card_last4}` : ''}.` : `Paid until ${fmtDate(s.current_period_end)}. We'll remind you 3 days before.`)
               : s.status === 'expired' ? 'Your plan ended, so you are on Free. Everything you recorded is still here.'
               : 'Free forever. Upgrade whenever you are ready.'}
@@ -3315,6 +3354,8 @@ function XorlaApp() {
             <div className="text-[20px] font-bold cx-display">{settings.activeStaff}</div>
           </div>
 
+          {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} shops`,
+            "Check the shop shown at the top before recording — that's where your sale is saved.")}
           {/* Wide screens: recording on the left, today's numbers and stock on the right. Phones keep the original order. */}
           <div className="flex flex-col lg:flex-row lg:items-start lg:gap-8">
             <div className="contents lg:block lg:flex-1 lg:min-w-0">
@@ -3600,7 +3641,7 @@ function XorlaApp() {
             {settingsPage === null && (
               <div className="space-y-6">
                 {isOwnerRole && planKnown && renderSettingsGroup('Plan', [
-                  { id: 'plan', Icon: Sparkles, label: 'Your plan', value: onTrial ? `Pro trial · ${planDaysLeft}d left` : PLAN_INFO[effPlan].name, valueColor: effPlan === 'free' ? undefined : C.sage },
+                  { id: 'plan', Icon: Sparkles, label: 'Your plan', value: onTrial ? `Free trial, ${planDaysLeft}d left` : PLAN_INFO[effPlan].name, valueColor: effPlan === 'free' ? undefined : C.sage },
                 ])}
                 {renderSettingsGroup('Business', [
                   { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
@@ -3768,6 +3809,7 @@ function XorlaApp() {
                         <div className="flex items-center justify-between">
                           <span className="text-[11px]" style={{ color: C.inkFaint }}>{isPausedLocation(s.id) ? 'Paused on your plan — records kept, no new sales' : isWarehouse ? 'Storage only — holds stock, never sells' : `${staffCount} staff assigned`}</span>
                           <span className="flex items-center gap-3">
+                            {s.id !== mainShopId && !changed && locationUnused(s.id) && <button onClick={() => deleteLocation(s)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Delete</button>}
                             {s.id !== mainShopId && !changed && <button onClick={() => closeLocation(s)} className="text-[11.5px] font-medium" style={{ color: C.rust }}>Close location</button>}
                             {changed && <button onClick={() => saveShop(s)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save</button>}
                           </span>
@@ -4185,10 +4227,14 @@ function XorlaApp() {
                   <ChevronRight size={18} style={{ color: C.sage }} />
                 </button>
               )}
+              {isOwnerRole && liveLocations.length >= 2 && tipReady('multi') && renderTip('multi', Store, `You now have ${liveLocations.length} locations`,
+                `Switch between them at the top, or see them all together.${multiLocationOn ? ' In Products you can record deliveries and send stock between them.' : ''}`)}
+              {isOwnerRole && settings.staffList.length >= 1 && tipReady('staff') && renderTip('staff', Users, `${settings.staffList[0].name} has joined your team`,
+                "Their sales are recorded with their name. The Team row at the top shows who's online — tap someone to see their sales.")}
               {isOwnerRole && planKnown && !planBannerHidden && (() => {
                 const s = subscription;
                 let b = null;
-                if (onTrial && planDaysLeft <= 7) b = { tone: 'copper', title: `Your Pro trial ends in ${planDaysLeft} day${planDaysLeft !== 1 ? 's' : ''}`, body: 'Choose a plan to keep staff, Oga and more. Nothing is lost either way.', cta: 'See plans' };
+                if (onTrial && planDaysLeft <= 7) b = { tone: 'copper', title: `Your free trial ends in ${planDaysLeft} day${planDaysLeft !== 1 ? 's' : ''}`, body: 'Choose the plan that fits. Anything beyond it pauses, and nothing is ever deleted.', cta: 'See plans' };
                 else if (effPlan !== 'free' && !s.auto_renew && planDaysLeft !== null && planDaysLeft <= 3) b = { tone: 'copper', title: `Your ${PLAN_INFO[effPlan].name} plan ends in ${planDaysLeft} day${planDaysLeft !== 1 ? 's' : ''}`, body: 'Renew in a tap with card, transfer or USSD.', cta: 'Renew' };
                 else if (s.status === 'expired' && effPlan === 'free') b = { tone: 'neutral', title: "You're on the Free plan", body: 'Your plan ended, but everything you recorded is still here. Upgrade anytime to unlock staff, Oga and more.', cta: 'See plans' };
                 if (!b) return null;
@@ -5344,7 +5390,7 @@ function XorlaApp() {
                 {!isLast && <button onClick={endTour} className="text-[12px] font-medium" style={{ color: C.inkFaint }}>Skip tour</button>}
               </div>
               <div className="text-[16px] font-bold cx-display mb-1.5">{step.title}</div>
-              <div className="text-[13px] leading-relaxed mb-4" style={{ color: C.inkDim }}>{step.body}</div>
+              <div className="text-[13px] leading-relaxed mb-4" style={{ color: C.inkDim }}>{step.body}{step.trialNote && onTrial ? ` Your free trial includes everything for ${planDaysLeft} more day${planDaysLeft !== 1 ? 's' : ''}.` : ''}</div>
               <div className="flex items-center gap-2">
                 {tourStep > 0 && !isLast && <button onClick={() => setTourStep(tourStep - 1)} className="px-4 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Back</button>}
                 {isLast ? (
@@ -5947,7 +5993,7 @@ function PricingPage() {
               Costs less than the profit on one good sale.
             </h1>
             <p className="mt-5 text-[16px] lg:text-[17px] leading-relaxed max-w-xl" style={{ color: P.muted }}>
-              Every new business starts with 30 days of Pro, free and with no card. After that, pay monthly by card, transfer or USSD, and stop whenever you like.
+              Every new business gets 30 days of everything, Business included, free and with no card. Then choose the plan that fits, pay by card, transfer or USSD, and stop whenever you like.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-5">
               <div role="group" aria-label="Billing period" className="inline-flex p-1 rounded-2xl" style={{ background: 'rgba(234,245,242,0.06)', border: `1px solid ${P.line}` }}>
