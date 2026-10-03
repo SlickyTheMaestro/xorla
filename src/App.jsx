@@ -2816,7 +2816,7 @@ function XorlaApp() {
 
   // ---------- Bookings: stays and rentals ----------
   const bookables = productsAll.filter(isBookable);
-  const hasBookables = bookables.length > 0;
+  const hasBookables = settings.businessType !== 'products' && bookables.length > 0;
   const deskShopId = activeShopId || targetShopId || mainShopId;
   const bookings = bookingsAll.filter((b) => (viewAllShops ? true : b.shop_id === activeShopId));
   const bkToday = todayKey();
@@ -4244,6 +4244,15 @@ function XorlaApp() {
             {settingsPage === 'businessType' && (
               <div>
                 <div className="text-[12.5px] mb-4 px-1" style={{ color: C.inkDim }}>This changes the words and tools Xorla shows you. Your existing records aren't affected.</div>
+                {draft.businessType === 'products' && bookables.length > 0 && (() => {
+                  const ahead = bookingsAll.filter((b) => ['requested', 'confirmed', 'checked_in'].includes(b.status) && b.check_out >= todayKey()).length;
+                  return (
+                    <div className="rounded-2xl px-4 py-3 mb-4 text-[12.5px] leading-relaxed" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.3)', color: C.ink }}>
+                      {ahead > 0 ? <><strong>You have {ahead} upcoming booking{ahead !== 1 ? 's' : ''}.</strong> </> : null}
+                      Selling only products hides Bookings, and your storefront stops taking bookings. {ahead > 0 ? 'They' : 'Your rooms and past bookings'} are kept, and come back if you switch back to services.
+                    </div>
+                  );
+                })()}
                 {renderBusinessTypeChoices(draft.businessType || 'products', (id) => setDraft({ ...draft, businessType: id }))}
                 {(draft.businessType === 'services' || draft.businessType === 'both') && renderServiceKindChoices(draft.serviceKind, (k) => setDraft({ ...draft, serviceKind: k }))}
               </div>
@@ -5878,7 +5887,7 @@ function Storefront({ businessCode }) {
         if (!store) { setLoadError(true); setLoading(false); return; }
         setBusiness(store);
         document.title = store.name;
-        setStoreProducts((store.products || []).map(fromSbProduct));
+        setStoreProducts((store.products || []).map(fromSbProduct).filter((p) => store.business_type !== 'products' || !isBookable(p)));
       } catch (e) { if (!business) setLoadError(true); }
       setLoading(false);
       setSwitchingShop(false);
@@ -6112,7 +6121,7 @@ function Storefront({ businessCode }) {
       </div>
     );
   };
-  const hasStoreBookables = storeProducts.some(isBookable);
+  const hasStoreBookables = business.business_type !== 'products' && storeProducts.some(isBookable);
 
   const renderProductCard = (p) => {
     if (isBookable(p)) return renderBookableCard(p);
