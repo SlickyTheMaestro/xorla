@@ -4413,6 +4413,9 @@ function XorlaApp() {
               {id === 'products' && products.filter((p) => p.isLow).length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.isLow).length}</span>
               )}
+              {id === 'bookings' && bookingRequests.length > 0 && (
+                <span title="Booking requests waiting" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{bookingRequests.length}</span>
+              )}
               {id === 'orders' && orders.filter((o) => o.status === 'pending').length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{orders.filter((o) => o.status === 'pending').length}</span>
               )}
