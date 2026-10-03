@@ -1191,6 +1191,7 @@ function XorlaApp() {
   });
   // Rooms and rentals are booked by date in Bookings, never sold as a quick sale
   const saleProducts = products.filter((p) => !isBookable(p));
+  const hasOrderables = settings.businessType === 'products' || saleProducts.length > 0 || ordersAll.length > 0;
   const hasShopPrices = (p) => productShops.some((r) => r.product_id === p.id && r.price_override !== null && r.price_override !== undefined);
   const setLocalStock = (productId, shopId, qty) => setProductShops((prev) => {
     const exists = prev.some((r) => r.product_id === productId && r.shop_id === shopId);
@@ -3039,7 +3040,7 @@ function XorlaApp() {
     );
   };
 
-  const renderSalesSwitch = () => (
+  const renderSalesSwitch = () => hasOrderables && (
     <div className="lg:hidden flex gap-1 p-1 mb-5 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
       {[['sales', T.salesTab, 0], ['orders', T.orders, pendingOrderCount]].map(([id, label, count]) => (
         <button key={id} onClick={() => setTab(id)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === id ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
@@ -4395,7 +4396,7 @@ function XorlaApp() {
             { id: 'overview', label: 'Overview', Icon: Home },
             { id: 'sales', label: T.salesTab, Icon: ShoppingBag },
             { id: 'products', label: T.catalog, Icon: Package },
-            { id: 'orders', label: 'Orders', Icon: Download },
+            ...(hasOrderables ? [{ id: 'orders', label: T.orders, Icon: Download }] : []),
             ...(hasBookables ? [{ id: 'bookings', label: 'Bookings', Icon: CalendarClock }] : []),
             { id: 'expenses', label: 'Expenses', Icon: Receipt },
             { id: 'invoices', label: 'Invoices', Icon: Wallet },
