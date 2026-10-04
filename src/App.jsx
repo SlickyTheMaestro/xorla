@@ -1114,6 +1114,9 @@ function XorlaApp() {
   const [stockTransfers, setStockTransfers] = useState([]);
   const [stockRequests, setStockRequests] = useState([]);
   const [bookingsAll, setBookingsAll] = useState([]);
+  const [roomsAll, setRoomsAll] = useState([]);
+  const [roomSetup, setRoomSetup] = useState({});
+  const [editRoomsFor, setEditRoomsFor] = useState(null);
   const [bookingPanel, setBookingPanel] = useState(false);
   const [bookingForm, setBookingForm] = useState({ productId: '', checkIn: '', checkOut: '', units: '1', name: '', phone: '', note: '', paid: '' });
   const [bookingAct, setBookingAct] = useState(null);
@@ -1442,7 +1445,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
@@ -1457,6 +1460,7 @@ function XorlaApp() {
         sbRest('subscriptions', { accessToken, query: '?select=business_id,plan,billing_interval,extra_shops,status,trial_ends_at,current_period_end,early_supporter,early_supporter_until,auto_renew,card_last4,card_brand' }).catch(() => null),
         sbRest('payments', { accessToken, query: '?select=*&order=paid_at.desc&limit=12' }).catch(() => []),
         sbRest('bookings', { accessToken, query: `?select=*&check_out=gte.${new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10)}&order=check_in.asc&limit=600` }).catch(() => []),
+        sbRest('rooms', { accessToken, query: '?select=*&active=eq.true&order=label.asc' }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
@@ -1472,6 +1476,7 @@ function XorlaApp() {
       setSubscription(Array.isArray(subscriptionRows) && subscriptionRows[0] ? subscriptionRows[0] : null);
       setPayments(paymentRows || []);
       setBookingsAll(bookingRows || []);
+      setRoomsAll(roomRows || []);
     } catch (e) {
       console.error('Loading business data failed:', e);
     }
@@ -2852,9 +2857,13 @@ function XorlaApp() {
   const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
   const dayLabel = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   const unitWord = (b) => (b.price_unit === 'day' ? 'day' : 'night');
+  const roomsFor = (productId, shopId) => roomsAll.filter((r) => r.product_id === productId && r.shop_id === shopId && r.active !== false)
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const capacityOf = (p, shopId) => roomsFor(p.id, shopId).length || p.units || 1;
+  const occupantOf = (room) => bookingsAll.find((b) => b.room_id === room.id && b.status === 'checked_in');
   const freeOn = (productId, shopId, day) => {
     const p = productsAll.find((x) => x.id === productId); if (!p) return 0;
-    return (p.units || 1) - bookingsAll.filter((b) => b.product_id === productId && b.shop_id === shopId && occupies(b) && b.check_in <= day && b.check_out > day).reduce((a, b) => a + b.units, 0);
+    return capacityOf(p, shopId) - bookingsAll.filter((b) => b.product_id === productId && b.shop_id === shopId && occupies(b) && b.check_in <= day && b.check_out > day).reduce((a, b) => a + b.units, 0);
   };
   const freeFor = (productId, shopId, from, to) => {
     if (!from || !to || to <= from) return null;
@@ -2877,10 +2886,15 @@ function XorlaApp() {
     runBooking(() => sbRpc('create_booking', session.access_token, { p_shop_id: deskShopId, p_product_id: f.productId, p_check_in: f.checkIn, p_check_out: f.checkOut, p_units: Number(f.units) || 1, p_name: f.name, p_phone: f.phone, p_note: f.note, p_amount_paid: Number(parseNumInput(f.paid)) || 0 }),
       () => setBookingPanel(false));
   };
-  const openAct = (booking, action) => { setBookingError(''); setActForm({ room: booking.room_label || '', amount: '', reason: '' }); setBookingAct({ booking, action }); };
+  const openAct = (booking, action, roomId) => {
+    setBookingError('');
+    const free = action === 'check_in' ? roomsFor(booking.product_id, booking.shop_id).filter((r) => !occupantOf(r)) : [];
+    setActForm({ room: booking.room_label || '', amount: '', reason: '', roomId: roomId || free[0]?.id || '' });
+    setBookingAct({ booking, action });
+  };
   const submitAct = () => {
     const { booking, action } = bookingAct;
-    runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: actForm.reason, p_room: actForm.room, p_amount: Number(parseNumInput(actForm.amount)) || 0 }),
+    runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: actForm.reason, p_room: actForm.room, p_amount: Number(parseNumInput(actForm.amount)) || 0, p_room_id: actForm.roomId || null }),
       () => setBookingAct(null));
   };
   const quickConfirm = (b) => runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: b.id, p_action: 'confirm' }));
@@ -2905,6 +2919,108 @@ function XorlaApp() {
   );
   const actBtn = (label, onClick, primary) => (
     <button key={label} onClick={onClick} disabled={bookingBusy} className="flex-1 rounded-lg py-2 text-[12.5px] font-semibold" style={primary ? { background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{label}</button>
+  );
+
+  // Room setup: "101-105" or "101, 102, Garden suite" or "A1-A4"
+  const parseRoomLabels = (text) => {
+    const out = [];
+    String(text || '').split(/[,\n]+/).map((s) => s.trim()).filter(Boolean).forEach((part) => {
+      const m = part.match(/^([A-Za-z ]*?)(\d+)\s*-\s*\1?(\d+)$/);
+      if (m) {
+        const [, prefix, a, b] = m; const from = Math.min(Number(a), Number(b)), to = Math.max(Number(a), Number(b));
+        if (to >= from && to - from < 200) for (let n = from; n <= to; n++) out.push(`${prefix}${String(n).padStart(a.length, '0')}`);
+        else out.push(part);
+      } else out.push(part);
+    });
+    return [...new Set(out)].slice(0, 200);
+  };
+  const addRooms = (productId) => {
+    const labels = parseRoomLabels(roomSetup[productId]);
+    const taken = new Set(roomsAll.filter((r) => r.shop_id === deskShopId).map((r) => r.label.toLowerCase()));
+    const fresh = labels.filter((l) => !taken.has(l.toLowerCase()));
+    if (!fresh.length) { setBookingError(labels.length ? 'Those room names are already in use here.' : 'Type room numbers, e.g. 101-105.'); return; }
+    runBooking(() => sbRest('rooms', { method: 'POST', accessToken: session.access_token, body: fresh.map((label) => ({ business_id: settings.businessId, shop_id: deskShopId, product_id: productId, label })) }),
+      () => setRoomSetup((s) => ({ ...s, [productId]: '' })));
+  };
+  const retireRoom = (room) => {
+    if (occupantOf(room)) { setBookingError(`Room ${room.label} has a guest in it. Check them out first.`); return; }
+    if (!window.confirm(`Take room ${room.label} out of use? Its history is kept, and you can add it back later.`)) return;
+    runBooking(() => sbRest(`rooms?id=eq.${room.id}`, { method: 'PATCH', accessToken: session.access_token, body: { active: false } }));
+  };
+  const openWalkIn = (productId) => {
+    setBookingError('');
+    setBookingForm({ productId, checkIn: bkToday, checkOut: addDays(bkToday, 1), units: '1', name: '', phone: '', note: '', paid: '' });
+    setBookingPanel(true);
+  };
+
+  const renderRoomBoard = () => (
+    <div>
+      <div className="flex items-baseline justify-between mb-2">
+        <span className="text-[13px] font-semibold">{serviceKind === 'rentals' ? 'Your items' : 'Room board'}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span>
+        <span className="flex items-center gap-3 text-[11px]" style={{ color: C.inkFaint }}>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.sage }} />Free</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.rust }} />Occupied</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.copper }} />Leaving today</span>
+        </span>
+      </div>
+      <div className="space-y-4">
+        {bookables.map((p) => {
+          const rooms = roomsFor(p.id, deskShopId);
+          const arrivingHere = arrivals.filter((a) => a.product_id === p.id && a.shop_id === deskShopId);
+          const freeCount = rooms.filter((r) => !occupantOf(r)).length;
+          const editing = editRoomsFor === p.id;
+          return (
+            <div key={p.id} className="rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="flex items-center justify-between gap-3 mb-2.5">
+                <div className="min-w-0">
+                  <div className="text-[14px] font-semibold truncate">{p.name}</div>
+                  <div className="text-[11.5px]" style={{ color: C.inkFaint }}>
+                    {rooms.length ? `${freeCount} of ${rooms.length} free` : `${p.units || 1} in total, not named yet`}
+                    {arrivingHere.length > 0 && <span style={{ color: C.copper }}> · {arrivingHere.length} arriving today</span>}
+                  </div>
+                </div>
+                {isOwnerRole && rooms.length > 0 && <button onClick={() => setEditRoomsFor(editing ? null : p.id)} className="shrink-0 text-[12px] font-medium" style={{ color: editing ? C.sage : C.copper }}>{editing ? 'Done' : 'Edit rooms'}</button>}
+              </div>
+
+              {rooms.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                  {rooms.map((r) => {
+                    const guest = occupantOf(r);
+                    const leaving = guest && guest.check_out <= bkToday;
+                    const tone = !guest ? [C.sageSoft, C.sage, 'Free'] : leaving ? [C.copperSoft, C.copper, 'Leaving today'] : [C.rustSoft, C.rust, `Until ${dayLabel(guest.check_out)}`];
+                    const onTap = editing ? () => retireRoom(r) : guest ? () => openAct(guest, 'check_out') : arrivingHere.length ? () => openAct(arrivingHere[0], 'check_in', r.id) : () => openWalkIn(p.id);
+                    return (
+                      <button key={r.id} onClick={onTap} title={editing ? 'Take out of use' : guest ? `Check out ${guest.customer_name}` : arrivingHere.length ? `Check ${arrivingHere[0].customer_name} in here` : 'Book a walk-in'}
+                        className="rounded-xl px-2.5 py-2 text-left active:scale-[0.97] transition-transform" style={{ background: tone[0], border: `1px solid ${tone[1]}55` }}>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[15px] font-bold cx-mono" style={{ color: C.ink }}>{r.label}</span>
+                          {editing ? <X size={13} style={{ color: C.rust }} /> : <span className="w-2 h-2 rounded-full shrink-0" style={{ background: tone[1] }} />}
+                        </div>
+                        <div className="text-[10.5px] font-semibold truncate" style={{ color: tone[1] }}>{guest ? guest.customer_name.split(' ')[0] : tone[2]}</div>
+                        {guest && <div className="text-[10px] truncate" style={{ color: C.inkFaint }}>{tone[2]}</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {isOwnerRole && (rooms.length === 0 || editing) && (
+                <div className={rooms.length ? 'mt-3' : ''}>
+                  {rooms.length === 0 && <div className="text-[12px] mb-2 leading-relaxed" style={{ color: C.inkDim }}>Name your {p.units || 1} {p.name.toLowerCase()}{(p.units || 1) !== 1 ? 's' : ''} so the front desk can check guests into a specific one.</div>}
+                  <div className="flex gap-2">
+                    <input type="text" placeholder={rooms.length ? 'Add more, e.g. 106-108' : 'e.g. 101-105, or 101, 102, Garden suite'} value={roomSetup[p.id] || ''} onChange={(e) => setRoomSetup({ ...roomSetup, [p.id]: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && addRooms(p.id)} className="flex-1 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <button onClick={() => addRooms(p.id)} disabled={bookingBusy} className="shrink-0 px-4 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>Add</button>
+                  </div>
+                  {parseRoomLabels(roomSetup[p.id]).length > 0 && <div className="text-[11.5px] mt-1.5" style={{ color: C.sage }}>Will add: {parseRoomLabels(roomSetup[p.id]).slice(0, 12).join(', ')}{parseRoomLabels(roomSetup[p.id]).length > 12 ? ` and ${parseRoomLabels(roomSetup[p.id]).length - 12} more` : ''}</div>}
+                  {editing && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Tap a room above to take it out of use, for repairs for example.</div>}
+                </div>
+              )}
+              {!isOwnerRole && rooms.length === 0 && <div className="text-[12px]" style={{ color: C.inkFaint }}>The owner hasn't named these rooms yet.</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 
   const renderBookingDesk = () => {
@@ -2953,6 +3069,8 @@ function XorlaApp() {
           {section('Leaving today', C.copper, staying.filter((b) => b.check_out <= bkToday), 'Nobody leaving today.', (b) => renderBookingRow(b, [actBtn('Check out', () => openAct(b, 'check_out'), true)]))}
         </div>
 
+        {renderRoomBoard()}
+
         <div>
           <div className="text-[13px] font-semibold mb-2">Available, next 14 days{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</div>
           <div className="overflow-x-auto rounded-xl" style={{ border: `1px solid ${C.line}` }}>
@@ -2966,10 +3084,10 @@ function XorlaApp() {
               <tbody>
                 {bookables.map((p) => (
                   <tr key={p.id} style={{ borderTop: `1px solid ${C.line}` }}>
-                    <td className="px-3 py-2 sticky left-0 font-medium" style={{ background: C.surface }}>{p.name}<div className="text-[10.5px] font-normal" style={{ color: C.inkFaint }}>{p.units || 1} total</div></td>
+                    <td className="px-3 py-2 sticky left-0 font-medium" style={{ background: C.surface }}>{p.name}<div className="text-[10.5px] font-normal" style={{ color: C.inkFaint }}>{capacityOf(p, deskShopId)} total</div></td>
                     {days.map((d) => {
                       const free = freeOn(p.id, deskShopId, d);
-                      return <td key={d} className="text-center px-2 py-2 cx-mono font-semibold" style={{ color: free <= 0 ? C.rust : free < (p.units || 1) ? C.copper : C.sage, background: free <= 0 ? C.rustSoft : 'transparent' }}>{free <= 0 ? 'Full' : free}</td>;
+                      return <td key={d} className="text-center px-2 py-2 cx-mono font-semibold" style={{ color: free <= 0 ? C.rust : free < capacityOf(p, deskShopId) ? C.copper : C.sage, background: free <= 0 ? C.rustSoft : 'transparent' }}>{free <= 0 ? 'Full' : free}</td>;
                     })}
                   </tr>
                 ))}
@@ -3029,7 +3147,22 @@ function XorlaApp() {
       body = (
         <div className="space-y-3">
           {renderBookingRow(b, null)}
-          {action === 'check_in' && <input type="text" autoFocus placeholder={SERVICE_KINDS[serviceKind]?.what === 'item' ? 'Which one? e.g. Car 2 (optional)' : 'Room number, e.g. Room 12 (optional)'} value={actForm.room} onChange={(e) => setActForm({ ...actForm, room: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
+          {action === 'check_in' && (() => {
+            const named = roomsFor(b.product_id, b.shop_id);
+            const free = named.filter((r) => !occupantOf(r));
+            if (!named.length) return <input type="text" autoFocus placeholder={SERVICE_KINDS[serviceKind]?.what === 'item' ? 'Which one? e.g. Car 2 (optional)' : 'Room number, e.g. Room 12 (optional)'} value={actForm.room} onChange={(e) => setActForm({ ...actForm, room: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />;
+            if (!free.length) return <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>Every {b.item_name} is occupied right now. Check a guest out first.</div>;
+            return (
+              <div>
+                <div className="text-[11.5px] mb-1.5" style={{ color: C.inkFaint }}>Free {b.item_name.toLowerCase()}s</div>
+                <div className="flex flex-wrap gap-2">
+                  {free.map((r) => (
+                    <button key={r.id} type="button" onClick={() => setActForm({ ...actForm, roomId: r.id })} className="min-w-[56px] px-3 py-2 rounded-xl text-[14px] font-bold cx-mono" style={actForm.roomId === r.id ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{r.label}</button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           {(action === 'check_in' || action === 'check_out') && (
             <>
               <input type="text" inputMode="decimal" placeholder="Payment received now (₦)" value={formatNumInput(actForm.amount)} onChange={(e) => setActForm({ ...actForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
