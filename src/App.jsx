@@ -1074,7 +1074,7 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
       <button type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel}
         onClick={() => { setOpen((o) => !o); setActive(selIndex); }} onKeyDown={onKey}
         className={`${look} w-full flex items-center justify-between gap-2 text-left outline-none transition-colors`}
-        style={{ ...style, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...(open ? { borderColor: C.copper } : {}) }}>
+        style={{ ...style, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...(open ? { boxShadow: `0 0 0 1.5px ${C.copper}` } : {}) }}>
         <span className="flex items-center gap-2 min-w-0">
           {icon}
           <span className="truncate" style={{ color: current && current.value !== '' ? C.ink : C.inkFaint }}>{current ? current.label : ''}</span>
@@ -2815,6 +2815,26 @@ function XorlaApp() {
     );
   };
 
+  // Hotels and rentals: rooms are booked by date; extras (laundry, bar, pickup) have a set price for quick sales
+  const roomWord = serviceKind === 'rentals' ? 'rental' : 'room';
+  const openCatalogForm = (mode) => {
+    setTab('products'); setProductsView('list'); setEditingProductId(null);
+    setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: 'service', mode, units: '1',
+      priceUnit: mode === 'extra' ? 'fixed' : (SERVICE_KINDS[serviceKind]?.unit || 'night'), category: mode === 'extra' ? 'Extras' : '' });
+    setShowProductForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const renderExtrasEmpty = () => (
+    <div className="rounded-xl p-3.5 mb-3" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
+      <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
+        <strong style={{ color: C.ink }}>No extras yet.</strong> {isOwnerRole
+          ? `Add ${serviceKind === 'rentals' ? 'delivery, extra hours' : 'laundry, bar items'} and other extras once, and they'll appear here with their prices.`
+          : 'Ask the owner to add extras like laundry or the bar, and they\'ll appear here with their prices.'}
+      </div>
+      {isOwnerRole && <button type="button" onClick={() => openCatalogForm('extra')} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
+    </div>
+  );
+
   // ---------- Bookings: stays and rentals ----------
   const bookables = productsAll.filter(isBookable);
   const hasBookables = settings.businessType !== 'products' && bookables.length > 0;
@@ -3659,6 +3679,7 @@ function XorlaApp() {
                 {cartMode ? '− Just one item instead' : '+ Customer buying several different things?'}
               </button>
               {!cartMode && (<>
+              {saleProducts.length === 0 && T.saleHint ? renderExtrasEmpty() : null}
               {saleProducts.length > 0 && (
                 <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                   <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>{T.pickLabel || `PICK ${T.Item === 'Item' ? 'AN' : 'A'} ${T.Item.toUpperCase()} (OPTIONAL)`}</div>
@@ -4712,6 +4733,7 @@ function XorlaApp() {
                   <div className="text-[13.5px] font-semibold cx-display mb-3">Quick add {T.sale}</div>
                   {viewAllShops && shops.length > 1 && <div className="mb-3">{renderRecordShopPicker()}</div>}
                   <div className="space-y-2.5">
+                    {saleProducts.length === 0 && T.saleHint ? renderExtrasEmpty() : null}
                     {saleProducts.length > 0 && (
                       <div className="flex gap-2">
                         <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
@@ -4871,6 +4893,7 @@ function XorlaApp() {
 
                 {!cartMode && (
                   <>
+                    {saleProducts.length === 0 && T.saleHint ? renderExtrasEmpty() : null}
                     {saleProducts.length > 0 && (
                       <div className="rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                         <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>{T.pickLabel || `PICK ${T.Item === 'Item' ? 'AN' : 'A'} ${T.Item.toUpperCase()} (OPTIONAL)`}</div>
@@ -5084,11 +5107,22 @@ function XorlaApp() {
             {renderStockCenter()}
 
             {!showProductForm ? (
+              T.saleHint ? (
+                <div className="grid grid-cols-2 gap-2 mb-6">
+                  <button onClick={() => openCatalogForm('room')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.copper, color: C.bg }}>
+                    <Plus size={18} className="shrink-0" /><span><span className="block text-[14px] font-semibold">Add a {roomWord}</span><span className="block text-[11.5px] opacity-80">Priced per {serviceKind === 'rentals' ? 'day' : 'night'}, booked by date</span></span>
+                  </button>
+                  <button onClick={() => openCatalogForm('extra')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.35)', color: C.ink }}>
+                    <Plus size={18} className="shrink-0" style={{ color: C.sage }} /><span><span className="block text-[14px] font-semibold">Add an extra</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Delivery, extra hours' : 'Laundry, bar, airport pickup'}</span></span>
+                  </button>
+                </div>
+              ) : (
               <button onClick={() => { setEditingProductId(null); setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
+              )
             ) : (
               <div className="rounded-2xl p-5 mb-6 space-y-4" style={card}>
                 <div className="flex items-center justify-between">
-                  <div className="text-[15px] font-semibold cx-display">{editingProductId ? (formIsService ? 'Edit service' : 'Edit product') : (formIsService ? 'New service' : 'New product')}</div>
+                  <div className="text-[15px] font-semibold cx-display">{productForm.mode === 'extra' ? (editingProductId ? 'Edit extra' : 'New extra') : productForm.mode === 'room' ? (editingProductId ? `Edit ${roomWord}` : `New ${roomWord}`) : editingProductId ? (formIsService ? 'Edit service' : 'Edit product') : (formIsService ? 'New service' : 'New product')}</div>
                   <button onClick={() => { setShowProductForm(false); setEditingProductId(null); }} aria-label="Close" style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
 
@@ -5113,7 +5147,7 @@ function XorlaApp() {
 
                 <div>
                   <div className={fieldLabel} style={{ color: C.inkFaint }}>{formIsService ? 'SERVICE NAME' : 'PRODUCT NAME'}</div>
-                  <input type="text" placeholder={formIsService ? (SERVICE_KINDS[serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : 'e.g. Bone-straight wig, 18 inches'} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <input type="text" placeholder={productForm.mode === 'extra' ? (serviceKind === 'rentals' ? 'e.g. Delivery, Extra hour, Driver for the day' : 'e.g. Laundry (per bag), Bottle of water, Airport pickup') : formIsService ? (SERVICE_KINDS[serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : 'e.g. Bone-straight wig, 18 inches'} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 </div>
 
                 <div>
@@ -5152,8 +5186,8 @@ function XorlaApp() {
                     </div>
                     )}
                     <div>
-                      <div className={fieldLabel} style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.includesLabel || "WHAT'S INCLUDED"} (OPTIONAL)</div>
-                      <textarea rows={2} maxLength={160} placeholder={SERVICE_KINDS[serviceKind]?.includes || 'e.g. Includes wash, blow-dry and styling'} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
+                      <div className={fieldLabel} style={{ color: C.inkFaint }}>{productForm.mode === 'extra' ? 'DETAILS' : (SERVICE_KINDS[serviceKind]?.includesLabel || "WHAT'S INCLUDED")} (OPTIONAL)</div>
+                      <textarea rows={2} maxLength={160} placeholder={productForm.mode === 'extra' ? 'e.g. Washed, ironed and returned the same day' : (SERVICE_KINDS[serviceKind]?.includes || 'e.g. Includes wash, blow-dry and styling')} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
                     </div>
                   </>
                 ) : (
@@ -5248,7 +5282,7 @@ function XorlaApp() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">
-                        <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
+                        <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
                         {isOwnerRole && p.stockQuantity !== null && !isPausedLocation(activeShopId) && <button onClick={() => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); }} className="text-[11px] font-medium" style={{ color: C.inkDim }}>Fix count</button>}
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
                         {isOwnerRole && hasManyLocations && multiLocationOn && p.stockQuantity !== null && <button onClick={() => openSend({ productId: p.id, from: activeShopId || '' })} className="text-[11px] font-medium" style={{ color: C.copper }}>Send</button>}
