@@ -2895,7 +2895,7 @@ function XorlaApp() {
         </div>
         <div className="text-right shrink-0">
           <div className="text-[13.5px] font-semibold cx-mono">{fmt(b.total)}</div>
-          {Number(b.amount_paid) > 0 && <div className="text-[11px]" style={{ color: C.sage }}>{fmt(b.amount_paid)} paid</div>}
+          {(() => { const paid = Number(b.amount_paid) || 0; const [label, bg, fg] = paid <= 0 ? ['Unpaid', C.rustSoft, C.rust] : paid < Number(b.total) ? [`${fmt(paid)} paid`, C.copperSoft, C.copper] : ['Paid', C.sageSoft, C.sage]; return <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: bg, color: fg }}>{label}</span>; })()}
           {b.customer_phone && <a href={`https://wa.me/${toWhatsAppNumber(b.customer_phone)}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
         </div>
       </div>
@@ -3037,7 +3037,9 @@ function XorlaApp() {
                 <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(b.total)}</span></div>
                 <div className="flex justify-between"><span style={{ color: C.inkDim }}>Paid so far</span><span className="cx-mono">{fmt(paidSoFar + adding)}</span></div>
                 <div className="flex justify-between font-semibold"><span>Balance</span><span className="cx-mono" style={{ color: balance > 0 ? C.rust : C.sage }}>{fmt(balance)}</span></div>
-                {action === 'check_out' && <div className="text-[11.5px] pt-1" style={{ color: C.inkFaint }}>{balance > 0 ? `The stay is recorded as a sale, and the ${fmt(balance)} still owed becomes an invoice you can follow up.` : 'The stay is recorded as a sale.'}</div>}
+                <div className="text-[11.5px] pt-1" style={{ color: C.inkFaint }}>{action === 'check_in'
+                  ? (balance > 0 ? `Checking in records the stay as a sale today. The ${fmt(balance)} still owed becomes an invoice you can follow up.` : 'Checking in records the stay as a sale today, fully paid.')
+                  : (b.sale_id ? (adding > 0 ? `This payment goes towards the balance on the stay's invoice.` : balance > 0 ? `The ${fmt(balance)} still owed stays on the invoice for follow-up.` : 'Fully paid. Nothing else to collect.') : (balance > 0 ? `The stay is recorded as a sale, and the ${fmt(balance)} still owed becomes an invoice.` : 'The stay is recorded as a sale.'))}</div>
               </div>
             </>
           )}
