@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -154,8 +154,8 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours'];
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations' };
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity'];
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', hours: 'Opening hours & appointments' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -192,6 +192,43 @@ const SERVICE_KINDS = {
   professional: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. Two rounds of changes, delivered in 5 days', label: 'Professional services', hint: 'Consulting, design, accounting', name: 'e.g. Tax filing, Logo design', category: 'e.g. Consulting, Design', unit: 'fixed' },
   events: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. 6 hours of coverage, 200 edited photos', label: 'Events & media', hint: 'Photography, catering, MCs', name: 'e.g. Wedding photography, Event MC', category: 'e.g. Photography, Catering', unit: 'session' },
 };
+// Examples that fit the business: what its products are called, and what customers usually tell it
+const PRODUCT_EXAMPLES = {
+  personal_care: { name: 'e.g. Bone-straight wig, 18 inches', category: 'e.g. Wigs, Hair care, Nails', tagline: 'e.g. Braids, wigs and nails, done beautifully in Aba', note: 'e.g. Hair length, colour, preferred stylist' },
+  accommodation: { name: 'e.g. Bottle of water, Chilled malt', category: 'e.g. Drinks, Snacks, Toiletries', tagline: 'e.g. Clean, quiet rooms in the heart of Umuahia', note: 'e.g. Arriving late, need an extra bed' },
+  rentals: { name: 'e.g. Phone charger, Car air freshener', category: 'e.g. Accessories, Supplies', tagline: 'e.g. Clean, reliable cars with or without a driver', note: 'e.g. Pick-up location, with or without driver' },
+  repairs: { name: 'e.g. Brake pads, Screen protector', category: 'e.g. Spare parts, Accessories', tagline: 'e.g. Honest repairs, fast turnaround', note: 'e.g. Car model and year, phone model, the fault' },
+  professional: { name: 'e.g. Printed report, Branded notebook', category: 'e.g. Books, Materials', tagline: 'e.g. Accounting and tax help for growing businesses', note: 'e.g. What you need, and your deadline' },
+  events: { name: 'e.g. Photo album, Chair cover', category: 'e.g. Albums, Décor, Rentals', tagline: 'e.g. Photography and coverage for weddings and events', note: 'e.g. Event date, venue and number of guests' },
+  _products: { name: 'e.g. Bag of rice (50kg), Ankara fabric', category: 'e.g. Provisions, Fabrics, Drinks', tagline: 'e.g. Quality goods at fair prices, delivered in Aba', note: 'e.g. Size, colour, delivery address' },
+};
+const examplesFor = (serviceKind) => PRODUCT_EXAMPLES[serviceKind] || PRODUCT_EXAMPLES._products;
+// Minutes a service takes, matching the database (service_minutes). Null: booked by date, not by the hour.
+function serviceMinutes(p, qty = 1) {
+  if (!p) return null;
+  if (p.priceUnit === 'night' || p.priceUnit === 'day') return null;
+  if (p.priceUnit === 'hour') return 60 * Math.max(1, qty);
+  const d = String(p.duration || '').trim();
+  if (!d) return 60 * Math.max(1, qty);
+  const m = d.match(/^(\d+(?:\.\d+)?)\s*(min|hour)/i);
+  if (m) return Math.round(Number(m[1]) * (/^min/i.test(m[2]) ? 1 : 60)) * Math.max(1, qty);
+  if (/half a day/i.test(d)) return 300;
+  return null;
+}
+const LAGOS_TIME = { timeZone: 'Africa/Lagos' };
+const apptTime = (iso) => new Date(iso).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true }).replace(' ', '').toLowerCase();
+const apptDay = (iso) => new Date(iso).toLocaleDateString('en-GB', { ...LAGOS_TIME, weekday: 'short', day: 'numeric', month: 'short' });
+const apptRange = (o) => `${apptDay(o.startAt)}, ${apptTime(o.startAt)} to ${apptTime(o.endAt)}`;
+const lagosDateKey = (iso) => new Date(iso).toLocaleDateString('sv-SE', LAGOS_TIME);
+function dayChipLabel(dateStr, todayStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  const diff = Math.round((d - new Date(todayStr + 'T12:00:00Z')) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Tomorrow';
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+const HALF_HOURS = Array.from({ length: 38 }, (_, i) => { const m = 5 * 60 + i * 30; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; });
+const hhmmLabel = (t) => { const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}`; };
 const DURATIONS = ['30 minutes', '1 hour', '1.5 hours', '2 hours', '3 hours', '4 hours', 'Half a day', 'Full day', '2+ days'];
 function priceLabel(p) {
   const amt = fmt(p.sellingPrice);
@@ -205,6 +242,70 @@ function priceLabel(p) {
 // Items saved before "kind" existed follow the business type
 function kindOf(p, businessType) {
   return p.kind || (businessType === 'services' ? 'service' : 'product');
+}
+function locationWords(businessType, serviceKind) {
+  const branch = businessType === 'services' || (businessType === 'both' && ['accommodation', 'personal_care', 'professional', 'events'].includes(serviceKind));
+  return branch ? { one: 'branch', many: 'branches', One: 'Branch', Many: 'Branches' } : { one: 'shop', many: 'shops', One: 'Shop', Many: 'Shops' };
+}
+// The first location is created as "Main shop"; show it in the business's own words ("Main branch")
+function displayLocationName(s, L) {
+  if (!s) return '';
+  const n = s.name || '';
+  if (/^main (shop|branch)$/i.test(n.trim())) return `Main ${L.one}`;
+  return n;
+}
+
+// ============ Bulk import: turn a pasted list (Excel, Google Sheets, notes, CSV) into catalog items ============
+function importNumber(raw) {
+  let t = String(raw ?? '').trim().toLowerCase().replace(/^(₦|ngn|n(?=\d)|#)\s*/, '').replace(/[\s,]/g, '');
+  if (!t) return null;
+  let mult = 1;
+  if (/k$/.test(t)) { mult = 1000; t = t.slice(0, -1); } else if (/m$/.test(t)) { mult = 1000000; t = t.slice(0, -1); }
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  return Math.round(Number(t) * mult * 100) / 100;
+}
+function splitDelimited(line, delim) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; }
+    else if (ch === delim && !q) { out.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+function parseCatalogList(text) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n').map((l) => l.trim()).filter((l) => l && !/^[-=_*•]+$/.test(l));
+  if (!lines.length) return [];
+  const delim = lines.some((l) => l.includes('\t')) ? '\t' : lines.filter((l) => l.includes(';')).length > lines.length / 2 ? ';' : ',';
+  let rows = lines.map((l) => {
+    const clean = l.replace(/^\s*(\d+[.)]|[-*•])\s+/, '');   // "1. Rice, 4500" or "- Rice 4500"
+    const prepared = delim === ',' ? clean.replace(/(\d),(?=\d{3}(?!\d))/g, '$1') : clean;   // 4,500 → 4500 before splitting on commas
+    let f = splitDelimited(prepared, delim);
+    if (f.length === 1) {
+      const m = prepared.match(/^(.+?)(?:\s+[-–—]\s+|\s*[:=@]\s*)(.+)$/) || prepared.match(/^(.+?)\s+((?:₦|N|#)?\s*\d[\d.,]*k?)\s*$/i);
+      if (m) f = [m[1], ...m[2].split(/\s+/)];
+    }
+    return f;
+  });
+  // A header row ("Name, Price, Stock…") decides the columns; otherwise: name, price, stock, cost, category
+  let map = { name: 0, price: 1, stock: 2, cost: 3, category: 4 };
+  const head = rows[0].map((h) => h.toLowerCase());
+  const find = (re, not) => head.findIndex((h) => re.test(h) && !(not && not.test(h)));
+  if (find(/name|item|product|service|description/) >= 0 && find(/price|amount|rate|selling|cost/) >= 0 && rows[0].every((h) => importNumber(h) === null)) {
+    map = { name: find(/name|item|product|service|description/), price: find(/selling|price|amount|rate/, /cost|buy/), stock: find(/stock|qty|quantity|units|count|in store/), cost: find(/cost|buying|purchase/), category: find(/categ|group|section|type/) };
+    rows = rows.slice(1);
+  }
+  const at = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
+  return rows.map((r) => {
+    const name = String(at(r, map.name)).replace(/\s+/g, ' ').replace(/[,;:\-–]+$/, '').trim().slice(0, 80);
+    const price = importNumber(at(r, map.price));
+    const stock = importNumber(at(r, map.stock));
+    const cost = importNumber(at(r, map.cost));
+    const category = String(at(r, map.category) || '').trim().slice(0, 40);
+    return { name, price, stock: stock === null ? null : Math.floor(stock), cost, category };
+  }).filter((r) => r.name);
 }
 function base64UrlToUint8Array(b64) {
   const pad = '='.repeat((4 - (b64.length % 4)) % 4);
@@ -453,7 +554,7 @@ function fromSbProduct(row) {
   return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront' };
 }
 
 function staticMessage(inv, settings) {
@@ -1123,6 +1224,12 @@ function XorlaApp() {
   const [actForm, setActForm] = useState({ room: '', amount: '', reason: '' });
   const [bookingBusy, setBookingBusy] = useState(false);
   const [roomCharges, setRoomCharges] = useState([]);
+  const [apptPanel, setApptPanel] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importKind, setImportKind] = useState('product');
+  const [importBusy, setImportBusy] = useState('');
+  const [importError, setImportError] = useState('');
   const [chargeForm, setChargeForm] = useState({ productId: '', qty: 1, custom: false, item: '', price: '' });
   const [bookingError, setBookingError] = useState('');
   const [stockPanel, setStockPanel] = useState(null); // 'delivery' | 'transfer' | 'request'
@@ -1146,6 +1253,8 @@ function XorlaApp() {
   const serviceKind = settings.serviceKind
     || (productsAll.some((p) => p.priceUnit === 'night') ? 'accommodation' : productsAll.some((p) => p.priceUnit === 'day') ? 'rentals' : null);
   const T = { ...(BUSINESS_TERMS[settings.businessType] || BUSINESS_TERMS.products), ...(settings.businessType === 'services' ? KIND_TERMS[serviceKind] || {} : {}) };
+  // What a location is called: shops sell goods; hotels, salons and other service businesses have branches
+  const L = locationWords(settings.businessType, serviceKind);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -1167,7 +1276,8 @@ function XorlaApp() {
   const activeShopId = viewAllShops ? null : (myShops.some((s) => s.id === currentShopId) ? currentShopId : myShops[0]?.id || null);
   const targetShopId = activeShopId || (myShops.some((s) => s.id === recordShopId) ? recordShopId : null) || mainShopId;
   const showShopSwitcher = myShops.length > 1;
-  const shopNameOf = (id) => (locationsAll.find((s) => s.id === (id || mainShopId)) || {}).name || '';
+  const locName = (s) => displayLocationName(s, L);
+  const shopNameOf = (id) => locName(locationsAll.find((s) => s.id === (id || mainShopId)));
   const inActiveShop = (r) => viewAllShops || (r.shopId || mainShopId) === activeShopId;
   const sales = salesAll.filter(inActiveShop);
   const expenses = expensesAll.filter(inActiveShop);
@@ -1307,7 +1417,7 @@ function XorlaApp() {
   const openInstallFromSettings = () => {
     if (isIOS) { setTab('overview'); setShowInstallBanner(true); setShowIOSSteps(true); return; }
     if (installPrompt) { handleInstallClick(); return; }
-    alert("Your browser doesn't support installing from here — on Android, look for \"Install app\" or \"Add to Home screen\" in your browser's menu (⋮).");
+    brandAlert("Your browser doesn't support installing from here — on Android, look for \"Install app\" or \"Add to Home screen\" in your browser's menu (⋮).", { tone: 'info' });
   };
 
   const [resetToken, setResetToken] = useState(() => {
@@ -1621,6 +1731,11 @@ function XorlaApp() {
       depositPercent: business.deposit_percent ?? 50,
       depositCapNights: business.deposit_cap_nights ?? 1,
       cancelWindowHours: business.cancel_window_hours ?? 24,
+      apptEnabled: business.appt_enabled !== false,
+      openTime: String(business.open_time || '08:00').slice(0, 5),
+      closeTime: String(business.close_time || '18:00').slice(0, 5),
+      openDays: Array.isArray(business.open_days) ? business.open_days : [1, 2, 3, 4, 5, 6],
+      apptCapacity: business.appt_capacity ?? 1,
       logoUrl: business.logo_url || null,
       businessAddress: business.address || '',
       businessEmail: business.email || '',
@@ -1681,14 +1796,14 @@ function XorlaApp() {
     if (planKnown && liveLocations.length >= planCaps.locations) {
       setLimitPrompt(effPlan === 'business'
         ? { title: `Your plan includes ${planCaps.locations} locations`, body: 'Add extra locations to your Business plan for ₦3,500 a month each, then open this one.' }
-        : { title: 'More locations come with Business', body: 'Run several shops and warehouses with stock transfers, deliveries and requests between them. Business includes 3 locations, with more as you grow.' });
+        : { title: 'More locations come with Business', body: settings.businessType === 'services' ? `Run several ${L.many}, each with its own staff, bookings and records, and see them together. Business includes 3 locations, with more as you grow.` : `Run several ${L.many} and warehouses with stock transfers, deliveries and requests between them. Business includes 3 locations, with more as you grow.` });
       return;
     }
     setShopBusy(true);
     try {
       const rows = await sbRest('shops', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name, ...(newShopKind === 'warehouse' ? { kind: 'warehouse' } : {}) } });
       setShops((prev) => [...prev, rows[0]]); setNewShopName('');
-    } catch (e) { alert(e.message); } finally { setShopBusy(false); }
+    } catch (e) { brandAlert(e.message); } finally { setShopBusy(false); }
   };
   const saveShop = async (shop) => {
     const edit = shopEdits[shop.id]; if (!edit) return;
@@ -1698,24 +1813,24 @@ function XorlaApp() {
       await sbRest(`shops?id=eq.${shop.id}`, { method: 'PATCH', accessToken: session.access_token, body: { name, address } });
       setShops((prev) => prev.map((s) => (s.id === shop.id ? { ...s, name, address } : s)));
       setShopEdits((prev) => { const n = { ...prev }; delete n[shop.id]; return n; });
-    } catch (e) { alert(e.message); }
+    } catch (e) { brandAlert(e.message); }
   };
   // Close a location that's shut down (history is kept), or reopen it
   const closeLocation = async (loc) => {
     const left = productShops.filter((r) => r.shop_id === loc.id && Number(r.stock_quantity) > 0);
     if (left.length) {
       const units = left.reduce((a, r) => a + Number(r.stock_quantity), 0);
-      alert(`${loc.name} still has ${units} item${units !== 1 ? 's' : ''} in stock. Move its remaining stock to another location first (Products → Send stock), then close it.`);
+      brandAlert(`${locName(loc)} still has ${units} item${units !== 1 ? 's' : ''} in stock. Move its remaining stock to another location first (Products → Send stock), then close it.`, { tone: 'info' });
       return;
     }
-    if (!window.confirm(`Close ${loc.name}? It disappears from the app and your storefront, and staff lose access to it. Its past sales and records stay in your reports, and you can reopen it later.`)) return;
+    if (!(await brandConfirm(`Close ${locName(loc)}? It disappears from the app and your storefront, and staff lose access to it. Its past sales and records stay in your reports, and you can reopen it later.`, { confirm: 'Close it', danger: true }))) return;
     try {
       await sbRest(`shops?id=eq.${loc.id}`, { method: 'PATCH', accessToken: session.access_token, body: { archived: true } });
       await sbRest(`staff_shops?shop_id=eq.${loc.id}`, { method: 'DELETE', accessToken: session.access_token }).catch(() => {});
       setShops((prev) => prev.map((s) => (s.id === loc.id ? { ...s, archived: true } : s)));
       setStaffShops((prev) => prev.filter((ss) => ss.shop_id !== loc.id));
       if (currentShopId === loc.id) setCurrentShopId('all');
-    } catch (e) { alert(e.message); }
+    } catch (e) { brandAlert(e.message); }
   };
   // A location that has never recorded anything (e.g. made by mistake) can be deleted outright
   const locationUnused = (id) => !salesAll.some((x) => x.shopId === id) && !expensesAll.some((x) => x.shopId === id)
@@ -1723,26 +1838,26 @@ function XorlaApp() {
     && !stockTransfers.some((t) => t.to_shop === id || t.from_shop === id) && !stockRequests.some((r) => r.shop_id === id)
     && !productShops.some((r) => r.shop_id === id && Number(r.stock_quantity) !== 0 && r.stock_quantity !== null);
   const deleteLocation = async (loc) => {
-    if (!window.confirm(`Delete ${loc.name} permanently? It has never been used, so nothing recorded is lost.`)) return;
+    if (!(await brandConfirm(`Delete ${locName(loc)} permanently? It has never been used, so nothing recorded is lost.`, { confirm: 'Delete', danger: true }))) return;
     try {
       await sbRpc('delete_unused_location', session.access_token, { p_shop: loc.id });
       setShops((prev) => prev.filter((s) => s.id !== loc.id));
       setStaffShops((prev) => prev.filter((ss) => ss.shop_id !== loc.id));
       setProductShops((prev) => prev.filter((r) => r.shop_id !== loc.id));
       if (currentShopId === loc.id) setCurrentShopId('all');
-    } catch (e) { alert(e.message); }
+    } catch (e) { brandAlert(e.message); }
   };
   const reopenLocation = async (loc) => {
     try {
       await sbRest(`shops?id=eq.${loc.id}`, { method: 'PATCH', accessToken: session.access_token, body: { archived: false } });
       setShops((prev) => prev.map((s) => (s.id === loc.id ? { ...s, archived: false } : s)));
-    } catch (e) { alert(e.message); }
+    } catch (e) { brandAlert(e.message); }
   };
 
   const toggleStaffShop = async (profileId, shopId) => {
     const assigned = staffShops.filter((ss) => ss.profile_id === profileId);
     const has = assigned.some((ss) => ss.shop_id === shopId);
-    if (has && assigned.length === 1) { alert('Everyone needs at least one shop. Add another shop for them first, then remove this one.'); return; }
+    if (has && assigned.length === 1) { brandAlert(`Everyone needs at least one ${L.one}. Add them to another ${L.one} first, then remove this one.`, { tone: 'info' }); return; }
     try {
       if (has) {
         await sbRest(`staff_shops?profile_id=eq.${profileId}&shop_id=eq.${shopId}`, { method: 'DELETE', accessToken: session.access_token });
@@ -1751,15 +1866,15 @@ function XorlaApp() {
         await sbRest('staff_shops', { method: 'POST', accessToken: session.access_token, body: { profile_id: profileId, shop_id: shopId } });
         setStaffShops((prev) => [...prev, { profile_id: profileId, shop_id: shopId }]);
       }
-    } catch (e) { alert(e.message); }
+    } catch (e) { brandAlert(e.message); }
   };
 
   const removeStaff = async (staffId, staffName) => {
-    if (!window.confirm(`Remove ${staffName}? They'll be logged out immediately and won't be able to log back in.`)) return;
+    if (!(await brandConfirm(`Remove ${staffName}? They'll be logged out immediately and won't be able to log back in.`, { confirm: 'Remove', danger: true }))) return;
     try {
       await sbRest(`profiles?id=eq.${staffId}`, { method: 'DELETE', accessToken: session.access_token });
       setSettings((prev) => ({ ...prev, staffList: prev.staffList.filter((s) => s.id !== staffId) }));
-    } catch (e) { alert(e.message); }
+    } catch (e) { brandAlert(e.message); }
   };
 
   useEffect(() => {
@@ -1838,13 +1953,13 @@ function XorlaApp() {
       setReceipt(makeReceipt({ id: newSale.id, items: [{ name: saleForm.item, amount: Number(saleForm.amount) }], total: saleForm.amount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId }));
       setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
       setShowSaleForm(false);
-    } catch (e) { console.error(e); alert(e.message); } finally { setSavingSale(false); }
+    } catch (e) { console.error(e); brandAlert(e.message); } finally { setSavingSale(false); }
   };
   const removeSale = async (id) => {
     const sale = sales.find((s) => s.id === id);
-    if (!window.confirm(`Remove "${sale?.item || 'this sale'}"? This can't be undone.`)) return;
+    if (!(await brandConfirm(`Remove "${sale?.item || 'this sale'}"? This can't be undone.`, { confirm: 'Remove', danger: true }))) return;
     try { await sbRest(`sales?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setSales((prev) => prev.filter((s) => s.id !== id)); }
-    catch (e) { alert(e.message); }
+    catch (e) { brandAlert(e.message); }
   };
 
   const applyProductToCartRow = (idx, productId) => {
@@ -1896,7 +2011,7 @@ function XorlaApp() {
       setSaleForm((f) => ({ ...f, fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '' }));
       setShowSaleForm(false);
       setCartMode(false);
-    } catch (e) { console.error(e); alert(e.message); } finally { setSavingSale(false); }
+    } catch (e) { console.error(e); brandAlert(e.message); } finally { setSavingSale(false); }
   };
 
   const addExpense = async () => {
@@ -1908,13 +2023,13 @@ function XorlaApp() {
       setExpenses((prev) => [fromSbExpense(rows[0]), ...prev]);
       setExpenseForm({ item: '', amount: '', category: 'Other' });
       setShowExpenseForm(false);
-    } catch (e) { alert(e.message); } finally { setSavingExpense(false); }
+    } catch (e) { brandAlert(e.message); } finally { setSavingExpense(false); }
   };
   const removeExpense = async (id) => {
     const exp = expenses.find((e) => e.id === id);
-    if (!window.confirm(`Remove "${exp?.item || 'this expense'}"? This can't be undone.`)) return;
+    if (!(await brandConfirm(`Remove "${exp?.item || 'this expense'}"? This can't be undone.`, { confirm: 'Remove', danger: true }))) return;
     try { await sbRest(`expenses?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setExpenses((prev) => prev.filter((e) => e.id !== id)); }
-    catch (e) { alert(e.message); }
+    catch (e) { brandAlert(e.message); }
   };
 
   const handleProductPhotoSelect = async (e) => {
@@ -1932,18 +2047,18 @@ function XorlaApp() {
   };
   const handleHeroSelect = async (e) => {
     const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
-    if ((settings.heroImages || []).length >= 5) { alert('You can have up to 5 banner photos. Remove one to add another.'); return; }
+    if ((settings.heroImages || []).length >= 5) { brandAlert('You can have up to 5 banner photos. Remove one to add another.', { tone: 'info' }); return; }
     setHeroUploading(true);
     try {
       const blob = await resizeImageToBlob(file, 1600, 0.82);
       const path = `${settings.businessId}/hero-${Date.now()}.jpg`;
       const url = await sbUploadImage(session.access_token, blob, path);
       await saveHeroImages([...(settings.heroImages || []), url]);
-    } catch (err) { alert(err.message); } finally { setHeroUploading(false); }
+    } catch (err) { brandAlert(err.message); } finally { setHeroUploading(false); }
   };
   const removeHeroImage = async (url) => {
-    if (!window.confirm('Remove this banner photo from your storefront?')) return;
-    try { await saveHeroImages((settings.heroImages || []).filter((u) => u !== url)); } catch (err) { alert(err.message); }
+    if (!(await brandConfirm('Remove this banner photo from your storefront?', { confirm: 'Remove', danger: true }))) return;
+    try { await saveHeroImages((settings.heroImages || []).filter((u) => u !== url)); } catch (err) { brandAlert(err.message); }
   };
 
   const handleLogoSelect = async (e) => {
@@ -1956,7 +2071,7 @@ function XorlaApp() {
       await sbRest(`businesses?id=eq.${settings.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: { logo_url: url } });
       setSettings((prev) => ({ ...prev, logoUrl: url }));
       setDraft((prev) => (prev ? { ...prev, logoUrl: url } : prev));
-    } catch (err) { alert(err.message); } finally { setLogoUploading(false); }
+    } catch (err) { brandAlert(err.message); } finally { setLogoUploading(false); }
   };
 
   const addProduct = async () => {
@@ -2009,43 +2124,94 @@ function XorlaApp() {
       setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null });
       setEditingProductId(null);
       setShowProductForm(false);
-    } catch (e) { alert(e.message); } finally { setSavingProduct(false); }
+    } catch (e) { brandAlert(e.message); } finally { setSavingProduct(false); }
   };
   const removeProduct = async (id) => {
     const product = products.find((p) => p.id === id);
-    if (!window.confirm(`Remove "${product?.name || 'this product'}" from your catalog? This can't be undone.`)) return;
+    if (!(await brandConfirm(`Remove "${product?.name || 'this product'}" from your catalog? This can't be undone.`, { confirm: 'Remove', danger: true }))) return;
     try { await sbRest(`products?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setProducts((prev) => prev.filter((p) => p.id !== id)); }
-    catch (e) { alert(e.message); }
+    catch (e) { brandAlert(e.message); }
   };
 
-  const fulfillOrder = async (order) => {
-    if (!window.confirm(T.tracksStock ? `Mark this order as fulfilled? It'll be logged as a real sale and stock will update.` : `Mark this request as done? It'll be logged as a job.`)) return;
+  // Fulfilling a storefront order: one receipt for the whole order, the customer's name on it, and an honest record of what was paid
+  const [fulfil, setFulfil] = useState(null); // { order, mode: 'full' | 'part', paid: '' }
+  const fulfillOrder = (order) => setFulfil({ order, mode: 'full', paid: '' });
+  const confirmFulfil = async () => {
+    const { order, mode } = fulfil; if (fulfil.busy) return;
+    const total = order.items.reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
+    const paid = mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
+    const owed = total - paid;
+    const shopId = order.shopId || mainShopId;
+    setFulfil({ ...fulfil, busy: true, error: '' });
     try {
+      const basketId = order.items.length > 1 && typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : null;
       const newSales = [];
-      for (const item of order.items) {
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: order.shopId || mainShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description, amount: item.quantity * item.unitPrice, cost: item.quantity * (item.unitCost || 0), owed: 0, product_id: item.productId || null, quantity: item.quantity } });
+      for (const [idx, item] of order.items.entries()) {
+        const base = productsAll.find((p) => p.id === item.productId);
+        const unitCost = item.unitCost ?? (base && kindOf(base, settings.businessType) === 'product' ? Number(base.costPrice) || 0 : 0);
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: `${item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description} (${order.customerName})`, amount: item.quantity * item.unitPrice, cost: item.quantity * unitCost, owed: idx === 0 ? owed : 0, product_id: item.productId || null, quantity: item.quantity, ...(basketId ? { basket_id: basketId } : {}) } });
         newSales.push(rows[0]);
-        if (item.productId) {
-          const product = products.find((p) => p.id === item.productId);
-          if (product && product.stockQuantity !== null) {
-            try { await changeStock(product.id, order.shopId || mainShopId, -item.quantity, 'order'); }
-            catch (e) { console.error('Stock update failed:', e); }
-          }
+        if (base && base.trackStock && kindOf(base, settings.businessType) === 'product') {
+          try { await changeStock(base.id, shopId, -item.quantity, 'order'); } catch (e) { console.error('Stock update failed:', e); }
         }
+      }
+      if (owed > 0) {
+        const due = new Date(); due.setDate(due.getDate() + 7);
+        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: order.customerName || 'Customer', invoice_no: `ORD-${String(order.id).slice(-5)}`, amount: total, paid_amount: paid, due_date: due.toISOString().slice(0, 10), phone: order.customerPhone, items: order.items.map((it) => ({ description: it.description, quantity: Number(it.quantity), unitPrice: Number(it.unitPrice) })) } });
+        setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
       setSales((prev) => [...newSales.map(fromSbSale), ...prev]);
       await sbRest(`orders?id=eq.${order.id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'fulfilled' } });
       setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: 'fulfilled' } : o));
-    } catch (e) { alert(e.message); }
+      setFulfil(null);
+      setReceipt(makeReceipt({ id: basketId || newSales[0]?.id, items: order.items.map((it) => ({ name: Number(it.quantity) > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: Number(it.quantity) * Number(it.unitPrice) })), total, owed, customerName: order.customerName, customerPhone: order.customerPhone, shopId }));
+    } catch (e) { setFulfil((f) => f && { ...f, busy: false, error: e.message }); }
+  };
+  const renderFulfilPanel = () => {
+    if (!fulfil) return null;
+    const { order, mode } = fulfil;
+    const total = order.items.reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
+    const paid = mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
+    const close = () => { if (!fulfil.busy) setFulfil(null); };
+    return (
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+        <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-[16px] font-semibold cx-display">{T.tracksStock ? `Fulfil ${order.customerName}'s order` : `${order.customerName}'s request is done`}</div>
+            <button onClick={close} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
+          </div>
+          <div className="rounded-xl overflow-hidden mb-3" style={{ border: `1px solid ${C.line}` }}>
+            {order.items.map((it, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 text-[13px]" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                <span className="min-w-0 truncate">{it.description}<span style={{ color: C.inkFaint }}> ×{it.quantity} at {fmt(it.unitPrice)}</span></span>
+                <span className="cx-mono font-semibold shrink-0">{fmt(Number(it.quantity) * Number(it.unitPrice))}</span>
+              </div>
+            ))}
+            <div className="flex items-center justify-between px-3 py-2.5 text-[13.5px] font-semibold" style={{ borderTop: `1px solid ${C.line}`, background: C.surfaceRaised }}><span>Total</span><span className="cx-mono">{fmt(total)}</span></div>
+          </div>
+          <div className="text-[12.5px] font-semibold mb-2">Has the customer paid?</div>
+          <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            {[['full', 'Paid in full'], ['part', 'Part, or not yet']].map(([k, l]) => <button key={k} onClick={() => setFulfil({ ...fulfil, mode: k })} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={mode === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+          </div>
+          {mode === 'part' && <input type="text" inputMode="decimal" autoFocus placeholder="Amount paid so far (₦), 0 if nothing yet" value={formatNumInput(fulfil.paid)} onChange={(e) => setFulfil({ ...fulfil, paid: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-3" style={field} />}
+          <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>
+            {T.tracksStock ? 'This is recorded as one sale on one receipt, with stock taken off automatically. ' : `This is recorded as a ${T.sale} on one receipt. `}
+            {total - paid > 0 ? `The ${fmt(total - paid)} still owed becomes an invoice for ${order.customerName}, so you can follow it up.` : ''}
+          </div>
+          {fulfil.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{fulfil.error}</div>}
+          <button onClick={confirmFulfil} disabled={fulfil.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: fulfil.busy ? 0.6 : 1 }}>{fulfil.busy ? 'Saving…' : T.tracksStock ? `Record sale of ${fmt(total)}` : `Record ${T.sale} of ${fmt(total)}`}</button>
+        </div>
+      </div>
+    );
   };
   const cancelOrder = async (id) => {
     try { await sbRest(`orders?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'cancelled' } }); setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: 'cancelled' } : o)); }
-    catch (e) { alert(e.message); }
+    catch (e) { brandAlert(e.message); }
   };
   const removeOrder = async (id) => {
-    if (!window.confirm("Remove this order record? This can't be undone.")) return;
+    if (!(await brandConfirm("Remove this order record? This can't be undone.", { confirm: 'Remove', danger: true }))) return;
     try { await sbRest(`orders?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setOrders((prev) => prev.filter((o) => o.id !== id)); }
-    catch (e) { alert(e.message); }
+    catch (e) { brandAlert(e.message); }
   };
 
   // New stock at a new cost → average it with the stock already on hand, so profit stays accurate on old and new units
@@ -2086,7 +2252,7 @@ function XorlaApp() {
       setRestockingId(null);
       setRestockAmount('');
       setRestockCost('');
-    } catch (e) { alert(e.message); }
+    } catch (e) { brandAlert(e.message); }
   };
 
   // Fix a stock mistake: set the real count; the difference is recorded as a correction
@@ -2097,9 +2263,9 @@ function XorlaApp() {
     const current = stockAt(p, shopId);
     const delta = actual - current;
     if (delta === 0) { setCorrectingId(null); return; }
-    if (!window.confirm(`Change ${p.name} at ${shopNameOf(shopId)} from ${current} to ${actual}? This is saved as a correction in your stock history.`)) return;
+    if (!(await brandConfirm(`Change ${p.name} at ${shopNameOf(shopId)} from ${current} to ${actual}? This is saved as a correction in your stock history.`, { confirm: 'Save count' }))) return;
     try { await changeStock(p.id, shopId, delta, 'correction'); setCorrectingId(null); setCorrectQty(''); }
-    catch (e) { alert(e.message); }
+    catch (e) { brandAlert(e.message); }
   };
 
   // Move stock between shops (owner)
@@ -2112,7 +2278,7 @@ function XorlaApp() {
       setLocalStock(product.id, transferForm.to, stockAt(product, transferForm.to) + qty);
       setTransferringId(null);
       setTransferForm({ from: '', to: '', qty: '' });
-    } catch (e) { alert(e.message); }
+    } catch (e) { brandAlert(e.message); }
   };
 
   // Picking a product (or changing quantity) auto-fills the sale's item/amount/cost — still editable afterward for discounts
@@ -2140,17 +2306,17 @@ function XorlaApp() {
       await sbRest(`invoices?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { paid_amount: newPaid } });
       setInvoices((prev) => prev.map((i) => i.id === id ? { ...i, paidAmount: newPaid } : i));
       setPayingId(null); setPayAmount('');
-    } catch (e) { alert(e.message); }
+    } catch (e) { brandAlert(e.message); }
   };
   const undoPaid = async (id) => {
     try { await sbRest(`invoices?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { paid_amount: 0 } }); setInvoices((prev) => prev.map((i) => i.id === id ? { ...i, paidAmount: 0 } : i)); }
-    catch (e) { alert(e.message); }
+    catch (e) { brandAlert(e.message); }
   };
   const removeInvoice = async (id) => {
     const inv = invoices.find((i) => i.id === id);
-    if (!window.confirm(`Remove the invoice for "${inv?.clientName || 'this client'}"? This can't be undone.`)) return;
+    if (!(await brandConfirm(`Remove the invoice for "${inv?.clientName || 'this client'}"? This can't be undone.`, { confirm: 'Remove', danger: true }))) return;
     try { await sbRest(`invoices?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setInvoices((prev) => prev.filter((i) => i.id !== id)); }
-    catch (e) { alert(e.message); }
+    catch (e) { brandAlert(e.message); }
   };
 
   const copyMessage = async (inv) => {
@@ -2172,7 +2338,7 @@ function XorlaApp() {
       const nm = String(patch.myName || '').trim();
       if (nm && nm !== settings.myName && session) {
         patch = { ...patch, myName: nm, activeStaff: nm };
-        sbRpc('set_my_name', session.access_token, { p_name: nm }).then(() => loadBusinessData(session.access_token)).catch((e) => alert(e.message));
+        sbRpc('set_my_name', session.access_token, { p_name: nm }).then(() => loadBusinessData(session.access_token)).catch((e) => brandAlert(e.message));
       } else { patch = { ...patch }; delete patch.myName; }
     }
     const next = { ...settings, ...patch };
@@ -2191,6 +2357,11 @@ function XorlaApp() {
       if ('depositPercent' in patch) bizPatch.deposit_percent = Number(patch.depositPercent);
       if ('depositCapNights' in patch) bizPatch.deposit_cap_nights = Number(patch.depositCapNights);
       if ('cancelWindowHours' in patch) bizPatch.cancel_window_hours = Number(patch.cancelWindowHours);
+      if ('apptEnabled' in patch) bizPatch.appt_enabled = !!patch.apptEnabled;
+      if ('openTime' in patch) bizPatch.open_time = patch.openTime;
+      if ('closeTime' in patch) bizPatch.close_time = patch.closeTime;
+      if ('openDays' in patch) bizPatch.open_days = patch.openDays;
+      if ('apptCapacity' in patch) bizPatch.appt_capacity = Number(patch.apptCapacity);
       if ('ownerPhone' in patch) bizPatch.owner_phone = patch.ownerPhone;
       if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
       if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
@@ -2214,7 +2385,7 @@ function XorlaApp() {
   const todayExpenses = todayExpensesList.reduce((a, e) => a + Number(e.amount), 0);
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
-  const pendingOrderCount = orders.filter((o) => o.status === 'pending').length;
+  const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt).length;
   const unpaidInvoiceCount = invoices.filter((i) => computeStatus(i) !== 'paid').length;
   const currentStaffNames = settings.staffList.map((s) => s.name);
   const sellerOptions = [...new Set([...currentStaffNames, ...sales.map((s) => s.loggedBy), ...expenses.map((e) => e.loggedBy)].filter(Boolean))]
@@ -2583,7 +2754,7 @@ function XorlaApp() {
 
         {pendingRequests.length > 0 && (
           <div>
-            <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.copper }}>Requests from your shops ({pendingRequests.length})</div>
+            <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.copper }}>Requests from your {L.many} ({pendingRequests.length})</div>
             <div className="space-y-2">
               {pendingRequests.map((r) => (
                 <div key={r.id} className="rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
@@ -2660,7 +2831,7 @@ function XorlaApp() {
                   </div>
                   {locations.map((loc) => (
                     <div key={loc.id} className="flex items-center gap-2 pl-1">
-                      <span className="flex-1 min-w-0 truncate text-[12.5px]" style={{ color: C.inkDim }}>{loc.name}{loc.kind === 'warehouse' ? ' (warehouse)' : ''}</span>
+                      <span className="flex-1 min-w-0 truncate text-[12.5px]" style={{ color: C.inkDim }}>{locName(loc)}{loc.kind === 'warehouse' ? ' (warehouse)' : ''}</span>
                       <input type="number" min="0" placeholder="0" value={(l.split || {})[loc.id] || ''} onChange={(e) => setDeliveryForm({ ...deliveryForm, lines: deliveryForm.lines.map((x, j) => (j === i ? { ...x, split: { ...(x.split || {}), [loc.id]: e.target.value } } : x)) })} className="w-20 rounded-lg px-2 py-1.5 text-[13px] text-center outline-none cx-mono" style={field} />
                     </div>
                   ))}
@@ -2841,6 +3012,268 @@ function XorlaApp() {
     setShowProductForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+
+  // ---------- Appointments (salons, barbers, clinics, consultants): times that can't clash ----------
+  const apptMode = settings.businessType !== 'products' && !['accommodation', 'rentals'].includes(serviceKind);
+  const apptCap = Math.max(1, Number(settings.apptCapacity ?? 1));
+  const timedServices = productsAll.filter((p) => kindOf(p, settings.businessType) === 'service' && serviceMinutes(p) !== null);
+  const isConfirmedAppt = (x) => x.status === 'pending' && x.startAt && x.acceptedAt;
+  const apptClashes = (o) => ordersAll.filter((x) => x.id !== o.id && isConfirmedAppt(x) && (x.shopId || mainShopId) === (o.shopId || mainShopId)
+    && new Date(x.startAt) < new Date(o.endAt) && new Date(x.endAt) > new Date(o.startAt));
+  const apptPassed = (o) => o.startAt && new Date(o.startAt).getTime() < Date.now();
+  const todaysAppts = orders.filter((o) => isConfirmedAppt(o) && lagosDateKey(o.startAt) === todayKey()).sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const waConfirmLink = (o) => o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, your appointment with ${settings.businessName} is confirmed for ${apptRange(o)}. See you then!`)}`;
+  const loadApptCal = async (panel) => {
+    const items = panel.mode === 'new' ? panel.items.map((id) => ({ productId: id, quantity: 1 })) : panel.order.items.map((it) => ({ productId: it.productId, quantity: it.quantity }));
+    if (!items.length) { setApptPanel((p) => p && { ...p, cal: null, slot: '' }); return; }
+    setApptPanel((p) => p && { ...p, calLoading: true, error: '' });
+    try {
+      const cal = await sbRpc('my_appointment_calendar', session.access_token, { p_shop: panel.order ? (panel.order.shopId || mainShopId) : targetShopId, p_items: items, p_exclude: panel.order?.id || null, p_days: 21 });
+      setApptPanel((p) => {
+        if (!p) return p;
+        const firstDay = (cal?.days || []).find((d) => d.slots.length)?.date || '';
+        return { ...p, cal, calLoading: false, day: p.day && (cal?.days || []).some((d) => d.date === p.day) ? p.day : firstDay, slot: '' };
+      });
+    } catch (e) { setApptPanel((p) => p && { ...p, calLoading: false, error: e.message }); }
+  };
+  const openAppt = (mode, order) => {
+    const panel = { mode, order: order || null, items: [], name: '', phone: '', note: '', reason: '', day: '', slot: '', cal: null, error: '', busy: false };
+    setApptPanel(panel);
+    if (mode === 'reschedule') loadApptCal(panel);
+  };
+  const toggleApptItem = (id) => {
+    const next = { ...apptPanel, items: apptPanel.items.includes(id) ? apptPanel.items.filter((x) => x !== id) : [...apptPanel.items, id] };
+    setApptPanel(next); loadApptCal(next);
+  };
+  const runAppt = async (fn, after) => {
+    setApptPanel((p) => p && { ...p, busy: true, error: '' });
+    try { await fn(); await loadBusinessData(session.access_token); setApptPanel(null); after && after(); }
+    catch (e) { setApptPanel((p) => (p ? { ...p, busy: false, error: e.message } : p)); if (!apptPanel) brandAlert(e.message); }
+  };
+  const acceptAppt = async (o) => {
+    try {
+      await sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'accept', p_reason: '' });
+      await loadBusinessData(session.access_token);
+      const link = waConfirmLink(o);
+      if (link && await brandConfirm(`${o.customerName} is booked for ${apptRange(o)}. Send them a WhatsApp message to let them know?`, { title: 'Appointment confirmed', confirm: 'Send on WhatsApp', cancel: 'Not now' })) window.open(link, '_blank');
+    } catch (e) { brandAlert(e.message); }
+  };
+  const submitAppt = () => {
+    const a = apptPanel; if (!a || a.busy) return;
+    if (a.mode === 'new') {
+      if (!a.items.length) { setApptPanel({ ...a, error: 'Pick at least one service.' }); return; }
+      if (!a.slot) { setApptPanel({ ...a, error: 'Pick a time.' }); return; }
+      if (!a.name.trim()) { setApptPanel({ ...a, error: "Enter the customer's name." }); return; }
+      runAppt(() => sbRpc('create_appointment', session.access_token, { p_shop: targetShopId, p_items: a.items.map((id) => ({ productId: id, quantity: 1 })), p_start_at: a.slot, p_name: a.name, p_phone: a.phone, p_note: a.note }));
+    } else if (a.mode === 'reschedule') {
+      if (!a.slot) { setApptPanel({ ...a, error: 'Pick the new time.' }); return; }
+      const o = a.order, start = a.slot;
+      runAppt(() => sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'reschedule', p_reason: '', p_start_at: start }), async () => {
+        const end = new Date(new Date(start).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString();
+        const moved = { ...o, startAt: start, endAt: end };
+        const link = o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, the time you asked for with ${settings.businessName} wasn't free, so we've booked you for ${apptRange(moved)} instead. Reply if that doesn't work for you.`)}`;
+        if (link && await brandConfirm(`${o.customerName} is now booked for ${apptRange(moved)}. Let them know on WhatsApp?`, { title: 'New time confirmed', confirm: 'Send on WhatsApp', cancel: 'Not now' })) window.open(link, '_blank');
+      });
+    } else {
+      runAppt(() => sbRpc('answer_appointment', session.access_token, { p_order: a.order.id, p_action: a.mode, p_reason: a.reason }));
+    }
+  };
+  const renderApptPanel = () => {
+    if (!apptPanel) return null;
+    const a = apptPanel; const close = () => { if (!a.busy) setApptPanel(null); };
+    const title = { new: 'New appointment', reschedule: 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment' }[a.mode];
+    const days = a.cal?.days || [];
+    const day = days.find((d) => d.date === a.day);
+    const picker = (
+      <div>
+        {a.calLoading && <div className="flex items-center gap-2 text-[12.5px] py-2" style={{ color: C.inkFaint }}><Loader2 size={14} className="animate-spin" /> Finding free times…</div>}
+        {!a.calLoading && a.cal && a.cal.minutes === null && <div className="text-[12.5px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkDim }}>These services take a full day or more, so they're not booked by the hour.</div>}
+        {!a.calLoading && days.length > 0 && (
+          <>
+            <div className="text-[11.5px] mb-1.5" style={{ color: C.inkFaint }}>Takes {a.cal.minutes >= 60 ? `${a.cal.minutes / 60} hour${a.cal.minutes !== 60 ? 's' : ''}` : `${a.cal.minutes} minutes`}. Only free times are shown.</div>
+            <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1">
+              {days.map((d) => (
+                <button key={d.date} type="button" disabled={!d.slots.length} onClick={() => setApptPanel({ ...a, day: d.date, slot: '' })} className="shrink-0 px-3 py-2 rounded-xl text-[12px] font-semibold text-center min-w-[64px]"
+                  style={a.day === d.date ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: d.slots.length ? C.ink : C.inkFaint, border: `1px solid ${C.line}`, opacity: d.slots.length ? 1 : 0.5 }}>
+                  {dayChipLabel(d.date, todayKey())}<span className="block text-[10px] font-medium" style={{ opacity: 0.8 }}>{!d.open ? 'Closed' : d.slots.length ? `${d.slots.length} free` : 'Full'}</span>
+                </button>
+              ))}
+            </div>
+            {day && (
+              <div className="grid grid-cols-4 gap-1.5 mt-1">
+                {day.slots.map((t) => <button key={t} type="button" onClick={() => setApptPanel({ ...a, slot: t })} className="py-2 rounded-lg text-[12.5px] font-semibold cx-mono" style={a.slot === t ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{apptTime(t)}</button>)}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+    return (
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+        <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-[16px] font-semibold cx-display">{title}</div>
+            <button onClick={close} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
+          </div>
+          <div className="space-y-3">
+            {a.order && (
+              <div className="rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised }}>
+                <div className="text-[13.5px] font-semibold">{a.order.customerName}</div>
+                <div className="text-[12px]" style={{ color: C.inkDim }}>{a.order.items.map((it) => it.description).join(', ')}</div>
+                <div className="text-[12px] mt-0.5" style={{ color: C.inkFaint }}>{a.mode === 'reschedule' ? 'Asked for ' : ''}{apptRange(a.order)}</div>
+              </div>
+            )}
+            {a.mode === 'new' && (
+              <>
+                {timedServices.length === 0
+                  ? <div className="text-[12.5px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkDim }}>Add your services first, with how long each takes.</div>
+                  : (
+                    <div>
+                      <div className="text-[12.5px] font-semibold mb-2">Services</div>
+                      <div className="flex flex-wrap gap-2">
+                        {timedServices.map((p) => {
+                          const on = a.items.includes(p.id);
+                          return <button key={p.id} type="button" onClick={() => toggleApptItem(p.id)} className="px-3 py-2 rounded-xl text-left" style={on ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>
+                            <span className="block text-[12.5px] font-semibold leading-tight">{p.name}</span>
+                            <span className="block text-[11px]" style={{ color: on ? C.bg : C.inkFaint }}>{fmt(priceAt(p, targetShopId))} · {serviceMinutes(p) >= 60 ? `${serviceMinutes(p) / 60}h` : `${serviceMinutes(p)}m`}</span>
+                          </button>;
+                        })}
+                      </div>
+                    </div>
+                  )}
+                {a.items.length > 0 && picker}
+                <input type="text" placeholder="Customer's name" value={a.name} onChange={(e) => setApptPanel({ ...a, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                <input type="tel" placeholder="Phone (optional)" value={a.phone} onChange={(e) => setApptPanel({ ...a, phone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+              </>
+            )}
+            {a.mode === 'reschedule' && picker}
+            {(a.mode === 'decline' || a.mode === 'cancel') && (
+              <input type="text" autoFocus placeholder={a.mode === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason (optional)'} value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+            )}
+          </div>
+          {a.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
+          <button onClick={submitAppt} disabled={a.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: a.mode === 'decline' || a.mode === 'cancel' ? C.rust : C.copper, color: C.bg, opacity: a.busy ? 0.6 : 1 }}>
+            {a.busy ? 'Saving…' : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Confirm ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Confirm new time') : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+  // ---------- Bulk import of products, services and extras ----------
+  const importKinds = settings.businessType === 'products' ? [['product', 'Products']]
+    : settings.businessType === 'services' ? (T.saleHint ? [['extra', 'Extras']] : [['service', 'Services']])
+    : [['product', 'Products'], ['service', 'Services'], ...(serviceKind === 'accommodation' || serviceKind === 'rentals' ? [['extra', 'Extras']] : [])];
+  const openImport = () => { setImportText(''); setImportError(''); setImportBusy(''); setImportKind(importKinds[0][0]); setImportOpen(true); };
+  const importRows = (() => {
+    if (!importOpen) return [];
+    const have = new Set(productsAll.map((p) => p.name.trim().toLowerCase()));
+    const seen = new Set();
+    return parseCatalogList(importText).map((r) => {
+      const key = r.name.toLowerCase();
+      const status = have.has(key) ? 'exists' : seen.has(key) ? 'repeat' : !(r.price > 0) ? 'noprice' : 'ok';
+      seen.add(key);
+      return { ...r, status };
+    });
+  })();
+  const importable = importRows.filter((r) => r.status === 'ok');
+  const importRoom = planKnown && planCaps.products !== null ? Math.max(0, planCaps.products - productsAll.length) : Infinity;
+  const importWord = (n) => {
+    const w = importKind === 'product' ? 'product' : importKind === 'extra' ? 'extra' : 'service';
+    return `${n} ${w}${n !== 1 ? 's' : ''}`;
+  };
+  const loadImportFile = (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (/\.(xlsx|xls|numbers)$/i.test(file.name)) { setImportError('Excel files can\'t be read directly. Open the file, select your rows, copy, and paste them here. Or save it as CSV and upload that.'); e.target.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => { setImportText(String(reader.result || '')); setImportError(''); };
+    reader.readAsText(file); e.target.value = '';
+  };
+  const runImport = async () => {
+    const list = importable.slice(0, importRoom === Infinity ? importable.length : importRoom);
+    if (!list.length || importBusy) return;
+    setImportError('');
+    const isProd = importKind === 'product';
+    const unit = importKind === 'extra' ? 'fixed' : (() => { const u = SERVICE_KINDS[serviceKind]?.unit || 'fixed'; return u === 'night' || u === 'day' ? 'fixed' : u; })();
+    try {
+      const created = [];
+      for (let i = 0; i < list.length; i += 100) {
+        setImportBusy(`Adding ${Math.min(i + 100, list.length)} of ${list.length}…`);
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: list.slice(i, i + 100).map((r) => ({
+          business_id: settings.businessId, name: r.name, selling_price: r.price, cost_price: isProd ? (r.cost || 0) : 0,
+          track_stock: isProd && r.stock !== null, low_stock_threshold: 5, category: r.category || (importKind === 'extra' ? 'Extras' : ''),
+          kind: isProd ? 'product' : 'service', units: 1, price_unit: isProd ? 'fixed' : unit, duration: '', description: '',
+        })) });
+        created.push(...rows);
+      }
+      const withStock = created.map((row) => ({ row, qty: (list.find((r) => r.name === row.name) || {}).stock })).filter((x) => isProd && x.qty > 0);
+      for (let i = 0; i < withStock.length; i += 5) {
+        setImportBusy(`Setting stock ${Math.min(i + 5, withStock.length)} of ${withStock.length}…`);
+        await Promise.all(withStock.slice(i, i + 5).map((x) => changeStock(x.row.id, targetShopId, x.qty, 'initial').catch(() => null)));
+      }
+      setProducts((prev) => [...created.map(fromSbProduct), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
+      setImportOpen(false); setImportBusy('');
+      brandAlert(`${importWord(created.length)} added.${withStock.length ? ` Opening stock is set at ${shopNameOf(targetShopId)}.` : ''}${importable.length > list.length ? ` ${importable.length - list.length} more didn't fit on your plan.` : ''}`, { title: 'Your list is in', tone: 'info' });
+    } catch (e) { setImportError(e.message); setImportBusy(''); }
+  };
+  const renderImportPanel = () => {
+    if (!importOpen) return null;
+    const close = () => { if (!importBusy) setImportOpen(false); };
+    const ex = importKind === 'product'
+      ? (serviceKind === 'accommodation' ? 'Bottle of water, 500, 48\nChilled malt, 700, 24\nToothbrush kit, 1500, 30' : 'Indomie (carton), 4500, 20\nPeak milk (tin), 650, 48\nGolden Penny spaghetti, 1200, 30')
+      : importKind === 'extra' ? (serviceKind === 'rentals' ? 'Delivery within town, 5000\nExtra hour, 3000\nDriver for the day, 10000' : 'Laundry (per bag), 2000\nBottle of water, 500\nAirport pickup, 15000')
+      : (SERVICE_KINDS[serviceKind]?.name ? `${SERVICE_KINDS[serviceKind].name.replace(/^e\.g\.\s*/, '').split(',')[0].trim()}, 15000\n` : '') + "Men's haircut, 3000\nWash and set, 5000";
+    const shown = importRows.slice(0, 60);
+    const tag = { ok: ['New', C.sageSoft, C.sage], exists: ['Already added', C.surface, C.inkFaint], repeat: ['Listed twice', C.surface, C.inkFaint], noprice: ['No price', C.rustSoft, C.rust] };
+    const n = importRoom === Infinity ? importable.length : Math.min(importable.length, importRoom);
+    return (
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+        <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-[16px] font-semibold cx-display">Import your list</div>
+            <button onClick={close} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
+          </div>
+          <div className="text-[12.5px] leading-relaxed mb-4" style={{ color: C.inkDim }}>Add everything at once instead of one by one. Copy rows straight from Excel, Google Sheets or your phone notes, and paste them below.</div>
+          {importKinds.length > 1 && (
+            <div className="flex gap-1 p-1 mb-3 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              {importKinds.map(([k, l]) => <button key={k} onClick={() => setImportKind(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={importKind === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+            </div>
+          )}
+          <div className="text-[11.5px] mb-1.5" style={{ color: C.inkFaint }}>One per line: <strong style={{ color: C.inkDim }}>name, price{importKind === 'product' ? ', stock, cost price' : ''}</strong>{importKind === 'product' ? ' (stock and cost are optional)' : ''}</div>
+          <textarea autoFocus rows={7} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={ex} className="w-full rounded-xl px-3.5 py-3 text-[13px] outline-none resize-y cx-mono" style={{ ...field, minHeight: 150 }} />
+          <label className="mt-2 inline-flex items-center gap-1.5 text-[12.5px] font-medium cursor-pointer" style={{ color: C.copper }}>
+            <Download size={14} style={{ transform: 'rotate(180deg)' }} /> Or upload a CSV file
+            <input type="file" accept=".csv,.txt,.tsv,.xlsx,.xls,text/csv,text/plain" onChange={loadImportFile} className="hidden" />
+          </label>
+
+          {importRows.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-baseline justify-between mb-2">
+                <span className="text-[13px] font-semibold">Preview</span>
+                <span className="text-[11.5px]" style={{ color: C.inkFaint }}>{importable.length} ready{importRows.length - importable.length ? `, ${importRows.length - importable.length} skipped` : ''}</span>
+              </div>
+              <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+                {shown.map((r, i) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: r.status === 'ok' ? 1 : 0.75 }}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium truncate">{r.name}</div>
+                      <div className="text-[11px] cx-mono" style={{ color: C.inkFaint }}>{r.price > 0 ? fmt(r.price) : '—'}{importKind === 'product' && r.stock !== null ? ` · ${r.stock} in stock` : ''}{importKind === 'product' && r.cost ? ` · cost ${fmt(r.cost)}` : ''}{r.category ? ` · ${r.category}` : ''}</div>
+                    </div>
+                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: tag[r.status][1], color: tag[r.status][2] }}>{tag[r.status][0]}</span>
+                  </div>
+                ))}
+                {importRows.length > shown.length && <div className="px-3 py-2 text-[11.5px]" style={{ color: C.inkFaint, borderTop: `1px solid ${C.line}` }}>and {importRows.length - shown.length} more</div>}
+              </div>
+              {importable.length > n && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12px]" style={{ background: C.copperSoft, color: C.ink }}>Your Free plan has room for {n} more. The first {n} will be added. <button onClick={openPlanPage} className="font-semibold underline" style={{ color: C.copper }}>See plans</button></div>}
+              {importKind === 'product' && importable.some((r) => r.stock > 0) && shops.length > 1 && <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>Opening stock goes to {shopNameOf(targetShopId)}. Use Send stock to move some to other {L.many}.</div>}
+            </div>
+          )}
+          {importError && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{importError}</div>}
+          <button onClick={runImport} disabled={!n || !!importBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: !n || importBusy ? 0.55 : 1 }}>{importBusy || (n ? `Add ${importWord(n)}` : 'Paste your list to continue')}</button>
+        </div>
+      </div>
+    );
+  };
   const renderExtrasEmpty = () => (
     <div className="rounded-xl p-3.5 mb-3" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
       <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
@@ -2894,8 +3327,8 @@ function XorlaApp() {
       : { p_booking: b.id, p_product: f.productId, p_qty: Math.max(1, Number(f.qty) || 1) }),
       () => setChargeForm((x) => ({ ...x, qty: 1, item: '', price: '' })));
   };
-  const removeCharge = (c) => {
-    if (!window.confirm(`Take ${c.item}${Number(c.quantity) > 1 ? ` ×${Number(c.quantity)}` : ''} off this bill?`)) return;
+  const removeCharge = async (c) => {
+    if (!(await brandConfirm(`Take ${c.item}${Number(c.quantity) > 1 ? ` ×${Number(c.quantity)}` : ''} off this bill?`, { confirm: 'Take it off', danger: true }))) return;
     runBooking(() => sbRpc('remove_room_charge', session.access_token, { p_charge: c.id, p_reason: '' }));
   };
   const checkInAt = (b) => new Date(`${b.check_in}T14:00:00+01:00`).getTime();
@@ -3021,9 +3454,9 @@ function XorlaApp() {
     runBooking(() => sbRest('rooms', { method: 'POST', accessToken: session.access_token, body: fresh.map((label) => ({ business_id: settings.businessId, shop_id: deskShopId, product_id: productId, label })) }),
       () => setRoomSetup((s) => ({ ...s, [productId]: '' })));
   };
-  const retireRoom = (room) => {
+  const retireRoom = async (room) => {
     if (occupantOf(room)) { setBookingError(`Room ${room.label} has a guest in it. Check them out first.`); return; }
-    if (!window.confirm(`Take room ${room.label} out of use? Its history is kept, and you can add it back later.`)) return;
+    if (!(await brandConfirm(`Take room ${room.label} out of use? Its history is kept, and you can add it back later.`, { confirm: 'Take out of use', danger: true }))) return;
     runBooking(() => sbRest(`rooms?id=eq.${room.id}`, { method: 'PATCH', accessToken: session.access_token, body: { active: false } }));
   };
   const openWalkIn = (productId) => {
@@ -3588,7 +4021,7 @@ function XorlaApp() {
     } catch (e) { setBillingNote({ ok: false, text: e.message }); setBillingBusy(null); }
   };
   const turnOffAutoRenew = async () => {
-    if (!window.confirm('Turn off auto-renew? Your plan stays active until its end date, and your saved card is removed.')) return;
+    if (!(await brandConfirm('Turn off auto-renew? Your plan stays active until its end date, and your saved card is removed.', { confirm: 'Turn off', danger: true }))) return;
     setBillingBusy('auto'); setBillingNote(null);
     try { await callBilling('auto_renew_off'); await loadBusinessData(session.access_token); setBillingNote({ ok: true, text: 'Auto-renew is off and your card has been removed.' }); }
     catch (e) { setBillingNote({ ok: false, text: e.message }); }
@@ -3731,7 +4164,7 @@ function XorlaApp() {
                 <span style={{ fontFamily: display, fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em' }}>Pro</span>
                 <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: GOLD.on, color: GOLD.mid }}>{proCurrent ? 'Your plan' : 'Recommended'}</span>
               </div>
-              <div className="text-[13px] mt-0.5" style={{ color: 'rgba(10,31,28,0.75)' }}>For a growing shop with staff</div>
+              <div className="text-[13px] mt-0.5" style={{ color: 'rgba(10,31,28,0.75)' }}>For a growing business with staff</div>
               {priceBlock('pro', true)}
               <ul className="space-y-2 mt-5 mb-6">
                 {['Up to 3 staff, each with their own login', `Unlimited ${T.catalog.toLowerCase()}`, '150 questions to Oga a month, in 5 languages', '100 automatic WhatsApp reminders a month', 'Weekly or monthly WhatsApp summaries'].map((t) => tick(t, true))}
@@ -3745,7 +4178,7 @@ function XorlaApp() {
                 <span style={{ fontFamily: display, fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em' }}>Business</span>
                 {bizCurrent && <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: C.sageSoft, color: C.sage }}>Your plan</span>}
               </div>
-              <div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>For several shops or warehouses</div>
+              <div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>{settings.businessType === 'services' ? `For several ${L.many}` : `For several ${L.many} or warehouses`}</div>
               {priceBlock('business', false)}
               <ul className="space-y-2 mt-5 mb-5">
                 {['Everything in Pro', 'Up to 10 staff across your locations', 'Deliveries, transfers and stock requests', '500 questions to Oga and 500 reminders a month'].map((t) => tick(t, false))}
@@ -3957,19 +4390,19 @@ function XorlaApp() {
 
   const renderShopSwitcher = () => showShopSwitcher && (
     <div className="flex items-center gap-3 mb-5 flex-wrap">
-      <BrandSelect aria-label="Choose shop" icon={<Store size={15} className="shrink-0" style={{ color: C.copper }} />} value={viewAllShops ? 'all' : activeShopId || ''} onChange={(e) => setCurrentShopId(e.target.value)} className="pl-3.5 pr-3 py-2.5 rounded-full text-[13px] font-semibold whitespace-nowrap" style={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong || C.line}`, maxWidth: 260 }}>
-        {isOwnerRole && <option value="all">All shops</option>}
-        {myShops.map((s) => <option key={s.id} value={s.id}>{s.name}{isPausedLocation(s.id) ? ' (paused)' : ''}</option>)}
+      <BrandSelect aria-label={`Choose ${L.one}`} icon={<Store size={15} className="shrink-0" style={{ color: C.copper }} />} value={viewAllShops ? 'all' : activeShopId || ''} onChange={(e) => setCurrentShopId(e.target.value)} className="pl-3.5 pr-3 py-2.5 rounded-full text-[13px] font-semibold whitespace-nowrap" style={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong || C.line}`, maxWidth: 260 }}>
+        {isOwnerRole && <option value="all">All {L.many}</option>}
+        {myShops.map((s) => <option key={s.id} value={s.id}>{locName(s)}{isPausedLocation(s.id) ? ' (paused)' : ''}</option>)}
       </BrandSelect>
-      {viewAllShops && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Showing {shops.length} shops combined</span>}
+      {viewAllShops && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Showing {shops.length} {L.many} combined</span>}
     </div>
   );
   // In "All shops", forms ask which shop a new record belongs to
   const renderRecordShopPicker = () => (viewAllShops && shops.filter((s) => !isPausedLocation(s.id)).length > 1) && (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>For shop:</span>
+      <span className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>For {L.one}:</span>
       {shops.filter((s) => !isPausedLocation(s.id)).map((s) => (
-        <button key={s.id} type="button" onClick={() => { setRecordShopId(s.id); setSaleForm((f) => { if (!f.productId) return f; const base = productsAll.find((p) => p.id === f.productId); if (!base) return f; const qty = Math.max(1, Number(f.quantity) || 1); return { ...f, amount: String(priceAt(base, s.id) * qty) }; }); setCartItems((items) => items.map((it) => { if (!it.productId) return it; const base = productsAll.find((p) => p.id === it.productId); return base ? { ...it, unitPrice: String(priceAt(base, s.id)) } : it; })); }} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={targetShopId === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
+        <button key={s.id} type="button" onClick={() => { setRecordShopId(s.id); setSaleForm((f) => { if (!f.productId) return f; const base = productsAll.find((p) => p.id === f.productId); if (!base) return f; const qty = Math.max(1, Number(f.quantity) || 1); return { ...f, amount: String(priceAt(base, s.id) * qty) }; }); setCartItems((items) => items.map((it) => { if (!it.productId) return it; const base = productsAll.find((p) => p.id === it.productId); return base ? { ...it, unitPrice: String(priceAt(base, s.id)) } : it; })); }} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={targetShopId === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)}</button>
       ))}
     </div>
   );
@@ -4016,8 +4449,8 @@ function XorlaApp() {
           </div>
 
           {hasBookables && <div className="rounded-2xl p-4 mb-5" style={card}>{renderBookingDesk()}</div>}
-          {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} shops`,
-            "Check the shop shown at the top before recording — that's where your sale is saved.")}
+          {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} ${L.many}`,
+            `Check the ${L.one} shown at the top before recording. That's where your ${T.sale} is saved.`)}
           {/* Wide screens: recording on the left, today's numbers and stock on the right. Phones keep the original order. */}
           <div className="flex flex-col lg:flex-row lg:items-start lg:gap-8">
             <div className="contents lg:block lg:flex-1 lg:min-w-0">
@@ -4147,13 +4580,13 @@ function XorlaApp() {
                 {stockError && !stockPanel && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{stockError}</div>}
                 {pushState !== 'on' && pushState !== 'checking' && pushState !== 'unsupported' && (
                   <div className="rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                    <div className="text-[12px] mb-2" style={{ color: C.inkDim }}>Get a notification on this {DEVICE_WORD} when stock is sent to your shop, or your request is answered.</div>
+                    <div className="text-[12px] mb-2" style={{ color: C.inkDim }}>Get a notification on this {DEVICE_WORD} when stock is sent to your {L.one}, or your request is answered.</div>
                     {renderPushControl(true)}
                   </div>
                 )}
                 {myIncoming.length > 0 && (
                   <div>
-                    <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.copper }}>Arriving at your shop — check and confirm</div>
+                    <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.copper }}>Arriving at your {L.one}: check and confirm</div>
                     <div className="space-y-2">{renderIncoming(myIncoming)}</div>
                   </div>
                 )}
@@ -4271,17 +4704,19 @@ function XorlaApp() {
   if (tab === 'settings' && draft) {
     const settingsDirty = EDITABLE_SETTINGS.some((k) => (draft[k] ?? '') !== (settings[k] ?? ''));
     const saveSettingsDraft = () => {
+      if ((draft.closeTime || '18:00') <= (draft.openTime || '08:00')) { brandAlert('Closing time must be after opening time.', { title: 'Check your opening hours' }); return; }
       const patch = {};
-      EDITABLE_SETTINGS.forEach((k) => { patch[k] = draft[k]; });
-      patch.businessName = (draft.businessName || '').trim() || settings.businessName;
+      // Only what changed is saved, so one new setting can never hold up the others
+      EDITABLE_SETTINGS.forEach((k) => { if ((draft[k] ?? '') !== (settings[k] ?? '')) patch[k] = draft[k]; });
+      if ('businessName' in patch) patch.businessName = (draft.businessName || '').trim() || settings.businessName;
       updateSettings(patch);
       setDraft((prev) => ({ ...prev, ...patch }));
       setSettingsPage(null);
       setSaveNotice('Changes saved');
       setTimeout(() => setSaveNotice(''), 3000);
     };
-    const leaveSettings = () => {
-      if (settingsDirty && !window.confirm('You have unsaved changes. Leave without saving?')) return;
+    const leaveSettings = async () => {
+      if (settingsDirty && !(await brandConfirm('You have unsaved changes. Leave without saving?', { confirm: 'Leave', danger: true, cancel: 'Keep editing' }))) return;
       setTab(previousTab);
     };
     return (
@@ -4293,7 +4728,7 @@ function XorlaApp() {
               <ChevronLeft size={22} />
               <span className="text-[14px] font-medium">{settingsPage ? 'Settings' : 'Back'}</span>
             </button>
-            <div className="text-center text-[16px] font-semibold cx-display truncate">{SETTINGS_TITLES[settingsPage] || 'Settings'}</div>
+            <div className="text-center text-[16px] font-semibold cx-display truncate">{settingsPage === 'shops' ? L.Many : SETTINGS_TITLES[settingsPage] || 'Settings'}</div>
             <div />
           </div>
 
@@ -4322,12 +4757,15 @@ function XorlaApp() {
                 {renderSettingsGroup('Business', [
                   { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
                   { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
-                  { id: 'shops', Icon: Store, label: 'Shops', value: `${shops.length} shop${shops.length !== 1 ? 's' : ''}` },
+                  { id: 'shops', Icon: Store, label: L.Many, value: `${shops.length} ${shops.length !== 1 ? L.many : L.one}` },
                   { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
                   { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
                 {isOwnerRole && hasBookables && renderSettingsGroup('Bookings', [
                   { id: 'deposits', Icon: ShieldCheck, label: 'Deposits & cancellations', value: Number(draft.depositPercent ?? 50) === 0 ? 'No deposit' : `${draft.depositPercent ?? 50}% deposit` },
+                ])}
+                {isOwnerRole && apptMode && renderSettingsGroup('Appointments', [
+                  { id: 'hours', Icon: CalendarClock, label: 'Opening hours & appointments', value: draft.apptEnabled === false ? 'Off' : `${hhmmLabel(draft.openTime || '08:00')} to ${hhmmLabel(draft.closeTime || '18:00')}` },
                 ])}
                 {renderSettingsGroup('Language', [
                   { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
@@ -4422,7 +4860,7 @@ function XorlaApp() {
                       <div className="text-[10.5px] mb-4" style={{ color: C.inkFaint }}>Add up to 5 wide, bright photos — they slide automatically at the top of your store. Photos save as soon as they upload.</div>
 
                       <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>STORE TAGLINE</div>
-                      <input type="text" maxLength={80} placeholder="e.g. Premium human hair, delivered in Aba" value={draft.storefrontTagline} onChange={(e) => setDraft({ ...draft, storefrontTagline: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-4" style={field} />
+                      <input type="text" maxLength={80} placeholder={examplesFor(settings.businessType === 'products' ? null : serviceKind).tagline} value={draft.storefrontTagline} onChange={(e) => setDraft({ ...draft, storefrontTagline: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-4" style={field} />
 
                       <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR STORE LINK</div>
                       <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
@@ -4470,7 +4908,7 @@ function XorlaApp() {
             )}
             {settingsPage === 'shops' && (
               <div className="space-y-4">
-                <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Running more than one location? Add each shop here. Everything you record is kept per shop, and the switcher at the top lets you see one shop or all of them together.</div>
+                <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Running more than one location? Add each {L.one} here. Everything you record is kept per {L.one}, and the switcher at the top lets you see one {L.one} or all of them together.</div>
                 <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                   {locations.map((s, i) => {
                     const isWarehouse = s.kind === 'warehouse';
@@ -4481,7 +4919,7 @@ function XorlaApp() {
                       <div key={s.id} className="px-4 py-4 space-y-2" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                         <div className="flex items-center gap-2">
                           {isWarehouse ? <Warehouse size={15} style={{ color: C.copper }} /> : <Store size={15} style={{ color: C.copper }} />}
-                          <input aria-label="Shop name" value={edit.name ?? s.name} onChange={(e) => setShopEdits((p) => ({ ...p, [s.id]: { ...edit, name: e.target.value } }))} className="flex-1 min-w-0 bg-transparent text-[14.5px] font-semibold outline-none rounded-lg px-2 py-1" style={{ border: `1px solid ${changed ? C.copper : 'transparent'}` }} />
+                          <input aria-label={`${L.One} name`} value={edit.name ?? locName(s)} onChange={(e) => setShopEdits((p) => ({ ...p, [s.id]: { ...edit, name: e.target.value } }))} className="flex-1 min-w-0 bg-transparent text-[14.5px] font-semibold outline-none rounded-lg px-2 py-1" style={{ border: `1px solid ${changed ? C.copper : 'transparent'}` }} />
                           {s.id === mainShopId && <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold shrink-0" style={{ background: C.surfaceRaised, color: C.inkDim }}>MAIN</span>}
                           {isWarehouse && <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold shrink-0" style={{ background: C.copperSoft, color: C.copper }}>WAREHOUSE</span>}
                         </div>
@@ -4504,7 +4942,7 @@ function XorlaApp() {
                     <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                       {closedLocations.map((s, i) => (
                         <div key={s.id} className="flex items-center justify-between px-4 py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
-                          <span className="text-[13px]" style={{ color: C.inkDim }}>{s.name}<span className="text-[11px]" style={{ color: C.inkFaint }}> · history kept</span></span>
+                          <span className="text-[13px]" style={{ color: C.inkDim }}>{locName(s)}<span className="text-[11px]" style={{ color: C.inkFaint }}> · history kept</span></span>
                           <button onClick={() => reopenLocation(s)} className="text-[12px] font-medium" style={{ color: C.sage }}>Reopen</button>
                         </div>
                       ))}
@@ -4514,19 +4952,74 @@ function XorlaApp() {
                 <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                   <div className="text-[13.5px] font-semibold mb-2.5">Add a location</div>
                   <div className="flex gap-1 p-1 mb-2 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                    {[['shop', 'Shop'], ['warehouse', 'Warehouse']].map(([k, l]) => (
+                    {[['shop', L.One], ['warehouse', 'Warehouse']].map(([k, l]) => (
                       <button key={k} onClick={() => setNewShopKind(k)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={newShopKind === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
                     ))}
                   </div>
-                  <div className="text-[11.5px] mb-3" style={{ color: C.inkFaint }}>{newShopKind === 'warehouse' ? 'A warehouse stores stock and sends it to your shops. It never sells, and customers never see it.' : 'A shop sells to customers, can have staff, and appears on your storefront.'}</div>
+                  <div className="text-[11.5px] mb-3" style={{ color: C.inkFaint }}>{newShopKind === 'warehouse' ? `A warehouse stores stock and sends it to your ${L.many}. It never sells, and customers never see it.` : `A ${L.one} serves customers, can have staff, and appears on your storefront.`}</div>
                   <div className="flex gap-2">
                     <input placeholder={newShopKind === 'warehouse' ? 'e.g. Main warehouse, Lagos' : 'e.g. Ariaria branch'} value={newShopName} onChange={(e) => setNewShopName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addShop()} className="flex-1 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <button onClick={addShop} disabled={!newShopName.trim() || shopBusy} className="px-4 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: !newShopName.trim() || shopBusy ? 0.5 : 1 }}>{shopBusy ? 'Adding…' : 'Add'}</button>
                   </div>
-                  <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>Locations save instantly. For shops, choose which staff work there under Staff & join code.</div>
+                  <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>Locations save instantly. For each {L.one}, choose which staff work there under Staff & join code.</div>
                 </div>
               </div>
             )}
+            {settingsPage === 'hours' && (() => {
+              const days = draft.openDays || [1, 2, 3, 4, 5, 6];
+              const cap = Math.max(1, Number(draft.apptCapacity ?? 1));
+              const bad = (draft.closeTime || '18:00') <= (draft.openTime || '08:00');
+              return (
+                <div className="space-y-4">
+                  <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    <button onClick={() => setDraft({ ...draft, apptEnabled: draft.apptEnabled === false })} role="switch" aria-checked={draft.apptEnabled !== false} className="w-full flex items-start gap-3 px-4 py-4 text-left">
+                      <div className="flex-1">
+                        <div className="text-[14.5px] font-semibold mb-1">Let customers pick a time</div>
+                        <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>Your storefront shows only the times you're free. You still accept or decline each request.</div>
+                      </div>
+                      <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.apptEnabled !== false ? C.sage : C.line }}>
+                        <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: draft.apptEnabled !== false ? '24px' : '4px' }} />
+                      </span>
+                    </button>
+                    <div className="px-4 py-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                      <div className="text-[14.5px] font-semibold mb-2.5">Days you're open</div>
+                      <div className="grid grid-cols-7 gap-1.5">
+                        {[[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']].map(([d, l]) => {
+                          const on = days.includes(d);
+                          return <button key={d} onClick={() => setDraft({ ...draft, openDays: on ? days.filter((x) => x !== d) : [...days, d].sort() })} aria-pressed={on} className="py-2 rounded-lg text-[12px] font-semibold" style={on ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>;
+                        })}
+                      </div>
+                    </div>
+                    <div className="px-4 py-4 grid grid-cols-2 gap-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                      {[['openTime', 'Opens', '08:00'], ['closeTime', 'Closes', '18:00']].map(([k, l, dflt]) => (
+                        <label key={k} className="text-[12px]" style={{ color: C.inkFaint }}>{l}
+                          <BrandSelect value={draft[k] || dflt} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm" style={field}>
+                            {HALF_HOURS.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}
+                          </BrandSelect>
+                        </label>
+                      ))}
+                      {bad && <div className="col-span-2 text-[12px]" style={{ color: C.rust }}>Closing time must be after opening time.</div>}
+                    </div>
+                    <div className="px-4 py-4 flex items-center gap-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                      <div className="flex-1">
+                        <div className="text-[14.5px] font-semibold mb-0.5">Customers at the same time</div>
+                        <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>How many you can serve at once, for example your chairs or stylists{shops.length > 1 ? `, at each ${L.one}` : ''}.</div>
+                      </div>
+                      <div className="flex items-center rounded-xl shrink-0" style={{ border: `1px solid ${C.line}` }}>
+                        <button aria-label="Fewer" onClick={() => setDraft({ ...draft, apptCapacity: Math.max(1, cap - 1) })} className="w-9 h-10 text-[18px]" style={{ color: C.inkDim }}>−</button>
+                        <span className="w-7 text-center text-[15px] font-semibold cx-mono">{cap}</span>
+                        <button aria-label="More" onClick={() => setDraft({ ...draft, apptCapacity: Math.min(50, cap + 1) })} className="w-9 h-10 text-[18px]" style={{ color: C.inkDim }}>+</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl p-4 text-[12.5px] leading-relaxed space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>
+                    <div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>How times are worked out</div>
+                    <div>Each service uses its <strong style={{ color: C.ink }}>How long it takes</strong> setting. Services without one count as 1 hour, and full-day services are asked for by date instead.</div>
+                    <div>A request holds its time for up to 24 hours while you answer. Once you accept, nobody else can take that time{cap > 1 ? ` unless you still have room for ${cap} at once` : ''}.</div>
+                  </div>
+                </div>
+              );
+            })()}
             {settingsPage === 'deposits' && (() => {
               const pct = Number(draft.depositPercent ?? 50), cap = Number(draft.depositCapNights ?? 1), hrs = Number(draft.cancelWindowHours ?? 24);
               const depFor = (nights) => { const total = 50000 * nights; const raw = total * pct / 100; return Math.round(cap > 0 ? Math.min(raw, 50000 * cap) : raw); };
@@ -4670,10 +5163,10 @@ function XorlaApp() {
                   <div className="space-y-2 text-[12.5px]" style={{ color: C.inkDim }}>
                     {(isOwnerRole ? [
                       ['New storefront orders', 'the moment they come in'],
-                      ['Stock requests', 'when a shop asks for more'],
+                      ['Stock requests', `when a ${L.one} asks for more`],
                       ['Overdue invoices', 'one summary each morning, not a buzz for each'],
                     ] : [
-                      ['Stock on its way', 'when stock is sent to your shop'],
+                      ['Stock on its way', `when stock is sent to your ${L.one}`],
                       ['Your stock requests', 'when they are approved or declined'],
                     ]).map(([a, b]) => (
                       <div key={a} className="flex items-start gap-2.5"><Check size={14} className="shrink-0 mt-0.5" style={{ color: C.sage }} /><span><strong style={{ color: C.ink }}>{a}</strong> — {b}</span></div>
@@ -4718,7 +5211,7 @@ function XorlaApp() {
                   </div>
                   <div>
                     <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS ADDRESS (OPTIONAL)</div>
-                    <textarea placeholder="Shop address, street, city" value={draft.businessAddress} onChange={(e) => setDraft({ ...draft, businessAddress: e.target.value })} rows={2} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
+                    <textarea placeholder={`${L.One} address, street, city`} value={draft.businessAddress} onChange={(e) => setDraft({ ...draft, businessAddress: e.target.value })} rows={2} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
                     <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your invoice PDFs.</div>
                   </div>
                 </div>
@@ -4756,7 +5249,7 @@ function XorlaApp() {
             )}
             {settingsPage === 'team' && shops.length > 1 && settings.staffList.length > 0 && (
               <div className="mt-4">
-                <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Which shops each person works in</div>
+                <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Which {L.many} each person works in</div>
                 <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                   {settings.staffList.map((st, i) => (
                     <div key={st.id} className="px-4 py-3.5" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
@@ -4764,13 +5257,13 @@ function XorlaApp() {
                       <div className="flex flex-wrap gap-1.5">
                         {shops.map((s) => {
                           const on = staffShops.some((ss) => ss.profile_id === st.id && ss.shop_id === s.id);
-                          return <button key={s.id} onClick={() => toggleStaffShop(st.id, s.id)} aria-pressed={on} className="px-3 py-1.5 rounded-full text-[12px] font-medium flex items-center gap-1" style={on ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{on && <Check size={12} />}{s.name}</button>;
+                          return <button key={s.id} onClick={() => toggleStaffShop(st.id, s.id)} aria-pressed={on} className="px-3 py-1.5 rounded-full text-[12px] font-medium flex items-center gap-1" style={on ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{on && <Check size={12} />}{locName(s)}</button>;
                         })}
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="text-[11px] mt-2 px-1" style={{ color: C.inkFaint }}>Staff only see and record for the shops they're in. Changes save instantly.</div>
+                <div className="text-[11px] mt-2 px-1" style={{ color: C.inkFaint }}>Staff only see and record for the {L.many} they're in. Changes save instantly.</div>
               </div>
             )}
             {settingsPage === 'security' && (
@@ -4958,7 +5451,7 @@ function XorlaApp() {
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><PackagePlus size={18} style={{ color: C.bg }} /></div>
                     <div>
-                      <div className="text-[13.5px] font-semibold cx-display">{pendingRequests.length} stock request{pendingRequests.length !== 1 ? 's' : ''} from your shops</div>
+                      <div className="text-[13.5px] font-semibold cx-display">{pendingRequests.length} stock request{pendingRequests.length !== 1 ? 's' : ''} from your {L.many}</div>
                       <div className="text-[11.5px]" style={{ color: C.inkDim }}>Tap to approve or decline</div>
                     </div>
                   </div>
@@ -4992,7 +5485,7 @@ function XorlaApp() {
                       <button onClick={() => dismissTip('trialWelcome')} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
                     </div>
                     <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2.5 mt-4">
-                      {[[Users, 'Up to 10 staff, each with their own login'], [Store, 'Several shops and warehouses, with stock transfers'], [Lightbulb, '500 questions to Oga a month, in 5 languages'], [Send, 'Automatic WhatsApp payment reminders']].map(([Icon, t]) => (
+                      {[[Users, 'Up to 10 staff, each with their own login'], [Store, settings.businessType === 'services' ? `Several ${L.many}, seen together or one at a time` : `Several ${L.many} and warehouses, with stock transfers`], [Lightbulb, '500 questions to Oga a month, in 5 languages'], [Send, 'Automatic WhatsApp payment reminders']].map(([Icon, t]) => (
                         <div key={t} className="flex items-start gap-2.5 text-[13px]" style={{ color: C.ink }}>
                           <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.12)' }}><Icon size={14} style={{ color: C.sage }} /></span>
                           <span className="pt-1 leading-snug">{t}</span>
@@ -5054,8 +5547,8 @@ function XorlaApp() {
                 return (
                   <div className="rounded-2xl p-5 mb-5 xorla-fade-up" style={card}>
                     <div className="flex items-center justify-between mb-4">
-                      <div className="text-[13.5px] font-semibold cx-display">Today by shop</div>
-                      <div className="text-[11px]" style={{ color: C.inkFaint }}>Tap a shop to see just that shop</div>
+                      <div className="text-[13.5px] font-semibold cx-display">Today by {L.one}</div>
+                      <div className="text-[11px]" style={{ color: C.inkFaint }}>Tap a {L.one} to see just that {L.one}</div>
                     </div>
                     <div className="space-y-3">
                       {rows.map((r) => (
@@ -5459,7 +5952,27 @@ function XorlaApp() {
         {tab === 'orders' && (
           <>
             {renderSalesSwitch()}
-            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{T.tracksStock ? 'Orders placed through your storefront land here. Fulfilling one logs it as a real sale and updates your stock automatically.' : 'Service requests from your storefront land here, with the customer\'s preferred time. Marking one done logs it as a job.'}</div>
+            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{apptMode && settings.apptEnabled !== false
+              ? `Requests from your storefront land here with the time the customer picked. Only free times can be picked, and you can't accept two that clash. Marking one done records it as a ${T.sale}.`
+              : T.tracksStock ? 'Orders placed through your storefront land here. Fulfilling one logs it as a real sale and updates your stock automatically.' : 'Service requests from your storefront land here, with the customer\'s preferred time. Marking one done logs it as a job.'}</div>
+            {apptMode && (
+              <div className="mb-5 space-y-3">
+                <button onClick={() => openAppt('new')} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={17} /> New appointment</button>
+                {todaysAppts.length > 0 && (
+                  <div className="rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    <div className="text-[13px] font-semibold mb-2">Today's appointments</div>
+                    <div className="space-y-1.5">
+                      {todaysAppts.map((o) => (
+                        <div key={o.id} className="flex items-center gap-3 text-[12.5px]">
+                          <span className="shrink-0 whitespace-nowrap cx-mono font-semibold" style={{ color: new Date(o.endAt) < new Date() ? C.inkFaint : C.copper }}>{apptTime(o.startAt)} to {apptTime(o.endAt)}</span>
+                          <span className="min-w-0 truncate"><strong>{o.customerName}</strong><span style={{ color: C.inkDim }}> · {o.items.map((it) => it.description).join(', ')}</span></span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {orders.length === 0 && (
               <div className="text-center text-[13px] py-10 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>
                 {settings.storefrontEnabled ? 'No orders yet — share your storefront link to start getting them.' : 'Turn on your storefront in Settings to start receiving orders here.'}
@@ -5474,10 +5987,12 @@ function XorlaApp() {
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                     <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
+                      o.status === 'pending' && o.acceptedAt ? { background: C.sageSoft, color: C.sage } :
+                      o.status === 'pending' && o.startAt && apptPassed(o) ? { background: C.surfaceRaised, color: C.inkFaint } :
                       o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
                       o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
                       { background: 'rgba(226,98,75,0.12)', color: C.rust }
-                    }>{o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : 'Cancelled'}</span>
+                    }>{o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
                   </div>
                   <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
                     {o.items.map((it, i) => (
@@ -5487,7 +6002,27 @@ function XorlaApp() {
                       </div>
                     ))}
                   </div>
-                  {(o.preferredTime || o.note) && (
+                  {o.startAt && (() => {
+                    const clash = o.status === 'pending' && !o.acceptedAt ? apptClashes(o) : [];
+                    const full = clash.length >= apptCap;
+                    return (
+                      <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: o.status !== 'pending' ? C.surfaceRaised : full ? C.rustSoft : o.acceptedAt ? C.sageSoft : C.surfaceRaised }}>
+                        <div className="flex items-center gap-2">
+                          <CalendarClock size={15} style={{ color: full ? C.rust : o.acceptedAt ? C.sage : C.copper }} />
+                          <span className="font-semibold" style={{ color: C.ink }}>{apptRange(o)}</span>
+                        </div>
+                        {o.status === 'pending' && !o.acceptedAt && !apptPassed(o) && (
+                          <div className="mt-1" style={{ color: full ? C.rust : C.sage }}>{full
+                            ? `Clashes with ${clash.map((x) => `${x.customerName} (${apptTime(x.startAt)} to ${apptTime(x.endAt)})`).join(', ')}. Offer another time, or decline.`
+                            : clash.length ? `Free. ${clash.length} of ${apptCap} places already booked at that time.` : 'This time is free.'}</div>
+                        )}
+                        {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
+                        {o.status === 'cancelled' && o.cancelReason && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
+                        {o.note && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
+                      </div>
+                    );
+                  })()}
+                  {!o.startAt && (o.preferredTime || o.note) && (
                     <div className="rounded-xl px-3 py-2.5 mb-3 space-y-1 text-[12.5px]" style={{ background: C.surfaceRaised }}>
                       {o.preferredTime && <div><span style={{ color: C.inkFaint }}>Preferred time: </span><span className="font-semibold">{o.preferredTime}</span></div>}
                       {o.note && <div><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
@@ -5495,7 +6030,21 @@ function XorlaApp() {
                   )}
                   <div className="flex items-center justify-between">
                     <div className="cx-mono text-[14px] font-bold">{fmt(o.total)}</div>
-                    {o.status === 'pending' && (
+                    {o.status === 'pending' && o.startAt && !o.acceptedAt && (
+                      <div className="flex items-center gap-2.5">
+                        <button onClick={() => openAppt('decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
+                        <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>
+                        {!apptPassed(o) && apptClashes(o).length < apptCap && <button onClick={() => acceptAppt(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Accept</button>}
+                      </div>
+                    )}
+                    {o.status === 'pending' && o.startAt && o.acceptedAt && (
+                      <div className="flex items-center gap-2.5">
+                        <button onClick={() => openAppt('cancel', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
+                        {waConfirmLink(o) && <a href={waConfirmLink(o)} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
+                        <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark done</button>
+                      </div>
+                    )}
+                    {o.status === 'pending' && !o.startAt && (
                       <div className="flex items-center gap-3">
                         <button onClick={() => cancelOrder(o.id)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
                         <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>{T.tracksStock ? 'Fulfill' : 'Mark done'}</button>
@@ -5534,11 +6083,16 @@ function XorlaApp() {
                   <button onClick={() => openCatalogForm('extra')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.35)', color: C.ink }}>
                     <Plus size={18} className="shrink-0" style={{ color: C.sage }} /><span><span className="block text-[14px] font-semibold">Add an extra</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Delivery, extra hours' : 'Laundry, bar, airport pickup'}</span></span>
                   </button>
+                  {isOwnerRole && <button onClick={openImport} className="col-span-2 -mt-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list of extras</button>}
                 </div>
               ) : (
               <button onClick={() => { setEditingProductId(null); setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
               )
-            ) : (
+            ) : null}
+            {!showProductForm && !T.saleHint && isOwnerRole && (
+              <button onClick={openImport} className="w-full -mt-4 mb-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list instead</button>
+            )}
+            {!showProductForm ? null : (
               <div className="rounded-2xl p-5 mb-6 space-y-4" style={card}>
                 <div className="flex items-center justify-between">
                   <div className="text-[15px] font-semibold cx-display">{productForm.mode === 'extra' ? (editingProductId ? 'Edit extra' : 'New extra') : productForm.mode === 'room' ? (editingProductId ? `Edit ${roomWord}` : `New ${roomWord}`) : editingProductId ? (formIsService ? 'Edit service' : 'Edit product') : (formIsService ? 'New service' : 'New product')}</div>
@@ -5566,12 +6120,12 @@ function XorlaApp() {
 
                 <div>
                   <div className={fieldLabel} style={{ color: C.inkFaint }}>{formIsService ? 'SERVICE NAME' : 'PRODUCT NAME'}</div>
-                  <input type="text" placeholder={productForm.mode === 'extra' ? (serviceKind === 'rentals' ? 'e.g. Delivery, Extra hour, Driver for the day' : 'e.g. Laundry (per bag), Bottle of water, Airport pickup') : formIsService ? (SERVICE_KINDS[serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : 'e.g. Bone-straight wig, 18 inches'} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <input type="text" placeholder={productForm.mode === 'extra' ? (serviceKind === 'rentals' ? 'e.g. Delivery, Extra hour, Driver for the day' : 'e.g. Laundry (per bag), Bottle of water, Airport pickup') : formIsService ? (SERVICE_KINDS[serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : examplesFor(settings.businessType === 'products' ? null : serviceKind).name} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 </div>
 
                 <div>
                   <div className={fieldLabel} style={{ color: C.inkFaint }}>CATEGORY (OPTIONAL)</div>
-                  <input type="text" list="xorla-categories" placeholder={formIsService ? (SERVICE_KINDS[serviceKind]?.category || 'e.g. Hair, Nails, Repairs, Alterations') : 'e.g. Wigs, Shoes, Drinks'} value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <input type="text" list="xorla-categories" placeholder={formIsService ? (SERVICE_KINDS[serviceKind]?.category || 'e.g. Hair, Nails, Repairs, Alterations') : examplesFor(settings.businessType === 'products' ? null : serviceKind).category} value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   <datalist id="xorla-categories">
                     {[...new Set(products.map((p) => p.category).filter(Boolean))].map((cat) => <option key={cat} value={cat} />)}
                   </datalist>
@@ -5602,6 +6156,7 @@ function XorlaApp() {
                         <option value="">Not specified</option>
                         {DURATIONS.map((d) => <option key={d} value={d}>{d}</option>)}
                       </BrandSelect>
+                      {apptMode && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>{['Full day', '2+ days'].includes(productForm.duration) ? 'Customers ask for a date for this one, not a set time.' : 'Used to offer free times on your storefront. Not specified counts as 1 hour.'}</div>}
                     </div>
                     )}
                     <div>
@@ -5636,12 +6191,12 @@ function XorlaApp() {
                 )}
                 {isOwnerRole && shops.length > 1 && (
                   <div className="rounded-xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                    <div className={fieldLabel} style={{ color: C.inkFaint }}>PRICE BY SHOP (OPTIONAL)</div>
-                    <div className="text-[11px] mb-3" style={{ color: C.inkFaint }}>Leave a shop blank to use the normal price{productForm.sellingPrice ? ` (${fmt(productForm.sellingPrice)})` : ''}.</div>
+                    <div className={fieldLabel} style={{ color: C.inkFaint }}>PRICE BY {L.one.toUpperCase()} (OPTIONAL)</div>
+                    <div className="text-[11px] mb-3" style={{ color: C.inkFaint }}>Leave a {L.one} blank to use the normal price{productForm.sellingPrice ? ` (${fmt(productForm.sellingPrice)})` : ''}.</div>
                     <div className="space-y-2">
                       {shops.map((s) => (
                         <div key={s.id} className="flex items-center gap-2">
-                          <span className="flex-1 min-w-0 truncate text-[12.5px]" style={{ color: C.inkDim }}>{s.name}</span>
+                          <span className="flex-1 min-w-0 truncate text-[12.5px]" style={{ color: C.inkDim }}>{locName(s)}</span>
                           <input type="text" inputMode="decimal" placeholder={productForm.sellingPrice ? formatNumInput(productForm.sellingPrice) : '₦'} value={formatNumInput((productForm.shopPrices || {})[s.id] || '')} onChange={(e) => setProductForm({ ...productForm, shopPrices: { ...(productForm.shopPrices || {}), [s.id]: parseNumInput(e.target.value) } })} className="w-32 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
                         </div>
                       ))}
@@ -5691,7 +6246,7 @@ function XorlaApp() {
                                 const low = q <= p.lowStockThreshold;
                                 return (
                                   <div key={s.id} className="flex items-center justify-between gap-3 text-[11px]">
-                                    <span className="truncate" style={{ color: C.inkFaint }}>{s.name}</span>
+                                    <span className="truncate" style={{ color: C.inkFaint }}>{locName(s)}</span>
                                     <span className="cx-mono font-semibold shrink-0" style={{ color: low ? C.rust : C.inkDim }}>{q}{low ? ' · low' : ''}</span>
                                   </div>
                                 );
@@ -5710,16 +6265,16 @@ function XorlaApp() {
                     </div>
                     {transferringId === p.id && (
                       <div className="rounded-xl p-3 mt-2.5 space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                        <div className="text-[11.5px] font-semibold" style={{ color: C.inkDim }}>Move stock between shops</div>
+                        <div className="text-[11.5px] font-semibold" style={{ color: C.inkDim }}>Move stock between {L.many}</div>
                         <div className="flex gap-2 items-center">
                           <BrandSelect value={transferForm.from} onChange={(e) => setTransferForm({ ...transferForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
                             <option value="">From…</option>
-                            {shops.map((s) => <option key={s.id} value={s.id}>{s.name} ({stockAt(p, s.id)})</option>)}
+                            {shops.map((s) => <option key={s.id} value={s.id}>{locName(s)} ({stockAt(p, s.id)})</option>)}
                           </BrandSelect>
                           <span style={{ color: C.inkFaint }}>→</span>
                           <BrandSelect value={transferForm.to} onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
                             <option value="">To…</option>
-                            {shops.filter((s) => s.id !== transferForm.from).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            {shops.filter((s) => s.id !== transferForm.from).map((s) => <option key={s.id} value={s.id}>{locName(s)}</option>)}
                           </BrandSelect>
                         </div>
                         <div className="flex gap-2">
@@ -5732,7 +6287,7 @@ function XorlaApp() {
                       <div className="flex items-center gap-2 mt-2.5 flex-wrap">
                         <span className="text-[11.5px]" style={{ color: C.inkDim }}>Into:</span>
                         {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
-                          <button key={s.id} onClick={() => setRestockShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={(restockShopId || mainShopId) === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name}</button>
+                          <button key={s.id} onClick={() => setRestockShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={(restockShopId || mainShopId) === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)}</button>
                         ))}
                       </div>
                     )}
@@ -5770,7 +6325,7 @@ function XorlaApp() {
                           {viewAllShops && hasManyLocations && (
                             <div className="flex flex-wrap gap-1.5">
                               {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
-                                <button key={s.id} onClick={() => setCorrectShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={cShop === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{s.name} ({stockAt(p, s.id)})</button>
+                                <button key={s.id} onClick={() => setCorrectShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={cShop === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)} ({stockAt(p, s.id)})</button>
                               ))}
                             </div>
                           )}
@@ -6203,6 +6758,9 @@ function XorlaApp() {
       {renderReceiptModal()}
       {renderStockPanel()}
       {renderBookingPanels()}
+      {renderImportPanel()}
+      {renderFulfilPanel()}
+      {renderApptPanel()}
       {renderNotifPanel()}
       {renderLimitPrompt()}
       {aiNotice && (
@@ -6281,6 +6839,12 @@ function Storefront({ businessCode }) {
   const [touchStartX, setTouchStartX] = useState(null);
   const [preferredTime, setPreferredTime] = useState('');
   const [storeShopId, setStoreShopId] = useState(null);
+  // Appointments: free times for the services in the basket
+  const [apptCal, setApptCal] = useState(null);
+  const [apptCalLoading, setApptCalLoading] = useState(false);
+  const [apptPickDay, setApptPickDay] = useState('');
+  const [apptSlot, setApptSlot] = useState('');
+  const [sentWhen, setSentWhen] = useState('');
   // Bookings (hotels and rentals): chosen dates, live availability, and the booking form
   const [stayIn, setStayIn] = useState('');
   const [stayOut, setStayOut] = useState('');
@@ -6396,6 +6960,21 @@ function Storefront({ businessCode }) {
     return c.product.priceUnit === 'hour' ? ` (${c.qty} hr${c.qty !== 1 ? 's' : ''})` : '';
   };
 
+  const serviceKey = JSON.stringify(cartList.filter((c) => kindOf(c.product, business?.business_type) === 'service').map((c) => [c.product.id, c.qty]));
+  const loadStoreCalendar = useCallback(async () => {
+    const items = JSON.parse(serviceKey).map(([productId, quantity]) => ({ productId, quantity }));
+    if (!items.length || !business) { setApptCal(null); return; }
+    setApptCalLoading(true);
+    try {
+      const cal = await sbRpc('appointment_calendar', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_items: items, p_days: 14 });
+      setApptCal(cal && cal.minutes ? cal : null);
+      setApptPickDay((d) => (cal?.days || []).some((x) => x.date === d && x.slots.length) ? d : ((cal?.days || []).find((x) => x.slots.length)?.date || ''));
+    } catch (e) { setApptCal(null); }
+    setApptCalLoading(false);
+  }, [serviceKey, business, businessCode]);
+  useEffect(() => { setApptSlot(''); if (showCheckout) loadStoreCalendar(); }, [showCheckout, loadStoreCalendar]);
+  const usesSlots = !!(apptCal && apptCal.minutes);
+
   const changeQty = (product, delta) => {
     setCart((prev) => {
       const current = prev[product.id] || 0;
@@ -6411,18 +6990,24 @@ function Storefront({ businessCode }) {
     try {
       // Only product IDs + quantities are sent — the database looks up the real prices itself
       const items = cartList.map((c) => ({ productId: c.product.id, quantity: c.qty }));
-      const when = preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      await sbRpc('place_order', SB_KEY, { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim() });
+      const when = usesSlots && apptSlot
+        ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
+        : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+      await sbRpc('place_order', SB_KEY, { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot } : {}) });
+      setSentWhen(usesSlots && apptSlot ? when : '');
       if (business.owner_phone) {
         const lines = cartList.map((c) => `• ${c.product.name}${lineQtyText(c)} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
         const extra = `${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
-        const shopLabel = storeShops.length > 1 ? ` for ${currentStoreShop?.name}` : '';
+        const shopLabel = storeShops.length > 1 ? ` for ${displayLocationName(currentStoreShop, locationWords(business?.business_type, business?.service_kind))}` : '';
         const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}\n\nTotal: ${fmt(cartTotal)}${extra}`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
       }
       setOrderSent(true);
       setShowCheckout(false);
-    } catch (e) { alert(`Your ${W.short.toLowerCase()} didn't go through. Check your connection and tap ${W.send} again.`); }
+    } catch (e) {
+      if (/time|closed|opening hours|booked/i.test(e.message || '')) { brandAlert(e.message, { theme: 'light', title: 'Please pick another time' }); setApptSlot(''); loadStoreCalendar(); }
+      else brandAlert(`Your ${W.short.toLowerCase()} didn't go through. Check your connection and tap ${W.send} again.`, { theme: 'light' });
+    }
     setSubmitting(false);
   };
 
@@ -6462,7 +7047,8 @@ function Storefront({ businessCode }) {
       <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-5" style={{ background: S.ink }}><Check size={26} color="#fff" /></div>
         <div className="text-[24px] font-bold mb-2">{W.sent} {business.name}</div>
-        <div className="text-[14px] max-w-sm mb-8" style={{ color: S.muted }}>They'll contact you{customerPhone ? ` on ${customerPhone}` : ''} to confirm {W.inYour} and arrange payment{isService ? '' : ' and delivery'}.</div>
+        {sentWhen && <div className="text-[15px] font-semibold mb-2">{sentWhen}</div>}
+        <div className="text-[14px] max-w-sm mb-8" style={{ color: S.muted }}>{sentWhen ? `This time is held for you. ${business.name} will confirm it${customerPhone ? ` on ${customerPhone}` : ''} soon.` : `They'll contact you${customerPhone ? ` on ${customerPhone}` : ''} to confirm ${W.inYour} and arrange payment${isService ? '' : ' and delivery'}.`}</div>
         <button onClick={() => { setOrderSent(false); setCart({}); }} className={`px-6 py-3 rounded-full text-[14px] font-semibold ${focusRing}`} style={{ border: `1.5px solid ${S.ink}` }}>Back to the store</button>
       </div>
     );
@@ -6669,15 +7255,47 @@ function Storefront({ businessCode }) {
       <input id="sf-phone" type="tel" autoComplete="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="So they can confirm with you" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-2 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
       {cartHasService && (
         <>
-          <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-when">When would you like it? <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
-          <input id="sf-when" type="datetime-local" value={preferredTime} onChange={(e) => setPreferredTime(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+          {apptCalLoading && !apptCal && <div className="flex items-center gap-2 text-[13px] mb-4 mt-2" style={{ color: S.muted }}><Loader2 size={15} className="animate-spin" /> Checking free times…</div>}
+          {usesSlots ? (() => {
+            const day = apptCal.days.find((d) => d.date === apptPickDay);
+            const anyFree = apptCal.days.some((d) => d.slots.length);
+            return (
+              <div className="mb-4 mt-2">
+                <div className="text-[13px] font-semibold mb-1">Pick a time</div>
+                <div className="text-[12px] mb-2" style={{ color: S.muted }}>Takes about {apptCal.minutes >= 60 ? `${apptCal.minutes / 60} hour${apptCal.minutes !== 60 ? 's' : ''}` : `${apptCal.minutes} minutes`}. Only free times are shown.</div>
+                {!anyFree ? <div className="text-[13px] rounded-xl px-4 py-3" style={{ background: S.tile }}>No free times in the next two weeks. Send your request anyway and they'll suggest a time.</div> : (
+                  <>
+                    <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1" role="tablist" aria-label="Day">
+                      {apptCal.days.map((d) => (
+                        <button key={d.date} type="button" role="tab" aria-selected={apptPickDay === d.date} disabled={!d.slots.length} onClick={() => { setApptPickDay(d.date); setApptSlot(''); }} className={`shrink-0 min-w-[66px] px-3 py-2 rounded-xl text-[12.5px] font-semibold text-center ${focusRing}`}
+                          style={apptPickDay === d.date ? { background: S.ink, color: '#fff' } : { background: S.tile, color: d.slots.length ? S.ink : S.soldOut }}>
+                          {dayChipLabel(d.date, new Date().toLocaleDateString('sv-SE', LAGOS_TIME))}<span className="block text-[10.5px] font-medium" style={{ opacity: 0.75 }}>{!d.open ? 'Closed' : d.slots.length ? `${d.slots.length} free` : 'Full'}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {day && (
+                      <div className="grid grid-cols-4 gap-1.5 mt-1">
+                        {day.slots.map((t) => <button key={t} type="button" onClick={() => setApptSlot(t)} aria-pressed={apptSlot === t} className={`py-2.5 rounded-lg text-[13px] font-semibold ${focusRing}`} style={apptSlot === t ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{apptTime(t)}</button>)}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })() : !apptCalLoading && (
+            <>
+              <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-when">When would you like it? <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
+              <input id="sf-when" type="datetime-local" value={preferredTime} onChange={(e) => setPreferredTime(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+            </>
+          )}
           <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-note">Anything they should know? <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
-          <textarea id="sf-note" rows={2} maxLength={300} value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder="e.g. Hair length, car model, measurements" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 resize-none ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+          <textarea id="sf-note" rows={2} maxLength={300} value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder={examplesFor(business.business_type === 'products' ? null : business.service_kind).note} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 resize-none ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
         </>
       )}
-      <div className="text-[12px] mb-5" style={{ color: S.muted }}>No payment now — {business.name} will contact you to confirm{cartHasService ? ' the time' : ''} and arrange payment.</div>
+      <div className="text-[12px] mb-5" style={{ color: S.muted }}>{usesSlots && apptSlot ? `No payment now. Your time is held while ${business.name} confirms it.` : `No payment now. ${business.name} will contact you to confirm${cartHasService ? ' the time' : ''} and arrange payment.`}</div>
       <div className="sticky bottom-0 -mx-5 px-5 lg:-mx-6 lg:px-6 pt-3 pb-5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 22%)' }}>
-  <button onClick={submitOrder} disabled={submitting || !customerName.trim() || cartList.length === 0} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: submitting || !customerName.trim() || cartList.length === 0 ? 0.4 : 1 }}>{submitting ? 'Sending…' : `${W.send} · ${fmt(cartTotal)}`}</button>
+  {(() => { const needSlot = usesSlots && apptCal.days.some((d) => d.slots.length) && !apptSlot; const off = submitting || !customerName.trim() || cartList.length === 0 || needSlot; return (
+  <button onClick={submitOrder} disabled={off} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: off ? 0.4 : 1 }}>{submitting ? 'Sending…' : needSlot && customerName.trim() ? 'Pick a time to continue' : `${W.send} · ${fmt(cartTotal)}`}</button>); })()}
       </div>
     </div>
   );
@@ -6757,10 +7375,10 @@ function Storefront({ businessCode }) {
             <div className="mb-5 rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: S.tile }}>
               <Store size={18} style={{ color: S.ink }} className="shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="text-[11.5px]" style={{ color: S.muted }}>Shopping from</div>
+                <div className="text-[11.5px]" style={{ color: S.muted }}>{locationWords(business.business_type, business.service_kind).one === 'branch' ? 'Branch' : 'Shopping from'}</div>
                 <div className="relative">
                   <select aria-label="Choose which shop to order from" value={currentStoreShop?.id || ''} onChange={(e) => { setSwitchingShop(true); setStoreShopId(e.target.value); }} className={`w-full appearance-none bg-transparent pr-6 text-[15px] font-bold outline-none cursor-pointer ${focusRing}`} style={{ color: S.ink }}>
-                    {storeShops.map((sh) => <option key={sh.id} value={sh.id}>{sh.name}</option>)}
+                    {storeShops.map((sh) => <option key={sh.id} value={sh.id}>{displayLocationName(sh, locationWords(business.business_type, business.service_kind))}</option>)}
                   </select>
                   <ChevronRight size={16} className="absolute right-0 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" style={{ color: S.muted }} />
                 </div>
@@ -6964,10 +7582,10 @@ function PricingPage() {
             {/* Free */}
             <div className="order-3 lg:order-1 rounded-[26px] p-7" style={{ border: `1px solid ${P.line}`, background: 'rgba(15,43,38,0.5)' }}>
               <h2 style={{ fontFamily: display, fontWeight: 700, fontSize: 21 }}>Free</h2>
-              <p className="text-[14px] mt-1" style={{ color: P.muted }}>Run a one-person shop properly.</p>
+              <p className="text-[14px] mt-1" style={{ color: P.muted }}>Run a one-person business properly.</p>
               <div className="mt-5" style={{ fontFamily: display, fontWeight: 800, fontSize: 40, letterSpacing: '-0.03em' }}>₦0</div>
               <ul className="space-y-2.5 mt-6 mb-7">
-                {['1 shop, run by you', 'Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link', '10 questions to Oga a month'].map((t) => <Tick key={t} t={t} />)}
+                {['1 location, run by you', 'Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link', '10 questions to Oga a month'].map((t) => <Tick key={t} t={t} />)}
               </ul>
               <a href="/" className="block text-center rounded-2xl py-3.5 text-[15px] font-semibold" style={{ border: `1px solid ${P.line}`, color: P.ink }}>Start free</a>
             </div>
@@ -6978,7 +7596,7 @@ function PricingPage() {
                 <h2 style={{ fontFamily: display, fontWeight: 800, fontSize: 24, letterSpacing: '-0.02em' }}>Pro</h2>
                 <span className="text-[12.5px] font-semibold px-3 py-1 rounded-full" style={{ background: P.onGold, color: P.gold }}>Recommended</span>
               </div>
-              <p className="text-[14.5px] mt-1" style={{ color: 'rgba(10,31,28,0.78)' }}>For a growing shop with staff.</p>
+              <p className="text-[14.5px] mt-1" style={{ color: 'rgba(10,31,28,0.78)' }}>For a growing business with staff.</p>
               <Price value={proPrice} regular={proRegular} onGold />
               <ul className="space-y-2.5 mt-6 mb-8">
                 {['Up to 3 staff, each with their own login', 'Unlimited products and services', '150 questions to Oga a month, in 5 languages', '100 automatic WhatsApp payment reminders a month', 'Weekly or monthly business summaries on WhatsApp'].map((t) => <Tick key={t} t={t} onGold />)}
@@ -6990,11 +7608,11 @@ function PricingPage() {
             {/* Business */}
             <div className="order-2 lg:order-3 rounded-[26px] p-7" style={{ border: `1px solid ${P.line}`, background: 'rgba(15,43,38,0.5)' }}>
               <h2 style={{ fontFamily: display, fontWeight: 700, fontSize: 21 }}>Business</h2>
-              <p className="text-[14px] mt-1" style={{ color: P.muted }}>For several shops or warehouses.</p>
+              <p className="text-[14px] mt-1" style={{ color: P.muted }}>For several branches, shops or warehouses.</p>
               <Price value={bizPrice} regular={bizRegular} />
               <p className="text-[13px] mt-2" style={{ color: P.muted }}>Includes 3 locations. Each extra one is {fmt(PLAN_PRICES.extraShop[interval])} {per}.</p>
               <ul className="space-y-2.5 mt-6 mb-7">
-                {['Everything in Pro', 'Up to 10 staff across your shops', 'Deliveries, stock transfers and requests between locations', '500 questions to Oga and 500 reminders a month', 'See every shop together, or one at a time'].map((t) => <Tick key={t} t={t} />)}
+                {['Everything in Pro', 'Up to 10 staff across your locations', 'Deliveries, stock transfers and requests between locations', '500 questions to Oga and 500 reminders a month', 'See every location together, or one at a time'].map((t) => <Tick key={t} t={t} />)}
               </ul>
               <a href="/" className="block text-center rounded-2xl py-3.5 text-[15px] font-semibold" style={{ border: `1px solid ${P.teal}`, color: P.teal }}>Start your 30-day free trial</a>
             </div>
@@ -7030,10 +7648,65 @@ function PricingPage() {
   );
 }
 
+// ============ Branded dialogs: Xorla's own confirm and message boxes, instead of the browser's plain pop-ups ============
+let dialogPush = null;
+function brandDialog(opts) {
+  return new Promise((resolve) => {
+    if (!dialogPush) { resolve(opts.kind === 'confirm' ? window.confirm(opts.message) : (window.alert(opts.message), true)); return; }
+    dialogPush({ ...opts, resolve });
+  });
+}
+// brandConfirm('Remove "Laundry"? This can't be undone.', { confirm: 'Remove', danger: true }) → true / false
+const brandConfirm = (message, o = {}) => brandDialog({ kind: 'confirm', message, ...o });
+const brandAlert = (message, o = {}) => brandDialog({ kind: 'alert', message: String(message || 'Something went wrong. Please try again.'), ...o });
+function splitTitle(message) {
+  // "Close Main branch? It disappears from…" → title "Close Main branch?", body "It disappears from…"
+  const m = String(message).match(/^(.{4,90}?[?])\s+([\s\S]+)$/);
+  return m ? [m[1], m[2]] : [null, String(message)];
+}
+function BrandDialogHost() {
+  const [queue, setQueue] = useState([]);
+  const okRef = useRef(null);
+  useEffect(() => { dialogPush = (d) => setQueue((q) => [...q, d]); return () => { dialogPush = null; }; }, []);
+  const d = queue[0];
+  const close = (v) => { if (!d) return; d.resolve(v); setQueue((q) => q.slice(1)); };
+  useEffect(() => {
+    if (!d) return undefined;
+    okRef.current && okRef.current.focus();
+    const onKey = (e) => { if (e.key === 'Escape') close(d.kind === 'confirm' ? false : true); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+  if (!d) return null;
+  const light = d.theme === 'light';
+  const P = light ? { bg: '#FFFFFF', ink: '#14201E', dim: '#55635F', line: 'rgba(0,0,0,0.1)', back: 'rgba(10,20,18,0.45)' } : { bg: C.surface, ink: C.ink, dim: C.inkDim, line: C.line, back: 'rgba(3,10,9,0.8)' };
+  const [title, body] = d.title ? [d.title, d.message] : splitTitle(d.message);
+  const accent = d.danger ? C.rust : light ? '#14201E' : C.copper;
+  const Icon = d.kind === 'alert' ? (d.tone === 'info' ? Info : AlertCircle) : d.danger ? Trash2 : Check;
+  const iconTone = d.kind === 'alert' && d.tone !== 'info' ? C.rust : d.danger ? C.rust : light ? '#14201E' : C.copper;
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-5" style={{ background: P.back }} onClick={() => close(d.kind === 'confirm' ? false : true)}>
+      <div role="alertdialog" aria-modal="true" aria-label={title || 'Message'} className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-5 pb-6 xorla-fade-up" style={{ background: P.bg, border: `1px solid ${P.line}`, color: P.ink, fontFamily: 'Inter, sans-serif' }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start gap-3.5">
+          <span className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `${iconTone}22` }}><Icon size={18} style={{ color: iconTone }} /></span>
+          <div className="min-w-0 pt-0.5">
+            {title && <div className="text-[16px] font-semibold leading-snug mb-1">{title}</div>}
+            <div className="text-[13.5px] leading-relaxed" style={{ color: title ? P.dim : P.ink }}>{body}</div>
+          </div>
+        </div>
+        <div className={`grid gap-2 mt-5 ${d.kind === 'confirm' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {d.kind === 'confirm' && <button onClick={() => close(false)} className="rounded-xl py-3 text-[14px] font-semibold" style={{ color: P.dim, border: `1px solid ${P.line}` }}>{d.cancel || 'Cancel'}</button>}
+          <button ref={okRef} onClick={() => close(true)} className="rounded-xl py-3 text-[14px] font-semibold" style={{ background: accent, color: light && !d.danger ? '#fff' : d.danger ? '#fff' : C.bg }}>{d.confirm || (d.kind === 'confirm' ? 'Yes, continue' : 'OK')}</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function Root() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
-  if (storeMatch) return <Storefront businessCode={storeMatch[1]} />;
-  if (path === '/pricing' || path === '/pricing/') return <PricingPage />;
-  return <XorlaApp />;
+  const page = storeMatch ? <Storefront businessCode={storeMatch[1]} /> : (path === '/pricing' || path === '/pricing/') ? <PricingPage /> : <XorlaApp />;
+  return <>{page}<BrandDialogHost /></>;
 }
