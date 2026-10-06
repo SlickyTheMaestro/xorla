@@ -3135,6 +3135,16 @@ function XorlaApp() {
             )}
           </div>
         </div>
+        <button type="button" disabled={!isOwnerRole} onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('deposits'); setTab('settings'); }}
+          className="w-full -mt-2 flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+          <ShieldCheck size={16} style={{ color: C.sage, flexShrink: 0 }} />
+          <span className="flex-1 min-w-0 text-[12px] leading-snug" style={{ color: C.inkDim }}>
+            {depositPct > 0
+              ? <>Deposit <strong style={{ color: C.ink }}>{depositPct}%</strong>{Number(settings.depositCapNights ?? 1) > 0 ? `, max ${Number(settings.depositCapNights ?? 1)} ${serviceKind === 'rentals' ? 'day' : 'night'}${Number(settings.depositCapNights ?? 1) !== 1 ? 's' : ''}` : ''} · free cancellation until <strong style={{ color: C.ink }}>{Number(settings.cancelWindowHours ?? 24)}h</strong> before check-in</>
+              : <>No deposit asked · free cancellation until <strong style={{ color: C.ink }}>{Number(settings.cancelWindowHours ?? 24)}h</strong> before check-in</>}
+          </span>
+          {isOwnerRole && <span className="shrink-0 text-[12px] font-semibold" style={{ color: C.copper }}>Change</span>}
+        </button>
         {bookingError && !bookingPanel && !bookingAct && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
 
         {bookingRequests.length > 0 && section('Requests waiting for you', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
