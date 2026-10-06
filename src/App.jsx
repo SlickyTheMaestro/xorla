@@ -154,8 +154,8 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings'];
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)' };
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours'];
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -1445,7 +1445,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
@@ -1461,6 +1461,7 @@ function XorlaApp() {
         sbRest('payments', { accessToken, query: '?select=*&order=paid_at.desc&limit=12' }).catch(() => []),
         sbRest('bookings', { accessToken, query: `?select=*&check_out=gte.${new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10)}&order=check_in.asc&limit=600` }).catch(() => []),
         sbRest('rooms', { accessToken, query: '?select=*&active=eq.true&order=label.asc' }).catch(() => []),
+        sbRest('bookings', { accessToken, query: '?select=*&deposit_status=eq.refund_due&limit=200' }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
@@ -1475,7 +1476,8 @@ function XorlaApp() {
       setStockRequests(requestRows);
       setSubscription(Array.isArray(subscriptionRows) && subscriptionRows[0] ? subscriptionRows[0] : null);
       setPayments(paymentRows || []);
-      setBookingsAll(bookingRows || []);
+      const bookingIds = new Set((bookingRows || []).map((b) => b.id));
+      setBookingsAll([...(bookingRows || []), ...(Array.isArray(refundRows) ? refundRows : []).filter((b) => !bookingIds.has(b.id))]);
       setRoomsAll(roomRows || []);
     } catch (e) {
       console.error('Loading business data failed:', e);
@@ -1612,6 +1614,9 @@ function XorlaApp() {
       businessType: business.business_type || null,
       serviceKind: business.service_kind || null,
       staffConfirmBookings: business.staff_confirm_bookings !== false,
+      depositPercent: business.deposit_percent ?? 50,
+      depositCapNights: business.deposit_cap_nights ?? 1,
+      cancelWindowHours: business.cancel_window_hours ?? 24,
       logoUrl: business.logo_url || null,
       businessAddress: business.address || '',
       businessEmail: business.email || '',
@@ -2179,6 +2184,9 @@ function XorlaApp() {
       if ('businessType' in patch) bizPatch.business_type = patch.businessType;
       if ('serviceKind' in patch) bizPatch.service_kind = patch.serviceKind;
       if ('staffConfirmBookings' in patch) bizPatch.staff_confirm_bookings = patch.staffConfirmBookings;
+      if ('depositPercent' in patch) bizPatch.deposit_percent = Number(patch.depositPercent);
+      if ('depositCapNights' in patch) bizPatch.deposit_cap_nights = Number(patch.depositCapNights);
+      if ('cancelWindowHours' in patch) bizPatch.cancel_window_hours = Number(patch.cancelWindowHours);
       if ('ownerPhone' in patch) bizPatch.owner_phone = patch.ownerPhone;
       if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
       if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
@@ -2853,6 +2861,18 @@ function XorlaApp() {
   const staying = bookings.filter((b) => b.status === 'checked_in');
   const upcomingBookings = bookings.filter((b) => b.status === 'confirmed' && b.check_in > bkToday);
   const canAnswerRequests = isOwnerRole || settings.staffConfirmBookings !== false;
+  // Deposits: the business's rules (50% of the stay, never more than one night per room, free cancellation until 24 hours before 2pm check-in)
+  const depositPct = Number(settings.depositPercent ?? 50);
+  const depositDueOf = (b) => {
+    const cap = Number(settings.depositCapNights ?? 1); const raw = Number(b.total) * depositPct / 100;
+    return Math.round(cap > 0 ? Math.min(raw, Number(b.unit_price) * (b.units || 1) * cap) : raw);
+  };
+  const depositOwing = (b) => Math.max(0, depositDueOf(b) - (Number(b.deposit_paid) || 0));
+  const depositsHeld = bookings.filter((b) => (b.status === 'confirmed' || b.status === 'requested') && Number(b.deposit_paid) > 0);
+  const depositsHeldTotal = depositsHeld.reduce((a, b) => a + Number(b.deposit_paid), 0);
+  const refundsDue = bookings.filter((b) => b.deposit_status === 'refund_due');
+  const checkInAt = (b) => new Date(`${b.check_in}T14:00:00+01:00`).getTime();
+  const isEarlyCancel = (b) => Date.now() <= checkInAt(b) - Number(settings.cancelWindowHours ?? 24) * 3600000;
   const nightsBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 86400000);
   const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
   const dayLabel = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -2889,7 +2909,8 @@ function XorlaApp() {
   const openAct = (booking, action, roomId) => {
     setBookingError('');
     const free = action === 'check_in' ? roomsFor(booking.product_id, booking.shop_id).filter((r) => !occupantOf(r)) : [];
-    setActForm({ room: booking.room_label || '', amount: '', reason: '', roomId: roomId || free[0]?.id || '' });
+    const prefill = action === 'deposit' && depositOwing(booking) > 0 ? String(depositOwing(booking)) : '';
+    setActForm({ room: booking.room_label || '', amount: prefill, reason: '', roomId: roomId || free[0]?.id || '' });
     setBookingAct({ booking, action });
   };
   const submitAct = () => {
@@ -2909,10 +2930,22 @@ function XorlaApp() {
         </div>
         <div className="text-right shrink-0">
           <div className="text-[13.5px] font-semibold cx-mono">{fmt(b.total)}</div>
-          {(() => { const paid = Number(b.amount_paid) || 0; const [label, bg, fg] = paid <= 0 ? ['Unpaid', C.rustSoft, C.rust] : paid < Number(b.total) ? [`${fmt(paid)} paid`, C.copperSoft, C.copper] : ['Paid', C.sageSoft, C.sage]; return <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: bg, color: fg }}>{label}</span>; })()}
+          {(() => { const paid = Number(b.amount_paid) || 0; const [label, bg, fg] = b.deposit_status === 'refund_due' ? ['Cancelled', C.rustSoft, C.rust] : b.status === 'cancelled' || b.status === 'no_show' ? [b.status === 'no_show' ? 'No-show' : 'Cancelled', C.surface, C.inkFaint] : paid <= 0 ? ['Unpaid', C.rustSoft, C.rust] : paid < Number(b.total) ? [`${fmt(paid)} paid`, C.copperSoft, C.copper] : ['Paid', C.sageSoft, C.sage]; return <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: bg, color: fg }}>{label}</span>; })()}
           {b.customer_phone && <a href={`https://wa.me/${toWhatsAppNumber(b.customer_phone)}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
         </div>
       </div>
+      {(b.status === 'requested' || b.status === 'confirmed') && depositPct > 0 && depositOwing(b) > 0 && (
+        <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: C.copper }}>Deposit due: <span className="cx-mono">{fmt(depositOwing(b))}</span>{Number(b.deposit_paid) > 0 ? ` (${fmt(b.deposit_paid)} received)` : ''}</div>
+      )}
+      {(b.status === 'requested' || b.status === 'confirmed') && Number(b.deposit_paid) > 0 && depositOwing(b) <= 0 && (
+        <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: C.sage }}>Deposit received: <span className="cx-mono">{fmt(b.deposit_paid)}</span></div>
+      )}
+      {b.deposit_status === 'refund_due' && (
+        <div className="text-[11.5px] mt-1.5 font-semibold" style={{ color: C.rust }}>Refund to send: <span className="cx-mono">{fmt(b.refund_amount)}</span>{b.cancel_reason ? <span className="font-normal" style={{ color: C.inkFaint }}> · {b.cancel_reason}</span> : null}</div>
+      )}
+      {b.deposit_status === 'refunded' && (
+        <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>Refunded {fmt(b.refund_amount)}{b.refunded_by_name ? ` by ${b.refunded_by_name}` : ''}</div>
+      )}
       {b.note && <div className="text-[11.5px] mt-1.5 italic" style={{ color: C.inkFaint }}>"{b.note}"</div>}
       {actions && <div className="flex gap-2 mt-2.5">{actions}</div>}
     </div>
@@ -3059,12 +3092,26 @@ function XorlaApp() {
 
         {bookingRequests.length > 0 && section('Requests waiting for you', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
           <span key="h" className="sr-only">Held until {new Date(b.hold_until).toLocaleString('en-GB')}</span>,
-          actBtn('Confirm', () => quickConfirm(b), true), actBtn('Decline', () => openAct(b, 'decline')),
+          ...(depositPct > 0 ? [actBtn('Deposit received', () => openAct(b, 'deposit'), true), actBtn('Confirm', () => quickConfirm(b))] : [actBtn('Confirm', () => quickConfirm(b), true)]),
+          actBtn('Decline', () => openAct(b, 'decline')),
         ] : [<span key="w" className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to confirm</span>]))}
         {bookingRequests.length > 0 && <div className="text-[11px] -mt-3" style={{ color: C.inkFaint }}>Requests hold the dates for 24 hours, then release automatically if not confirmed.</div>}
 
+        {refundsDue.length > 0 && section('Refunds to send', C.rust, refundsDue, '', (b) => renderBookingRow(b, [actBtn('Mark refunded', () => openAct(b, 'refunded'), true)]))}
+        {refundsDue.length > 0 && <div className="text-[11px] -mt-3" style={{ color: C.inkFaint }}>These guests cancelled in time. Send their deposit back by transfer or cash, then mark it refunded.</div>}
+
+        {depositsHeldTotal > 0 && (
+          <div className="rounded-2xl px-4 py-3 flex items-center justify-between gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold">Deposits held for upcoming {serviceKind === 'rentals' ? 'rentals' : 'stays'}</div>
+              <div className="text-[11.5px]" style={{ color: C.inkFaint }}>{depositsHeld.length} booking{depositsHeld.length !== 1 ? 's' : ''}. Counted as sales when guests check in.</div>
+            </div>
+            <div className="text-[16px] font-bold cx-mono shrink-0" style={{ color: C.sage }}>{fmt(depositsHeldTotal)}</div>
+          </div>
+        )}
+
         <div className="grid gap-4 lg:grid-cols-3">
-          {section('Arriving', C.ink, arrivals, 'No arrivals today.', (b) => renderBookingRow(b, [actBtn('Check in', () => openAct(b, 'check_in'), true), actBtn('Cancel', () => openAct(b, 'cancel'))]))}
+          {section('Arriving', C.ink, arrivals, 'No arrivals today.', (b) => renderBookingRow(b, [actBtn('Check in', () => openAct(b, 'check_in'), true), b.check_in < bkToday ? actBtn('No-show', () => openAct(b, 'no_show')) : actBtn('Cancel', () => openAct(b, 'cancel'))]))}
           {section('Staying', C.ink, staying.filter((b) => b.check_out > bkToday), 'Nobody checked in.', (b) => renderBookingRow(b, [actBtn('Check out', () => openAct(b, 'check_out'))]))}
           {section('Leaving today', C.copper, staying.filter((b) => b.check_out <= bkToday), 'Nobody leaving today.', (b) => renderBookingRow(b, [actBtn('Check out', () => openAct(b, 'check_out'), true)]))}
         </div>
@@ -3096,7 +3143,7 @@ function XorlaApp() {
           </div>
         </div>
 
-        {upcomingBookings.length > 0 && section('Coming up', C.ink, upcomingBookings.slice(0, 12), '', (b) => renderBookingRow(b, [actBtn('Cancel', () => openAct(b, 'cancel'))]))}
+        {upcomingBookings.length > 0 && section('Coming up', C.ink, upcomingBookings.slice(0, 12), '', (b) => renderBookingRow(b, [...(depositPct > 0 && depositOwing(b) > 0 ? [actBtn('Record deposit', () => openAct(b, 'deposit'), true)] : []), actBtn('Cancel', () => openAct(b, 'cancel'))]))}
       </div>
     );
   };
@@ -3142,7 +3189,8 @@ function XorlaApp() {
     } else {
       const { booking: b, action } = bookingAct;
       const paidSoFar = Number(b.amount_paid) || 0, adding = Number(parseNumInput(actForm.amount)) || 0, balance = Math.max(0, Number(b.total) - paidSoFar - adding);
-      const labels = { check_in: ['Check in', 'Check in'], check_out: ['Check out', 'Check out'], decline: ['Decline request', 'Decline'], cancel: ['Cancel booking', 'Cancel booking'] };
+      const labels = { check_in: ['Check in', 'Check in'], check_out: ['Check out', 'Check out'], decline: ['Decline request', 'Decline'], cancel: ['Cancel booking', 'Cancel booking'], deposit: ['Record a deposit', 'Save deposit'], no_show: ['Mark as no-show', 'Mark as no-show'], refunded: ['Mark refunded', `I've refunded ${fmt(b.refund_amount)}`] };
+      const held = Number(b.deposit_paid) || 0, early = isEarlyCancel(b);
       [title, submitLabel] = labels[action]; submit = submitAct;
       body = (
         <div className="space-y-3">
@@ -3176,6 +3224,35 @@ function XorlaApp() {
               </div>
             </>
           )}
+          {action === 'deposit' && (
+            <>
+              <input type="text" inputMode="decimal" autoFocus placeholder="Deposit received (₦)" value={formatNumInput(actForm.amount)} onChange={(e) => setActForm({ ...actForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+              <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
+                <div className="flex justify-between"><span style={{ color: C.inkDim }}>Deposit asked for</span><span className="cx-mono">{fmt(depositDueOf(b))}</span></div>
+                {held > 0 && <div className="flex justify-between"><span style={{ color: C.inkDim }}>Already received</span><span className="cx-mono">{fmt(held)}</span></div>}
+                <div className="flex justify-between font-semibold"><span>Left to pay at check-in</span><span className="cx-mono">{fmt(Math.max(0, Number(b.total) - paidSoFar - adding))}</span></div>
+                <div className="text-[11.5px] pt-1" style={{ color: C.inkFaint }}>{b.status === 'requested' ? 'Saving this confirms this booking firmly. ' : ''}The deposit is held until the guest checks in, then counted as part of the sale.</div>
+              </div>
+            </>
+          )}
+          {action === 'cancel' && held > 0 && (
+            <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed" style={early ? { background: C.sageSoft, color: C.ink } : { background: C.copperSoft, color: C.ink }}>
+              {early
+                ? <><strong>Cancelled in time.</strong> The guest is owed their {fmt(held)} deposit back. It will be listed under "Refunds to send" until you mark it refunded.</>
+                : <><strong>Late cancellation.</strong> It's less than {Number(settings.cancelWindowHours ?? 24)} hours before check-in, so you keep the {fmt(held)} deposit. It's recorded as a sale.</>}
+            </div>
+          )}
+          {action === 'no_show' && (
+            <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed" style={{ background: C.copperSoft, color: C.ink }}>
+              {held > 0 ? <>You keep the <strong>{fmt(held)}</strong> deposit, recorded as a sale. </> : <>No deposit was paid on this booking. </>}
+              The {SERVICE_KINDS[serviceKind]?.what === 'item' ? 'item' : 'room'} is released for the rest of the dates.
+            </div>
+          )}
+          {action === 'refunded' && (
+            <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed" style={{ background: C.surfaceRaised, color: C.inkDim }}>
+              Confirm you've sent <strong style={{ color: C.ink }}>{fmt(b.refund_amount)}</strong> back to {b.customer_name}{b.customer_phone ? ` (${b.customer_phone})` : ''}. Xorla records who marked it and when.
+            </div>
+          )}
           {(action === 'decline' || action === 'cancel') && <input type="text" autoFocus placeholder={action === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason (optional)'} value={actForm.reason} onChange={(e) => setActForm({ ...actForm, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
         </div>
       );
@@ -3189,7 +3266,7 @@ function XorlaApp() {
           </div>
           {body}
           {bookingError && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
-          <button onClick={submit} disabled={bookingBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: bookingAct?.action === 'cancel' || bookingAct?.action === 'decline' ? C.rust : C.copper, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? 'Saving…' : submitLabel}</button>
+          <button onClick={submit} disabled={bookingBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: ['cancel', 'decline', 'no_show'].includes(bookingAct?.action) ? C.rust : C.copper, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? 'Saving…' : submitLabel}</button>
         </div>
       </div>
     );
@@ -3211,6 +3288,7 @@ function XorlaApp() {
     const items = [];
     const go = (t, extra) => () => { setNotifOpen(false); extra && extra(); setTab(t); };
     if (bookingRequests.length > 0 && canAnswerRequests) items.push({ key: 'bookreq', urgent: false, Icon: CalendarClock, title: `${bookingRequests.length} booking request${bookingRequests.length !== 1 ? 's' : ''} to answer`, sub: bookingRequests.slice(0, 2).map((b) => `${b.customer_name}, ${dayLabel(b.check_in)}`).join(' · '), onClick: go('bookings') });
+    if (refundsDue.length > 0) items.push({ key: 'refunds', urgent: true, Icon: Wallet, title: `${refundsDue.length} deposit refund${refundsDue.length !== 1 ? 's' : ''} to send`, sub: refundsDue.slice(0, 2).map((b) => `${b.customer_name}, ${fmt(b.refund_amount)}`).join(' · '), onClick: go('bookings') });
     if (arrivals.length > 0) items.push({ key: 'arrivals', urgent: false, Icon: CalendarClock, title: `${arrivals.length} arrival${arrivals.length !== 1 ? 's' : ''} today`, sub: arrivals.slice(0, 3).map((b) => b.customer_name).join(', '), onClick: go('bookings') });
     if (pendingOrderCount > 0) items.push({ key: 'orders', urgent: false, Icon: ShoppingBag, title: `${pendingOrderCount} new ${T.order}${pendingOrderCount !== 1 ? 's' : ''} from your storefront`, sub: 'Review and fulfil', onClick: go('orders') });
     if (isOwnerRole && pendingRequests.length > 0) items.push({ key: 'requests', urgent: false, Icon: PackagePlus, title: `${pendingRequests.length} stock request${pendingRequests.length !== 1 ? 's' : ''} from your shops`, sub: pendingRequests.slice(0, 2).map((r) => shopNameOf(r.shop_id)).join(', '), onClick: go('products', () => setProductsView('list')) });
@@ -4103,6 +4181,9 @@ function XorlaApp() {
                   { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
                   { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
+                {isOwnerRole && hasBookables && renderSettingsGroup('Bookings', [
+                  { id: 'deposits', Icon: ShieldCheck, label: 'Deposits & cancellations', value: Number(draft.depositPercent ?? 50) === 0 ? 'No deposit' : `${draft.depositPercent ?? 50}% deposit` },
+                ])}
                 {renderSettingsGroup('Language', [
                   { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
                 ])}
@@ -4301,6 +4382,64 @@ function XorlaApp() {
                 </div>
               </div>
             )}
+            {settingsPage === 'deposits' && (() => {
+              const pct = Number(draft.depositPercent ?? 50), cap = Number(draft.depositCapNights ?? 1), hrs = Number(draft.cancelWindowHours ?? 24);
+              const depFor = (nights) => { const total = 50000 * nights; const raw = total * pct / 100; return Math.round(cap > 0 ? Math.min(raw, 50000 * cap) : raw); };
+              const pills = (options, value, key) => (
+                <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  {options.map(([v, l]) => (
+                    <button key={v} onClick={() => setDraft({ ...draft, [key]: v })} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={Number(value) === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+                  ))}
+                </div>
+              );
+              const stayWord = serviceKind === 'rentals' ? 'rental' : 'stay', nightWord = serviceKind === 'rentals' ? 'day' : 'night';
+              return (
+                <div className="space-y-4">
+                  <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>A deposit holds a booking firmly. Your team records it when the guest pays by cash or transfer, and Xorla keeps track of what is owed back if plans change.</div>
+                  <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    <div className="px-4 py-4">
+                      <div className="text-[14.5px] font-semibold mb-1">Deposit</div>
+                      <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>How much of the {stayWord} the guest pays to confirm it.</div>
+                      {pills([[0, 'None'], [25, '25%'], [50, '50%'], [100, 'Full']], pct, 'depositPercent')}
+                    </div>
+                    {pct > 0 && (
+                      <div className="px-4 py-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                        <div className="text-[14.5px] font-semibold mb-1">Never more than</div>
+                        <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>Keeps deposits fair on long {stayWord}s. The limit is per {serviceKind === 'rentals' ? 'item' : 'room'}.</div>
+                        {pills([[1, `One ${nightWord}`], [2, `Two ${nightWord}s`], [0, 'No limit']], cap, 'depositCapNights')}
+                      </div>
+                    )}
+                    <div className="px-4 py-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                      <div className="text-[14.5px] font-semibold mb-1">Free cancellation until</div>
+                      <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>How long before check-in (2pm) a guest can cancel and get their deposit back.</div>
+                      {pills([[12, '12 hours'], [24, '24 hours'], [48, '48 hours'], [72, '72 hours']], hrs, 'cancelWindowHours')}
+                    </div>
+                  </div>
+
+                  {pct > 0 && (
+                    <div className="rounded-2xl p-4" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                      <div className="text-[12px] font-semibold uppercase tracking-wide mb-2.5" style={{ color: C.inkFaint }}>Example, at ₦50,000 a {nightWord}</div>
+                      <div className="space-y-2">
+                        {[1, 2, 5].map((n) => (
+                          <div key={n} className="flex items-baseline justify-between gap-3 text-[12.5px]">
+                            <span style={{ color: C.inkDim }}>{n} {nightWord}{n !== 1 ? 's' : ''} ({fmt(50000 * n)})</span>
+                            <span className="text-right" style={{ color: C.ink }}><strong className="cx-mono">{fmt(depFor(n))}</strong> deposit, <span className="cx-mono">{fmt(50000 * n - depFor(n))}</span> at check-in</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-2xl p-4 space-y-2.5 text-[12.5px] leading-relaxed" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.inkDim }}>
+                    <div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>What happens when plans change</div>
+                    <div><strong style={{ color: C.sage }}>Cancels {hrs}+ hours before check-in:</strong> the deposit is owed back. Xorla lists it under "Refunds to send" until your team marks it refunded.</div>
+                    <div><strong style={{ color: C.copper }}>Cancels later than that:</strong> you keep the deposit, and it's recorded as a sale.</div>
+                    <div><strong style={{ color: C.rust }}>Doesn't arrive:</strong> from the morning after the check-in date, mark them as a no-show. You keep the deposit, and the {serviceKind === 'rentals' ? 'item is' : 'room is'} free again for the rest of the dates.</div>
+                    <div style={{ color: C.inkFaint }}>Until the guest checks in, a deposit is shown as money held, not as a sale, so your profit stays accurate.</div>
+                  </div>
+                </div>
+              );
+            })()}
             {settingsPage === 'automation' && (
               <div className="space-y-4">
                 {planKnown && effPlan === 'free' && (
