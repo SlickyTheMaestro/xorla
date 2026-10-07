@@ -3114,19 +3114,7 @@ function XorlaApp() {
         {!a.calLoading && days.length > 0 && (
           <>
             <div className="text-[11.5px] mb-1.5" style={{ color: C.inkFaint }}>Takes {a.cal.minutes >= 60 ? `${a.cal.minutes / 60} hour${a.cal.minutes !== 60 ? 's' : ''}` : `${a.cal.minutes} minutes`}. Only free times are shown.</div>
-            <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1">
-              {days.map((d) => (
-                <button key={d.date} type="button" disabled={!d.slots.length} onClick={() => setApptPanel({ ...a, day: d.date, slot: '' })} className="shrink-0 px-3 py-2 rounded-xl text-[12px] font-semibold text-center min-w-[64px]"
-                  style={a.day === d.date ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: d.slots.length ? C.ink : C.inkFaint, border: `1px solid ${C.line}`, opacity: d.slots.length ? 1 : 0.5 }}>
-                  {dayChipLabel(d.date, todayKey())}<span className="block text-[10px] font-medium" style={{ opacity: 0.8 }}>{!d.open ? 'Closed' : d.slots.length ? `${d.slots.length} free` : 'Full'}</span>
-                </button>
-              ))}
-            </div>
-            {day && (
-              <div className="grid grid-cols-4 gap-1.5 mt-1">
-                {day.slots.map((t, i) => { const left = (day.left || [])[i]; const few = (a.cal.capacity || 1) > 1 && left < a.cal.capacity; return <button key={t} type="button" onClick={() => setApptPanel({ ...a, slot: t })} className="py-2 rounded-lg text-[12.5px] font-semibold cx-mono leading-tight" style={a.slot === t ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{apptTime(t)}{few && <span className="block text-[10px] font-medium" style={{ opacity: 0.75 }}>{left} of {a.cal.capacity} free</span>}</button>; })}
-              </div>
-            )}
+            <SlotPicker cal={a.cal} day={a.day} onDay={(d) => setApptPanel((p) => p && { ...p, day: d })} slot={a.slot} onSlot={(t) => setApptPanel((p) => p && { ...p, slot: t })} scarcity="all" />
           </>
         )}
       </div>
@@ -7315,7 +7303,6 @@ function Storefront({ businessCode }) {
         <>
           {apptCalLoading && !apptCal && <div className="flex items-center gap-2 text-[13px] mb-4 mt-2" style={{ color: S.muted }}><Loader2 size={15} className="animate-spin" /> Checking free times…</div>}
           {usesSlots ? (() => {
-            const day = apptCal.days.find((d) => d.date === apptPickDay);
             const anyFree = apptCal.days.some((d) => d.slots.length);
             return (
               <div className="mb-4 mt-2">
@@ -7323,19 +7310,7 @@ function Storefront({ businessCode }) {
                 <div className="text-[12px] mb-2" style={{ color: S.muted }}>Takes about {apptCal.minutes >= 60 ? `${apptCal.minutes / 60} hour${apptCal.minutes !== 60 ? 's' : ''}` : `${apptCal.minutes} minutes`}. Only free times are shown.</div>
                 {!anyFree ? <div className="text-[13px] rounded-xl px-4 py-3" style={{ background: S.tile }}>No free times in the next two weeks. Send your request anyway and they'll suggest a time.</div> : (
                   <>
-                    <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1 lg:flex-wrap lg:overflow-visible" role="tablist" aria-label="Day">
-                      {apptCal.days.map((d) => (
-                        <button key={d.date} type="button" role="tab" aria-selected={apptPickDay === d.date} disabled={!d.slots.length} onClick={() => { setApptPickDay(d.date); setApptSlot(''); }} className={`shrink-0 min-w-[66px] px-3 py-2 rounded-xl text-[12.5px] font-semibold text-center ${focusRing}`}
-                          style={apptPickDay === d.date ? { background: S.ink, color: '#fff' } : { background: S.tile, color: d.slots.length ? S.ink : S.soldOut }}>
-                          {dayChipLabel(d.date, new Date().toLocaleDateString('sv-SE', LAGOS_TIME))}<span className="block text-[10.5px] font-medium" style={{ opacity: 0.75 }}>{!d.open ? 'Closed' : d.slots.length ? `${d.slots.length} free` : 'Full'}</span>
-                        </button>
-                      ))}
-                    </div>
-                    {day && (
-                      <div className="grid grid-cols-4 gap-1.5 mt-1">
-                        {day.slots.map((t, i) => { const left = (day.left || [])[i]; const few = (apptCal.capacity || 1) > 1 && left === 1; return <button key={t} type="button" onClick={() => setApptSlot(t)} aria-pressed={apptSlot === t} className={`py-2.5 rounded-lg text-[13px] font-semibold leading-tight ${focusRing}`} style={apptSlot === t ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{apptTime(t)}{few && <span className="block text-[10px] font-medium" style={{ opacity: 0.7 }}>1 left</span>}</button>; })}
-                      </div>
-                    )}
+                    <SlotPicker light cal={apptCal} day={apptPickDay} onDay={setApptPickDay} slot={apptSlot} onSlot={setApptSlot} />
                   </>
                 )}
               </div>
@@ -7701,6 +7676,96 @@ function PricingPage() {
             <a href="/" style={{ color: P.teal }}>Open Xorla</a>
           </footer>
         </main>
+      </div>
+    </div>
+  );
+}
+
+// ============ Slot picker: a week calendar, then the free times for the chosen day grouped by part of the day ============
+function SlotPicker({ cal, day, onDay, slot, onSlot, light, scarcity = 'one' }) {
+  const P = light
+    ? { ink: '#17191A', muted: '#6B706B', faint: '#B4B8B2', tile: '#F1F2EF', line: '#E6E8E4', pick: '#17191A', pickInk: '#fff', dot: '#1F7A5C', bg: '#fff' }
+    : { ink: C.ink, muted: C.inkDim, faint: C.inkFaint, tile: C.surfaceRaised, line: C.line, pick: C.copper, pickInk: C.bg, dot: C.sage, bg: C.surface };
+  const days = cal?.days || [];
+  const byDate = Object.fromEntries(days.map((d) => [d.date, d]));
+  const todayStr = new Date().toLocaleDateString('sv-SE', LAGOS_TIME);
+  // Monday-first weeks covering every day we have times for
+  const addD = (ds, n) => { const x = new Date(ds + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const mondayOf = (ds) => { const x = new Date(ds + 'T12:00:00Z'); return addD(ds, -((x.getUTCDay() + 6) % 7)); };
+  const first = mondayOf(todayStr), last = days.length ? days[days.length - 1].date : todayStr;
+  const weeks = []; for (let w = first; w <= last; w = addD(w, 7)) weeks.push(Array.from({ length: 7 }, (_, i) => addD(w, i)));
+  const weekOf = (ds) => Math.max(0, weeks.findIndex((wk) => wk.includes(ds)));
+  const [week, setWeek] = useState(() => weekOf(day || todayStr));
+  useEffect(() => { if (day) setWeek(weekOf(day)); }, [day]);
+  const shown = weeks[week] || [];
+  const monthLabel = (() => {
+    const fmtM = (ds) => new Date(ds + 'T12:00:00Z').toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' });
+    if (!shown.length) return '';
+    const a = fmtM(shown[0]), b = fmtM(shown[6]);
+    return a === b ? `${a} ${shown[0].slice(0, 4)}` : `${a.slice(0, 3)} – ${b.slice(0, 3)} ${shown[6].slice(0, 4)}`;
+  })();
+  const sel = byDate[day];
+  const hourOf = (t) => Number(new Date(t).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: '2-digit', hour12: false }).slice(0, 2));
+  const groups = sel ? [['Morning', (h) => h < 12], ['Afternoon', (h) => h >= 12 && h < 17], ['Evening', (h) => h >= 17]]
+    .map(([label, test]) => [label, sel.slots.map((t, i) => [t, (sel.left || [])[i]]).filter(([t]) => test(hourOf(t)))]).filter(([, list]) => list.length) : [];
+  const cap = cal?.capacity || 1;
+  const arrow = (dir, disabled) => (
+    <button type="button" aria-label={dir < 0 ? 'Previous week' : 'Next week'} disabled={disabled} onClick={() => setWeek((w) => w + dir)}
+      className="w-8 h-8 rounded-full flex items-center justify-center" style={{ color: disabled ? P.faint : P.ink, background: disabled ? 'transparent' : P.tile }}>
+      {dir < 0 ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+    </button>
+  );
+  const endOf = (t) => new Date(new Date(t).getTime() + (cal?.minutes || 0) * 60000).toISOString();
+  return (
+    <div className="rounded-2xl p-3.5" style={{ border: `1px solid ${P.line}`, background: P.bg }}>
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-[13.5px] font-semibold" style={{ color: P.ink }}>{monthLabel}</span>
+        <span className="flex items-center gap-1.5">{arrow(-1, week === 0)}{arrow(1, week >= weeks.length - 1)}</span>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center" role="tablist" aria-label="Day">
+        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l, i) => <span key={i} className="text-[10.5px] font-semibold pb-1" style={{ color: P.faint }}>{l}</span>)}
+        {shown.map((ds) => {
+          const d = byDate[ds]; const free = d && d.slots.length > 0; const on = ds === day; const isToday = ds === todayStr;
+          return (
+            <button key={ds} type="button" role="tab" aria-selected={on} aria-label={`${new Date(ds + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}${free ? `, ${d.slots.length} times free` : d && !d.open ? ', closed' : ', no free times'}`}
+              disabled={!free} onClick={() => { onDay(ds); onSlot(''); }}
+              className="relative aspect-square max-h-11 w-full mx-auto rounded-full flex flex-col items-center justify-center text-[13.5px] font-semibold transition-colors"
+              style={on ? { background: P.pick, color: P.pickInk } : { color: free ? P.ink : P.faint, textDecoration: d && !d.open ? 'none' : undefined, outline: isToday && !on ? `1px solid ${P.line}` : 'none' }}>
+              {Number(ds.slice(8))}
+              {free && !on && <span className="absolute bottom-1 w-1 h-1 rounded-full" style={{ background: P.dot }} />}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${P.line}` }}>
+        {!sel ? <div className="text-[12.5px] py-2 text-center" style={{ color: P.muted }}>Choose a day with a dot to see free times.</div> : (
+          <>
+            <div className="text-[12.5px] font-semibold mb-2" style={{ color: P.ink }}>{new Date(day + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}</div>
+            <div className="space-y-2.5">
+              {groups.map(([label, list]) => (
+                <div key={label}>
+                  <div className="text-[10.5px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: P.faint }}>{label}</div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {list.map(([t, left]) => {
+                      const on = slot === t; const few = cap > 1 && left !== undefined && (scarcity === 'all' ? left < cap : left === 1);
+                      return (
+                        <button key={t} type="button" aria-pressed={on} onClick={() => onSlot(t)} className="py-2 rounded-lg text-[12.5px] font-semibold leading-tight"
+                          style={on ? { background: P.pick, color: P.pickInk } : { background: P.tile, color: P.ink }}>
+                          {apptTime(t)}{few && <span className="block text-[9.5px] font-medium" style={{ opacity: 0.75 }}>{scarcity === 'all' ? `${left} of ${cap} free` : '1 left'}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {slot && (
+          <div className="mt-3 rounded-xl px-3 py-2.5 flex items-center gap-2 text-[12.5px] font-semibold" style={{ background: P.tile, color: P.ink }}>
+            <Check size={14} style={{ color: P.dot }} /> {apptDay(slot)}, {apptTime(slot)} to {apptTime(endOf(slot))}
+          </div>
+        )}
       </div>
     </div>
   );
