@@ -7026,7 +7026,10 @@ function Storefront({ businessCode }) {
     } catch (e) { setApptCal(null); }
     setApptCalLoading(false);
   }, [serviceKey, business, businessCode]);
-  useEffect(() => { setApptSlot(''); if (showCheckout) loadStoreCalendar(); }, [showCheckout, loadStoreCalendar]);
+  // Free times load as soon as a service is in the basket: on a computer the basket and its form are always on screen,
+  // and on a phone they refresh each time the basket is opened
+  useEffect(() => { setApptSlot(''); loadStoreCalendar(); }, [loadStoreCalendar]);
+  useEffect(() => { if (showCheckout) loadStoreCalendar(); }, [showCheckout]);
   const usesSlots = !!(apptCal && apptCal.minutes);
 
   const changeQty = (product, delta) => {
@@ -7066,6 +7069,7 @@ function Storefront({ businessCode }) {
   };
 
   const isService = business?.business_type === 'services';
+  const searchWord = business?.business_type === 'services' ? (business?.service_kind === 'accommodation' ? 'Search rooms' : 'Search services') : business?.business_type === 'both' ? 'Search' : 'Search products';
   const W = isService
     ? { your: 'Your request', send: 'Send request', view: 'View request', sent: 'Request sent to', short: 'Request', inYour: 'your request', empty: "Tap a service's price to add it here." }
     : { your: 'Your order', send: 'Send order', view: 'View order', sent: 'Order sent to', short: 'Order', inYour: 'your order', empty: "Tap a product's price to add it here." };
@@ -7319,7 +7323,7 @@ function Storefront({ businessCode }) {
                 <div className="text-[12px] mb-2" style={{ color: S.muted }}>Takes about {apptCal.minutes >= 60 ? `${apptCal.minutes / 60} hour${apptCal.minutes !== 60 ? 's' : ''}` : `${apptCal.minutes} minutes`}. Only free times are shown.</div>
                 {!anyFree ? <div className="text-[13px] rounded-xl px-4 py-3" style={{ background: S.tile }}>No free times in the next two weeks. Send your request anyway and they'll suggest a time.</div> : (
                   <>
-                    <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1" role="tablist" aria-label="Day">
+                    <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1 lg:flex-wrap lg:overflow-visible" role="tablist" aria-label="Day">
                       {apptCal.days.map((d) => (
                         <button key={d.date} type="button" role="tab" aria-selected={apptPickDay === d.date} disabled={!d.slots.length} onClick={() => { setApptPickDay(d.date); setApptSlot(''); }} className={`shrink-0 min-w-[66px] px-3 py-2 rounded-xl text-[12.5px] font-semibold text-center ${focusRing}`}
                           style={apptPickDay === d.date ? { background: S.ink, color: '#fff' } : { background: S.tile, color: d.slots.length ? S.ink : S.soldOut }}>
@@ -7379,7 +7383,7 @@ function Storefront({ businessCode }) {
           <div className="hidden md:block flex-1 max-w-sm">
             <div className="relative">
               <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: overlay ? 'rgba(255,255,255,0.85)' : S.muted }} />
-              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products" className={`w-full rounded-full pl-10 pr-4 py-2.5 text-[13.5px] ${overlay ? 'placeholder-white/80' : ''} ${focusRing}`} style={overlay ? { background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff' } : { background: S.tile, border: '1px solid transparent', color: S.ink }} />
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchWord} aria-label={searchWord} className={`w-full rounded-full pl-10 pr-4 py-2.5 text-[13.5px] ${overlay ? 'placeholder-white/80' : ''} ${focusRing}`} style={overlay ? { background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff' } : { background: S.tile, border: '1px solid transparent', color: S.ink }} />
             </div>
           </div>
           <button onClick={() => setShowCheckout(true)} className={`lg:hidden flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-semibold shrink-0 ${focusRing}`} style={cartCount ? { background: overlay ? '#fff' : S.ink, color: overlay ? S.ink : '#fff' } : overlay ? { background: 'rgba(255,255,255,0.18)', color: '#fff', backdropFilter: 'blur(10px)' } : { background: S.tile, color: S.ink }}>
@@ -7444,7 +7448,7 @@ function Storefront({ businessCode }) {
           {/* Mobile search */}
           <div className="md:hidden relative mb-4">
             <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: S.muted }} />
-            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products" className={`w-full rounded-full pl-10 pr-4 py-3 text-[14px] ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchWord} aria-label={searchWord} className={`w-full rounded-full pl-10 pr-4 py-3 text-[14px] ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
           </div>
 
           {/* Categories + sort */}
