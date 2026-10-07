@@ -2161,7 +2161,8 @@ function XorlaApp() {
         setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
       setSales((prev) => [...newSales.map(fromSbSale), ...prev]);
-      await sbRest(`orders?id=eq.${order.id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'fulfilled' } });
+      if (isOwnerRole) await sbRest(`orders?id=eq.${order.id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'fulfilled' } });
+      else await sbRpc('set_order_status', session.access_token, { p_order: order.id, p_status: 'fulfilled' });
       setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: 'fulfilled' } : o));
       setFulfil(null);
       setReceipt(makeReceipt({ id: basketId || newSales[0]?.id, items: order.items.map((it) => ({ name: Number(it.quantity) > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: Number(it.quantity) * Number(it.unitPrice) })), total, owed, customerName: order.customerName, customerPhone: order.customerPhone, shopId }));
@@ -2205,7 +2206,7 @@ function XorlaApp() {
     );
   };
   const cancelOrder = async (id) => {
-    try { await sbRest(`orders?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'cancelled' } }); setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: 'cancelled' } : o)); }
+    try { if (isOwnerRole) await sbRest(`orders?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'cancelled' } }); else await sbRpc('set_order_status', session.access_token, { p_order: id, p_status: 'cancelled' }); setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: 'cancelled' } : o)); }
     catch (e) { brandAlert(e.message); }
   };
   const removeOrder = async (id) => {
@@ -3102,7 +3103,7 @@ function XorlaApp() {
             </div>
             {day && (
               <div className="grid grid-cols-4 gap-1.5 mt-1">
-                {day.slots.map((t) => <button key={t} type="button" onClick={() => setApptPanel({ ...a, slot: t })} className="py-2 rounded-lg text-[12.5px] font-semibold cx-mono" style={a.slot === t ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{apptTime(t)}</button>)}
+                {day.slots.map((t, i) => { const left = (day.left || [])[i]; const few = (a.cal.capacity || 1) > 1 && left < a.cal.capacity; return <button key={t} type="button" onClick={() => setApptPanel({ ...a, slot: t })} className="py-2 rounded-lg text-[12.5px] font-semibold cx-mono leading-tight" style={a.slot === t ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{apptTime(t)}{few && <span className="block text-[10px] font-medium" style={{ opacity: 0.75 }}>{left} of {a.cal.capacity} free</span>}</button>; })}
               </div>
             )}
           </>
@@ -3160,6 +3161,102 @@ function XorlaApp() {
       </div>
     );
   };
+  const renderApptTop = () => apptMode && (
+              <div className="mb-5 space-y-3">
+                <button onClick={() => openAppt('new')} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={17} /> New appointment</button>
+                {todaysAppts.length > 0 && (
+                  <div className="rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    <div className="text-[13px] font-semibold mb-2">Today's appointments</div>
+                    <div className="space-y-1.5">
+                      {todaysAppts.map((o) => (
+                        <div key={o.id} className="flex items-center gap-3 text-[12.5px]">
+                          <span className="shrink-0 whitespace-nowrap cx-mono font-semibold" style={{ color: new Date(o.endAt) < new Date() ? C.inkFaint : C.copper }}>{apptTime(o.startAt)} to {apptTime(o.endAt)}</span>
+                          <span className="min-w-0 truncate"><strong>{o.customerName}</strong><span style={{ color: C.inkDim }}> · {o.items.map((it) => it.description).join(', ')}</span></span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+  );
+  const renderOrderCard = (o) => (
+                <div key={o.id} className="rounded-2xl p-4" style={card}>
+                  <div className="flex items-start justify-between mb-2.5">
+                    <div>
+                      <div className="text-[13.5px] font-semibold">{o.customerName}</div>
+                      <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
+                    </div>
+                    <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
+                      o.status === 'pending' && o.acceptedAt ? { background: C.sageSoft, color: C.sage } :
+                      o.status === 'pending' && o.startAt && apptPassed(o) ? { background: C.surfaceRaised, color: C.inkFaint } :
+                      o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
+                      o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
+                      { background: 'rgba(226,98,75,0.12)', color: C.rust }
+                    }>{o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
+                  </div>
+                  <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+                    {o.items.map((it, i) => (
+                      <div key={i} className="flex items-center justify-between text-[12.5px]">
+                        <span style={{ color: C.inkDim }}>{it.description} ×{it.quantity}</span>
+                        <span className="cx-mono">{fmt(it.quantity * it.unitPrice)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {o.startAt && (() => {
+                    const clash = o.status === 'pending' && !o.acceptedAt ? apptClashes(o) : [];
+                    const full = clash.length >= apptCap;
+                    return (
+                      <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: o.status !== 'pending' ? C.surfaceRaised : full ? C.rustSoft : o.acceptedAt ? C.sageSoft : C.surfaceRaised }}>
+                        <div className="flex items-center gap-2">
+                          <CalendarClock size={15} style={{ color: full ? C.rust : o.acceptedAt ? C.sage : C.copper }} />
+                          <span className="font-semibold" style={{ color: C.ink }}>{apptRange(o)}</span>
+                        </div>
+                        {o.status === 'pending' && !o.acceptedAt && !apptPassed(o) && (
+                          <div className="mt-1" style={{ color: full ? C.rust : C.sage }}>{full
+                            ? `Clashes with ${clash.map((x) => `${x.customerName} (${apptTime(x.startAt)} to ${apptTime(x.endAt)})`).join(', ')}. Offer another time, or decline.`
+                            : clash.length ? `Free. ${clash.length} of ${apptCap} places already booked at that time.` : 'This time is free.'}</div>
+                        )}
+                        {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
+                        {o.status === 'cancelled' && o.cancelReason && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
+                        {o.note && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
+                      </div>
+                    );
+                  })()}
+                  {!o.startAt && (o.preferredTime || o.note) && (
+                    <div className="rounded-xl px-3 py-2.5 mb-3 space-y-1 text-[12.5px]" style={{ background: C.surfaceRaised }}>
+                      {o.preferredTime && <div><span style={{ color: C.inkFaint }}>Preferred time: </span><span className="font-semibold">{o.preferredTime}</span></div>}
+                      {o.note && <div><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <div className="cx-mono text-[14px] font-bold">{fmt(o.total)}</div>
+                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !canAnswerRequests && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to answer</span>}
+                    {o.status === 'pending' && o.startAt && !o.acceptedAt && canAnswerRequests && (
+                      <div className="flex items-center gap-2.5">
+                        <button onClick={() => openAppt('decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
+                        <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>
+                        {!apptPassed(o) && apptClashes(o).length < apptCap && <button onClick={() => acceptAppt(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Accept</button>}
+                      </div>
+                    )}
+                    {o.status === 'pending' && o.startAt && o.acceptedAt && (
+                      <div className="flex items-center gap-2.5">
+                        <button onClick={() => openAppt('cancel', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
+                        {waConfirmLink(o) && <a href={waConfirmLink(o)} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
+                        <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark done</button>
+                      </div>
+                    )}
+                    {o.status === 'pending' && !o.startAt && (
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => cancelOrder(o.id)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
+                        <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>{T.tracksStock ? 'Fulfill' : 'Mark done'}</button>
+                      </div>
+                    )}
+                    {o.status !== 'pending' && isOwnerRole && (
+                      <button onClick={() => removeOrder(o.id)} className="text-[11.5px]" style={{ color: C.inkFaint }}>Remove</button>
+                    )}
+                  </div>
+                </div>
+  );
   // ---------- Bulk import of products, services and extras ----------
   const importKinds = settings.businessType === 'products' ? [['product', 'Products']]
     : settings.businessType === 'services' ? (T.saleHint ? [['extra', 'Extras']] : [['service', 'Services']])
@@ -4441,6 +4538,8 @@ function XorlaApp() {
         {renderReceiptModal()}
         {renderStockPanel()}
         {renderBookingPanels()}
+        {renderFulfilPanel()}
+        {renderApptPanel()}
         <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-6 lg:pt-8 pb-10">
 
           <div className="mb-6">
@@ -4449,6 +4548,21 @@ function XorlaApp() {
           </div>
 
           {hasBookables && <div className="rounded-2xl p-4 mb-5" style={card}>{renderBookingDesk()}</div>}
+          {apptMode && (() => {
+            const open = orders.filter((o) => o.status === 'pending').sort((a, b) => (a.startAt || '9999').localeCompare(b.startAt || '9999'));
+            return (
+              <div className="rounded-2xl p-4 mb-5" style={card}>
+                <div className="flex items-baseline justify-between gap-3 mb-3">
+                  <div className="text-[20px] font-bold cx-display">Appointments</div>
+                  {pendingOrderCount > 0 && <span className="text-[12px] font-semibold" style={{ color: C.copper }}>{pendingOrderCount} waiting</span>}
+                </div>
+                {renderApptTop()}
+                {open.length === 0
+                  ? <div className="text-[12.5px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkFaint }}>No upcoming appointments or requests.</div>
+                  : <div className="space-y-3">{open.slice(0, 30).map((o) => renderOrderCard(o))}</div>}
+              </div>
+            );
+          })()}
           {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} ${L.many}`,
             `Check the ${L.one} shown at the top before recording. That's where your ${T.sale} is saved.`)}
           {/* Wide screens: recording on the left, today's numbers and stock on the right. Phones keep the original order. */}
@@ -4777,7 +4891,7 @@ function XorlaApp() {
                 {renderSettingsGroup('Team', [
                   { id: 'team', Icon: Users, label: 'Staff & join code', value: `${settings.staffList.length} staff` },
                   { toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) },
-                  ...(hasBookables ? [{ toggle: true, Icon: CalendarClock, label: 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
+                  ...(hasBookables || apptMode ? [{ toggle: true, Icon: CalendarClock, label: hasBookables && apptMode ? 'Let staff confirm bookings and appointments' : apptMode ? 'Let staff accept appointment requests' : 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
                 ])}
                 {renderSettingsGroup('Security', [
                   { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
@@ -5015,7 +5129,8 @@ function XorlaApp() {
                   <div className="rounded-2xl p-4 text-[12.5px] leading-relaxed space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>
                     <div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>How times are worked out</div>
                     <div>Each service uses its <strong style={{ color: C.ink }}>How long it takes</strong> setting. Services without one count as 1 hour, and full-day services are asked for by date instead.</div>
-                    <div>A request holds its time for up to 24 hours while you answer. Once you accept, nobody else can take that time{cap > 1 ? ` unless you still have room for ${cap} at once` : ''}.</div>
+                    <div>{cap > 1 ? `Each time stays open on your storefront until all ${cap} places are taken, so ${cap} customers can book the same time.` : 'Once a time is booked, it disappears from your storefront. Raise the number above if you can serve more than one customer at once.'}</div>
+                    <div>A request holds its time for up to 24 hours while you answer. Staff see every appointment for their {L.one}{settings.staffConfirmBookings !== false ? ', and can accept requests' : ''}.</div>
                   </div>
                 </div>
               );
@@ -5955,107 +6070,14 @@ function XorlaApp() {
             <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{apptMode && settings.apptEnabled !== false
               ? `Requests from your storefront land here with the time the customer picked. Only free times can be picked, and you can't accept two that clash. Marking one done records it as a ${T.sale}.`
               : T.tracksStock ? 'Orders placed through your storefront land here. Fulfilling one logs it as a real sale and updates your stock automatically.' : 'Service requests from your storefront land here, with the customer\'s preferred time. Marking one done logs it as a job.'}</div>
-            {apptMode && (
-              <div className="mb-5 space-y-3">
-                <button onClick={() => openAppt('new')} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={17} /> New appointment</button>
-                {todaysAppts.length > 0 && (
-                  <div className="rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-                    <div className="text-[13px] font-semibold mb-2">Today's appointments</div>
-                    <div className="space-y-1.5">
-                      {todaysAppts.map((o) => (
-                        <div key={o.id} className="flex items-center gap-3 text-[12.5px]">
-                          <span className="shrink-0 whitespace-nowrap cx-mono font-semibold" style={{ color: new Date(o.endAt) < new Date() ? C.inkFaint : C.copper }}>{apptTime(o.startAt)} to {apptTime(o.endAt)}</span>
-                          <span className="min-w-0 truncate"><strong>{o.customerName}</strong><span style={{ color: C.inkDim }}> · {o.items.map((it) => it.description).join(', ')}</span></span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {renderApptTop()}
             {orders.length === 0 && (
               <div className="text-center text-[13px] py-10 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>
                 {settings.storefrontEnabled ? 'No orders yet — share your storefront link to start getting them.' : 'Turn on your storefront in Settings to start receiving orders here.'}
               </div>
             )}
             <div className="space-y-3">
-              {orders.map((o) => (
-                <div key={o.id} className="rounded-2xl p-4" style={card}>
-                  <div className="flex items-start justify-between mb-2.5">
-                    <div>
-                      <div className="text-[13.5px] font-semibold">{o.customerName}</div>
-                      <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
-                    </div>
-                    <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
-                      o.status === 'pending' && o.acceptedAt ? { background: C.sageSoft, color: C.sage } :
-                      o.status === 'pending' && o.startAt && apptPassed(o) ? { background: C.surfaceRaised, color: C.inkFaint } :
-                      o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
-                      o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
-                      { background: 'rgba(226,98,75,0.12)', color: C.rust }
-                    }>{o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
-                  </div>
-                  <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
-                    {o.items.map((it, i) => (
-                      <div key={i} className="flex items-center justify-between text-[12.5px]">
-                        <span style={{ color: C.inkDim }}>{it.description} ×{it.quantity}</span>
-                        <span className="cx-mono">{fmt(it.quantity * it.unitPrice)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {o.startAt && (() => {
-                    const clash = o.status === 'pending' && !o.acceptedAt ? apptClashes(o) : [];
-                    const full = clash.length >= apptCap;
-                    return (
-                      <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: o.status !== 'pending' ? C.surfaceRaised : full ? C.rustSoft : o.acceptedAt ? C.sageSoft : C.surfaceRaised }}>
-                        <div className="flex items-center gap-2">
-                          <CalendarClock size={15} style={{ color: full ? C.rust : o.acceptedAt ? C.sage : C.copper }} />
-                          <span className="font-semibold" style={{ color: C.ink }}>{apptRange(o)}</span>
-                        </div>
-                        {o.status === 'pending' && !o.acceptedAt && !apptPassed(o) && (
-                          <div className="mt-1" style={{ color: full ? C.rust : C.sage }}>{full
-                            ? `Clashes with ${clash.map((x) => `${x.customerName} (${apptTime(x.startAt)} to ${apptTime(x.endAt)})`).join(', ')}. Offer another time, or decline.`
-                            : clash.length ? `Free. ${clash.length} of ${apptCap} places already booked at that time.` : 'This time is free.'}</div>
-                        )}
-                        {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
-                        {o.status === 'cancelled' && o.cancelReason && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
-                        {o.note && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
-                      </div>
-                    );
-                  })()}
-                  {!o.startAt && (o.preferredTime || o.note) && (
-                    <div className="rounded-xl px-3 py-2.5 mb-3 space-y-1 text-[12.5px]" style={{ background: C.surfaceRaised }}>
-                      {o.preferredTime && <div><span style={{ color: C.inkFaint }}>Preferred time: </span><span className="font-semibold">{o.preferredTime}</span></div>}
-                      {o.note && <div><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <div className="cx-mono text-[14px] font-bold">{fmt(o.total)}</div>
-                    {o.status === 'pending' && o.startAt && !o.acceptedAt && (
-                      <div className="flex items-center gap-2.5">
-                        <button onClick={() => openAppt('decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
-                        <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>
-                        {!apptPassed(o) && apptClashes(o).length < apptCap && <button onClick={() => acceptAppt(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Accept</button>}
-                      </div>
-                    )}
-                    {o.status === 'pending' && o.startAt && o.acceptedAt && (
-                      <div className="flex items-center gap-2.5">
-                        <button onClick={() => openAppt('cancel', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
-                        {waConfirmLink(o) && <a href={waConfirmLink(o)} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
-                        <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark done</button>
-                      </div>
-                    )}
-                    {o.status === 'pending' && !o.startAt && (
-                      <div className="flex items-center gap-3">
-                        <button onClick={() => cancelOrder(o.id)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
-                        <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>{T.tracksStock ? 'Fulfill' : 'Mark done'}</button>
-                      </div>
-                    )}
-                    {o.status !== 'pending' && (
-                      <button onClick={() => removeOrder(o.id)} className="text-[11.5px]" style={{ color: C.inkFaint }}>Remove</button>
-                    )}
-                  </div>
-                </div>
-              ))}
+              {orders.map((o) => renderOrderCard(o))}
             </div>
           </>
         )}
@@ -7275,7 +7297,7 @@ function Storefront({ businessCode }) {
                     </div>
                     {day && (
                       <div className="grid grid-cols-4 gap-1.5 mt-1">
-                        {day.slots.map((t) => <button key={t} type="button" onClick={() => setApptSlot(t)} aria-pressed={apptSlot === t} className={`py-2.5 rounded-lg text-[13px] font-semibold ${focusRing}`} style={apptSlot === t ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{apptTime(t)}</button>)}
+                        {day.slots.map((t, i) => { const left = (day.left || [])[i]; const few = (apptCal.capacity || 1) > 1 && left === 1; return <button key={t} type="button" onClick={() => setApptSlot(t)} aria-pressed={apptSlot === t} className={`py-2.5 rounded-lg text-[13px] font-semibold leading-tight ${focusRing}`} style={apptSlot === t ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{apptTime(t)}{few && <span className="block text-[10px] font-medium" style={{ opacity: 0.7 }}>1 left</span>}</button>; })}
                       </div>
                     )}
                   </>
