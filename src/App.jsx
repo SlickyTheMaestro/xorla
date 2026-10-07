@@ -3024,6 +3024,23 @@ function XorlaApp() {
     && new Date(x.startAt) < new Date(o.endAt) && new Date(x.endAt) > new Date(o.startAt));
   const apptPassed = (o) => o.startAt && new Date(o.startAt).getTime() < Date.now();
   const todaysAppts = orders.filter((o) => isConfirmedAppt(o) && lagosDateKey(o.startAt) === todayKey()).sort((a, b) => a.startAt.localeCompare(b.startAt));
+  // When the business turns a customer down, the customer hears why, in one tap
+  const storeLink = settings.storefrontEnabled && settings.businessCode ? `${window.location.origin}/store/${settings.businessCode}` : '';
+  const offerWhatsApp = async (phone, message, title, body) => {
+    if (!phone) return;
+    const link = `https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(message)}`;
+    if (await brandConfirm(body, { title, confirm: 'Send on WhatsApp', cancel: 'Not now' })) window.open(link, '_blank');
+  };
+  const turnDownMessage = ({ name, kind, what, reason, extra }) => {
+    const first = String(name || '').split(' ')[0] || 'there';
+    const lines = [
+      kind === 'decline' ? `Hi ${first}, sorry, ${settings.businessName} can't take your request for ${what}.` : `Hi ${first}, sorry, ${settings.businessName} has had to cancel your ${what}.`,
+      reason ? `Reason: ${reason}` : '',
+      extra || '',
+      storeLink ? `You're welcome to book another time here: ${storeLink}` : 'Please reply if you would like another time.',
+    ];
+    return lines.filter(Boolean).join('\n\n');
+  };
   const waConfirmLink = (o) => o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, your appointment with ${settings.businessName} is confirmed for ${apptRange(o)}. See you then!`)}`;
   const loadApptCal = async (panel) => {
     const items = panel.mode === 'new' ? panel.items.map((id) => ({ productId: id, quantity: 1 })) : panel.order.items.map((it) => ({ productId: it.productId, quantity: it.quantity }));
@@ -3077,7 +3094,11 @@ function XorlaApp() {
         if (link && await brandConfirm(`${o.customerName} is now booked for ${apptRange(moved)}. Let them know on WhatsApp?`, { title: 'New time confirmed', confirm: 'Send on WhatsApp', cancel: 'Not now' })) window.open(link, '_blank');
       });
     } else {
-      runAppt(() => sbRpc('answer_appointment', session.access_token, { p_order: a.order.id, p_action: a.mode, p_reason: a.reason }));
+      const o = a.order, reason = a.reason.trim(), mode = a.mode;
+      runAppt(() => sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: mode, p_reason: reason }), () => {
+        const msg = turnDownMessage({ name: o.customerName, kind: mode, what: mode === 'decline' ? apptRange(o) : `appointment on ${apptRange(o)}`, reason });
+        offerWhatsApp(o.customerPhone, msg, mode === 'decline' ? 'Request declined' : 'Appointment cancelled', `Let ${o.customerName} know on WhatsApp? They'll see:\n\n"${msg}"`);
+      });
     }
   };
   const renderApptPanel = () => {
@@ -3150,7 +3171,10 @@ function XorlaApp() {
             )}
             {a.mode === 'reschedule' && picker}
             {(a.mode === 'decline' || a.mode === 'cancel') && (
-              <input type="text" autoFocus placeholder={a.mode === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason (optional)'} value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+              <>
+                <input type="text" autoFocus placeholder={a.mode === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason, e.g. Our stylist is unwell that day'} value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{a.order.customerPhone ? `Next, you can send ${a.order.customerName} this reason on WhatsApp, with a link to book another time.` : `${a.order.customerName} didn't leave a phone number, so they can't be messaged.`}</div>
+              </>
             )}
           </div>
           {a.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
@@ -3481,6 +3505,13 @@ function XorlaApp() {
     runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: actForm.roomId || null }),
       () => {
         setBookingAct(null);
+        if (action === 'decline' || action === 'cancel') {
+          const held = Number(booking.deposit_paid) || 0;
+          const stay = `${booking.item_name} for ${dayLabel(booking.check_in)} to ${dayLabel(booking.check_out)}`;
+          const extra = action === 'cancel' && held > 0 ? (isEarlyCancel(booking) ? `Your ${fmt(held)} deposit will be refunded to you.` : `As this is within ${Number(settings.cancelWindowHours ?? 24)} hours of check-in, the ${fmt(held)} deposit is not refundable.`) : '';
+          const msg = turnDownMessage({ name: booking.customer_name, kind: action, what: action === 'decline' ? stay : `booking (${stay})`, reason: actForm.reason.trim(), extra });
+          offerWhatsApp(booking.customer_phone, msg, action === 'decline' ? 'Request declined' : 'Booking cancelled', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`);
+        }
         if (action === 'check_out') setReceipt(makeReceipt({
           id: booking.id,
           items: [
@@ -3928,7 +3959,8 @@ function XorlaApp() {
               Confirm you've sent <strong style={{ color: C.ink }}>{fmt(b.refund_amount)}</strong> back to {b.customer_name}{b.customer_phone ? ` (${b.customer_phone})` : ''}. Xorla records who marked it and when.
             </div>
           )}
-          {(action === 'decline' || action === 'cancel') && <input type="text" autoFocus placeholder={action === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason (optional)'} value={actForm.reason} onChange={(e) => setActForm({ ...actForm, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
+          {(action === 'decline' || action === 'cancel') && <input type="text" autoFocus placeholder={action === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason, e.g. Fully booked that weekend'} value={actForm.reason} onChange={(e) => setActForm({ ...actForm, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
+          {(action === 'decline' || action === 'cancel') && <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{b.customer_phone ? `Next, you can send ${b.customer_name} this reason on WhatsApp.` : `${b.customer_name} has no phone number saved, so they can't be messaged.`}</div>}
         </div>
       );
     }
@@ -7713,7 +7745,7 @@ function BrandDialogHost() {
           <span className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `${iconTone}22` }}><Icon size={18} style={{ color: iconTone }} /></span>
           <div className="min-w-0 pt-0.5">
             {title && <div className="text-[16px] font-semibold leading-snug mb-1">{title}</div>}
-            <div className="text-[13.5px] leading-relaxed" style={{ color: title ? P.dim : P.ink }}>{body}</div>
+            <div className="text-[13.5px] leading-relaxed whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: title ? P.dim : P.ink }}>{body}</div>
           </div>
         </div>
         <div className={`grid gap-2 mt-5 ${d.kind === 'confirm' ? 'grid-cols-2' : 'grid-cols-1'}`}>
