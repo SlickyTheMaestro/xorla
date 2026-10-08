@@ -27,7 +27,7 @@ function friendlyAuthError(raw) {
   if (!raw) return 'Something went wrong. Please try again.';
   return raw;
 }
-const PASSWORD_MIN_LENGTH = 6;
+const PASSWORD_MIN_LENGTH = 8;
 function passwordError(password) {
   if (password.length < PASSWORD_MIN_LENGTH) return `Password needs to be at least ${PASSWORD_MIN_LENGTH} characters.`;
   return '';
@@ -562,7 +562,7 @@ function fromSbProduct(row) {
   return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront' };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null };
 }
 
 function staticMessage(inv, settings) {
@@ -849,6 +849,22 @@ function XorlaMark({ size = 30 }) {
   );
 }
 
+// A new staff member waits here until the owner approves them
+function PendingJoinScreen({ info, onCheck, onLogout }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="min-h-screen flex items-center justify-center px-6 cx-body" style={{ background: C.bg, color: C.ink }}>
+      <div className="w-full max-w-sm text-center">
+        <div className="flex justify-center mb-6"><XorlaMark size={40} /></div>
+        <div className="w-14 h-14 rounded-2xl mx-auto mb-5 flex items-center justify-center" style={{ background: C.copperSoft }}><Users size={24} style={{ color: C.copper }} /></div>
+        <div className="text-[22px] font-bold cx-display mb-2">Waiting for approval</div>
+        <div className="text-[14px] leading-relaxed mb-7" style={{ color: C.inkDim }}>Hi {info.name}. You've asked to join <strong style={{ color: C.ink }}>{info.business}</strong>. The owner has been told, and you can start as soon as they approve you.</div>
+        <button disabled={busy} onClick={async () => { setBusy(true); await onCheck(); setBusy(false); }} className="w-full rounded-xl py-3.5 text-[14px] font-semibold mb-3" style={{ background: C.copper, color: C.bg, opacity: busy ? 0.6 : 1 }}>{busy ? 'Checking…' : "I've been approved, continue"}</button>
+        <button onClick={onLogout} className="text-[13px] font-medium" style={{ color: C.inkFaint }}>Log out</button>
+      </div>
+    </div>
+  );
+}
 function AuthScreen({ onDone }) {
   const [step, setStep] = useState('role'); // role | owner | staff | code | forgot
   const [mode, setMode] = useState('login'); // login | signup
@@ -955,7 +971,7 @@ function AuthScreen({ onDone }) {
   }
 
   if (step === 'code') {
-    return wrap('Your business code', "Share this with your staff — it's how they join your business, not a password.", (
+    return wrap('Your staff code', 'Give this only to people who work for you. They use it to ask to join, and you approve each one. You can find it, or change it, in Settings → Staff.', (
       <>
         <div className="rounded-xl p-5 mb-5 text-center" style={{ background: C.surfaceRaised, border: `1px solid ${C.sage}` }}>
           <div className="cx-mono text-[28px] font-extrabold tracking-[0.1em]" style={{ color: C.sage }}>{newBusinessCode}</div>
@@ -986,14 +1002,14 @@ function AuthScreen({ onDone }) {
         if (!result.ok) throw new Error(result.removed ? "Your access to this business has been removed. Contact the business owner if you think this is a mistake." : "Logged in, but couldn't load your business. Please try again.");
       } catch (e) { setError(e.message); } finally { setLoading(false); }
     };
-    return wrap('Join your business', mode === 'login' ? 'Log back in.' : "Enter your employer's business code to join.", (
+    return wrap('Join your business', mode === 'login' ? 'Log back in.' : "Enter the staff code your employer gave you. They'll approve you before you can start.", (
       <>
         <button onClick={() => { setStep('role'); setMode('login'); }} className="flex items-center gap-1 text-[12px] mb-4" style={{ color: C.inkFaint }}><ChevronLeft size={14} /> Back</button>
         {error && <div className="text-[12px] rounded-lg px-3 py-2 mb-3" style={{ background: 'rgba(226,98,75,0.12)', color: '#E2A090' }}>{error}</div>}
         <div className="space-y-2.5 mb-4">
           {mode === 'signup' && (
             <>
-              <input type="text" placeholder="Business code (from your employer)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none uppercase" style={field} />
+              <input type="text" placeholder="Staff code (from your employer)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none uppercase" style={field} />
               <input type="text" placeholder="Your full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
             </>
           )}
@@ -1041,8 +1057,9 @@ function AuthScreen({ onDone }) {
         const result = await sbRpc('create_owner_business', auth.access_token, { business_name: form.business.trim() });
         const row = Array.isArray(result) ? result[0] : result;
         await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
-        setNewBusinessCode(row.out_business_code);
-        setStep('code');
+        let staffCode = '';
+        try { const b = await sbRest('businesses', { accessToken: auth.access_token, query: `?id=eq.${row.out_business_id}&select=staff_code` }); staffCode = b[0]?.staff_code || ''; } catch (e) { /* shown later in Settings */ }
+        if (staffCode) { setNewBusinessCode(staffCode); setStep('code'); } else onDone();
       }
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   };
@@ -1234,6 +1251,7 @@ function XorlaApp() {
   const [bookingBusy, setBookingBusy] = useState(false);
   const [roomCharges, setRoomCharges] = useState([]);
   const [apptPanel, setApptPanel] = useState(null);
+  const submitApptRef = useRef(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importKind, setImportKind] = useState('product');
@@ -1266,6 +1284,7 @@ function XorlaApp() {
   const L = locationWords(settings.businessType, serviceKind);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [pendingJoin, setPendingJoin] = useState(null);   // a staff member waiting for the owner to approve them
 
   // ---------- Multi-shop: the whole app follows the shop switcher ----------
   const isOwnerRole = settings.role === 'owner';
@@ -1554,6 +1573,10 @@ function XorlaApp() {
     const profiles = await sbRest('profiles', { accessToken, query: `?id=eq.${userId}&select=*` });
     if (!profiles.length) throw new Error('Profile not found');
     const profile = profiles[0];
+    if (profile.role === 'pending') {
+      const st = await sbRpc('my_join_status', accessToken, {}).catch(() => null);
+      const err = new Error('Waiting for approval'); err.pending = { name: profile.name, business: st?.business || 'the business' }; throw err;
+    }
     const businesses = await sbRest('businesses', { accessToken, query: `?id=eq.${profile.business_id}&select=*` });
     const business = businesses[0];
     let staffRoster = [];
@@ -1602,6 +1625,8 @@ function XorlaApp() {
       setBookingsAll([...(bookingRows || []), ...(Array.isArray(refundRows) ? refundRows : []).filter((b) => !bookingIds.has(b.id))]);
       setRoomsAll(roomRows || []);
       setRoomCharges(Array.isArray(chargeRows) ? chargeRows : []);
+      loadStaffRequests(accessToken);
+      sbRpc('admin_access', accessToken, {}).then((a) => setIsFounder(!!a?.admin)).catch(() => setIsFounder(false));
     } catch (e) {
       console.error('Loading business data failed:', e);
     }
@@ -1726,6 +1751,7 @@ function XorlaApp() {
       businessName: business.name,
       businessId: business.id,
       businessCode: business.business_code,
+      staffCode: business.staff_code || '',
       paymentLink: business.payment_link || '',
       tone: business.reminder_tone || 'friendly',
       customInstructions: business.custom_instructions || '',
@@ -1767,6 +1793,7 @@ function XorlaApp() {
       setAuthLoading(false);
       return { ok: true };
     } catch (e) {
+      if (e.pending) { setPendingJoin(e.pending); setAuthLoading(false); return { ok: true }; }
       const removed1 = e.message === 'Profile not found';
       try {
         const refreshed = await sbRefresh(sess.refresh_token);
@@ -1777,6 +1804,7 @@ function XorlaApp() {
         setAuthLoading(false);
         return { ok: true };
       } catch (e2) {
+        if (e2.pending) { setPendingJoin(e2.pending); setAuthLoading(false); return { ok: true }; }
         console.error('Bootstrap failed:', e, e2);
         await clearSession();
         setAuthLoading(false);
@@ -1878,10 +1906,28 @@ function XorlaApp() {
     } catch (e) { brandAlert(e.message); }
   };
 
+  // People who used the staff code and are waiting for the owner to approve them
+  const [staffRequests, setStaffRequests] = useState([]);
+  const [isFounder, setIsFounder] = useState(false);
+  const loadStaffRequests = useCallback(async (token) => {
+    try { const r = await sbRpc('pending_staff', token, {}); setStaffRequests(Array.isArray(r) ? r : []); } catch (e) { setStaffRequests([]); }
+  }, []);
+  const answerStaffRequest = async (req, approve) => {
+    if (!approve && !(await brandConfirm(`Decline ${req.name}? They won't get access to your business.`, { confirm: 'Decline', danger: true }))) return;
+    try {
+      await sbRpc('answer_staff_request', session.access_token, { p_profile: req.id, p_approve: approve });
+      setStaffRequests((prev) => prev.filter((x) => x.id !== req.id));
+      if (approve) { const { staffRoster } = await fetchProfileAndBusiness(session.access_token, session.user_id); setSettings((prev) => ({ ...prev, staffList: staffRoster })); loadBusinessData(session.access_token); }
+    } catch (e) { brandAlert(e.message); }
+  };
+  const changeStaffCode = async () => {
+    if (!(await brandConfirm('Anyone with the old code will no longer be able to ask to join. Staff who have already joined are not affected.', { title: 'Make a new staff code?', confirm: 'Make new code' }))) return;
+    try { const c = await sbRpc('new_staff_code', session.access_token, {}); setSettings((prev) => ({ ...prev, staffCode: c })); } catch (e) { brandAlert(e.message); }
+  };
   const removeStaff = async (staffId, staffName) => {
     if (!(await brandConfirm(`Remove ${staffName}? They'll be logged out immediately and won't be able to log back in.`, { confirm: 'Remove', danger: true }))) return;
     try {
-      await sbRest(`profiles?id=eq.${staffId}`, { method: 'DELETE', accessToken: session.access_token });
+      await sbRpc('remove_staff', session.access_token, { p_profile: staffId });
       setSettings((prev) => ({ ...prev, staffList: prev.staffList.filter((s) => s.id !== staffId) }));
     } catch (e) { brandAlert(e.message); }
   };
@@ -2395,7 +2441,7 @@ function XorlaApp() {
   const todayExpenses = todayExpensesList.reduce((a, e) => a + Number(e.amount), 0);
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
-  const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt).length;
+  const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer).length;
   const unpaidInvoiceCount = invoices.filter((i) => computeStatus(i) !== 'paid').length;
   const currentStaffNames = settings.staffList.map((s) => s.name);
   const sellerOptions = [...new Set([...currentStaffNames, ...sales.map((s) => s.loggedBy), ...expenses.map((e) => e.loggedBy)].filter(Boolean))]
@@ -2598,6 +2644,9 @@ function XorlaApp() {
     return <>{fontStyle}<ResetPasswordScreen accessToken={resetToken} onDone={() => { window.location.hash = ''; setResetToken(null); }} /></>;
   }
   if (!loaded || authLoading) return <div className="min-h-screen flex items-center justify-center cx-body" style={{ background: C.bg, color: C.inkDim }}>{fontStyle}<div className="text-sm">Loading…</div></div>;
+  if (pendingJoin) {
+    return <>{fontStyle}<PendingJoinScreen info={pendingJoin} onCheck={async () => { setPendingJoin(null); await bootstrap({ fresh: true }); }} onLogout={async () => { setPendingJoin(null); await logout(); }} /></>;
+  }
   if (!session) {
     return <>{fontStyle}<AuthScreen onDone={() => bootstrap({ fresh: true })} /></>;
   }
@@ -3050,6 +3099,16 @@ function XorlaApp() {
     ];
     return lines.filter(Boolean).join('\n\n');
   };
+  const offerOpenOf = (o) => o.awaitingCustomer && o.holdUntil && new Date(o.holdUntil) > new Date();
+  const offerLink = (token) => `${window.location.origin}/appt/${token}`;
+  const offerMessage = (o, start, end, token, reason) => {
+    const first = String(o.customerName || '').split(' ')[0] || 'there';
+    const when = `${apptDay(start)}, ${apptTime(start)} to ${apptTime(end)}`;
+    const opener = o.acceptedAt
+      ? `Hi ${first}, sorry, ${settings.businessName} needs to move your appointment on ${apptRange(o)}.`
+      : `Hi ${first}, thanks for booking with ${settings.businessName}. The time you asked for (${apptRange(o)}) isn't free.`;
+    return [opener, reason ? `Reason: ${reason}` : '', `We can offer you ${when} instead.`, `Tap here to accept it, choose another time, or let us know you can't make it:\n${offerLink(token)}`].filter(Boolean).join('\n\n');
+  };
   const waConfirmLink = (o) => o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, your appointment with ${settings.businessName} is confirmed for ${apptRange(o)}. See you then!`)}`;
   const loadApptCal = async (panel) => {
     const items = panel.mode === 'new' ? panel.items.map((id) => ({ productId: id, quantity: 1 })) : panel.order.items.map((it) => ({ productId: it.productId, quantity: it.quantity }));
@@ -3088,18 +3147,31 @@ function XorlaApp() {
   };
   const submitAppt = () => {
     const a = apptPanel; if (!a || a.busy) return;
+    if (a.direct) setApptPanel((p) => p && { ...p, direct: false });
     if (a.mode === 'new') {
       if (!a.items.length) { setApptPanel({ ...a, error: 'Pick at least one service.' }); return; }
       if (!a.slot) { setApptPanel({ ...a, error: 'Pick a time.' }); return; }
       if (!a.name.trim()) { setApptPanel({ ...a, error: "Enter the customer's name." }); return; }
       runAppt(() => sbRpc('create_appointment', session.access_token, { p_shop: targetShopId, p_items: a.items.map((id) => ({ productId: id, quantity: 1 })), p_start_at: a.slot, p_name: a.name, p_phone: a.phone, p_note: a.note }));
+    } else if (a.mode === 'reschedule' && !a.direct) {
+      // Offer the time: the customer accepts it, picks another, or declines, from a link
+      if (!a.slot) { setApptPanel({ ...a, error: 'Pick the time to offer.' }); return; }
+      const o = a.order, start = a.slot, reason = a.reason.trim();
+      const end = new Date(new Date(start).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString();
+      let token = null;
+      runAppt(async () => { token = await sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'propose', p_reason: reason, p_start_at: start }); }, () => {
+        if (!token) return;
+        const msg = offerMessage(o, start, end, token, reason);
+        if (o.customerPhone) offerWhatsApp(o.customerPhone, msg, 'New time offered', `${o.customerName} will get this on WhatsApp, with a link to accept, choose another time or decline. The time is held for them for 24 hours.\n\n"${msg}"`);
+        else brandAlert(`${o.customerName} didn't leave a phone number. Share this link with them another way: ${offerLink(token)}`, { title: 'New time offered', tone: 'info' });
+      });
     } else if (a.mode === 'reschedule') {
       if (!a.slot) { setApptPanel({ ...a, error: 'Pick the new time.' }); return; }
       const o = a.order, start = a.slot;
       runAppt(() => sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'reschedule', p_reason: '', p_start_at: start }), async () => {
         const end = new Date(new Date(start).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString();
         const moved = { ...o, startAt: start, endAt: end };
-        const link = o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, the time you asked for with ${settings.businessName} wasn't free, so we've booked you for ${apptRange(moved)} instead. Reply if that doesn't work for you.`)}`;
+        const link = o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, as we agreed, your appointment with ${settings.businessName} is now ${apptRange(moved)}. See you then!`)}`;
         if (link && await brandConfirm(`${o.customerName} is now booked for ${apptRange(moved)}. Let them know on WhatsApp?`, { title: 'New time confirmed', confirm: 'Send on WhatsApp', cancel: 'Not now' })) window.open(link, '_blank');
       });
     } else {
@@ -3110,10 +3182,12 @@ function XorlaApp() {
       });
     }
   };
+  submitApptRef.current = submitAppt;
   const renderApptPanel = () => {
     if (!apptPanel) return null;
     const a = apptPanel; const close = () => { if (!a.busy) setApptPanel(null); };
-    const title = { new: 'New appointment', reschedule: 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment' }[a.mode];
+    const title = { new: 'New appointment', reschedule: a.order?.acceptedAt ? 'Move appointment' : 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment' }[a.mode];
+    const firstName = String(a.order?.customerName || '').split(' ')[0];
     const days = a.cal?.days || [];
     const day = days.find((d) => d.date === a.day);
     const picker = (
@@ -3167,6 +3241,8 @@ function XorlaApp() {
               </>
             )}
             {a.mode === 'reschedule' && picker}
+            {a.mode === 'reschedule' && a.order?.acceptedAt && <input type="text" placeholder="Reason (optional), e.g. Our stylist is unwell that day" value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
+            {a.mode === 'reschedule' && <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{firstName} gets a link to accept this time, choose another free time, or say they can't make it. The time is held for them for 24 hours.</div>}
             {(a.mode === 'decline' || a.mode === 'cancel') && (
               <>
                 <input type="text" autoFocus placeholder={a.mode === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason, e.g. Our stylist is unwell that day'} value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -3176,8 +3252,13 @@ function XorlaApp() {
           </div>
           {a.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
           <button onClick={submitAppt} disabled={a.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: a.mode === 'decline' || a.mode === 'cancel' ? C.rust : C.copper, color: C.bg, opacity: a.busy ? 0.6 : 1 }}>
-            {a.busy ? 'Saving…' : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Confirm ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Confirm new time') : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
+            {a.busy ? 'Saving…' : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Offer ${apptDay(a.slot)}, ${apptTime(a.slot)} to ${firstName}` : `Offer a time to ${firstName}`) : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
           </button>
+          {a.mode === 'reschedule' && a.slot && (
+            <button onClick={() => { const next = { ...a, direct: true }; setApptPanel(next); setTimeout(() => submitApptRef.current && submitApptRef.current(), 0); }} disabled={a.busy} className="w-full mt-2 py-2.5 text-[12.5px] font-medium" style={{ color: C.inkDim }}>
+              {firstName} already agreed to this time? Confirm it now
+            </button>
+          )}
         </div>
       </div>
     );
@@ -3208,12 +3289,13 @@ function XorlaApp() {
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                     <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
+                      o.status === 'pending' && o.awaitingCustomer ? { background: C.surfaceRaised, color: C.inkDim } :
                       o.status === 'pending' && o.acceptedAt ? { background: C.sageSoft, color: C.sage } :
                       o.status === 'pending' && o.startAt && apptPassed(o) ? { background: C.surfaceRaised, color: C.inkFaint } :
                       o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
                       o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
                       { background: 'rgba(226,98,75,0.12)', color: C.rust }
-                    }>{o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
+                    }>{o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
                   </div>
                   <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
                     {o.items.map((it, i) => (
@@ -3224,7 +3306,8 @@ function XorlaApp() {
                     ))}
                   </div>
                   {o.startAt && (() => {
-                    const clash = o.status === 'pending' && !o.acceptedAt ? apptClashes(o) : [];
+                    const clash = o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer ? apptClashes(o) : [];
+                    const offerOpen = o.awaitingCustomer && o.holdUntil && new Date(o.holdUntil) > new Date();
                     const full = clash.length >= apptCap;
                     return (
                       <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: o.status !== 'pending' ? C.surfaceRaised : full ? C.rustSoft : o.acceptedAt ? C.sageSoft : C.surfaceRaised }}>
@@ -3232,12 +3315,19 @@ function XorlaApp() {
                           <CalendarClock size={15} style={{ color: full ? C.rust : o.acceptedAt ? C.sage : C.copper }} />
                           <span className="font-semibold" style={{ color: C.ink }}>{apptRange(o)}</span>
                         </div>
-                        {o.status === 'pending' && !o.acceptedAt && !apptPassed(o) && (
+                        {o.status === 'pending' && o.awaitingCustomer && (
+                          <div className="mt-1 space-y-0.5" style={{ color: C.inkDim }}>
+                            <div>New time offered{o.requestedStartAt ? `. They asked for ${apptDay(o.requestedStartAt)}, ${apptTime(o.requestedStartAt)}.` : '.'}</div>
+                            <div style={{ color: offerOpen ? C.copper : C.rust }}>{offerOpen ? `Held for them until ${new Date(o.holdUntil).toLocaleString('en-GB', { ...LAGOS_TIME, weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}.` : 'No reply, and the offer has expired. Offer another time, or decline.'}</div>
+                          </div>
+                        )}
+                        {o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer && o.proposalReply === 'chose_other' && <div className="mt-1" style={{ color: C.copper }}>{String(o.customerName).split(' ')[0]} picked this time instead of your offer.</div>}
+                        {o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer && !apptPassed(o) && (
                           <div className="mt-1" style={{ color: full ? C.rust : C.sage }}>{full
                             ? `Clashes with ${clash.map((x) => `${x.customerName} (${apptTime(x.startAt)} to ${apptTime(x.endAt)})`).join(', ')}. Offer another time, or decline.`
                             : clash.length ? `Free. ${clash.length} of ${apptCap} places already booked at that time.` : 'This time is free.'}</div>
                         )}
-                        {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
+                        {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.proposalReply === 'accepted' ? ` by ${String(o.customerName).split(' ')[0]} from your offer` : o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
                         {o.status === 'cancelled' && o.cancelReason && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
                         {o.note && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
                       </div>
@@ -3251,17 +3341,26 @@ function XorlaApp() {
                   )}
                   <div className="flex items-center justify-between">
                     <div className="cx-mono text-[14px] font-bold">{fmt(o.total)}</div>
-                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !canAnswerRequests && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to answer</span>}
-                    {o.status === 'pending' && o.startAt && !o.acceptedAt && canAnswerRequests && (
+                    {o.status === 'pending' && o.startAt && o.awaitingCustomer && canAnswerRequests && (
+                      <div className="flex items-center gap-2.5">
+                        <button onClick={() => openAppt(o.acceptedAt ? 'cancel' : 'decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>{o.requestedStartAt && !o.acceptedAt ? 'Decline' : 'Cancel'}</button>
+                        {offerOpenOf(o) && o.customerPhone && o.proposalToken && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(offerMessage({ ...o, acceptedAt: null, startAt: o.requestedStartAt || o.startAt, endAt: new Date(new Date(o.requestedStartAt || o.startAt).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString() }, o.startAt, o.endAt, o.proposalToken, ''))}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>Send again</a>}
+                        {!offerOpenOf(o) && <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>}
+                        {offerOpenOf(o) && <button onClick={() => acceptAppt(o)} title="If they agreed by phone or in person" className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>They agreed</button>}
+                      </div>
+                    )}
+                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !o.awaitingCustomer && !canAnswerRequests && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to answer</span>}
+                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !o.awaitingCustomer && canAnswerRequests && (
                       <div className="flex items-center gap-2.5">
                         <button onClick={() => openAppt('decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
                         <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>
                         {!apptPassed(o) && apptClashes(o).length < apptCap && <button onClick={() => acceptAppt(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Accept</button>}
                       </div>
                     )}
-                    {o.status === 'pending' && o.startAt && o.acceptedAt && (
+                    {o.status === 'pending' && o.startAt && o.acceptedAt && !o.awaitingCustomer && (
                       <div className="flex items-center gap-2.5">
                         <button onClick={() => openAppt('cancel', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
+                        {canAnswerRequests && !apptPassed(o) && <button onClick={() => openAppt('reschedule', o)} className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>Move</button>}
                         {waConfirmLink(o) && <a href={waConfirmLink(o)} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
                         <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark done</button>
                       </div>
@@ -3991,6 +4090,7 @@ function XorlaApp() {
   const notifItems = (() => {
     const items = [];
     const go = (t, extra) => () => { setNotifOpen(false); extra && extra(); setTab(t); };
+    if (isOwnerRole && staffRequests.length > 0) items.push({ key: 'staffreq', urgent: false, Icon: Users, title: `${staffRequests.length} ${staffRequests.length === 1 ? 'person is' : 'people are'} asking to join your team`, sub: staffRequests.slice(0, 2).map((r) => r.name).join(', '), onClick: () => { setNotifOpen(false); setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('team'); setTab('settings'); } });
     if (bookingRequests.length > 0 && canAnswerRequests) items.push({ key: 'bookreq', urgent: false, Icon: CalendarClock, title: `${bookingRequests.length} booking request${bookingRequests.length !== 1 ? 's' : ''} to answer`, sub: bookingRequests.slice(0, 2).map((b) => `${b.customer_name}, ${dayLabel(b.check_in)}`).join(' · '), onClick: go('bookings') });
     if (refundsDue.length > 0) items.push({ key: 'refunds', urgent: true, Icon: Wallet, title: `${refundsDue.length} deposit refund${refundsDue.length !== 1 ? 's' : ''} to send`, sub: refundsDue.slice(0, 2).map((b) => `${b.customer_name}, ${fmt(b.refund_amount)}`).join(' · '), onClick: go('bookings') });
     if (arrivals.length > 0) items.push({ key: 'arrivals', urgent: false, Icon: CalendarClock, title: `${arrivals.length} arrival${arrivals.length !== 1 ? 's' : ''} today`, sub: arrivals.slice(0, 3).map((b) => b.customer_name).join(', '), onClick: go('bookings') });
@@ -4928,6 +5028,7 @@ function XorlaApp() {
                 ])}
                 {renderSettingsGroup('Help', [
                   { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
+                  ...(isFounder ? [{ action: () => window.open('/admin', '_blank'), Icon: TrendingUp, label: 'Founder dashboard', value: '' }] : []),
                   { action: () => window.open('/privacy', '_blank'), Icon: ShieldCheck, label: 'Privacy policy', value: '' },
                   { action: () => window.open('/terms', '_blank'), Icon: Receipt, label: 'Terms of service', value: '' },
                 ])}
@@ -5403,11 +5504,29 @@ function XorlaApp() {
             {settingsPage === 'team' && (
               <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
-                  <div className="text-[11px] mb-2 mt-3" style={{ color: C.inkFaint }}>Share this code with staff — they enter it once to join your business for good.</div>
-                  <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                    <span className="cx-mono text-[16px] font-bold tracking-[0.1em]" style={{ color: C.sage }}>{settings.businessCode}</span>
-                    <button onClick={() => copyText('code', settings.businessCode)} className="text-[11px] font-medium" style={{ color: copiedKey === 'code' ? C.sage : C.copper }}>{copiedKey === 'code' ? '✓ Copied' : 'Copy'}</button>
+                  {staffRequests.length > 0 && (
+                    <div className="mt-3 mb-4">
+                      <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.copper }}>Asking to join ({staffRequests.length})</div>
+                      <div className="space-y-2">
+                        {staffRequests.map((r) => (
+                          <div key={r.id} className="rounded-xl px-3.5 py-3 flex items-center gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[13.5px] font-semibold truncate">{r.name}</div>
+                              <div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{r.email || ''}{r.requested_at ? ` · ${new Date(r.requested_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</div>
+                            </div>
+                            <button onClick={() => answerStaffRequest(r, false)} className="text-[12px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
+                            <button onClick={() => answerStaffRequest(r, true)} className="px-3.5 py-1.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Approve</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="text-[11px] mb-2 mt-3" style={{ color: C.inkFaint }}>Give this code only to people who work for you. They use it to ask to join, and nobody gets in until you approve them here.</div>
+                  <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-1.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                    <span className="cx-mono text-[16px] font-bold tracking-[0.1em]" style={{ color: C.sage }}>{settings.staffCode || '········'}</span>
+                    <button onClick={() => copyText('code', settings.staffCode)} className="text-[11px] font-medium" style={{ color: copiedKey === 'code' ? C.sage : C.copper }}>{copiedKey === 'code' ? '✓ Copied' : 'Copy'}</button>
                   </div>
+                  <button onClick={changeStaffCode} className="text-[11.5px] font-medium mb-3" style={{ color: C.inkDim }}>Make a new code</button>
                   {staffOverBy > 0 && (
                     <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12px] leading-relaxed" style={{ background: C.rustSoft, color: C.ink }}>
                       Your plan includes {planCaps.staff} staff place{planCaps.staff !== 1 ? 's' : ''}, and you have {settings.staffList.length}. The {staffOverBy} who joined most recently {staffOverBy !== 1 ? 'are' : 'is'} paused until you upgrade or remove someone.{' '}
@@ -7098,7 +7217,8 @@ function Storefront({ businessCode }) {
       setOrderSent(true);
       setShowCheckout(false);
     } catch (e) {
-      if (/time|closed|opening hours|booked/i.test(e.message || '')) { brandAlert(e.message, { theme: 'light', title: 'Please pick another time' }); setApptSlot(''); loadStoreCalendar(); }
+      if (/too many|requests waiting|receiving a lot|phone number/i.test(e.message || '')) brandAlert(e.message, { theme: 'light' });
+      else if (/time|closed|opening hours|booked/i.test(e.message || '')) { brandAlert(e.message, { theme: 'light', title: 'Please pick another time' }); setApptSlot(''); loadStoreCalendar(); }
       else brandAlert(`Your ${W.short.toLowerCase()} didn't go through. Check your connection and tap ${W.send} again.`, { theme: 'light' });
     }
     setSubmitting(false);
@@ -7205,6 +7325,7 @@ function Storefront({ businessCode }) {
   };
   const submitBooking = async () => {
     if (!bookName.trim()) { setBookError('Please enter your name.'); return; }
+    if (bookPhone.replace(/[^0-9]/g, '').length < 10) { setBookError('Please enter your phone number, so they can confirm your booking.'); return; }
     setBookBusy(true); setBookError('');
     try {
       await sbRpc('place_booking', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_product_id: bookItem.id, p_check_in: stayIn, p_check_out: stayOut, p_units: bookUnits, p_name: bookName.trim(), p_phone: bookPhone.trim(), p_note: bookNote.trim() });
@@ -7345,7 +7466,7 @@ function Storefront({ businessCode }) {
     <div>
       <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-name">Your name</label>
       <input id="sf-name" type="text" autoComplete="name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
-      <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-phone">Phone number</label>
+      <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-phone">Phone number{usesSlots ? '' : <span className="font-normal" style={{ color: S.muted }}> (recommended)</span>}</label>
       <input id="sf-phone" type="tel" autoComplete="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="So they can confirm with you" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-2 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
       {cartHasService && (
         <>
@@ -7375,8 +7496,8 @@ function Storefront({ businessCode }) {
       )}
       <div className="text-[12px] mb-5" style={{ color: S.muted }}>{usesSlots && apptSlot ? `No payment now. Your time is held while ${business.name} confirms it.` : `No payment now. ${business.name} will contact you to confirm${cartHasService ? ' the time' : ''} and arrange payment.`}</div>
       <div className="sticky bottom-0 -mx-5 px-5 lg:-mx-6 lg:px-6 pt-3 pb-5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 22%)' }}>
-  {(() => { const needSlot = usesSlots && apptCal.days.some((d) => d.slots.length) && !apptSlot; const off = submitting || !customerName.trim() || cartList.length === 0 || needSlot; return (
-  <button onClick={submitOrder} disabled={off} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: off ? 0.4 : 1 }}>{submitting ? 'Sending…' : needSlot && customerName.trim() ? 'Pick a time to continue' : `${W.send} · ${fmt(cartTotal)}`}</button>); })()}
+  {(() => { const needSlot = usesSlots && apptCal.days.some((d) => d.slots.length) && !apptSlot; const needPhone = usesSlots && apptSlot && customerPhone.replace(/[^0-9]/g, '').length < 10; const off = submitting || !customerName.trim() || cartList.length === 0 || needSlot || needPhone; return (
+  <button onClick={submitOrder} disabled={off} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: off ? 0.4 : 1 }}>{submitting ? 'Sending…' : needSlot && customerName.trim() ? 'Pick a time to continue' : needPhone ? 'Add your phone number to continue' : `${W.send} · ${fmt(cartTotal)}`}</button>); })()}
       </div>
     </div>
   );
@@ -7918,7 +8039,14 @@ function LegalPage({ kind }) {
   );
 }
 
-// ============ Founder dashboard (/admin): only for people in platform_admins ============
+// ============ Founder dashboard (/admin): only for people in platform_admins, and only with two-step verification ============
+// Two-step verification uses Supabase Auth's authenticator-app codes (TOTP). A stolen password alone can't open this page.
+async function sbAuthReq(path, token, method = 'GET', body) {
+  const res = await fetch(`${SB_URL}/auth/v1${path}`, { method, headers: { apikey: SB_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const text = await res.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+  if (!res.ok) throw new Error((data && (data.msg || data.message || data.error_description)) || 'Something went wrong. Please try again.');
+  return data;
+}
 function AdminDashboard() {
   const [state, setState] = useState({ phase: 'loading', error: '' });
   const [ov, setOv] = useState(null);
@@ -7927,45 +8055,89 @@ function AdminDashboard() {
   const [filter, setFilter] = useState('all');
   const [loadingList, setLoadingList] = useState(false);
   const [updated, setUpdated] = useState(null);
+  const [mfa, setMfa] = useState({ factorId: '', qr: '', secret: '', code: '', busy: false, error: '' });
+  const [detail, setDetail] = useState(null);   // { b, data }
   const tokenRef = useRef(null);
-  useEffect(() => { document.title = 'Xorla · Founder dashboard'; }, []);
+  useEffect(() => {
+    document.title = 'Xorla · Founder dashboard';
+    const m = document.createElement('meta'); m.name = 'robots'; m.content = 'noindex, nofollow'; document.head.appendChild(m);
+    return () => m.remove();
+  }, []);
 
-  // Calls a database function as the logged-in founder, renewing the login once if it has expired
+  const freshToken = useCallback(async () => {
+    const sess = await loadSession();
+    if (!sess) return null;
+    const r = await sbRefresh(sess.refresh_token);
+    const next = { access_token: r.access_token, refresh_token: r.refresh_token, user_id: r.user.id };
+    await saveSession(next); tokenRef.current = next.access_token;
+    return next.access_token;
+  }, []);
   const call = useCallback(async (fn, params = {}) => {
     try { return await sbRpc(fn, tokenRef.current, params); }
-    catch (e) {
-      if (!/jwt|expired|token/i.test(e.message)) throw e;
-      const sess = await loadSession();
-      const r = await sbRefresh(sess.refresh_token);
-      const next = { access_token: r.access_token, refresh_token: r.refresh_token, user_id: r.user.id };
-      await saveSession(next); tokenRef.current = next.access_token;
-      return sbRpc(fn, tokenRef.current, params);
-    }
-  }, []);
+    catch (e) { if (!/jwt|expired|token/i.test(e.message)) throw e; await freshToken(); return sbRpc(fn, tokenRef.current, params); }
+  }, [freshToken]);
   const loadList = useCallback(async (q, f) => {
     setLoadingList(true);
-    try { setList(await call('admin_businesses', { p_search: q, p_filter: f, p_limit: 100, p_offset: 0 }) || []); }
-    catch (e) { /* the overview shows any error */ }
+    try { setList(await call('admin_businesses', { p_search: q, p_filter: f, p_limit: 100, p_offset: 0 }) || []); } catch (e) { /* shown by the overview */ }
     setLoadingList(false);
   }, [call]);
+
+  // Decide what to show: log in, set up the authenticator, enter today's code, or the dashboard
   const loadAll = useCallback(async () => {
     const sess = await loadSession();
     if (!sess) { setState({ phase: 'login', error: '' }); return; }
     tokenRef.current = sess.access_token;
     try {
+      let access;
+      try { access = await sbRpc('admin_access', tokenRef.current, {}); }
+      catch (e) { if (!/jwt|expired|token/i.test(e.message)) throw e; await freshToken(); access = await sbRpc('admin_access', tokenRef.current, {}); }
+      if (!access?.admin) { setState({ phase: 'denied', error: '' }); return; }
+      if (!access.verified) {
+        const user = await sbAuthReq('/user', tokenRef.current);
+        const verified = (user.factors || []).find((f) => f.factor_type === 'totp' && f.status === 'verified');
+        if (verified) { setMfa((m) => ({ ...m, factorId: verified.id, qr: '', code: '', error: '' })); setState({ phase: 'mfa-code', error: '' }); return; }
+        // clear any half-finished setup, then start a new one
+        await Promise.all((user.factors || []).filter((f) => f.status !== 'verified').map((f) => sbAuthReq(`/factors/${f.id}`, tokenRef.current, 'DELETE').catch(() => null)));
+        const f = await sbAuthReq('/factors', tokenRef.current, 'POST', { factor_type: 'totp', friendly_name: `Xorla founder ${Date.now()}` });
+        setMfa({ factorId: f.id, qr: f.totp?.qr_code || '', secret: f.totp?.secret || '', code: '', busy: false, error: '' });
+        setState({ phase: 'mfa-setup', error: '' }); return;
+      }
       const o = await call('admin_overview');
       setOv(o); setUpdated(new Date()); setState({ phase: 'ready', error: '' });
       loadList(search, filter);
     } catch (e) { setState({ phase: /not allowed/i.test(e.message) ? 'denied' : 'error', error: e.message }); }
-  }, [call, loadList, search, filter]);
+  }, [call, freshToken, loadList, search, filter]);
   useEffect(() => { loadAll(); }, []);
   useEffect(() => { if (state.phase !== 'ready') return undefined; const t = setTimeout(() => loadList(search, filter), 300); return () => clearTimeout(t); }, [search, filter]);
 
+  const verifyCode = async () => {
+    const code = mfa.code.replace(/\s/g, '');
+    if (!/^\d{6}$/.test(code)) { setMfa({ ...mfa, error: 'Enter the 6-digit code from your authenticator app.' }); return; }
+    setMfa({ ...mfa, busy: true, error: '' });
+    try {
+      const ch = await sbAuthReq(`/factors/${mfa.factorId}/challenge`, tokenRef.current, 'POST', {});
+      const r = await sbAuthReq(`/factors/${mfa.factorId}/verify`, tokenRef.current, 'POST', { challenge_id: ch.id, code });
+      await saveSession({ access_token: r.access_token, refresh_token: r.refresh_token, user_id: r.user?.id || (await loadSession())?.user_id });
+      tokenRef.current = r.access_token;
+      setMfa({ factorId: '', qr: '', secret: '', code: '', busy: false, error: '' });
+      setState({ phase: 'loading', error: '' }); loadAll();
+    } catch (e) { setMfa((m) => ({ ...m, busy: false, error: /invalid|expired/i.test(e.message) ? "That code didn't work. Codes change every 30 seconds, so try the newest one." : e.message })); }
+  };
+
   const extendTrial = async (b) => {
-    const choice = await brandConfirm(`${b.name} gets 14 more days of the full Business plan, free. Their records stay as they are.`, { title: `Extend ${b.name}'s trial?`, confirm: 'Add 14 days' });
-    if (!choice) return;
-    try { await call('admin_extend_trial', { p_business: b.id, p_days: 14 }); await loadAll(); }
+    if (!(await brandConfirm(`${b.name} gets 14 more days of the full Business plan, free. Their records stay as they are.`, { title: `Extend ${b.name}'s trial?`, confirm: 'Add 14 days' }))) return;
+    try { await call('admin_extend_trial', { p_business: b.id, p_days: 14 }); await loadAll(); if (detail) openDetail(b); }
     catch (e) { brandAlert(e.message); }
+  };
+  const setStorefront = async (b, on) => {
+    if (!(await brandConfirm(on ? `${b.name}'s storefront will be visible to customers again.` : `${b.name}'s storefront will stop taking orders and bookings immediately. Use this for scams or abuse. The owner can see it's off.`, { title: on ? 'Turn the storefront back on?' : 'Turn off this storefront?', confirm: on ? 'Turn on' : 'Turn off', danger: !on }))) return;
+    try { await call('admin_set_storefront', { p_business: b.id, p_on: on }); setDetail((d) => d && { ...d, b: { ...d.b, storefront_enabled: on } }); loadAll(); }
+    catch (e) { brandAlert(e.message); }
+  };
+  const openDetail = async (b) => {
+    setDetail({ b, data: null });
+    try { const data = await call('admin_business_detail', { p_business: b.id }); setDetail({ b, data }); }
+    catch (e) { setDetail(null); brandAlert(e.message); }
   };
 
   const shell = (body) => (
@@ -7983,10 +8155,38 @@ function AdminDashboard() {
       <main className="max-w-6xl mx-auto px-5 py-6 pb-20">{body}</main>
     </div>
   );
+  const center = (title, text, extra) => shell(<div className="text-center py-16 max-w-md mx-auto"><div className="text-[19px] font-semibold mb-2">{title}</div><div className="text-[13.5px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{text}</div>{extra}</div>);
   if (state.phase === 'loading') return shell(<div className="flex items-center gap-2 py-20 justify-center" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /> Loading…</div>);
-  if (state.phase === 'login') return shell(<div className="text-center py-20"><div className="text-[18px] font-semibold mb-2">Log in first</div><div className="text-[13.5px] mb-5" style={{ color: C.inkDim }}>Open Xorla and log in with your founder account, then come back to this page.</div><a href="/" className="inline-block px-5 py-3 rounded-xl font-semibold" style={{ background: C.copper, color: C.bg }}>Open Xorla</a></div>);
-  if (state.phase === 'denied') return shell(<div className="text-center py-20"><div className="text-[18px] font-semibold mb-2">This page is for Xorla's team</div><div className="text-[13.5px]" style={{ color: C.inkDim }}>Your account doesn't have access. <a href="/" style={{ color: C.copper }}>Back to Xorla</a></div></div>);
-  if (state.phase === 'error') return shell(<div className="text-center py-20"><div className="text-[18px] font-semibold mb-2">Couldn't load the dashboard</div><div className="text-[13px] mb-5" style={{ color: C.inkDim }}>{state.error}</div><button onClick={loadAll} className="px-5 py-3 rounded-xl font-semibold" style={{ background: C.copper, color: C.bg }}>Try again</button></div>);
+  if (state.phase === 'login') return center('Log in first', 'Open Xorla and log in with your founder account, then come back to this page.', <a href="/" className="inline-block px-5 py-3 rounded-xl font-semibold" style={{ background: C.copper, color: C.bg }}>Open Xorla</a>);
+  if (state.phase === 'denied') return center("This page is for Xorla's team", "Your account doesn't have access.", <a href="/" style={{ color: C.copper }}>Back to Xorla</a>);
+  if (state.phase === 'error') return center("Couldn't load the dashboard", state.error, <button onClick={loadAll} className="px-5 py-3 rounded-xl font-semibold" style={{ background: C.copper, color: C.bg }}>Try again</button>);
+  if (state.phase === 'mfa-setup' || state.phase === 'mfa-code') {
+    const setup = state.phase === 'mfa-setup';
+    return shell(
+      <div className="max-w-md mx-auto py-8">
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.sageSoft }}><ShieldCheck size={22} style={{ color: C.sage }} /></div>
+        <h1 className="text-[22px] font-bold mb-2">{setup ? 'Protect the founder dashboard' : 'Enter your code'}</h1>
+        <p className="text-[13.5px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{setup
+          ? 'This page shows every business on Xorla, so it needs a second step after your password: a 6-digit code from an authenticator app on your phone. Set it up once.'
+          : 'Open your authenticator app and type the 6-digit code for Xorla.'}</p>
+        {setup && (
+          <ol className="space-y-4 mb-5 text-[13.5px]" style={{ color: C.inkDim }}>
+            <li><strong style={{ color: C.ink }}>1.</strong> Install <strong style={{ color: C.ink }}>Google Authenticator</strong> or <strong style={{ color: C.ink }}>Microsoft Authenticator</strong> from the Play Store or App Store.</li>
+            <li><strong style={{ color: C.ink }}>2.</strong> In the app, add an account and scan this code:
+              {mfa.qr && <div className="mt-3 rounded-2xl p-3 inline-block" style={{ background: '#fff' }}><img src={mfa.qr} alt="Code to scan with your authenticator app" width={176} height={176} /></div>}
+              {mfa.secret && <div className="mt-2 text-[12px]">Can't scan? Type this key instead: <span className="cx-mono select-all break-all" style={{ color: C.ink }}>{mfa.secret}</span></div>}
+            </li>
+            <li><strong style={{ color: C.ink }}>3.</strong> Type the 6-digit code the app shows:</li>
+          </ol>
+        )}
+        <input inputMode="numeric" autoComplete="one-time-code" autoFocus maxLength={7} placeholder="123 456" value={mfa.code} onChange={(e) => setMfa({ ...mfa, code: e.target.value.replace(/[^0-9 ]/g, '') })} onKeyDown={(e) => e.key === 'Enter' && verifyCode()}
+          className="w-full rounded-xl px-4 py-3.5 text-[22px] tracking-[0.3em] text-center outline-none cx-mono" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }} />
+        {mfa.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{mfa.error}</div>}
+        <button onClick={verifyCode} disabled={mfa.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: mfa.busy ? 0.6 : 1 }}>{mfa.busy ? 'Checking…' : setup ? 'Turn on and continue' : 'Continue'}</button>
+        <p className="text-[12px] mt-4 leading-relaxed" style={{ color: C.inkFaint }}>{setup ? 'Keep your phone safe. If you lose it, you can remove the old authenticator in Supabase → Authentication → Users, then set up a new one here.' : 'Lost your phone? Remove the old authenticator in Supabase → Authentication → Users, then set up a new one here.'}</p>
+      </div>
+    );
+  }
 
   const n = (x) => Number(x || 0).toLocaleString('en-NG');
   const tile = (label, value, sub, accent) => (
@@ -7996,10 +8196,18 @@ function AdminDashboard() {
       {sub && <div className="text-[12px] mt-0.5" style={{ color: C.inkDim }}>{sub}</div>}
     </div>
   );
+  const panel = (title, right, children) => (
+    <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+      <div className="flex items-baseline justify-between mb-3 gap-3"><div className="text-[14px] font-semibold">{title}</div>{right && <div className="text-[12px]" style={{ color: C.inkFaint }}>{right}</div>}</div>
+      {children}
+    </div>
+  );
+  const empty = (t) => <div className="text-[12.5px] py-2" style={{ color: C.inkFaint }}>{t}</div>;
   const typeName = { products: 'Shops (products)', both: 'Products & services', services: 'Services (other)', accommodation: 'Hotels & stays', rentals: 'Rentals', personal_care: 'Salons & personal care', repairs: 'Repairs & trades', professional: 'Professional services', events: 'Events & media', 'not set': 'Not chosen yet' };
   const types = Object.entries(ov.by_type || {}).sort((a, b) => b[1] - a[1]);
   const maxType = Math.max(1, ...types.map(([, v]) => v));
   const signups = (ov.signups || []).map((d) => ({ ...d, label: new Date(d.day + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) }));
+  const act = ov.activation || { cohort: 0, activated: 0 };
   const planOf = (b) => {
     if (Number(b.monthly_value) > 0) return [b.plan === 'business' ? 'Business' : 'Pro', C.sageSoft, C.sage, `${b.billing_interval === 'yearly' ? 'Yearly' : 'Monthly'}${b.early_supporter ? ' · early' : ''}`];
     if (b.status === 'trial' && new Date(b.trial_ends_at) > new Date()) { const left = Math.ceil((new Date(b.trial_ends_at) - Date.now()) / 86400000); return ['Trial', left <= 7 ? C.copperSoft : C.surfaceRaised, left <= 7 ? C.copper : C.inkDim, `${left} day${left !== 1 ? 's' : ''} left`]; }
@@ -8010,31 +8218,33 @@ function AdminDashboard() {
     const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
     return d <= 0 ? 'Today' : d === 1 ? 'Yesterday' : d < 30 ? `${d} days ago` : new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   };
-  const nudge = (b) => b.owner_phone && `https://wa.me/${toWhatsAppNumber(b.owner_phone)}?text=${encodeURIComponent(`Hi ${(b.owner_name || '').split(' ')[0] || 'there'}, this is Ikenna from Xorla. How is ${b.name} finding it so far? Anything I can help you set up?`)}`;
+  const short = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const nudge = (b, text) => b.owner_phone && `https://wa.me/${toWhatsAppNumber(b.owner_phone)}?text=${encodeURIComponent(text || `Hi ${(b.owner_name || '').split(' ')[0] || 'there'}, this is Ikenna from Xorla. How is ${b.name} finding it so far? Anything I can help you set up?`)}`;
+  const actionName = { extend_trial: 'Extended trial', storefront_off: 'Turned storefront off', storefront_on: 'Turned storefront on' };
 
   return shell(
     <>
       <div className="mb-5">
         <h1 className="text-[24px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>How Xorla is doing</h1>
-        <div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>Every business, every plan, live from the database.</div>
+        <div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>Every customer business, live from the database. Your own test business is left out.</div>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {tile('Businesses', n(ov.businesses), `+${n(ov.new_7d)} this week · +${n(ov.new_30d)} in 30 days`)}
         {tile('Paying', n(ov.paying), `${n(ov.paying_pro)} Pro · ${n(ov.paying_business)} Business`, C.sage)}
         {tile('Monthly recurring revenue', fmt(ov.mrr), `${fmt(ov.revenue_30d)} collected in 30 days`, C.copper)}
-        {tile('Active this week', n(ov.active_7d), `businesses that recorded a sale`)}
+        {tile('Active this week', n(ov.active_7d), 'businesses that recorded a sale')}
         {tile('On free trial', n(ov.trials), ov.trials_ending_7d ? `${n(ov.trials_ending_7d)} ending this week` : 'none ending this week')}
+        {tile('Got started', act.cohort ? `${Math.round((act.activated / act.cohort) * 100)}%` : '–', act.cohort ? `${n(act.activated)} of ${n(act.cohort)} recorded a sale in week one` : 'shows once businesses are a week old')}
         {tile('Early supporters', `${n(ov.early_taken)} of 100`, `${n(Math.max(0, 100 - ov.early_taken))} places left`)}
+        {tile('Renewals at risk', n(ov.renewals_at_risk), 'paying, auto-renew off, ending this week', ov.renewals_at_risk ? C.rust : undefined)}
         {tile('Sales recorded', n(ov.sales_30d), `${fmt(ov.gmv_30d)} in the last 30 days`)}
         {tile('Storefronts live', n(ov.storefronts), `${n(ov.orders_30d)} orders and requests in 30 days`)}
+        {tile('Oga questions', n(ov.ai_month), 'this month (each one costs you)')}
+        {tile('WhatsApp messages', n(ov.wa_month), 'sent this month')}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-3 mt-3">
-        <div className="lg:col-span-2 rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-          <div className="flex items-baseline justify-between mb-3">
-            <div className="text-[14px] font-semibold">New businesses per day</div>
-            <div className="text-[12px]" style={{ color: C.inkFaint }}>Last 30 days</div>
-          </div>
+        <div className="lg:col-span-2">{panel('New businesses per day', 'Last 30 days', (
           <div style={{ height: 240 }} role="img" aria-label={`New businesses per day over the last 30 days, ${n(ov.new_30d)} in total`}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={signups} margin={{ top: 6, right: 4, bottom: 0, left: 0 }} barCategoryGap={3}>
@@ -8046,9 +8256,8 @@ function AdminDashboard() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
-        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-          <div className="text-[14px] font-semibold mb-3">What kinds of business</div>
+        ))}</div>
+        {panel('What kinds of business', null, types.length ? (
           <div className="space-y-2.5">
             {types.map(([t, v]) => (
               <div key={t}>
@@ -8057,7 +8266,28 @@ function AdminDashboard() {
               </div>
             ))}
           </div>
-        </div>
+        ) : empty('No businesses yet.'))}
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-3 mt-3">
+        {panel('Renewals at risk', 'Ending soon, auto-renew off', (ov.at_risk || []).length ? (
+          <div className="space-y-2">{ov.at_risk.map((r) => (
+            <div key={r.id} className="flex items-center justify-between gap-2 text-[12.5px]">
+              <span className="min-w-0 truncate">{r.name}<span style={{ color: C.inkFaint }}> · ends {short(r.current_period_end)}</span></span>
+              {r.owner_phone && <a href={nudge(r, `Hi, this is Ikenna from Xorla. Your ${r.plan === 'business' ? 'Business' : 'Pro'} plan for ${r.name} ends on ${short(r.current_period_end)}. Would you like help renewing, or is there anything we could do better?`)} target="_blank" rel="noopener noreferrer" className="shrink-0 font-medium" style={{ color: C.copper }}>WhatsApp</a>}
+            </div>))}</div>
+        ) : empty('None this week.'))}
+        {panel('Latest payments', null, (ov.recent_payments || []).length ? (
+          <div className="space-y-2">{ov.recent_payments.map((p, i) => (
+            <div key={i} className="flex items-center justify-between gap-2 text-[12.5px]">
+              <span className="min-w-0 truncate">{p.business}<span style={{ color: C.inkFaint }}> · {p.plan === 'business' ? 'Business' : 'Pro'}, {p.billing_interval} · {short(p.paid_at)}</span></span>
+              <span className="shrink-0 cx-mono font-semibold" style={{ color: C.sage }}>{fmt(p.amount)}</span>
+            </div>))}</div>
+        ) : empty('No payments yet.'))}
+        {panel('Your recent actions', null, (ov.log || []).length ? (
+          <div className="space-y-2">{ov.log.map((l, i) => (
+            <div key={i} className="text-[12.5px]"><span>{actionName[l.action] || l.action}</span>{l.detail ? <span style={{ color: C.inkFaint }}> ({l.detail})</span> : null}<span style={{ color: C.inkDim }}> · {l.business || 'a business'}</span><div className="text-[11px]" style={{ color: C.inkFaint }}>{new Date(l.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}{l.admin ? ` · ${l.admin}` : ''}</div></div>))}</div>
+        ) : empty('Nothing yet. Trial extensions and storefront changes are recorded here.'))}
       </div>
 
       <div className="mt-6 rounded-2xl" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
@@ -8078,13 +8308,12 @@ function AdminDashboard() {
           <div>
             {list.map((b, i) => {
               const [pl, pbg, pfg, psub] = planOf(b);
-              const canExtend = !(Number(b.monthly_value) > 0);
               return (
-                <div key={b.id} className="px-4 py-3.5 grid gap-2 lg:grid-cols-[1.4fr_1.3fr_0.8fr_0.9fr_230px] lg:items-center" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: loadingList ? 0.6 : 1 }}>
-                  <div className="min-w-0">
-                    <div className="text-[13.5px] font-semibold truncate">{b.name}</div>
+                <div key={b.id} className="px-4 py-3.5 grid gap-2 lg:grid-cols-[1.4fr_1.3fr_0.8fr_0.9fr_150px] lg:items-center" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: loadingList ? 0.6 : 1 }}>
+                  <button onClick={() => openDetail(b)} className="min-w-0 text-left">
+                    <div className="text-[13.5px] font-semibold truncate underline-offset-2 hover:underline">{b.name}</div>
                     <div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{typeName[b.business_type === 'services' && b.service_kind ? b.service_kind : b.business_type || 'not set'] || b.business_type} · joined {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-                  </div>
+                  </button>
                   <div className="min-w-0 text-[12.5px]">
                     <div className="truncate">{b.owner_name || 'Owner'}</div>
                     <div className="truncate text-[11.5px]" style={{ color: C.inkFaint }}>{b.owner_email || ''}{b.owner_phone ? ` · ${formatPhoneDisplay(b.owner_phone)}` : ''}</div>
@@ -8093,8 +8322,7 @@ function AdminDashboard() {
                   <div className="text-[12px]" style={{ color: C.inkDim }}>{n(b.sales_30d)} sales in 30 days<div className="text-[11px]" style={{ color: C.inkFaint }}>Last seen {ago(b.last_seen_at)}</div></div>
                   <div className="flex items-center gap-3 lg:justify-end">
                     {nudge(b) && <a href={nudge(b)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
-                    {canExtend && <button onClick={() => extendTrial(b)} className="text-[12px] font-medium" style={{ color: C.sage }}>Extend trial</button>}
-                    {b.storefront_enabled && b.business_code && <a href={`/store/${b.business_code}`} target="_blank" rel="noopener noreferrer" className="text-[12px] font-medium" style={{ color: C.inkDim }}>Storefront</a>}
+                    <button onClick={() => openDetail(b)} className="text-[12px] font-medium" style={{ color: C.sage }}>Details</button>
                   </div>
                 </div>
               );
@@ -8103,7 +8331,168 @@ function AdminDashboard() {
         )}
       </div>
       <div className="text-[11.5px] mt-3" style={{ color: C.inkFaint }}>Showing up to 100 businesses, newest first. Search to find anyone else. Monthly recurring revenue counts yearly plans as one twelfth a month.</div>
+
+      {detail && (() => {
+        const { b, data } = detail;
+        const [pl, pbg, pfg, psub] = planOf(b);
+        return (
+          <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(3,10,9,0.7)' }} onClick={() => setDetail(null)}>
+            <div className="w-full max-w-md h-full overflow-y-auto p-5 xorla-fade-up" style={{ background: C.surface, borderLeft: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="min-w-0"><div className="text-[18px] font-bold truncate">{b.name}</div><div className="text-[12px]" style={{ color: C.inkFaint }}>{typeName[b.business_type === 'services' && b.service_kind ? b.service_kind : b.business_type || 'not set']} · joined {short(b.created_at)}</div></div>
+                <button onClick={() => setDetail(null)} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
+              </div>
+              <div className="rounded-xl p-3.5 mb-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
+                <div><span style={{ color: C.inkFaint }}>Owner: </span>{b.owner_name || '–'}</div>
+                <div><span style={{ color: C.inkFaint }}>Email: </span>{b.owner_email || '–'}</div>
+                <div><span style={{ color: C.inkFaint }}>Phone: </span>{b.owner_phone ? formatPhoneDisplay(b.owner_phone) : '–'}</div>
+                <div className="pt-1"><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: pbg, color: pfg }}>{pl}</span>{psub && <span className="text-[11px] ml-1.5" style={{ color: C.inkFaint }}>{psub}</span>}</div>
+              </div>
+              {!data ? <div className="flex items-center gap-2 text-[12.5px] py-4" style={{ color: C.inkFaint }}><Loader2 size={14} className="animate-spin" /> Loading…</div> : (
+                <>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    {[['Sales, 30 days', n(data.sales_30d?.count)], ['Value, 30 days', fmt(data.sales_30d?.total)], ['All sales', n(data.sales_all)], ['Catalog items', n(data.catalog)], ['Unpaid invoices', n(data.invoices_open)], ['Oga questions', n(data.ai_month)]].map(([l, v]) => (
+                      <div key={l} className="rounded-xl p-2.5" style={{ background: C.surfaceRaised }}><div className="text-[10.5px]" style={{ color: C.inkFaint }}>{l}</div><div className="text-[14px] font-bold cx-mono">{v}</div></div>
+                    ))}
+                  </div>
+                  <div className="text-[12.5px] font-semibold mb-1.5">Locations</div>
+                  <div className="text-[12.5px] mb-3" style={{ color: C.inkDim }}>{(data.locations || []).map((l) => `${l.name}${l.kind === 'warehouse' ? ' (warehouse)' : ''}${l.closed ? ' (closed)' : ''}`).join(', ') || '–'}</div>
+                  <div className="text-[12.5px] font-semibold mb-1.5">People</div>
+                  <div className="space-y-1 mb-3">{(data.staff || []).map((p, i) => <div key={i} className="text-[12.5px] flex justify-between"><span>{p.name} <span style={{ color: C.inkFaint }}>({p.role === 'pending' ? 'waiting for approval' : p.role})</span></span><span style={{ color: C.inkFaint }}>{ago(p.last_seen_at)}</span></div>)}</div>
+                  <div className="text-[12.5px] font-semibold mb-1.5">Payments</div>
+                  <div className="space-y-1 mb-4">{(data.payments || []).length ? data.payments.map((p, i) => <div key={i} className="text-[12.5px] flex justify-between"><span style={{ color: C.inkDim }}>{short(p.paid_at)} · {p.plan === 'business' ? 'Business' : 'Pro'}, {p.interval}</span><span className="cx-mono">{fmt(p.amount)}</span></div>) : <div className="text-[12.5px]" style={{ color: C.inkFaint }}>None yet</div>}</div>
+                </>
+              )}
+              <div className="space-y-2 pt-2" style={{ borderTop: `1px solid ${C.line}` }}>
+                {nudge(b) && <a href={nudge(b)} target="_blank" rel="noopener noreferrer" className="block w-full text-center rounded-xl py-2.5 text-[13px] font-semibold mt-3" style={{ background: C.copper, color: C.bg }}>Message the owner on WhatsApp</a>}
+                {!(Number(b.monthly_value) > 0) && <button onClick={() => extendTrial(b)} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Extend trial by 14 days</button>}
+                {b.business_code && b.storefront_enabled && <a href={`/store/${b.business_code}`} target="_blank" rel="noopener noreferrer" className="block w-full text-center rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Open their storefront</a>}
+                {b.storefront_enabled
+                  ? <button onClick={() => setStorefront(b, false)} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.rust }}>Turn off storefront (abuse)</button>
+                  : <button onClick={() => setStorefront(b, true)} className="w-full rounded-xl py-2.5 text-[12.5px] font-medium" style={{ color: C.inkFaint }}>Storefront is off · turn on</button>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
+  );
+}
+
+// ============ The customer's page for an offered appointment time (/appt/<link>): accept, choose another, or decline ============
+function AppointmentOffer({ token }) {
+  const [offer, setOffer] = useState(undefined);
+  const [mode, setMode] = useState('view');      // view | choose
+  const [cal, setCal] = useState(null);
+  const [day, setDay] = useState('');
+  const [slot, setSlot] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);        // accepted | chose | declined
+  const load = useCallback(async () => {
+    try { setOffer(await sbRpc('get_appointment_offer', SB_KEY, { p_token: token })); } catch (e) { setOffer(null); }
+  }, [token]);
+  useEffect(() => {
+    load();
+    if (!document.getElementById('xorla-jakarta')) {
+      const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+      document.head.appendChild(link);
+    }
+  }, [load]);
+  useEffect(() => { if (offer?.business) document.title = `${offer.business} · Your appointment`; }, [offer]);
+  const openChoose = async () => {
+    setMode('choose'); setSlot('');
+    try {
+      const c = await sbRpc('offer_calendar', SB_KEY, { p_token: token, p_days: 14 });
+      setCal(c); setDay((c?.days || []).find((d) => d.slots.length)?.date || '');
+    } catch (e) { brandAlert(e.message, { theme: 'light' }); }
+  };
+  const respond = async (action) => {
+    if (action === 'decline' && !(await brandConfirm(`${offer.business} will be told you can't make it, and the appointment will be cancelled.`, { title: "Can't make it?", confirm: "Yes, I can't make it", danger: true, theme: 'light', cancel: 'Go back' }))) return;
+    setBusy(true);
+    try {
+      await sbRpc('respond_to_offer', SB_KEY, { p_token: token, p_action: action, ...(action === 'choose' ? { p_start_at: slot } : {}) });
+      setDone(action === 'accept' ? 'accepted' : action === 'choose' ? 'chose' : 'declined'); await load();
+    } catch (e) {
+      brandAlert(e.message, { theme: 'light', title: 'Please try again' });
+      if (action === 'choose') openChoose(); else load();
+    }
+    setBusy(false);
+  };
+
+  const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
+  const btn = 'w-full py-3.5 rounded-xl text-[15px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black';
+  if (offer === undefined) return <div className="flex items-center justify-center" style={page}><Loader2 className="animate-spin" size={22} style={{ color: S.muted }} /></div>;
+  if (!offer) return (
+    <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
+      <div className="text-[20px] font-bold mb-2">This link isn't working</div>
+      <div className="text-[14px] max-w-sm" style={{ color: S.muted }}>It may have been replaced by a newer message. Check the latest message from the business, or contact them directly.</div>
+    </div>
+  );
+  const services = (offer.items || []).map((it) => it.description).join(', ');
+  const range = (a, b) => `${apptDay(a)}, ${apptTime(a)} to ${apptTime(b)}`;
+  const wa = offer.phone ? `https://wa.me/${toWhatsAppNumber(offer.phone)}` : null;
+  const store = offer.business_code ? `/store/${offer.business_code}` : null;
+  const card = (children) => <div className="rounded-2xl p-5" style={{ background: S.tile }}>{children}</div>;
+  const finished = (icon, title, body) => (
+    <div className="text-center pt-6">
+      <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5" style={{ background: S.ink }}>{icon}</div>
+      <div className="text-[22px] font-bold mb-2">{title}</div>
+      <div className="text-[14.5px] leading-relaxed max-w-sm mx-auto mb-7" style={{ color: S.muted }}>{body}</div>
+      <div className="flex flex-col gap-2 max-w-xs mx-auto">
+        {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className={btn} style={{ border: `1.5px solid ${S.ink}`, textAlign: 'center' }}>Message {offer.business}</a>}
+        {store && <a href={store} className="text-[13.5px] font-semibold py-2" style={{ color: S.ink }}>Visit {offer.business}</a>}
+      </div>
+    </div>
+  );
+
+  let body;
+  if (offer.state === 'confirmed' || done === 'accepted') body = finished(<Check size={26} color="#fff" />, "You're booked", `${services} at ${offer.business}, ${range(offer.start_at, offer.end_at)}. See you then!`);
+  else if (done === 'chose' || (offer.state === 'pending' && offer.reply === 'chose_other')) body = finished(<CalendarClock size={24} color="#fff" />, 'Time sent', `You asked for ${range(offer.start_at, offer.end_at)}. It's held for you while ${offer.business} confirms it.`);
+  else if (offer.state === 'cancelled' || done === 'declined') body = finished(<X size={24} color="#fff" />, 'Appointment cancelled', `${offer.business} has been told. You're welcome to book another time whenever suits you.`);
+  else if (offer.state === 'done') body = finished(<Check size={26} color="#fff" />, 'All done', `Thanks for visiting ${offer.business}.`);
+  else if (offer.state === 'expired') body = finished(<CalendarClock size={24} color="#fff" />, 'This offer has expired', `The time ${offer.business} offered is no longer held. Message them, or book a new time.`);
+  else if (mode === 'choose') body = (
+    <>
+      <button onClick={() => setMode('view')} className="flex items-center gap-1 text-[13px] font-medium mb-4" style={{ color: S.muted }}><ChevronLeft size={16} /> Back</button>
+      <div className="text-[22px] font-bold mb-1">Choose another time</div>
+      <div className="text-[14px] mb-4" style={{ color: S.muted }}>{services}. Only free times are shown.</div>
+      {!cal ? <div className="flex items-center gap-2 text-[13px]" style={{ color: S.muted }}><Loader2 size={15} className="animate-spin" /> Checking free times…</div>
+        : !cal.days.some((d) => d.slots.length) ? card(<div className="text-[14px]">No other free times in the next two weeks. Please message {offer.business}.</div>)
+        : <SlotPicker light cal={cal} day={day} onDay={setDay} slot={slot} onSlot={setSlot} />}
+      <button onClick={() => respond('choose')} disabled={!slot || busy} className={`${btn} mt-5`} style={{ background: S.ink, color: '#fff', opacity: !slot || busy ? 0.4 : 1 }}>{busy ? 'Sending…' : slot ? `Ask for ${apptDay(slot)}, ${apptTime(slot)}` : 'Pick a time'}</button>
+      <div className="text-[12px] text-center mt-3" style={{ color: S.muted }}>{offer.business} will confirm your new choice.</div>
+    </>
+  );
+  else body = (
+    <>
+      <div className="text-[13px] font-semibold mb-1" style={{ color: S.muted }}>Hi {offer.customer}</div>
+      <h1 className="text-[26px] font-extrabold leading-tight mb-5" style={{ letterSpacing: '-0.02em' }}>{offer.business} has offered you a new time</h1>
+      {card(
+        <>
+          <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: S.muted }}>New time</div>
+          <div className="text-[20px] font-bold leading-snug">{apptDay(offer.start_at)}</div>
+          <div className="text-[17px] font-semibold">{apptTime(offer.start_at)} to {apptTime(offer.end_at)}</div>
+          <div className="text-[14px] mt-2" style={{ color: S.muted }}>{services}{offer.total ? ` · ${fmt(offer.total)}` : ''}</div>
+          {offer.requested_start_at && <div className="text-[13px] mt-3 pt-3" style={{ color: S.muted, borderTop: `1px solid ${S.line}` }}>You asked for <span style={{ textDecoration: 'line-through' }}>{apptDay(offer.requested_start_at)}, {apptTime(offer.requested_start_at)}</span></div>}
+        </>
+      )}
+      <div className="flex flex-col gap-2.5 mt-6">
+        <button onClick={() => respond('accept')} disabled={busy} className={btn} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.5 : 1 }}>{busy ? 'Confirming…' : 'Accept this time'}</button>
+        <button onClick={openChoose} disabled={busy} className={btn} style={{ border: `1.5px solid ${S.ink}` }}>Choose another time</button>
+        <button onClick={() => respond('decline')} disabled={busy} className="py-2.5 text-[14px] font-medium" style={{ color: S.muted }}>I can't make it</button>
+      </div>
+      <div className="text-[12px] text-center mt-4" style={{ color: S.muted }}>This time is held for you for a limited time.{wa ? <> Questions? <a href={wa} target="_blank" rel="noopener noreferrer" className="underline">Message {offer.business}</a>.</> : null}</div>
+    </>
+  );
+  return (
+    <div style={page}>
+      <main className="max-w-md mx-auto px-5 py-8 pb-16">
+        <div className="text-[15px] font-bold mb-8">{offer.business}</div>
+        {body}
+      </main>
+      <footer className="max-w-md mx-auto px-5 pb-8 text-[11.5px] flex justify-between" style={{ color: S.muted }}><span>Powered by Xorla</span><a href="/privacy" className="underline">Privacy</a></footer>
+    </div>
   );
 }
 
@@ -8257,7 +8646,8 @@ export default function Root() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
   const clean = path.replace(/\/+$/, '');
-  const page = storeMatch ? <Storefront businessCode={storeMatch[1]} />
+  const offerMatch = path.match(/^\/appt\/([a-f0-9]{20,64})/);
+  const page = offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
     : clean === '/pricing' ? <PricingPage />
     : clean === '/privacy' ? <LegalPage kind="privacy" />
     : clean === '/terms' ? <LegalPage kind="terms" />
