@@ -7499,15 +7499,16 @@ function Storefront({ businessCode }) {
   const discountOff = discount ? Math.min(cartTotal, Number(discount.amount) || 0) : 0;
   const payable = cartTotal - discountOff;
   const cartKey = JSON.stringify(cartList.map((c) => [c.product.id, c.qty]));
+  const phoneReady = customerPhone.replace(/\D/g, '').length >= 10 ? customerPhone.replace(/\D/g, '').slice(-10) : '';
   const applyCode = async (codeArg, quiet) => {
     const code = String(codeArg ?? codeInput).toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!code) { setCodeError('Enter a discount code.'); return; }
     if (!cartList.length) return;
     setCodeBusy(true); if (!quiet) setCodeError('');
     try {
-      const r = await sbRpc('check_discount', SB_KEY, { p_business_code: businessCode, p_code: code, p_items: cartList.map((c) => ({ productId: c.product.id, quantity: c.qty })), p_shop_id: business?.shop_id || null });
+      const r = await sbRpc('check_discount', SB_KEY, { p_business_code: businessCode, p_code: code, p_items: cartList.map((c) => ({ productId: c.product.id, quantity: c.qty })), p_shop_id: business?.shop_id || null, p_phone: customerPhone.trim() || null });
       if (r && r.error) { setDiscount(null); setCodeError(r.error); }
-      else if (r) { setDiscount({ code: r.code, amount: Number(r.amount) || 0 }); setCodeError(''); setCodeInput(r.code); }
+      else if (r) { setDiscount({ code: r.code, amount: Number(r.amount) || 0, perCustomer: r.per_customer || null }); setCodeError(''); setCodeInput(r.code); }
     } catch (e) { setDiscount(null); setCodeError(e.message || "Couldn't check that code. Try again."); }
     setCodeBusy(false);
   };
@@ -7544,7 +7545,7 @@ function Storefront({ businessCode }) {
     if (!code) return undefined;
     const t = setTimeout(() => applyCode(code, true), 400);
     return () => clearTimeout(t);
-  }, [cartKey, business?.shop_id]);
+  }, [cartKey, business?.shop_id, phoneReady]);
 
   const changeQty = (product, delta) => {
     setCart((prev) => {
@@ -7821,7 +7822,7 @@ function Storefront({ businessCode }) {
               <div className="flex items-center justify-between gap-3 rounded-xl px-4 py-3" style={{ background: '#EAF6F0' }}>
                 <div className="min-w-0">
                   <div className="text-[13px] font-semibold" style={{ color: '#1F7A5C' }}>{discount.code} applied</div>
-                  <div className="text-[12px]" style={{ color: S.muted }}>You save {fmt(discountOff)}</div>
+                  <div className="text-[12px]" style={{ color: S.muted }}>You save {fmt(discountOff)}{discount.perCustomer ? ` · ${Number(discount.perCustomer) === 1 ? 'One use per customer' : `Up to ${discount.perCustomer} uses per customer`}, checked with your phone number` : ''}</div>
                 </div>
                 <button type="button" onClick={() => { setDiscount(null); setCodeInput(''); setCodeOpen(false); setCodeError(''); }} className={`text-[12.5px] font-semibold ${focusRing}`} style={{ color: S.muted }}>Remove</button>
               </div>
@@ -9053,7 +9054,20 @@ const codeStateOf = (d) => {
   if (d.max_uses && d.uses >= d.max_uses) return { label: 'Used up', tone: 'dim' };
   return { label: 'Active', tone: 'on' };
 };
-const codeSummary = (d) => [d.kind === 'percent' ? `${Number(d.value)}% off` : `${fmt(d.value)} off`, Number(d.min_total) > 0 ? `orders of ${fmt(d.min_total)}+` : '', d.ends_on ? `until ${new Date(`${d.ends_on}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''].filter(Boolean).join(' · ');
+const codeSummary = (d) => [d.kind === 'percent' ? `${Number(d.value)}% off` : `${fmt(d.value)} off`, Number(d.min_total) > 0 ? `orders of ${fmt(d.min_total)}+` : '', d.per_customer ? (Number(d.per_customer) === 1 ? 'once per customer' : `${d.per_customer}× per customer`) : '', d.ends_on ? `until ${new Date(`${d.ends_on}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''].filter(Boolean).join(' · ');
+// The code's rules in plain words, exactly as the customer will experience them
+const codeRulesInWords = ({ kind, value, min, max, per, ends }) => {
+  const v = Number(value) || 0, m = Number(min) || 0, mx = parseInt(max, 10) || 0, pc = parseInt(per, 10) || 0;
+  const off = kind === 'percent' ? `${v}% off their order` : `${fmt(v)} off their order`;
+  const example = m > 0 ? (() => { const below = Math.max(0, Math.round(m * 0.75 / 500) * 500) || Math.round(m / 2); const above = Math.round(m * 1.25 / 500) * 500 || m * 2; const cut = (t) => (kind === 'percent' ? Math.round(t * v / 100) : Math.min(t, v)); return `For example, a ${fmt(below)} order gets no discount, but a ${fmt(above)} order gets ${fmt(cut(above))} off.`; })() : '';
+  return [
+    v > 0 ? `Customers get ${off}.` : '',
+    m > 0 ? `It only works when the order adds up to ${fmt(m)} or more. ${example}` : 'It works on any order, big or small.',
+    pc > 0 ? (pc === 1 ? 'Each customer can use it once. Xorla recognises customers by their phone number.' : `Each customer can use it up to ${pc} times. Xorla recognises customers by their phone number.`) : 'The same customer can use it as many times as they like.',
+    mx > 0 ? `After ${mx} order${mx > 1 ? 's' : ''} in total (from all customers together), it stops working.` : 'There is no limit on the total number of orders.',
+    ends ? `The last day it works is ${new Date(`${ends}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}.` : 'It keeps working until you pause or delete it.',
+  ].filter(Boolean);
+};
 
 function PromotePage({ settings, products, codes, token, reload, storeLink, words, isOwner, onOpenStorefront }) {
   const [view, setView] = useState('codes');
@@ -9119,8 +9133,8 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
     setWorking('');
   };
 
-  const openForm = (d) => setForm(d ? { id: d.id, code: d.code, kind: d.kind, value: String(d.value), min: Number(d.min_total) ? String(d.min_total) : '', max: d.max_uses ? String(d.max_uses) : '', ends: d.ends_on || '', active: d.active, busy: false, error: '' }
-    : { id: null, code: '', kind: 'percent', value: '10', min: '', max: '', ends: '', active: true, busy: false, error: '' });
+  const openForm = (d) => setForm(d ? { id: d.id, code: d.code, kind: d.kind, value: String(d.value), min: Number(d.min_total) ? String(d.min_total) : '', max: d.max_uses ? String(d.max_uses) : '', per: d.per_customer ? String(d.per_customer) : '', ends: d.ends_on || '', active: d.active, busy: false, error: '' }
+    : { id: null, code: '', kind: 'percent', value: '10', min: '', max: '', per: '1', ends: '', active: true, busy: false, error: '' });
   const saveCode = async () => {
     const f = form; if (!f || f.busy) return;
     const value = Number(parseNumInput(f.value));
@@ -9128,12 +9142,12 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
     if (!(value > 0)) { setForm({ ...f, error: 'Enter how much off.' }); return; }
     setForm({ ...f, busy: true, error: '' });
     try {
-      await sbRpc('save_discount_code', token, { p_id: f.id, p_code: f.code, p_kind: f.kind, p_value: value, p_min_total: Number(parseNumInput(f.min)) || 0, p_max_uses: f.max ? Math.max(1, parseInt(f.max, 10) || 1) : null, p_ends_on: f.ends || null, p_active: f.active });
+      await sbRpc('save_discount_code', token, { p_id: f.id, p_code: f.code, p_kind: f.kind, p_value: value, p_min_total: Number(parseNumInput(f.min)) || 0, p_max_uses: f.max ? Math.max(1, parseInt(f.max, 10) || 1) : null, p_ends_on: f.ends || null, p_active: f.active, p_per_customer: f.per ? Math.max(1, parseInt(f.per, 10) || 1) : null });
       await reload(); setForm(null);
     } catch (e) { setForm((x) => x && { ...x, busy: false, error: e.message }); }
   };
   const toggleCode = async (d) => {
-    try { await sbRpc('save_discount_code', token, { p_id: d.id, p_code: d.code, p_kind: d.kind, p_value: Number(d.value), p_min_total: Number(d.min_total) || 0, p_max_uses: d.max_uses, p_ends_on: d.ends_on, p_active: !d.active }); await reload(); }
+    try { await sbRpc('save_discount_code', token, { p_id: d.id, p_code: d.code, p_kind: d.kind, p_value: Number(d.value), p_min_total: Number(d.min_total) || 0, p_max_uses: d.max_uses, p_ends_on: d.ends_on, p_active: !d.active, p_per_customer: d.per_customer || null }); await reload(); }
     catch (e) { brandAlert(e.message); }
   };
   const deleteCode = async (d) => {
@@ -9197,7 +9211,7 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
                   <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={st.tone === 'on' ? { background: C.sageSoft, color: C.sage } : { background: C.surfaceRaised, color: C.inkFaint }}>{st.label}</span>
                 </div>
                 <div className="mt-3">
-                  <div className="flex items-center justify-between text-[11.5px] mb-1" style={{ color: C.inkFaint }}><span>Used {d.uses} time{d.uses !== 1 ? 's' : ''}</span><span>{d.max_uses ? `${Math.max(0, d.max_uses - d.uses)} left` : 'No limit'}</span></div>
+                  <div className="flex items-center justify-between text-[11.5px] mb-1" style={{ color: C.inkFaint }}><span>Used {d.uses} time{d.uses !== 1 ? 's' : ''} in total</span><span>{d.max_uses ? `${Math.max(0, d.max_uses - d.uses)} of ${d.max_uses} left` : 'No total limit'}</span></div>
                   {d.max_uses ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full" style={{ width: `${Math.min(100, (d.uses / d.max_uses) * 100)}%`, background: C.copper }} /></div> : null}
                 </div>
                 {isOwner && (
@@ -9231,17 +9245,29 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
                   <input inputMode="decimal" value={form.kind === 'amount' ? formatNumInput(form.value) : form.value} onChange={(e) => setForm({ ...form, value: form.kind === 'amount' ? parseNumInput(e.target.value) : e.target.value.replace(/[^0-9.]/g, '').slice(0, 4), error: '' })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[15px] outline-none cx-mono" style={field} />
                 </label>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-[12px]" style={{ color: C.inkFaint }}>Smallest order (optional)
-                  <input inputMode="decimal" placeholder="Any amount" value={formatNumInput(form.min)} onChange={(e) => setForm({ ...form, min: parseNumInput(e.target.value) })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[14px] outline-none cx-mono" style={field} />
-                </label>
-                <label className="text-[12px]" style={{ color: C.inkFaint }}>How many uses (optional)
-                  <input inputMode="numeric" placeholder="No limit" value={form.max} onChange={(e) => setForm({ ...form, max: e.target.value.replace(/\D/g, '').slice(0, 5) })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[14px] outline-none cx-mono" style={field} />
-                </label>
-              </div>
+              {[
+                { k: 'min', label: 'Minimum order (optional)', ph: 'Any amount', money: true, help: "The customer's basket must add up to at least this amount before the code works. Leave empty to allow any order." },
+                { k: 'per', label: 'Uses per customer (optional)', ph: 'No limit', help: 'How many times one customer can use the code. 1 means each customer gets it once. Customers are recognised by their phone number.', chips: [['1', 'Once each'], ['', 'No limit']] },
+                { k: 'max', label: 'Total uses, all customers (optional)', ph: 'No limit', help: 'The code stops working after this many orders in total, from everyone together. Good for "first 50 customers" offers.' },
+              ].map((x) => (
+                <div key={x.k}>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <label htmlFor={`dc-${x.k}`} className="text-[12.5px] font-semibold min-w-0" style={{ color: C.ink }}>{x.label}</label>
+                    {x.chips && <div className="flex gap-1 shrink-0">{x.chips.map(([v, l]) => <button key={l} type="button" onClick={() => setForm({ ...form, [x.k]: v })} className="px-2.5 py-1 rounded-lg text-[11.5px] font-semibold whitespace-nowrap" style={form[x.k] === v ? { background: C.copperSoft, color: C.copper } : { color: C.inkFaint, border: `1px solid ${C.line}` }}>{l}</button>)}</div>}
+                  </div>
+                  <input id={`dc-${x.k}`} inputMode={x.money ? 'decimal' : 'numeric'} placeholder={x.ph} value={x.money ? formatNumInput(form[x.k]) : form[x.k]} onChange={(e) => setForm({ ...form, [x.k]: x.money ? parseNumInput(e.target.value) : e.target.value.replace(/\D/g, '').slice(0, 5), error: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-[14px] outline-none cx-mono" style={field} />
+                  <div className="text-[11.5px] mt-1.5 leading-relaxed" style={{ color: C.inkFaint }}>{x.help}</div>
+                </div>
+              ))}
               <label className="block text-[12px]" style={{ color: C.inkFaint }}>Last day it works (optional)
                 <input type="date" value={form.ends} min={new Date().toLocaleDateString('sv-SE', LAGOS_TIME)} onChange={(e) => setForm({ ...form, ends: e.target.value })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[14px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
               </label>
+              <div className="rounded-xl p-3.5" style={{ background: C.sageSoft, border: `1px solid rgba(31,217,196,0.25)` }}>
+                <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: C.sage }}>In plain words{form.code ? `: ${form.code}` : ''}</div>
+                <ul className="space-y-1 text-[12.5px] leading-relaxed" style={{ color: C.ink }}>
+                  {codeRulesInWords({ kind: form.kind, value: form.kind === 'amount' ? parseNumInput(form.value) : form.value, min: parseNumInput(form.min), max: form.max, per: form.per, ends: form.ends }).map((t, i) => <li key={i} className="flex gap-2"><span style={{ color: C.sage }}>•</span><span>{t}</span></li>)}
+                </ul>
+              </div>
               {form.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{form.error}</div>}
               <div className="grid gap-2" style={{ gridTemplateColumns: form.id ? 'minmax(0,1fr) minmax(0,1fr) minmax(0,2fr)' : 'minmax(0,1fr) minmax(0,2fr)' }}>
                 {form.id && <button onClick={() => { const d = codes.find((x) => x.id === form.id); setForm(null); if (d) deleteCode(d); }} className="h-11 rounded-xl text-[13px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.rust }}>Delete</button>}
