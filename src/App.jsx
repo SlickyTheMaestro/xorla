@@ -1268,6 +1268,10 @@ function XorlaApp() {
   const [apptPeople, setApptPeople] = useState([]);
   const [apptMineOnly, setApptMineOnly] = useState(false);
   const [discountCodes, setDiscountCodes] = useState([]);
+  // Guided setup for new owners, the storefront readiness check, and the checklist on Overview
+  const [setup, setSetup] = useState(null); // { step, f, busy, error, paused }
+  const [readyCheck, setReadyCheck] = useState(null); // { onGoLive }
+  const [checklistOpen, setChecklistOpen] = useState(false);
   const [personForm, setPersonForm] = useState(null);
   const [branchHours, setBranchHours] = useState(null);
   const [apptPanel, setApptPanel] = useState(null);
@@ -1436,12 +1440,18 @@ function XorlaApp() {
   const startTour = () => { setTab('overview'); setTourStep(0); };
 
   // Start once, for owners, right after they've told us what kind of business they run
+  // A new owner gets the guided setup first; it opens once and can be skipped (the checklist catches the rest)
+  useEffect(() => {
+    if (!settings.loggedIn || settings.role !== 'owner' || setup) return;
+    if (settings.setupDoneAt === null) setSetup({ step: 0, f: null, busy: false, error: '', paused: false });
+  }, [settings.loggedIn, settings.role, settings.setupDoneAt]);
   useEffect(() => {
     if (!settings.loggedIn || settings.role !== 'owner' || !settings.businessType || !tourKey || tourStep !== null) return;
+    if (settings.setupDoneAt === null || setup) return;   // the app tour waits until the guided setup is finished or skipped
     let done = false;
     try { done = !!localStorage.getItem(tourKey); } catch (e) {}
     if (!done) startTour();
-  }, [settings.loggedIn, settings.role, settings.businessType, tourKey]);
+  }, [settings.loggedIn, settings.role, settings.businessType, tourKey, settings.setupDoneAt, !!setup]);
 
   // Find the highlighted element (whichever copy is visible — bottom bar on phones, sidebar on desktop)
   useEffect(() => {
@@ -1796,6 +1806,10 @@ function XorlaApp() {
       openDays: Array.isArray(business.open_days) ? business.open_days : [1, 2, 3, 4, 5, 6],
       apptCapacity: business.appt_capacity ?? 1,
       apptByPerson: !!business.appt_by_person,
+      // undefined = the setup update hasn't been run on the database yet (then nothing new is shown)
+      setupDoneAt: business.setup_done_at === undefined ? undefined : business.setup_done_at,
+      setupSteps: Array.isArray(business.setup_steps) ? business.setup_steps : [],
+      checklistHidden: !!business.checklist_hidden,
       logoUrl: business.logo_url || null,
       businessAddress: business.address || '',
       businessEmail: business.email || '',
@@ -2452,6 +2466,9 @@ function XorlaApp() {
       if ('openDays' in patch) bizPatch.open_days = patch.openDays;
       if ('apptCapacity' in patch) bizPatch.appt_capacity = Number(patch.apptCapacity);
       if ('apptByPerson' in patch) bizPatch.appt_by_person = !!patch.apptByPerson;
+      if ('setupDoneAt' in patch && settings.setupDoneAt !== undefined) bizPatch.setup_done_at = patch.setupDoneAt;
+      if ('setupSteps' in patch && settings.setupDoneAt !== undefined) bizPatch.setup_steps = patch.setupSteps;
+      if ('checklistHidden' in patch && settings.setupDoneAt !== undefined) bizPatch.checklist_hidden = !!patch.checklistHidden;
       if ('ownerPhone' in patch) bizPatch.owner_phone = patch.ownerPhone;
       if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
       if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
@@ -5196,6 +5213,427 @@ function XorlaApp() {
     );
   }
 
+  // ---------- Getting a business ready: guided setup, readiness check and checklist ----------
+  const openSettingsPage = (page) => { setDraft({ ...settings }); setSettingsPage(page); setPreviousTab(tab); setTab('settings'); };
+  const actWord = promoWords(settings.businessType).act;   // order | book
+  const listItems = productsAll.filter((p) => !(serviceKind === 'accommodation' && p.category === 'Extras'));
+  const phoneOk = (ph) => toWhatsAppNumber(ph).length >= 12;
+  const servicesWithoutTime = apptMode ? productsAll.filter((p) => kindOf(p, settings.businessType) === 'service' && !['night', 'day', 'hour'].includes(p.priceUnit) && !String(p.duration || '').trim()) : [];
+  // What a customer would notice on the storefront right now. must = blocks orders; soft = nice to have
+  const storefrontIssues = () => {
+    const out = [];
+    if (!phoneOk(settings.ownerPhone)) out.push({ level: 'must', text: "No WhatsApp number yet, so new orders and requests can't reach you.", fix: 'contact', fixLabel: 'Add number' });
+    if (!listItems.length) out.push({ level: 'must', text: `Nothing to ${actWord} yet. Add your ${T.catalog.toLowerCase()} first.`, fix: 'list', fixLabel: 'Add' });
+    const noPrice = listItems.filter((p) => !(Number(p.sellingPrice) > 0)).length;
+    if (noPrice) out.push({ level: 'should', text: `${noPrice} ${noPrice > 1 ? T.catalog.toLowerCase() : T.item} without a price.`, fix: 'list', fixLabel: 'Fix' });
+    if (servicesWithoutTime.length) out.push({ level: 'should', text: `${servicesWithoutTime.length} service${servicesWithoutTime.length > 1 ? "s don't" : " doesn't"} say how long ${servicesWithoutTime.length > 1 ? 'they take' : 'it takes'}, so customers will see 1 hour.`, fix: 'list', fixLabel: 'Fix' });
+    if (listItems.length && !listItems.some((p) => p.imageUrl)) out.push({ level: 'soft', text: `No photos yet. ${T.Item}s with photos get more ${T.orders.toLowerCase()}.`, fix: 'list', fixLabel: 'Add' });
+    if (!settings.logoUrl) out.push({ level: 'soft', text: 'No logo yet. It shows at the top of your storefront.', fix: 'branding', fixLabel: 'Add' });
+    if (!String(settings.storefrontTagline || '').trim()) out.push({ level: 'soft', text: 'No tagline yet. One line that tells customers what you do.', fix: 'storefront', fixLabel: 'Add' });
+    return out;
+  };
+  const runFix = (fix) => {
+    setReadyCheck(null);
+    if (setup && !setup.paused) setSetup((x) => x && { ...x, paused: true });
+    if (fix === 'list') { setTab('products'); return; }
+    openSettingsPage(fix);
+  };
+  const issueRow = (it, i, onFix) => (
+    <div key={i} className="flex items-start gap-3 py-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+      <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: it.level === 'must' ? C.rust : it.level === 'should' ? C.copper : C.inkFaint }} />
+      <span className="flex-1 text-[12.5px] leading-relaxed" style={{ color: it.level === 'soft' ? C.inkDim : C.ink }}>{it.text}</span>
+      {onFix && <button onClick={() => onFix(it.fix)} className="shrink-0 text-[12px] font-semibold" style={{ color: C.copper }}>{it.fixLabel}</button>}
+    </div>
+  );
+  const renderReadyCheck = () => {
+    if (!readyCheck) return null;
+    const issues = storefrontIssues();
+    const blocking = issues.some((x) => x.level === 'must');
+    return (
+      <div className="fixed inset-0 z-[88] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={() => setReadyCheck(null)}>
+        <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+          <div className="text-[16px] font-semibold cx-display mb-1">Before customers see your store</div>
+          <div className="text-[12.5px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{blocking ? 'Fix the red items first, or customers may not be able to reach you.' : 'Your store works. These would make it look better to customers.'}</div>
+          <div className="rounded-xl px-3.5" style={{ background: C.surfaceRaised }}>{issues.map((it, i) => issueRow(it, i, runFix))}</div>
+          <div className="grid gap-2 mt-4" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.3fr)' }}>
+            <button onClick={() => setReadyCheck(null)} className="h-11 rounded-xl text-[13px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>Not yet</button>
+            <button onClick={() => { const go = readyCheck.onGoLive; setReadyCheck(null); go && go(); }} className="h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: blocking ? C.surfaceRaised : C.sage, border: blocking ? `1px solid ${C.line}` : 'none', color: blocking ? C.ink : C.bg }}>{blocking ? 'Go live anyway' : 'Go live'}</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  // Turning the storefront on runs the check first
+  const requestStorefrontOn = (goLive) => { if (storefrontIssues().length) setReadyCheck({ onGoLive: goLive }); else goLive(); };
+
+  // The checklist: what's done, what's left, and why each one matters
+  const readyItems = (() => {
+    if (!isOwnerRole) return [];
+    const steps = settings.setupSteps || [];
+    const items = [
+      { id: 'phone', label: 'Add your WhatsApp number', why: 'So storefront orders, requests and customer replies reach you.', done: phoneOk(settings.ownerPhone), go: () => openSettingsPage('contact') },
+      { id: 'list', label: serviceKind === 'accommodation' ? 'Add your room types' : `Add your ${T.catalog.toLowerCase()}`, why: `After that, recording a ${T.sale} takes one tap and customers can ${actWord} online.`, done: listItems.length > 0, go: () => setTab('products') },
+      ...(apptMode ? [
+        { id: 'durations', label: 'Say how long each service takes', why: servicesWithoutTime.length ? `${servicesWithoutTime.length} service${servicesWithoutTime.length > 1 ? "s don't" : " doesn't"} say yet. It decides which times customers can book.` : 'It decides which times customers can book.', done: listItems.length > 0 && servicesWithoutTime.length === 0, go: () => setTab('products') },
+        { id: 'hours', label: 'Set your opening hours', why: 'Customers can only book times when you are open.', done: steps.includes('hours'), go: () => openSettingsPage('hours') },
+      ] : []),
+      ...(hasBookables || ['accommodation', 'rentals'].includes(serviceKind) && settings.businessType !== 'products' ? [
+        { id: 'deposits', label: 'Choose your deposit rule', why: 'A deposit holds a booking firmly, so unpaid holds can go to walk-ins.', done: steps.includes('deposits'), go: () => openSettingsPage('deposits') },
+      ] : []),
+      { id: 'address', label: 'Add your address', why: 'It goes on receipts and invoices, and in appointment reminders.', done: !!String(settings.businessAddress || '').trim(), go: () => openSettingsPage('contact') },
+      { id: 'logo', label: 'Add your logo', why: 'It shows on receipts, invoices, your storefront and posters.', done: !!settings.logoUrl, go: () => openSettingsPage('branding') },
+      { id: 'storefront', label: 'Turn on your storefront', why: `A free page where customers see your ${T.catalog.toLowerCase()} and ${actWord} without calling you.`, done: !!settings.storefrontEnabled, go: () => openSettingsPage('storefront') },
+      { id: 'team', label: 'Invite your staff', why: 'Optional. Staff record sales on their own phones; you see everything.', done: settings.staffList.length > 0 || steps.includes('team'), go: () => openSettingsPage('team'), optional: true },
+    ];
+    return items;
+  })();
+  const readyDone = readyItems.filter((x) => x.done).length;
+  const renderChecklist = () => {
+    if (!isOwnerRole || settings.setupDoneAt === undefined || settings.checklistHidden || !readyItems.length) return null;
+    const left = readyItems.filter((x) => !x.done);
+    const pct = Math.round((readyDone / readyItems.length) * 100);
+    if (!left.length) {
+      return (
+        <div className="rounded-2xl p-4 mb-5 flex items-center gap-3 xorla-fade-up" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.25)' }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><Check size={18} style={{ color: C.bg }} /></div>
+          <div className="flex-1 min-w-0"><div className="text-[13.5px] font-semibold cx-display">{settings.businessName} is fully set up</div><div className="text-[11.5px]" style={{ color: C.inkDim }}>Everything customers and staff need is in place.</div></div>
+          <button onClick={() => updateSettings({ checklistHidden: true })} className="text-[12px] font-semibold shrink-0" style={{ color: C.sage }}>Hide</button>
+        </div>
+      );
+    }
+    const shown = checklistOpen ? readyItems : left.slice(0, 3);
+    return (
+      <div className="rounded-2xl p-4 mb-5 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.lineStrong}` }}>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <div className="text-[14px] font-semibold cx-display">Get {settings.businessName || 'your business'} ready</div>
+            <div className="text-[11.5px] mt-0.5" style={{ color: C.inkDim }}>{readyDone} of {readyItems.length} done · about {Math.max(1, left.length * 2)} minutes left</div>
+          </div>
+          <span className="cx-mono text-[13px] font-bold shrink-0" style={{ color: C.copper }}>{pct}%</span>
+        </div>
+        <div className="h-1.5 rounded-full overflow-hidden mb-3" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${C.copper}, ${C.sage})` }} /></div>
+        <div className="space-y-1.5">
+          {shown.map((it) => (
+            <button key={it.id} onClick={it.done ? undefined : it.go} disabled={it.done} className="w-full flex items-start gap-3 rounded-xl px-3 py-2.5 text-left" style={{ background: it.done ? 'transparent' : C.surfaceRaised }}>
+              <span className="mt-0.5 w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={it.done ? { background: C.sage } : { border: `2px solid ${C.inkFaint}` }}>{it.done && <Check size={12} style={{ color: C.bg }} />}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[13px] font-semibold" style={{ color: it.done ? C.inkFaint : C.ink, textDecoration: it.done ? 'line-through' : 'none' }}>{it.label}{it.optional && !it.done ? <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span> : ''}</span>
+                {!it.done && <span className="block text-[11.5px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>{it.why}</span>}
+              </span>
+              {!it.done && <ChevronRight size={16} className="mt-0.5 shrink-0" style={{ color: C.copper }} />}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center justify-between mt-3">
+          <button onClick={() => setChecklistOpen(!checklistOpen)} className="text-[12px] font-semibold" style={{ color: C.inkDim }}>{checklistOpen ? 'Show less' : `See all ${readyItems.length}`}</button>
+          <div className="flex items-center gap-4">
+            {settings.setupDoneAt !== null && <button onClick={() => setSetup({ step: 1, f: null, busy: false, error: '', paused: false })} className="text-[12px] font-semibold" style={{ color: C.copper }}>Guided setup</button>}
+            <button onClick={async () => { if (await brandConfirm('You can still find everything in Settings. Hide the checklist from Overview?', { title: 'Hide the checklist?', confirm: 'Hide' })) updateSettings({ checklistHidden: true }); }} className="text-[12px]" style={{ color: C.inkFaint }}>Hide</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // The guided setup itself
+  const setupIds = (() => {
+    const ids = ['type', 'details', 'branches'];
+    if (settings.businessType && settings.businessType !== 'products') {
+      if (['accommodation', 'rentals'].includes(serviceKind)) ids.push('deposits'); else ids.push('hours');
+    }
+    ids.push('list', 'storefront', 'team', 'done');
+    return ids;
+  })();
+  const setupDefaults = () => ({
+    type: settings.businessType || '', kind: settings.serviceKind || '',
+    name: settings.businessName || '', phone: settings.ownerPhone ? formatPhoneDisplay(settings.ownerPhone) : '', address: settings.businessAddress || '',
+    multi: shops.length > 1, mainName: shops[0] ? locName(shops[0]) : '', newBranches: [''],
+    days: settings.openDays || [1, 2, 3, 4, 5, 6], open: settings.openTime || '08:00', close: settings.closeTime || '18:00', cap: Math.max(1, Number(settings.apptCapacity || 1)),
+    dep: Number(settings.depositPercent ?? 50), cancel: Number(settings.cancelWindowHours ?? 24),
+    storeOn: !!settings.storefrontEnabled || listItems.length > 0, tagline: settings.storefrontTagline || '',
+  });
+  const finishSetup = (confirmed = []) => {
+    updateSettings({ setupDoneAt: new Date().toISOString(), setupSteps: [...new Set([...(settings.setupSteps || []), ...confirmed])] });
+    setSetup(null);
+  };
+  const renderSetup = () => {
+    if (!setup || !isOwnerRole) return null;
+    if (setup.paused) {
+      return (
+        <button onClick={() => { if (tab === 'settings') setTab('overview'); setSetup({ ...setup, paused: false }); }} className="fixed z-[60] left-1/2 -translate-x-1/2 bottom-[150px] lg:bottom-6 flex items-center gap-2 pl-4 pr-5 py-3 rounded-full whitespace-nowrap text-[13px] font-semibold xorla-fade-up" style={{ background: C.ink, color: C.bg, boxShadow: '0 12px 30px rgba(0,0,0,0.45)' }}>
+          <ChevronLeft size={16} /> Back to setup · step {Math.max(1, Math.min(setup.step, setupIds.length - 1))} of {setupIds.length - 1}
+        </button>
+      );
+    }
+    const f = setup.f || setupDefaults();
+    const setF = (patch) => setSetup((x) => x && { ...x, f: { ...(x.f || setupDefaults()), ...patch }, error: '' });
+    const i = Math.min(setup.step, setupIds.length - 1);
+    const id = setupIds[i];
+    const go = (n) => setSetup((x) => x && { ...x, step: Math.max(0, Math.min(setupIds.length - 1, n)), busy: false, error: '' });
+    const T2 = BUSINESS_TERMS[f.type] || T;
+    const nameFor = settings.businessName || 'your business';
+    const next = async () => {
+      const step = setupIds[i];
+      try {
+        setSetup((x) => x && { ...x, busy: true, error: '' });
+        if (step === 'type') {
+          if (!f.type) throw new Error('Choose what your business does.');
+          if (f.type !== 'products' && !f.kind) throw new Error('Choose the kind of services you offer.');
+          updateSettings({ businessType: f.type, ...(f.type !== 'products' ? { serviceKind: f.kind } : {}) });
+        } else if (step === 'details') {
+          if (f.phone.trim() && !phoneOk(f.phone)) throw new Error("That phone number looks too short. Use the full number, e.g. 0803 123 4567.");
+          updateSettings({ businessName: f.name.trim() || settings.businessName, ownerPhone: f.phone.trim(), businessAddress: f.address.trim() });
+        } else if (step === 'branches') {
+          if (f.multi) {
+            const main = shops[0];
+            if (main && f.mainName.trim() && f.mainName.trim() !== main.name) {
+              await sbRest(`shops?id=eq.${main.id}`, { method: 'PATCH', accessToken: session.access_token, body: { name: f.mainName.trim() } });
+            }
+            const names = f.newBranches.map((x) => x.trim()).filter(Boolean).filter((x) => !shops.some((s0) => s0.name.toLowerCase() === x.toLowerCase()));
+            const room = planKnown ? Math.max(0, planCaps.locations - liveLocations.length) : names.length;
+            for (const nm of names.slice(0, room)) await sbRest('shops', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: nm } });
+            if (names.length || (main && f.mainName.trim() !== main.name)) await loadBusinessData(session.access_token);
+            if (names.length > room) brandAlert(`Your plan includes ${planCaps.locations} locations, so ${names.length - room} weren't added. You can add more ${L.many} later in Settings.`, { tone: 'info' });
+            setF({ newBranches: [''] });
+          }
+          updateSettings({ setupSteps: [...new Set([...(settings.setupSteps || []), 'branches'])] });
+        } else if (step === 'hours') {
+          if (f.close <= f.open) throw new Error('Closing time must be after opening time.');
+          if (!f.days.length) throw new Error('Pick at least one day you open.');
+          updateSettings({ openDays: f.days, openTime: f.open, closeTime: f.close, apptCapacity: f.cap, setupSteps: [...new Set([...(settings.setupSteps || []), 'hours'])] });
+        } else if (step === 'deposits') {
+          updateSettings({ depositPercent: f.dep, cancelWindowHours: f.cancel, setupSteps: [...new Set([...(settings.setupSteps || []), 'deposits'])] });
+        } else if (step === 'storefront') {
+          updateSettings({ storefrontEnabled: !!f.storeOn, storefrontTagline: f.tagline.trim() });
+        } else if (step === 'team') {
+          updateSettings({ setupSteps: [...new Set([...(settings.setupSteps || []), 'team'])] });
+        } else if (step === 'done') {
+          finishSetup(); return;
+        }
+        go(i + 1);
+      } catch (e) { setSetup((x) => x && { ...x, busy: false, error: e.message }); }
+    };
+    const pause = (fn) => { setSetup({ ...setup, f, paused: true }); fn(); };
+    const chip = (on) => (on ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` });
+    const sfield = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+    const label = (t, hint) => <div className="mb-1.5"><div className="text-[13px] font-semibold">{t}</div>{hint && <div className="text-[11.5px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>{hint}</div>}</div>;
+    const heads = {
+      type: [`What does ${f.name || nameFor} do?`, 'Xorla uses the right words and tools for your kind of business. You can change this later.'],
+      details: ['How customers reach you', 'These go on your receipts, invoices, storefront and posters.'],
+      branches: [`Your ${L.many}`, `One ${L.one} or several? Each keeps its own sales, stock and staff, and you see them together.`],
+      hours: ["When you're open", 'Customers can only book times inside these hours. Each service uses its own length.'],
+      deposits: ['Deposits and cancellations', `A deposit holds a booking firmly, so unpaid holds can go to walk-in ${serviceKind === 'rentals' ? 'customers' : 'guests'}.`],
+      list: [serviceKind === 'accommodation' ? 'Your room types' : `What you ${T2.tracksStock && f.type !== 'services' ? 'sell' : 'offer'}`, `Add it once. After that, recording a ${T2.sale} takes one tap, and customers can ${actWord} online.`],
+      storefront: ['Your online storefront', `A free page with your own link. Customers see your ${T2.catalog.toLowerCase()} and ${actWord} without calling you.`],
+      team: ['Your staff', 'Optional. Staff record sales on their own phones. You see everything; they only see what they need.'],
+      done: [readyItems.every((x) => x.done || x.optional) ? `${nameFor} is ready` : `${nameFor} is nearly ready`, 'You can finish anything left from the checklist on your Overview screen.'],
+    }[id];
+    const body = (() => {
+      if (id === 'type') return (
+        <>
+          {renderBusinessTypeChoices(f.type, (t) => setF({ type: t }))}
+          {(f.type === 'services' || f.type === 'both') && renderServiceKindChoices(f.kind, (k) => setF({ kind: k }))}
+        </>
+      );
+      if (id === 'details') return (
+        <div className="space-y-4">
+          <div>{label('Business name')}<input value={f.name} maxLength={60} onChange={(e) => setF({ name: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} /></div>
+          <div>
+            {label('WhatsApp number', 'Storefront orders, requests and customer replies come here. This is the most important one.')}
+            <input type="tel" inputMode="tel" placeholder="e.g. 0803 123 4567" value={f.phone} onChange={(e) => setF({ phone: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} />
+            {phoneOk(f.phone) && <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: C.sage }}>✓ Customers will reach you on {formatPhoneDisplay(f.phone)}</div>}
+          </div>
+          <div>{label('Address (optional)', 'Printed on receipts and invoices, and sent in appointment reminders.')}<textarea rows={2} placeholder="Street, area, city" value={f.address} onChange={(e) => setF({ address: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none resize-none" style={sfield} /></div>
+          <div>
+            {label('Logo (optional)', 'Shows on receipts, invoices, your storefront and posters.')}
+            <label className="flex items-center gap-3 rounded-xl px-3.5 py-3 cursor-pointer" style={{ ...sfield, borderStyle: 'dashed' }}>
+              {settings.logoUrl ? <img src={settings.logoUrl} alt="" className="w-11 h-11 rounded-xl object-cover" /> : <span className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: C.surface }}><Camera size={18} style={{ color: C.inkDim }} /></span>}
+              <span className="text-[13px] font-semibold" style={{ color: C.copper }}>{logoUploading ? 'Uploading…' : settings.logoUrl ? 'Change logo' : 'Upload logo'}</span>
+              <input type="file" accept="image/*" className="hidden" onChange={handleLogoSelect} disabled={logoUploading} />
+            </label>
+          </div>
+        </div>
+      );
+      if (id === 'branches') return (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            {[[false, `Just one ${L.one}`], [true, `More than one`]].map(([v, l]) => <button key={l} onClick={() => setF({ multi: v })} className="py-3.5 rounded-xl text-[13.5px] font-semibold" style={f.multi === v ? { background: C.copperSoft, color: C.copper, border: `1.5px solid ${C.copper}` } : { background: C.surfaceRaised, color: C.ink, border: `1.5px solid ${C.line}` }}>{l}</button>)}
+          </div>
+          {f.multi && (
+            <div className="space-y-3">
+              <div>{label(`Your main ${L.one}`, 'Give it a name customers and staff will recognise, e.g. the area it is in.')}<input value={f.mainName} onChange={(e) => setF({ mainName: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} /></div>
+              {shops.slice(1).map((s0) => <div key={s0.id} className="flex items-center gap-2 rounded-xl px-3.5 py-3 text-[13.5px]" style={{ background: C.surfaceRaised }}><Check size={15} style={{ color: C.sage }} /> {locName(s0)}</div>)}
+              <div>
+                {label(`Your other ${L.many}`)}
+                <div className="space-y-2">
+                  {f.newBranches.map((b, k) => <input key={k} value={b} placeholder={k === 0 ? 'e.g. Umuahia' : `Another ${L.one} (optional)`} onChange={(e) => { const nb = [...f.newBranches]; nb[k] = e.target.value; if (k === nb.length - 1 && e.target.value.trim() && nb.length < 9) nb.push(''); setF({ newBranches: nb }); }} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} />)}
+                </div>
+              </div>
+              {planKnown && <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Your plan includes {planCaps.locations} location{planCaps.locations !== 1 ? 's' : ''}{onTrial ? ' during the free trial' : ''}.</div>}
+            </div>
+          )}
+          {!f.multi && <div className="text-[12px] leading-relaxed rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, color: C.inkDim }}>Perfect. You can add more {L.many} any time from Settings.</div>}
+        </div>
+      );
+      if (id === 'hours') return (
+        <div className="space-y-4">
+          <div>{label('Days you open')}
+            <div className="grid grid-cols-7 gap-1.5">{[1, 2, 3, 4, 5, 6, 7].map((d) => { const on = f.days.includes(d); return <button key={d} onClick={() => setF({ days: on ? f.days.filter((x) => x !== d) : [...f.days, d].sort() })} aria-pressed={on} className="py-2.5 rounded-lg text-[12px] font-semibold" style={chip(on)}>{DAY_SHORT[d]}</button>; })}</div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {[['open', 'Opens'], ['close', 'Closes']].map(([k, l]) => (
+              <label key={k} className="text-[13px] font-semibold">{l}
+                <BrandSelect value={f[k]} onChange={(e) => setF({ [k]: e.target.value })} className="w-full mt-1.5 rounded-xl px-3 py-3 text-sm" style={sfield}>{HALF_HOURS.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}</BrandSelect>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-3 rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised }}>
+            <div className="flex-1"><div className="text-[13px] font-semibold">Customers at the same time</div><div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>How many you can serve at once, e.g. chairs or {PW.many}.</div></div>
+            <div className="flex items-center rounded-xl shrink-0" style={{ border: `1px solid ${C.line}` }}>
+              <button aria-label="Fewer" onClick={() => setF({ cap: Math.max(1, f.cap - 1) })} className="w-9 h-10 text-[18px]" style={{ color: C.inkDim }}>−</button>
+              <span className="w-7 text-center text-[15px] font-semibold cx-mono">{f.cap}</span>
+              <button aria-label="More" onClick={() => setF({ cap: Math.min(50, f.cap + 1) })} className="w-9 h-10 text-[18px]" style={{ color: C.inkDim }}>+</button>
+            </div>
+          </div>
+          <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>Different hours at a {L.one}, or customers choosing their {PW.one}? Both are in Settings, Opening hours & appointments.</div>
+        </div>
+      );
+      if (id === 'deposits') {
+        const night = serviceKind === 'rentals' ? 'day' : 'night';
+        return (
+          <div className="space-y-4">
+            <div>{label('Deposit to confirm a booking', `Part of the ${serviceKind === 'rentals' ? 'rental' : 'stay'}, paid by cash or transfer, capped at one ${night}.`)}
+              <div className="grid grid-cols-4 gap-1.5">{[[0, 'None'], [25, '25%'], [50, '50%'], [100, 'Full']].map(([v, l]) => <button key={v} onClick={() => setF({ dep: v })} className="py-2.5 rounded-lg text-[12.5px] font-semibold" style={chip(f.dep === v)}>{l}</button>)}</div>
+            </div>
+            <div>{label('Free cancellation until', 'Cancel earlier and the deposit is owed back; later, you keep it.')}
+              <div className="grid grid-cols-3 gap-1.5">{[[24, '24 hours before'], [48, '2 days before'], [72, '3 days before']].map(([v, l]) => <button key={v} onClick={() => setF({ cancel: v })} className="py-2.5 rounded-lg text-[12px] font-semibold" style={chip(f.cancel === v)}>{l}</button>)}</div>
+            </div>
+            <div className="text-[12px] leading-relaxed rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, color: C.inkDim }}>Most hotels in Nigeria ask for 50% and allow free cancellation up to 24 hours before check-in. You can change this any time.</div>
+          </div>
+        );
+      }
+      if (id === 'list') {
+        const n = listItems.length;
+        const isHotel = serviceKind === 'accommodation';
+        return (
+          <div className="space-y-3">
+            {n > 0 && (
+              <div className="rounded-xl p-3.5" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.25)' }}>
+                <div className="text-[13px] font-semibold mb-1.5" style={{ color: C.sage }}>✓ {n} {n === 1 ? (isHotel ? 'room type' : T2.item) : (isHotel ? 'room types' : T2.catalog.toLowerCase())} added</div>
+                <div className="text-[12px] leading-relaxed" style={{ color: C.inkDim }}>{listItems.slice(0, 4).map((p) => `${p.name} (${fmt(p.sellingPrice)})`).join(', ')}{n > 4 ? ` and ${n - 4} more` : ''}</div>
+              </div>
+            )}
+            {isHotel ? (
+              <button onClick={() => pause(() => openCatalogForm('room'))} className="w-full flex items-center gap-3 rounded-2xl p-4 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Plus size={18} style={{ color: C.copper }} /></span>
+                <span className="flex-1"><span className="block text-[14px] font-semibold">Add a room type</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>e.g. Standard, Deluxe, Suite, with the price per night and how many you have</span></span>
+              </button>
+            ) : (
+              <>
+                <button onClick={() => openImport()} className="w-full flex items-center gap-3 rounded-2xl p-4 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Receipt size={18} style={{ color: C.copper }} /></span>
+                  <span className="flex-1"><span className="block text-[14px] font-semibold">Type or paste your list</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>One per line with its price, e.g. "Men's haircut, 3000". Copy from Excel or your phone notes.</span></span>
+                </button>
+                <button onClick={() => pause(() => { setTab('products'); setShowProductForm(true); })} className="w-full flex items-center gap-3 rounded-2xl p-4 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Plus size={18} style={{ color: C.sage }} /></span>
+                  <span className="flex-1"><span className="block text-[14px] font-semibold">Add one at a time</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>With a photo{apptMode ? ' and how long it takes' : ''}. Best for a short list.</span></span>
+                </button>
+              </>
+            )}
+            {apptMode && servicesWithoutTime.length > 0 && <div className="text-[12px] leading-relaxed rounded-xl px-3.5 py-3" style={{ background: C.copperSoft, color: C.copper }}>{servicesWithoutTime.length} service{servicesWithoutTime.length > 1 ? "s don't" : " doesn't"} say how long {servicesWithoutTime.length > 1 ? 'they take' : 'it takes'} yet. Add it on each one so customers can book the right times.</div>}
+          </div>
+        );
+      }
+      if (id === 'storefront') {
+        const issues = storefrontIssues().filter((x) => x.fix !== 'storefront');
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              {[[true, 'Turn it on'], [false, 'Not now']].map(([v, l]) => <button key={l} onClick={() => setF({ storeOn: v })} className="py-3.5 rounded-xl text-[13.5px] font-semibold" style={f.storeOn === v ? { background: C.copperSoft, color: C.copper, border: `1.5px solid ${C.copper}` } : { background: C.surfaceRaised, color: C.ink, border: `1.5px solid ${C.line}` }}>{l}</button>)}
+            </div>
+            {!listItems.length && <div className="text-[12px] leading-relaxed rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, color: C.inkDim }}>Tip: add your {T2.catalog.toLowerCase()} first, so customers have something to {actWord} when they open your link. You can turn the storefront on from your checklist later.</div>}
+            {f.storeOn && (
+              <>
+                <div>{label('Tagline (optional)', 'One line under your name that tells customers what you do.')}<input maxLength={80} placeholder={examplesFor(f.type === 'products' ? null : serviceKind).tagline} value={f.tagline} onChange={(e) => setF({ tagline: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} /></div>
+                <div className="rounded-xl px-3.5 py-3 text-[12.5px]" style={{ background: C.surfaceRaised }}>
+                  <div style={{ color: C.inkFaint }}>Your link</div>
+                  <div className="cx-mono mt-0.5 truncate" style={{ color: C.sage }}>{window.location.origin}/store/{settings.businessCode}</div>
+                </div>
+                {issues.length > 0 && (
+                  <div>
+                    <div className="text-[12px] font-semibold mb-1" style={{ color: C.inkDim }}>Customers will notice</div>
+                    <div className="rounded-xl px-3.5" style={{ background: C.surfaceRaised }}>{issues.map((it, k) => issueRow(it, k, null))}</div>
+                    <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>These are on your checklist too, so you can fix them after setup.</div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      }
+      if (id === 'team') {
+        const invite = `Hi! Join ${settings.businessName} on Xorla so you can record sales on your phone.\n\n1. Open ${window.location.origin}\n2. Tap "Join with a code"\n3. Enter the code: ${settings.staffCode}`;
+        return (
+          <div className="space-y-4">
+            <div className="rounded-2xl p-4 text-center" style={{ background: C.surfaceRaised }}>
+              <div className="text-[12px] mb-1" style={{ color: C.inkFaint }}>Your staff join code</div>
+              <div className="cx-mono text-[26px] font-bold tracking-[0.15em]" style={{ color: C.sage }}>{settings.staffCode || '········'}</div>
+              <div className="text-[11.5px] mt-1" style={{ color: C.inkFaint }}>You approve each person before they get in.</div>
+            </div>
+            <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
+              <button onClick={() => copyText('code', settings.staffCode)} className="h-11 rounded-xl text-[13px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: copiedKey === 'code' ? C.sage : C.ink }}>{copiedKey === 'code' ? '✓ Copied' : 'Copy code'}</button>
+              <a href={`https://wa.me/?text=${encodeURIComponent(invite)}`} target="_blank" rel="noopener noreferrer" className="h-11 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><Send size={15} /> Invite on WhatsApp</a>
+            </div>
+            {settings.staffList.length > 0 && <div className="text-[12.5px]" style={{ color: C.sage }}>✓ {settings.staffList.length} staff already joined</div>}
+          </div>
+        );
+      }
+      // done
+      return (
+        <div className="space-y-1.5">
+          {readyItems.map((it) => (
+            <div key={it.id} className="flex items-center gap-3 rounded-xl px-3.5 py-2.5" style={{ background: C.surfaceRaised }}>
+              <span className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={it.done ? { background: C.sage } : { border: `2px solid ${C.inkFaint}` }}>{it.done && <Check size={12} style={{ color: C.bg }} />}</span>
+              <span className="text-[13px]" style={{ color: it.done ? C.ink : C.inkDim }}>{it.label}{!it.done && it.optional ? ' (optional)' : ''}</span>
+            </div>
+          ))}
+        </div>
+      );
+    })();
+    const canSkip = !!settings.businessType;
+    const progress = Math.round(((i + 1) / setupIds.length) * 100);
+    return (
+      <div className="fixed inset-0 z-[80] flex flex-col cx-body" style={{ background: C.bg, color: C.ink }}>
+        <div className="shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
+          <div className="max-w-lg mx-auto px-5 pt-4 pb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5"><XorlaMark size={24} /><span className="text-[13px]" style={{ color: C.inkDim }}>{id === 'type' ? 'About 5 minutes' : `Step ${i} of ${setupIds.length - 1}`}</span></div>
+            {canSkip && id !== 'done' && <button onClick={() => finishSetup()} className="text-[12.5px] font-semibold" style={{ color: C.inkDim }}>Skip for now</button>}
+          </div>
+          <div className="h-1" style={{ background: C.surfaceRaised }}><div className="h-full transition-all duration-300" style={{ width: `${progress}%`, background: `linear-gradient(90deg, ${C.copper}, ${C.sage})` }} /></div>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <div key={id} className="max-w-lg mx-auto px-5 py-7 xorla-fade-up">
+            {id === 'done' && <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.sageSoft }}><PartyPopper size={24} style={{ color: C.sage }} /></div>}
+            <h1 className="text-[23px] font-bold cx-display leading-tight mb-2">{heads[0]}</h1>
+            <p className="text-[13.5px] leading-relaxed mb-6" style={{ color: C.inkDim }}>{heads[1]}</p>
+            {body}
+          </div>
+        </div>
+        <div className="shrink-0" style={{ borderTop: `1px solid ${C.line}`, background: C.surface, paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          <div className="max-w-lg mx-auto px-5 py-3.5">
+            {setup.error && <div className="mb-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{setup.error}</div>}
+            <div className="grid gap-2" style={{ gridTemplateColumns: i > 0 ? 'minmax(0,1fr) minmax(0,2.2fr)' : '1fr' }}>
+              {i > 0 && <button onClick={() => go(i - 1)} disabled={setup.busy} className="h-12 rounded-xl text-[13.5px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>Back</button>}
+              <button onClick={next} disabled={setup.busy || (id === 'type' && (!f.type || (f.type !== 'products' && !f.kind)))} className="h-12 rounded-xl text-[14px] font-semibold" style={{ ...(id === 'list' && !listItems.length ? { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink } : { background: C.copper, color: C.bg }), opacity: setup.busy || (id === 'type' && (!f.type || (f.type !== 'products' && !f.kind))) ? 0.45 : 1 }}>
+                {setup.busy ? 'Saving…' : id === 'done' ? 'Start using Xorla' : id === 'list' && !listItems.length ? 'Skip this step' : id === 'team' && !settings.staffList.length ? 'Done for now' : id === 'details' && !f.phone.trim() ? 'Continue without a number' : 'Continue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderServiceKindChoices = (selected, onPick) => (
     <div className="mt-4">
       <div className="text-[13px] font-semibold mb-2">What kind of services?</div>
@@ -5405,10 +5843,17 @@ function XorlaApp() {
                       <div className="text-[13px] font-medium mb-0.5">Public storefront</div>
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>Lets anyone browse your products and order — no login needed for them.</div>
                     </div>
-                    <button onClick={() => setDraft({ ...draft, storefrontEnabled: !draft.storefrontEnabled })} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.storefrontEnabled ? C.sage : C.line }}>
+                    <button onClick={() => { if (draft.storefrontEnabled) setDraft({ ...draft, storefrontEnabled: false }); else requestStorefrontOn(() => setDraft((d) => ({ ...d, storefrontEnabled: true }))); }} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.storefrontEnabled ? C.sage : C.line }}>
                       <div className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: C.bg, left: draft.storefrontEnabled ? '22px' : '2px' }} />
                     </button>
                   </div>
+                  {settings.storefrontEnabled && storefrontIssues().length > 0 && (
+                    <div className="mt-4 rounded-xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                      <div className="text-[12.5px] font-semibold mb-0.5">Customers will notice</div>
+                      <div className="text-[11.5px] mb-1" style={{ color: C.inkFaint }}>Small fixes that make your store work better.</div>
+                      {storefrontIssues().map((it, i) => issueRow(it, i, runFix))}
+                    </div>
+                  )}
                   {settings.storefrontEnabled && (
                     <div className="mt-4">
                       <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BANNER PHOTOS ({(settings.heroImages || []).length}/5)</div>
@@ -5937,6 +6382,8 @@ function XorlaApp() {
             </div>
           ) : null}
         </div>
+        {renderReadyCheck()}
+        {renderSetup()}
       </div>
     );
   }
@@ -6076,6 +6523,7 @@ function XorlaApp() {
           {/* ============ OVERVIEW TAB ============ */}
           {tab === 'overview' && (
             <>
+              {renderChecklist()}
               {isOwnerRole && pendingRequests.length > 0 && (
                 <button onClick={() => setTab('products')} className="w-full flex items-center justify-between rounded-2xl p-4 mb-5 xorla-fade-up text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
                   <div className="flex items-center gap-3">
@@ -7234,7 +7682,9 @@ function XorlaApp() {
         </button>
       )}
 
-      {settings.loggedIn && settings.role === 'owner' && settings.businessType === null && (
+      {renderSetup()}
+      {renderReadyCheck()}
+      {settings.loggedIn && settings.role === 'owner' && settings.businessType === null && settings.setupDoneAt === undefined && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-5" style={{ background: 'rgba(3,10,9,0.8)', backdropFilter: 'blur(6px)' }}>
           <div className="w-full max-w-md rounded-3xl p-6 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
             <div className="text-[20px] font-bold cx-display mb-1.5">What does {settings.businessName || 'your business'} do?</div>
