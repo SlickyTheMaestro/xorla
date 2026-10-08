@@ -5872,16 +5872,17 @@ function XorlaApp() {
       if (navMode === 'side') {
         return (
           <div key={title || 'end'}>
-            {title && <div className="text-[12px] font-medium px-3 mb-1" style={{ color: C.inkFaint }}>{title}</div>}
-            <div className="space-y-0.5">
-              {rows.map((r) => {
+            {title && <div className="text-[12.5px] font-semibold px-1.5 mb-2" style={{ color: C.inkDim }}>{title}</div>}
+            <div className="rounded-2xl p-1.5" style={{ background: 'rgba(255,255,255,0.025)', border: `1px solid ${C.line}` }}>
+              {rows.map((r, i) => {
                 const active = r.id && r.id === settingsPage;
                 return (
                   <button key={r.label} onClick={navRowClick(r)} role={r.toggle ? 'switch' : undefined} aria-checked={r.toggle ? r.on : undefined} aria-current={active ? 'page' : undefined}
-                    className="w-full flex items-center gap-3 px-3 h-10 rounded-xl text-left transition-colors hover:bg-white/[0.04]" style={active ? { background: C.copperSoft } : undefined}>
-                    <r.Icon size={16} className="shrink-0" style={{ color: r.danger ? C.rust : active ? C.copper : C.inkDim }} />
-                    <span className="flex-1 min-w-0 truncate text-[13.5px]" style={{ color: r.danger ? C.rust : active ? C.copper : C.ink, fontWeight: active ? 600 : 500 }}>{r.label}</span>
-                    {r.toggle ? toggleKnob(r.on, true) : r.value && !r.danger ? <span className="shrink-0 max-w-[96px] truncate text-[12px]" style={{ color: r.valueColor || C.inkFaint }}>{r.value}</span> : null}
+                    className="relative w-full flex items-center gap-3 pl-2 pr-3 h-11 rounded-xl text-left transition-colors hover:bg-white/[0.045]" style={active ? { background: 'rgba(255,176,32,0.12)' } : undefined}>
+                    {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full" style={{ background: C.copper }} />}
+                    <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: r.danger ? C.rustSoft : active ? C.copper : 'rgba(255,176,32,0.09)' }}><r.Icon size={15} style={{ color: r.danger ? C.rust : active ? C.bg : C.copper }} /></span>
+                    <span className="flex-1 min-w-0 truncate text-[14px]" style={{ color: r.danger ? C.rust : active ? C.ink : C.ink, fontWeight: active ? 650 : 500 }}>{r.label}</span>
+                    {r.toggle ? toggleKnob(r.on, true) : r.value && !r.danger ? <span className="shrink-0 max-w-[120px] truncate text-[12.5px]" style={{ color: r.valueColor || C.inkFaint }}>{r.value}</span> : null}
                   </button>
                 );
               })}
@@ -5996,7 +5997,7 @@ function XorlaApp() {
     return (
       <div className="min-h-screen cx-body lg:flex lg:h-screen lg:overflow-hidden" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
-        <aside className="hidden lg:flex flex-col w-[316px] shrink-0 h-screen overflow-y-auto" style={{ background: 'linear-gradient(180deg, #0D2622 0%, #091C19 100%)', borderRight: `1px solid ${C.line}` }}>
+        <aside className="hidden lg:flex flex-col w-[380px] xl:w-[400px] shrink-0 h-screen overflow-y-auto" style={{ background: 'linear-gradient(180deg, #0D2622 0%, #091C19 100%)', borderRight: `1px solid ${C.line}` }}>
           <div className="px-5 pt-5 pb-4 flex items-center justify-between">
             <button onClick={leaveSettings} className="flex items-center gap-1.5 text-[13px] font-semibold px-2.5 py-1.5 -ml-2.5 rounded-lg hover:bg-white/[0.04]" style={{ color: C.inkDim }}><ChevronLeft size={17} /> Back to Xorla</button>
             <XorlaMark size={22} />
@@ -6007,7 +6008,7 @@ function XorlaApp() {
               <span className="min-w-0"><span className="block text-[14px] font-bold truncate" style={{ fontFamily: HEADF }}>{settings.businessName}</span><span className="block text-[12px]" style={{ color: C.inkFaint }}>Settings</span></span>
             </button>
           </div>
-          <nav className="px-3 pt-4 pb-8 space-y-5">{settingsGroups('side')}</nav>
+          <nav className="px-5 pt-5 pb-10 space-y-6">{settingsGroups('side')}</nav>
         </aside>
         <div className="flex-1 min-w-0 flex flex-col min-h-screen lg:h-screen lg:overflow-y-auto">
           <div className="lg:hidden sticky top-0 z-20 flex items-center h-14 px-2" style={{ background: 'rgba(10,31,28,0.9)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${C.line}` }}>
