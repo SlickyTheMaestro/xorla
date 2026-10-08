@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -142,7 +142,7 @@ const URGENCY = {
   critical: { label: 'Needs your call', color: '#C4432E' },
   paid: { label: 'Paid', color: C.sage },
 };
-function fmt(n) { return `₦${Number(n || 0).toLocaleString('en-NG')}`; }
+function fmt(n) { const v = Number(n || 0); return `${v < 0 ? '−' : ''}₦${Math.abs(v).toLocaleString('en-NG')}`; }
 // Live comma-formatting for money input fields — keeps the underlying value clean for storage/math
 function formatNumInput(v) {
   if (v === '' || v === null || v === undefined) return '';
@@ -155,7 +155,7 @@ function formatNumInput(v) {
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson'];
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Download your records', hours: 'Opening hours & appointments' };
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Download your records', hours: 'Opening hours & appointments', promote: 'Promote your business' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -577,7 +577,7 @@ function fromSbProduct(row) {
   return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0 };
 }
 
 function staticMessage(inv, settings) {
@@ -1267,6 +1267,7 @@ function XorlaApp() {
   const [roomCharges, setRoomCharges] = useState([]);
   const [apptPeople, setApptPeople] = useState([]);
   const [apptMineOnly, setApptMineOnly] = useState(false);
+  const [discountCodes, setDiscountCodes] = useState([]);
   const [personForm, setPersonForm] = useState(null);
   const [branchHours, setBranchHours] = useState(null);
   const [apptPanel, setApptPanel] = useState(null);
@@ -1608,7 +1609,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, peopleRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, peopleRows, codeRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
@@ -1627,6 +1628,7 @@ function XorlaApp() {
         sbRest('bookings', { accessToken, query: '?select=*&deposit_status=eq.refund_due&limit=200' }).catch(() => []),
         sbRest('room_charges', { accessToken, query: '?select=*&status=eq.open&order=created_at.asc&limit=1000' }).catch(() => []),
         sbRest('appt_people', { accessToken, query: '?select=*&order=name.asc' }).catch(() => []),
+        sbRest('discount_codes', { accessToken, query: '?select=*&order=created_at.desc' }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
@@ -1646,6 +1648,7 @@ function XorlaApp() {
       setRoomsAll(roomRows || []);
       setRoomCharges(Array.isArray(chargeRows) ? chargeRows : []);
       setApptPeople(Array.isArray(peopleRows) ? peopleRows : []);
+      setDiscountCodes(Array.isArray(codeRows) ? codeRows : []);
       loadStaffRequests(accessToken);
       sbRpc('admin_access', accessToken, {}).then((a) => setIsFounder(!!a?.admin)).catch(() => setIsFounder(false));
     } catch (e) {
@@ -2215,7 +2218,12 @@ function XorlaApp() {
   const fulfillOrder = (order) => setFulfil({ order, mode: 'full', paid: '' });
   const confirmFulfil = async () => {
     const { order, mode } = fulfil; if (fulfil.busy) return;
-    const total = order.items.reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
+    const gross = order.items.reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
+    const off = Math.min(gross, Number(order.discountAmount) || 0);
+    const total = gross - off;
+    // A discount is shared across the items by value, so each line's profit stays true
+    const shares = order.items.map((it) => (gross > 0 ? Math.round((Number(it.quantity) * Number(it.unitPrice)) * off / gross) : 0));
+    if (shares.length) shares[shares.length - 1] += off - shares.reduce((a, x) => a + x, 0);
     const paid = mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
     const owed = total - paid;
     const shopId = order.shopId || mainShopId;
@@ -2226,7 +2234,7 @@ function XorlaApp() {
       for (const [idx, item] of order.items.entries()) {
         const base = productsAll.find((p) => p.id === item.productId);
         const unitCost = item.unitCost ?? (base && kindOf(base, settings.businessType) === 'product' ? Number(base.costPrice) || 0 : 0);
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: `${item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description} (${order.customerName})`, amount: item.quantity * item.unitPrice, cost: item.quantity * unitCost, owed: idx === 0 ? owed : 0, product_id: item.productId || null, quantity: item.quantity, ...(basketId ? { basket_id: basketId } : {}) } });
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: `${item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description} (${order.customerName})`, amount: item.quantity * item.unitPrice - shares[idx], cost: item.quantity * unitCost, owed: idx === 0 ? owed : 0, product_id: item.productId || null, quantity: item.quantity, ...(basketId ? { basket_id: basketId } : {}) } });
         newSales.push(rows[0]);
         if (base && base.trackStock && kindOf(base, settings.businessType) === 'product') {
           try { await changeStock(base.id, shopId, -item.quantity, 'order'); } catch (e) { console.error('Stock update failed:', e); }
@@ -2234,7 +2242,7 @@ function XorlaApp() {
       }
       if (owed > 0) {
         const due = new Date(); due.setDate(due.getDate() + 7);
-        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: order.customerName || 'Customer', invoice_no: `ORD-${String(order.id).slice(-5)}`, amount: total, paid_amount: paid, due_date: due.toISOString().slice(0, 10), phone: order.customerPhone, items: order.items.map((it) => ({ description: it.description, quantity: Number(it.quantity), unitPrice: Number(it.unitPrice) })) } });
+        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: order.customerName || 'Customer', invoice_no: `ORD-${String(order.id).slice(-5)}`, amount: total, paid_amount: paid, due_date: due.toISOString().slice(0, 10), phone: order.customerPhone, items: [...order.items.map((it) => ({ description: it.description, quantity: Number(it.quantity), unitPrice: Number(it.unitPrice) })), ...(off ? [{ description: `Discount (${order.discountCode})`, quantity: 1, unitPrice: -off }] : [])] } });
         setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
       setSales((prev) => [...newSales.map(fromSbSale), ...prev]);
@@ -2242,13 +2250,15 @@ function XorlaApp() {
       else await sbRpc('set_order_status', session.access_token, { p_order: order.id, p_status: 'fulfilled' });
       setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: 'fulfilled' } : o));
       setFulfil(null);
-      setReceipt(makeReceipt({ id: basketId || newSales[0]?.id, items: order.items.map((it) => ({ name: Number(it.quantity) > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: Number(it.quantity) * Number(it.unitPrice) })), total, owed, customerName: order.customerName, customerPhone: order.customerPhone, shopId }));
+      setReceipt(makeReceipt({ id: basketId || newSales[0]?.id, items: [...order.items.map((it) => ({ name: Number(it.quantity) > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: Number(it.quantity) * Number(it.unitPrice) })), ...(off ? [{ name: `Discount (${order.discountCode})`, amount: -off }] : [])], total, owed, customerName: order.customerName, customerPhone: order.customerPhone, shopId }));
     } catch (e) { setFulfil((f) => f && { ...f, busy: false, error: e.message }); }
   };
   const renderFulfilPanel = () => {
     if (!fulfil) return null;
     const { order, mode } = fulfil;
-    const total = order.items.reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
+    const gross = order.items.reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
+    const off = Math.min(gross, Number(order.discountAmount) || 0);
+    const total = gross - off;
     const paid = mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
     const close = () => { if (!fulfil.busy) setFulfil(null); };
     return (
@@ -2265,6 +2275,7 @@ function XorlaApp() {
                 <span className="cx-mono font-semibold shrink-0">{fmt(Number(it.quantity) * Number(it.unitPrice))}</span>
               </div>
             ))}
+            {off > 0 && <div className="flex items-center justify-between gap-3 px-3 py-2.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}`, color: C.sage }}><span>Discount ({order.discountCode})</span><span className="cx-mono font-semibold">{fmt(-off)}</span></div>}
             <div className="flex items-center justify-between px-3 py-2.5 text-[13.5px] font-semibold" style={{ borderTop: `1px solid ${C.line}`, background: C.surfaceRaised }}><span>Total</span><span className="cx-mono">{fmt(total)}</span></div>
           </div>
           <div className="text-[12.5px] font-semibold mb-2">Has the customer paid?</div>
@@ -3570,6 +3581,12 @@ function XorlaApp() {
                         <span className="cx-mono">{fmt(it.quantity * it.unitPrice)}</span>
                       </div>
                     ))}
+                    {o.discountAmount > 0 && (
+                      <div className="flex items-center justify-between text-[12.5px]" style={{ color: C.sage }}>
+                        <span>Discount code {o.discountCode}</span>
+                        <span className="cx-mono">{fmt(-o.discountAmount)}</span>
+                      </div>
+                    )}
                   </div>
                   {o.startAt && (() => {
                     const clash = o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer ? apptClashes(o) : [];
@@ -5301,6 +5318,7 @@ function XorlaApp() {
                 {renderSettingsGroup('Business', [
                   { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
                   { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
+                  { id: 'promote', Icon: Megaphone, label: 'Promote your business', value: (() => { const n = discountCodes.filter((d) => codeStateOf(d).tone === 'on').length; return n ? `${n} code${n > 1 ? 's' : ''} live` : 'Poster, Status, codes'; })(), valueColor: discountCodes.some((d) => codeStateOf(d).tone === 'on') ? C.sage : undefined },
                   { id: 'shops', Icon: Store, label: L.Many, value: `${shops.length} ${shops.length !== 1 ? L.many : L.one}` },
                   { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
                   ...(isOwnerRole ? [{ id: 'export', Icon: Download, label: 'Download your records', value: '' }] : []),
@@ -5368,6 +5386,11 @@ function XorlaApp() {
                   <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your downloadable invoice PDFs.</div>
                 </div>
               </div>
+            )}
+            {settingsPage === 'promote' && (
+              <PromotePage settings={settings} products={productsAll.filter((p) => !(serviceKind === 'accommodation' && p.category === 'Extras'))} codes={discountCodes} token={session.access_token}
+                reload={() => loadBusinessData(session.access_token)} storeLink={settings.storefrontEnabled && settings.businessCode ? `${window.location.origin}/store/${settings.businessCode}` : ''}
+                words={promoWords(settings.businessType)} isOwner={isOwnerRole} onOpenStorefront={() => setSettingsPage('storefront')} />
             )}
             {settingsPage === 'storefront' && (
               <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
@@ -7352,6 +7375,12 @@ function Storefront({ businessCode }) {
   const [heroIndex, setHeroIndex] = useState(0);
   const [touchStartX, setTouchStartX] = useState(null);
   const [preferredTime, setPreferredTime] = useState('');
+  // Discount codes: a ?code= link fills the code in for the customer
+  const [codeInput, setCodeInput] = useState(() => { try { return (new URLSearchParams(window.location.search).get('code') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16); } catch (e) { return ''; } });
+  const [codeOpen, setCodeOpen] = useState(() => { try { return !!new URLSearchParams(window.location.search).get('code'); } catch (e) { return false; } });
+  const [discount, setDiscount] = useState(null); // { code, amount }
+  const [codeError, setCodeError] = useState('');
+  const [codeBusy, setCodeBusy] = useState(false);
   const [storeShopId, setStoreShopId] = useState(null);
   // Appointments: free times for the services in the basket
   const [apptCal, setApptCal] = useState(null);
@@ -7467,6 +7496,21 @@ function Storefront({ businessCode }) {
   const cartList = Object.entries(cart).filter(([, qty]) => qty > 0).map(([id, qty]) => ({ product: storeProducts.find((p) => p.id === id), qty })).filter((c) => c.product);
   const cartTotal = cartList.reduce((a, c) => a + c.product.sellingPrice * c.qty, 0);
   const cartCount = cartList.reduce((a, c) => a + c.qty, 0);
+  const discountOff = discount ? Math.min(cartTotal, Number(discount.amount) || 0) : 0;
+  const payable = cartTotal - discountOff;
+  const cartKey = JSON.stringify(cartList.map((c) => [c.product.id, c.qty]));
+  const applyCode = async (codeArg, quiet) => {
+    const code = String(codeArg ?? codeInput).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!code) { setCodeError('Enter a discount code.'); return; }
+    if (!cartList.length) return;
+    setCodeBusy(true); if (!quiet) setCodeError('');
+    try {
+      const r = await sbRpc('check_discount', SB_KEY, { p_business_code: businessCode, p_code: code, p_items: cartList.map((c) => ({ productId: c.product.id, quantity: c.qty })), p_shop_id: business?.shop_id || null });
+      if (r && r.error) { setDiscount(null); setCodeError(r.error); }
+      else if (r) { setDiscount({ code: r.code, amount: Number(r.amount) || 0 }); setCodeError(''); setCodeInput(r.code); }
+    } catch (e) { setDiscount(null); setCodeError(e.message || "Couldn't check that code. Try again."); }
+    setCodeBusy(false);
+  };
   const storeShops = business?.shops || [];
   const currentStoreShop = storeShops.find((sh) => sh.id === business?.shop_id) || storeShops[0];
   const cartHasService = cartList.some((c) => kindOf(c.product, business?.business_type) === 'service');
@@ -7493,6 +7537,14 @@ function Storefront({ businessCode }) {
   useEffect(() => { setApptSlot(''); loadStoreCalendar(); }, [loadStoreCalendar]);
   useEffect(() => { if (showCheckout) loadStoreCalendar(); }, [showCheckout]);
   const usesSlots = !!(apptCal && apptCal.minutes);
+  // The discount follows the basket: re-checked whenever the items change (minimums and percentages depend on them)
+  useEffect(() => {
+    if (!business || !cartList.length) { if (discount) setDiscount(null); return undefined; }
+    const code = discount?.code || (codeOpen && codeInput && !codeError ? codeInput : '');
+    if (!code) return undefined;
+    const t = setTimeout(() => applyCode(code, true), 400);
+    return () => clearTimeout(t);
+  }, [cartKey, business?.shop_id]);
 
   const changeQty = (product, delta) => {
     setCart((prev) => {
@@ -7512,20 +7564,21 @@ function Storefront({ businessCode }) {
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      await sbRpc('place_order', SB_KEY, { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}) });
+      await sbRpc('place_order', SB_KEY, { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}) });
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
         const lines = cartList.map((c) => `• ${c.product.name}${lineQtyText(c)} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
         const extra = `${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
         const shopLabel = storeShops.length > 1 ? ` for ${displayLocationName(currentStoreShop, locationWords(business?.business_type, business?.service_kind))}` : '';
-        const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}\n\nTotal: ${fmt(cartTotal)}${extra}`;
+        const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}${discountOff ? `\n\nSubtotal: ${fmt(cartTotal)}\nDiscount (${discount.code}): ${fmt(-discountOff)}` : ''}\n\nTotal: ${fmt(payable)}${extra}`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
       }
       setOrderSent(true);
       setShowCheckout(false);
     } catch (e) {
-      if (/too many|requests waiting|receiving a lot|phone number/i.test(e.message || '')) brandAlert(e.message, { theme: 'light' });
+      if (/code|fully used|expired|orders of/i.test(e.message || '')) { setDiscount(null); setCodeOpen(true); setCodeError(e.message); brandAlert(`${e.message} Your ${W.short.toLowerCase()} wasn't sent. Remove the code or try another, then send again.`, { theme: 'light', title: 'Discount code' }); }
+      else if (/too many|requests waiting|receiving a lot|phone number/i.test(e.message || '')) brandAlert(e.message, { theme: 'light' });
       else if (/time|closed|opening hours|booked/i.test(e.message || '')) { brandAlert(e.message, { theme: 'light', title: 'Please pick another time' }); setApptSlot(''); loadStoreCalendar(); }
       else brandAlert(`Your ${W.short.toLowerCase()} didn't go through. Check your connection and tap ${W.send} again.`, { theme: 'light' });
     }
@@ -7761,9 +7814,41 @@ function Storefront({ businessCode }) {
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-between py-4 mb-4" style={{ borderTop: `1px solid ${S.line}` }}>
-            <span className="text-[14px] font-semibold">Total</span>
-            <span className="text-[18px] font-extrabold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(cartTotal)}</span>
+          <div className="pt-3 mb-1" style={{ borderTop: `1px solid ${S.line}` }}>
+            {!codeOpen && !discount ? (
+              <button type="button" onClick={() => setCodeOpen(true)} className={`text-[13px] font-semibold underline underline-offset-4 ${focusRing}`} style={{ color: S.ink }}>Have a discount code?</button>
+            ) : discount ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl px-4 py-3" style={{ background: '#EAF6F0' }}>
+                <div className="min-w-0">
+                  <div className="text-[13px] font-semibold" style={{ color: '#1F7A5C' }}>{discount.code} applied</div>
+                  <div className="text-[12px]" style={{ color: S.muted }}>You save {fmt(discountOff)}</div>
+                </div>
+                <button type="button" onClick={() => { setDiscount(null); setCodeInput(''); setCodeOpen(false); setCodeError(''); }} className={`text-[12.5px] font-semibold ${focusRing}`} style={{ color: S.muted }}>Remove</button>
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="sf-code" className="block text-[13px] font-semibold mb-1.5">Discount code</label>
+                <div className="flex gap-2">
+                  <input id="sf-code" value={codeInput} autoCapitalize="characters" autoComplete="off" spellCheck={false} maxLength={16} placeholder="e.g. SALLAH10"
+                    onChange={(e) => { setCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); setCodeError(''); }} onKeyDown={(e) => e.key === 'Enter' && applyCode()}
+                    className={`flex-1 min-w-0 rounded-xl px-4 py-3 text-[15px] tracking-wider ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+                  <button type="button" onClick={() => applyCode()} disabled={codeBusy || !codeInput} className={`px-5 rounded-xl text-[14px] font-semibold shrink-0 ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: codeBusy || !codeInput ? 0.4 : 1 }}>{codeBusy ? 'Checking…' : 'Apply'}</button>
+                </div>
+                {codeError && <div role="alert" className="text-[12.5px] mt-1.5" style={{ color: '#B3261E' }}>{codeError}</div>}
+              </div>
+            )}
+          </div>
+          <div className="py-4 mb-4">
+            {discountOff > 0 && (
+              <>
+                <div className="flex items-center justify-between text-[13.5px] mb-1" style={{ color: S.muted, fontVariantNumeric: 'tabular-nums' }}><span>Subtotal</span><span>{fmt(cartTotal)}</span></div>
+                <div className="flex items-center justify-between text-[13.5px] mb-2" style={{ color: '#1F7A5C', fontVariantNumeric: 'tabular-nums' }}><span>Discount ({discount.code})</span><span>{fmt(-discountOff)}</span></div>
+              </>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-[14px] font-semibold">Total</span>
+              <span className="text-[18px] font-extrabold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(payable)}</span>
+            </div>
           </div>
         </>
       )}
@@ -7816,7 +7901,7 @@ function Storefront({ businessCode }) {
       <div className="text-[12px] mb-5" style={{ color: S.muted }}>{usesSlots && apptSlot ? `No payment now. Your time is held while ${business.name} confirms it.` : `No payment now. ${business.name} will contact you to confirm${cartHasService ? ' the time' : ''} and arrange payment.`}</div>
       <div className="sticky bottom-0 -mx-5 px-5 lg:-mx-6 lg:px-6 pt-3 pb-5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 22%)' }}>
   {(() => { const needSlot = usesSlots && apptCal.days.some((d) => d.slots.length) && !apptSlot; const needPhone = usesSlots && apptSlot && customerPhone.replace(/[^0-9]/g, '').length < 10; const off = submitting || !customerName.trim() || cartList.length === 0 || needSlot || needPhone; return (
-  <button onClick={submitOrder} disabled={off} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: off ? 0.4 : 1 }}>{submitting ? 'Sending…' : needSlot && customerName.trim() ? 'Pick a time to continue' : needPhone ? 'Add your phone number to continue' : `${W.send} · ${fmt(cartTotal)}`}</button>); })()}
+  <button onClick={submitOrder} disabled={off} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: off ? 0.4 : 1 }}>{submitting ? 'Sending…' : needSlot && customerName.trim() ? 'Pick a time to continue' : needPhone ? 'Add your phone number to continue' : `${W.send} · ${fmt(payable)}`}</button>); })()}
       </div>
     </div>
   );
@@ -7997,7 +8082,7 @@ function Storefront({ businessCode }) {
               <span className="w-6 h-6 rounded-full flex items-center justify-center text-[12px] font-bold" style={{ background: '#fff', color: S.ink }}>{cartCount}</span>
               {W.view}
             </span>
-            <span className="text-[15px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(cartTotal)}</span>
+            <span className="text-[15px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(payable)}</span>
           </button>
         </div>
       )}
@@ -8739,6 +8824,482 @@ function AdminDashboard() {
 }
 
 // ============ The customer's page for an offered appointment time (/appt/<link>): accept, choose another, or decline ============
+// ---------- Promotion: a printable poster, WhatsApp Status cards and discount codes ----------
+// Everything is drawn in the browser on a canvas, so nothing is uploaded and it works for every business.
+const PROMO = { dark: '#0A1F1C', panel: '#0F2925', raised: '#13322C', ink: '#EAF6F2', dim: '#93B0AA', faint: '#54706A', copper: '#FFB020', sage: '#1FD9C4', paper: '#FFFFFF', paperInk: '#0E1F1B', paperDim: '#5B6E69', paperLine: '#E3E8E6' };
+const PROMO_FONT = "Inter, 'Plus Jakarta Sans', system-ui, sans-serif";
+function promoWords(type) {
+  if (type === 'products') return { scan: 'Scan to order', cta: 'Order online', act: 'order' };
+  if (type === 'services') return { scan: 'Scan to book', cta: 'Book online', act: 'book' };
+  return { scan: 'Scan to order or book', cta: 'Order or book online', act: 'order' };
+}
+function promoImage(src) {
+  return new Promise((resolve) => {
+    if (!src) { resolve(null); return; }
+    const im = new Image();
+    im.onload = () => resolve(im); im.onerror = () => resolve(null);
+    im.src = src;
+  });
+}
+// Photos are fetched as data first, so the canvas can still be saved as an image
+async function promoPhoto(url) { if (!url) return null; const data = await loadImageAsDataURL(url); return data ? promoImage(data) : null; }
+async function promoQr(text, dark = '#0E1F1B', light = '#FFFFFF') {
+  try { const QR = await import('qrcode'); return await promoImage(await QR.toDataURL(text, { margin: 0, width: 1000, errorCorrectionLevel: 'M', color: { dark, light } })); }
+  catch (e) { return null; }
+}
+async function promoFontsReady() {
+  try { await Promise.all(['800 90px Inter', '700 48px Inter', '600 36px Inter', '500 32px Inter'].map((f) => document.fonts.load(f))); } catch (e) { /* system font is fine */ }
+}
+function promoRect(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function promoFont(ctx, weight, size) { ctx.font = `${weight} ${size}px ${PROMO_FONT}`; }
+function promoLines(ctx, text, maxW, maxLines) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  const lines = []; let cur = '';
+  words.forEach((w) => { const t = cur ? `${cur} ${w}` : w; if (ctx.measureText(t).width <= maxW || !cur) cur = t; else { lines.push(cur); cur = w; } });
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) {
+    const kept = lines.slice(0, maxLines);
+    let last = kept[maxLines - 1];
+    while (last.length > 1 && ctx.measureText(`${last}…`).width > maxW) last = last.slice(0, -1);
+    kept[maxLines - 1] = `${last.trimEnd()}…`;
+    return kept;
+  }
+  return lines;
+}
+// Largest size (between min and max) at which the text fits in maxLines lines
+function promoFit(ctx, text, weight, maxSize, minSize, maxW, maxLines) {
+  for (let s = maxSize; s >= minSize; s -= 2) {
+    promoFont(ctx, weight, s);
+    const words = String(text || '').split(/\s+/);
+    if (promoLines(ctx, text, maxW, 99).length <= maxLines && words.every((w) => ctx.measureText(w).width <= maxW)) return s;
+  }
+  return minSize;
+}
+function promoText(ctx, lines, x, y, lineH, align = 'center') { ctx.textAlign = align; lines.forEach((l, i) => ctx.fillText(l, x, y + i * lineH)); return y + lines.length * lineH; }
+function promoCover(ctx, img, x, y, w, h, r = 0) {
+  const s = Math.max(w / img.width, h / img.height); const iw = img.width * s, ih = img.height * s;
+  ctx.save(); if (r) { promoRect(ctx, x, y, w, h, r); ctx.clip(); } else { ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip(); }
+  ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih); ctx.restore();
+}
+function promoBadge(ctx, logo, name, cx, cy, size, dark) {
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, size / 2, 0, Math.PI * 2); ctx.closePath();
+  if (logo) { ctx.fillStyle = '#fff'; ctx.fill(); ctx.clip(); const s = Math.max(size / logo.width, size / logo.height); ctx.drawImage(logo, cx - logo.width * s / 2, cy - logo.height * s / 2, logo.width * s, logo.height * s); }
+  else { ctx.fillStyle = dark ? PROMO.raised : '#F1F4F3'; ctx.fill(); promoFont(ctx, 800, size * 0.44); ctx.fillStyle = PROMO.copper; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText((String(name || 'X').trim()[0] || 'X').toUpperCase(), cx, cy + size * 0.02); ctx.textBaseline = 'alphabetic'; }
+  ctx.restore();
+}
+function promoGlow(ctx, w, h) {
+  const g = ctx.createRadialGradient(w * 0.2, h * 0.05, 0, w * 0.2, h * 0.05, w * 0.95);
+  g.addColorStop(0, 'rgba(31,217,196,0.16)'); g.addColorStop(1, 'rgba(31,217,196,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  const g2 = ctx.createRadialGradient(w * 0.95, h * 0.9, 0, w * 0.95, h * 0.9, w * 0.8);
+  g2.addColorStop(0, 'rgba(255,176,32,0.12)'); g2.addColorStop(1, 'rgba(255,176,32,0)');
+  ctx.fillStyle = g2; ctx.fillRect(0, 0, w, h);
+}
+const promoShort = (link) => String(link || '').replace(/^https?:\/\//, '');
+
+// A4 poster for the counter, door or window (1240 × 1754, printed at about 150 dpi)
+async function drawPoster(canvas, o) {
+  const W = 1240, H = 1754, dark = o.style !== 'light';
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  await promoFontsReady();
+  const [logo, qr] = await Promise.all([promoPhoto(o.logoUrl), promoQr(o.link)]);
+  ctx.fillStyle = dark ? PROMO.dark : PROMO.paper; ctx.fillRect(0, 0, W, H);
+  if (dark) promoGlow(ctx, W, H);
+  else { ctx.fillStyle = PROMO.dark; ctx.fillRect(0, 0, W, 22); }
+  const ink = dark ? PROMO.ink : PROMO.paperInk, dim = dark ? PROMO.dim : PROMO.paperDim;
+  let y = 110;
+  promoBadge(ctx, logo, o.name, W / 2, y + 60, 120, dark); y += 120 + 70;
+  const ns = promoFit(ctx, o.name, 800, 100, 56, W - 220, 2); promoFont(ctx, 800, ns); ctx.fillStyle = ink;
+  y = promoText(ctx, promoLines(ctx, o.name, W - 220, 2), W / 2, y + ns * 0.35, ns * 1.08);
+  if (o.tagline) { promoFont(ctx, 500, 36); ctx.fillStyle = dim; y = promoText(ctx, promoLines(ctx, o.tagline, W - 300, 2), W / 2, y + 10, 50); }
+  // QR card: as large as the space allows, with the call to action and link below it
+  const bottomBlock = o.phone ? 470 : 400;
+  const cy = y + 90;
+  const card = Math.max(460, Math.min(660, H - bottomBlock - cy - 40)), cx = (W - card) / 2;
+  ctx.save(); ctx.shadowColor = dark ? 'rgba(0,0,0,0.45)' : 'rgba(14,31,27,0.12)'; ctx.shadowBlur = 60; ctx.shadowOffsetY = 24;
+  promoRect(ctx, cx, cy, card, card, 52); ctx.fillStyle = '#FFFFFF'; ctx.fill(); ctx.restore();
+  if (!dark) { promoRect(ctx, cx, cy, card, card, 52); ctx.strokeStyle = PROMO.paperLine; ctx.lineWidth = 3; ctx.stroke(); }
+  const pad = Math.round(card * 0.09);
+  if (qr) ctx.drawImage(qr, cx + pad, cy + pad, card - pad * 2, card - pad * 2);
+  ctx.strokeStyle = PROMO.copper; ctx.lineWidth = 10; ctx.lineCap = 'round';
+  [[cx - 28, cy - 28, 1, 1], [cx + card + 28, cy - 28, -1, 1], [cx - 28, cy + card + 28, 1, -1], [cx + card + 28, cy + card + 28, -1, -1]].forEach(([x0, y0, dx, dy]) => {
+    ctx.beginPath(); ctx.moveTo(x0, y0 + dy * 64); ctx.lineTo(x0, y0); ctx.lineTo(x0 + dx * 64, y0); ctx.stroke();
+  });
+  y = cy + card + 130;
+  promoFont(ctx, 800, promoFit(ctx, o.words.scan, 800, 76, 50, W - 160, 1)); ctx.fillStyle = dark ? PROMO.copper : PROMO.paperInk; ctx.textAlign = 'center'; ctx.fillText(o.words.scan, W / 2, y);
+  promoFont(ctx, 500, 32); ctx.fillStyle = dim; ctx.fillText('Open your phone camera and point it at the code', W / 2, y + 56);
+  promoFont(ctx, 600, 34); const lt = promoShort(o.link); const lw = Math.min(W - 160, ctx.measureText(lt).width + 80);
+  promoRect(ctx, (W - lw) / 2, y + 100, lw, 76, 38); ctx.fillStyle = dark ? 'rgba(255,255,255,0.06)' : '#F3F6F5'; ctx.fill();
+  ctx.strokeStyle = dark ? 'rgba(255,255,255,0.14)' : PROMO.paperLine; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = ink; ctx.fillText(promoLines(ctx, lt, lw - 50, 1)[0], W / 2, y + 150);
+  if (o.phone) { promoFont(ctx, 500, 30); ctx.fillStyle = dim; ctx.fillText(`WhatsApp ${o.phone}`, W / 2, y + 240); }
+  promoFont(ctx, 500, 22); ctx.fillStyle = dark ? PROMO.faint : '#9AA8A4'; ctx.fillText('Made with Xorla', W / 2, H - 56);
+  return canvas;
+}
+
+// WhatsApp Status card (1080 × 1920): the shop, one item, or a discount code
+async function drawStatusCard(canvas, o) {
+  const W = 1080, H = 1920;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  await promoFontsReady();
+  const qrLink = o.template === 'offer' && o.code ? `${o.link}?code=${o.code.code}` : o.link;
+  const [logo, qr, photo] = await Promise.all([promoPhoto(o.logoUrl), promoQr(qrLink), o.template === 'item' && o.item ? promoPhoto(o.item.imageUrl) : null]);
+  ctx.fillStyle = PROMO.dark; ctx.fillRect(0, 0, W, H); promoGlow(ctx, W, H);
+
+  // Bottom bar shared by every card: CTA, link and a small code to scan
+  const footer = () => {
+    const fy = H - 330;
+    promoRect(ctx, 60, fy, W - 120, 270, 44); ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2; ctx.stroke();
+    promoRect(ctx, W - 60 - 230, fy + 20, 210, 230, 30); ctx.fillStyle = '#fff'; ctx.fill();
+    if (qr) ctx.drawImage(qr, W - 60 - 210, fy + 50, 170, 170);
+    ctx.textAlign = 'left';
+    const cta = o.template === 'offer' ? 'Scan to shop with the code' : o.words.cta;
+    promoFont(ctx, 800, promoFit(ctx, cta, 800, 50, 32, W - 120 - 330, 1)); ctx.fillStyle = PROMO.copper; ctx.fillText(cta, 110, fy + 100);
+    promoFont(ctx, 600, 32); ctx.fillStyle = PROMO.ink;
+    const lines = promoLines(ctx, promoShort(o.link), W - 120 - 300, 2);
+    promoText(ctx, lines, 110, fy + 160, 42, 'left');
+  };
+  const header = (y) => {
+    promoBadge(ctx, logo, o.name, 130, y + 50, 100, true);
+    ctx.textAlign = 'left'; promoFont(ctx, 700, 40); ctx.fillStyle = PROMO.ink;
+    ctx.fillText(promoLines(ctx, o.name, W - 280, 1)[0], 205, y + 64);
+  };
+
+  if (o.template === 'item' && o.item) {
+    const it = o.item;
+    const ph = 1060;
+    if (photo) {
+      promoCover(ctx, photo, 0, 0, W, ph);
+      const g = ctx.createLinearGradient(0, ph - 420, 0, ph); g.addColorStop(0, 'rgba(10,31,28,0)'); g.addColorStop(1, 'rgba(10,31,28,1)');
+      ctx.fillStyle = g; ctx.fillRect(0, ph - 420, W, 420);
+      const t = ctx.createLinearGradient(0, 0, 0, 260); t.addColorStop(0, 'rgba(10,31,28,0.75)'); t.addColorStop(1, 'rgba(10,31,28,0)');
+      ctx.fillStyle = t; ctx.fillRect(0, 0, W, 260);
+    } else {
+      promoRect(ctx, 60, 200, W - 120, ph - 280, 56); ctx.fillStyle = PROMO.raised; ctx.fill();
+      promoFont(ctx, 800, 300); ctx.fillStyle = 'rgba(255,176,32,0.18)'; ctx.textAlign = 'center'; ctx.fillText((it.name.trim()[0] || '★').toUpperCase(), W / 2, 200 + (ph - 280) / 2 + 105);
+    }
+    header(70);
+    let y = ph - (photo ? 40 : -20);
+    const ns = promoFit(ctx, it.name, 800, 92, 54, W - 140, 2); promoFont(ctx, 800, ns); ctx.fillStyle = PROMO.ink;
+    y = promoText(ctx, promoLines(ctx, it.name, W - 140, 2), 70, y + ns * 0.4, ns * 1.08, 'left');
+    promoFont(ctx, 800, 66); ctx.fillStyle = PROMO.copper; ctx.textAlign = 'left'; ctx.fillText(priceLabel(it), 70, y + 50);
+    if (it.description) { promoFont(ctx, 500, 34); ctx.fillStyle = PROMO.dim; promoText(ctx, promoLines(ctx, it.description, W - 140, 3), 70, y + 130, 48, 'left'); }
+    footer();
+    return canvas;
+  }
+
+  if (o.template === 'offer' && o.code) {
+    const d = o.code;
+    header(90);
+    const big = d.kind === 'percent' ? `${Number(d.value)}%` : fmt(d.value);
+    let y = 520;
+    promoFont(ctx, 700, 46); ctx.fillStyle = PROMO.dim; ctx.textAlign = 'center'; ctx.fillText('Special offer', W / 2, y);
+    const bs = promoFit(ctx, big, 800, 330, 140, W - 140, 1); promoFont(ctx, 800, bs); ctx.fillStyle = PROMO.copper; ctx.fillText(big, W / 2, y + bs * 0.92);
+    y += bs * 0.92 + 120;
+    promoFont(ctx, 800, 110); ctx.fillStyle = PROMO.ink; ctx.fillText('OFF', W / 2, y);
+    y += 150;
+    promoFont(ctx, 600, 40); ctx.fillStyle = PROMO.dim; ctx.fillText('Use code', W / 2, y);
+    promoFont(ctx, 800, 92); const cw = Math.min(W - 160, ctx.measureText(d.code).width + 140);
+    promoRect(ctx, (W - cw) / 2, y + 40, cw, 170, 32); ctx.fillStyle = 'rgba(255,176,32,0.08)'; ctx.fill();
+    ctx.setLineDash([18, 14]); ctx.strokeStyle = PROMO.copper; ctx.lineWidth = 5; ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = PROMO.ink; ctx.fillText(d.code, W / 2, y + 158);
+    y += 300;
+    const terms = [Number(d.min_total) > 0 ? `On orders of ${fmt(d.min_total)} or more` : '', d.ends_on ? `Ends ${new Date(`${d.ends_on}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long' })}` : '', d.max_uses ? 'While it lasts' : ''].filter(Boolean).join('  ·  ');
+    if (terms) { promoFont(ctx, 500, 34); ctx.fillStyle = PROMO.dim; promoText(ctx, promoLines(ctx, terms, W - 160, 2), W / 2, y, 48); }
+    footer();
+    return canvas;
+  }
+
+  // The shop: name, tagline and a few things it sells
+  let y = 230;
+  promoBadge(ctx, logo, o.name, W / 2, y, 200, true); y += 200;
+  const ns = promoFit(ctx, o.name, 800, 104, 60, W - 160, 2); promoFont(ctx, 800, ns); ctx.fillStyle = PROMO.ink;
+  y = promoText(ctx, promoLines(ctx, o.name, W - 160, 2), W / 2, y + ns * 0.6, ns * 1.08);
+  if (o.tagline) { promoFont(ctx, 500, 40); ctx.fillStyle = PROMO.dim; y = promoText(ctx, promoLines(ctx, o.tagline, W - 200, 2), W / 2, y + 30, 54); }
+  const items = (o.items || []).slice(0, 4);
+  if (items.length) {
+    const top = Math.max(y + 70, 840), rowH = 128, boxH = items.length * rowH + 40;
+    promoRect(ctx, 60, top, W - 120, boxH, 40); ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fill();
+    const photos = await Promise.all(items.map((it) => promoPhoto(it.imageUrl)));
+    items.forEach((it, i) => {
+      const ry = top + 20 + i * rowH;
+      if (i) { ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(100, ry, W - 200, 2); }
+      let tx = 100;
+      if (photos[i]) { promoCover(ctx, photos[i], 100, ry + 18, 92, 92, 20); tx = 220; }
+      promoFont(ctx, 600, 38); ctx.fillStyle = PROMO.ink; ctx.textAlign = 'left';
+      const price = priceLabel(it); promoFont(ctx, 700, 36); const pw = ctx.measureText(price).width;
+      promoFont(ctx, 600, 38); ctx.fillText(promoLines(ctx, it.name, W - 100 - tx - pw - 60, 1)[0], tx, ry + 78);
+      promoFont(ctx, 700, 36); ctx.fillStyle = PROMO.copper; ctx.textAlign = 'right'; ctx.fillText(price, W - 100, ry + 78);
+    });
+  }
+  footer();
+  return canvas;
+}
+function canvasBlob(canvas, type = 'image/png', q) { return new Promise((resolve) => canvas.toBlob((b) => resolve(b), type, q)); }
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob); const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+const promoSlug = (s) => String(s || 'xorla').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'xorla';
+const codeStateOf = (d) => {
+  if (!d.active) return { label: 'Paused', tone: 'dim' };
+  if (d.ends_on && d.ends_on < new Date().toLocaleDateString('sv-SE', LAGOS_TIME)) return { label: 'Ended', tone: 'dim' };
+  if (d.max_uses && d.uses >= d.max_uses) return { label: 'Used up', tone: 'dim' };
+  return { label: 'Active', tone: 'on' };
+};
+const codeSummary = (d) => [d.kind === 'percent' ? `${Number(d.value)}% off` : `${fmt(d.value)} off`, Number(d.min_total) > 0 ? `orders of ${fmt(d.min_total)}+` : '', d.ends_on ? `until ${new Date(`${d.ends_on}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''].filter(Boolean).join(' · ');
+
+function PromotePage({ settings, products, codes, token, reload, storeLink, words, isOwner, onOpenStorefront }) {
+  const [view, setView] = useState('codes');
+  const [form, setForm] = useState(null);
+  const [posterStyle, setPosterStyle] = useState('dark');
+  const [tpl, setTpl] = useState('store');
+  const [itemId, setItemId] = useState('');
+  const [codeId, setCodeId] = useState('');
+  const [preview, setPreview] = useState({ url: '', busy: false });
+  const [working, setWorking] = useState('');
+  const canvasRef = useRef(null);
+  const pngRef = useRef(null);
+  const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+  const sellable = products.filter((p) => Number(p.sellingPrice) > 0);
+  const withPhotos = [...sellable].sort((a, b) => (b.imageUrl ? 1 : 0) - (a.imageUrl ? 1 : 0));
+  const liveCodes = codes.filter((d) => codeStateOf(d).tone === 'on');
+  const item = sellable.find((p) => p.id === itemId) || withPhotos[0] || null;
+  const code = codes.find((d) => d.id === codeId) || liveCodes[0] || null;
+  const base = { name: settings.businessName || 'Your business', tagline: settings.storefrontTagline || '', logoUrl: settings.logoUrl || null, link: storeLink, words, phone: settings.ownerPhone ? formatPhoneDisplay(settings.ownerPhone) : '' };
+
+  // Redraw the preview whenever the choice changes
+  useEffect(() => {
+    if (!storeLink || view === 'codes') return undefined;
+    let gone = false;
+    setPreview((p) => ({ ...p, busy: true }));
+    const cv = document.createElement('canvas');
+    const job = view === 'poster' ? drawPoster(cv, { ...base, style: posterStyle })
+      : drawStatusCard(cv, { ...base, template: tpl, item, code, items: withPhotos.slice(0, 4) });
+    job.then(async () => {
+      if (gone) return;
+      canvasRef.current = cv;
+      // The full picture is prepared now, so Save and Share happen straight from the tap (phones block slow ones)
+      const [b, png] = await Promise.all([canvasBlob(cv, 'image/jpeg', 0.9), canvasBlob(cv)]);
+      if (gone || !b) return;
+      pngRef.current = png;
+      setPreview((p) => { if (p.url) URL.revokeObjectURL(p.url); return { url: URL.createObjectURL(b), busy: false }; });
+    }).catch(() => !gone && setPreview((p) => ({ ...p, busy: false })));
+    return () => { gone = true; };
+  }, [view, posterStyle, tpl, item?.id, code?.id, code?.value, storeLink, settings.businessName, settings.storefrontTagline, settings.logoUrl]);
+
+  const savePng = (name) => { if (pngRef.current) downloadBlob(pngRef.current, name); };
+  const posterPdf = async () => {
+    if (!canvasRef.current) return;
+    setWorking('pdf');
+    try {
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+      pdf.addImage(canvasRef.current.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297);
+      pdf.save(`${promoSlug(settings.businessName)}-poster.pdf`);
+    } catch (e) { brandAlert("Couldn't make the PDF. Try Save image instead."); }
+    setWorking('');
+  };
+  const shareCard = async () => {
+    if (!pngRef.current) return;
+    setWorking('share');
+    const filename = `${promoSlug(settings.businessName)}-${tpl}.png`;
+    try {
+      const b = pngRef.current; if (!b) { setWorking(''); return; }
+      const file = new File([b], filename, { type: 'image/png' });
+      const text = tpl === 'offer' && code ? `Use code ${code.code} for ${code.kind === 'percent' ? `${Number(code.value)}%` : fmt(code.value)} off: ${storeLink}?code=${code.code}` : `${words.cta}: ${storeLink}`;
+      if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], text });
+      else { downloadBlob(b, filename); brandAlert('Saved to your downloads. Open WhatsApp, tap Status, then add this picture.', { title: 'Image saved', tone: 'info' }); }
+    } catch (e) { if (e && e.name !== 'AbortError') brandAlert("Couldn't share. Use Save image, then add it to your Status from WhatsApp."); }
+    setWorking('');
+  };
+
+  const openForm = (d) => setForm(d ? { id: d.id, code: d.code, kind: d.kind, value: String(d.value), min: Number(d.min_total) ? String(d.min_total) : '', max: d.max_uses ? String(d.max_uses) : '', ends: d.ends_on || '', active: d.active, busy: false, error: '' }
+    : { id: null, code: '', kind: 'percent', value: '10', min: '', max: '', ends: '', active: true, busy: false, error: '' });
+  const saveCode = async () => {
+    const f = form; if (!f || f.busy) return;
+    const value = Number(parseNumInput(f.value));
+    if (!f.code.trim()) { setForm({ ...f, error: 'Give the code a name, e.g. SALLAH10.' }); return; }
+    if (!(value > 0)) { setForm({ ...f, error: 'Enter how much off.' }); return; }
+    setForm({ ...f, busy: true, error: '' });
+    try {
+      await sbRpc('save_discount_code', token, { p_id: f.id, p_code: f.code, p_kind: f.kind, p_value: value, p_min_total: Number(parseNumInput(f.min)) || 0, p_max_uses: f.max ? Math.max(1, parseInt(f.max, 10) || 1) : null, p_ends_on: f.ends || null, p_active: f.active });
+      await reload(); setForm(null);
+    } catch (e) { setForm((x) => x && { ...x, busy: false, error: e.message }); }
+  };
+  const toggleCode = async (d) => {
+    try { await sbRpc('save_discount_code', token, { p_id: d.id, p_code: d.code, p_kind: d.kind, p_value: Number(d.value), p_min_total: Number(d.min_total) || 0, p_max_uses: d.max_uses, p_ends_on: d.ends_on, p_active: !d.active }); await reload(); }
+    catch (e) { brandAlert(e.message); }
+  };
+  const deleteCode = async (d) => {
+    if (!(await brandConfirm(d.uses ? `${d.code} has been used ${d.uses} time${d.uses > 1 ? 's' : ''}. Past orders keep their discount; customers can't use the code any more.` : `Customers won't be able to use ${d.code}.`, { title: `Delete ${d.code}?`, confirm: 'Delete', danger: true }))) return;
+    try { await sbRpc('delete_discount_code', token, { p_id: d.id }); await reload(); } catch (e) { brandAlert(e.message); }
+  };
+  const copyLink = async (d) => {
+    const link = `${storeLink}?code=${d.code}`;
+    try { await navigator.clipboard.writeText(link); brandAlert(`Customers who open this link get ${d.code} filled in for them:\n\n${link}`, { title: 'Link copied', tone: 'info' }); }
+    catch (e) { brandAlert(link, { title: 'Your discount link', tone: 'info' }); }
+  };
+  const suggest = () => { const pct = form.kind === 'percent' ? (parseInt(form.value, 10) || 10) : ''; const m = new Date().toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(); setForm({ ...form, code: `${form.kind === 'percent' ? 'SAVE' : 'OFF'}${pct || ''}${m}`.slice(0, 16), error: '' }); };
+
+  const pill = (on) => (on ? { background: C.copper, color: C.bg } : { color: C.inkDim });
+  const tabs = (
+    <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+      {[['codes', 'Discount codes'], ['poster', 'Poster'], ['status', 'Status cards']].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={pill(view === k)}>{l}</button>)}
+    </div>
+  );
+  if (!storeLink) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-2xl p-5 text-center" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: C.copperSoft }}><Megaphone size={20} style={{ color: C.copper }} /></div>
+          <div className="text-[15px] font-semibold mb-1">Turn on your storefront first</div>
+          <div className="text-[12.5px] leading-relaxed mb-4" style={{ color: C.inkDim }}>Posters, Status cards and discount codes all send customers to your storefront, where they can {words.act} without calling.</div>
+          <button onClick={onOpenStorefront} className="px-5 py-3 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Set up storefront</button>
+        </div>
+      </div>
+    );
+  }
+  const previewBox = (ratio, maxW) => (
+    <div className="mx-auto rounded-2xl overflow-hidden relative" style={{ width: '100%', maxWidth: maxW, aspectRatio: ratio, background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+      {preview.url && <img src={preview.url} alt="Preview" className="w-full h-full object-contain" style={{ opacity: preview.busy ? 0.5 : 1, transition: 'opacity .2s' }} />}
+      {preview.busy && <div className="absolute inset-0 flex items-center justify-center"><Loader2 size={22} className="animate-spin" style={{ color: C.inkDim }} /></div>}
+    </div>
+  );
+  const btn = 'h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2 whitespace-nowrap';
+  return (
+    <div className="space-y-4">
+      {tabs}
+      {view === 'codes' && (
+        <>
+          <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Give customers a code to type at checkout on your storefront. Xorla takes the discount off for them and shows it on the order, the receipt and your sales.</div>
+          {codes.length === 0 && !form && (
+            <div className="rounded-2xl p-5 text-center" style={{ background: C.surface, border: `1px dashed ${C.lineStrong}` }}>
+              <div className="text-[14px] font-semibold mb-1">No codes yet</div>
+              <div className="text-[12.5px]" style={{ color: C.inkFaint }}>For example SALLAH10 for 10% off during the festive season.</div>
+            </div>
+          )}
+          {codes.map((d) => {
+            if (form && form.id === d.id) return null;
+            const st = codeStateOf(d);
+            return (
+              <div key={d.id} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="cx-mono text-[17px] font-bold tracking-wider" style={{ color: st.tone === 'on' ? C.ink : C.inkDim }}>{d.code}</div>
+                    <div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>{codeSummary(d)}</div>
+                  </div>
+                  <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={st.tone === 'on' ? { background: C.sageSoft, color: C.sage } : { background: C.surfaceRaised, color: C.inkFaint }}>{st.label}</span>
+                </div>
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-[11.5px] mb-1" style={{ color: C.inkFaint }}><span>Used {d.uses} time{d.uses !== 1 ? 's' : ''}</span><span>{d.max_uses ? `${Math.max(0, d.max_uses - d.uses)} left` : 'No limit'}</span></div>
+                  {d.max_uses ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full" style={{ width: `${Math.min(100, (d.uses / d.max_uses) * 100)}%`, background: C.copper }} /></div> : null}
+                </div>
+                {isOwner && (
+                  <div className="grid grid-cols-4 gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                    {[
+                      { l: 'Share', c: C.copper, on: () => { setCodeId(d.id); setTpl('offer'); setView('status'); }, off: st.tone !== 'on' },
+                      { l: 'Copy link', c: C.ink, on: () => copyLink(d), off: st.tone !== 'on' },
+                      { l: d.active ? 'Pause' : 'Resume', c: C.ink, on: () => toggleCode(d) },
+                      { l: 'Edit', c: C.ink, on: () => openForm(d) },
+                    ].map((b) => <button key={b.l} onClick={b.on} disabled={b.off} className="h-9 rounded-xl text-[12px] font-semibold whitespace-nowrap" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: b.c, opacity: b.off ? 0.35 : 1 }}>{b.l}</button>)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {form && (
+            <div className="rounded-2xl p-4 space-y-3" style={{ background: C.surface, border: `1px solid ${C.lineStrong}` }}>
+              <div className="text-[14.5px] font-semibold">{form.id ? `Edit ${form.code}` : 'New discount code'}</div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5"><label htmlFor="dc-code" className="text-[12px]" style={{ color: C.inkFaint }}>Code customers type</label>{!form.id && <button onClick={suggest} className="text-[12px] font-semibold" style={{ color: C.copper }}>Suggest one</button>}</div>
+                <input id="dc-code" value={form.code} maxLength={16} autoCapitalize="characters" placeholder="e.g. SALLAH10" onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''), error: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-[15px] outline-none cx-mono tracking-wider" style={field} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[12px] mb-1.5" style={{ color: C.inkFaint }}>Discount</div>
+                  <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                    {[['percent', '% off'], ['amount', '₦ off']].map(([k, l]) => <button key={k} onClick={() => setForm({ ...form, kind: k })} className="flex-1 py-1.5 rounded-lg text-[12.5px] font-semibold" style={pill(form.kind === k)}>{l}</button>)}
+                  </div>
+                </div>
+                <label className="text-[12px]" style={{ color: C.inkFaint }}>{form.kind === 'percent' ? 'Percent (up to 90)' : 'Amount (₦)'}
+                  <input inputMode="decimal" value={form.kind === 'amount' ? formatNumInput(form.value) : form.value} onChange={(e) => setForm({ ...form, value: form.kind === 'amount' ? parseNumInput(e.target.value) : e.target.value.replace(/[^0-9.]/g, '').slice(0, 4), error: '' })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[15px] outline-none cx-mono" style={field} />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-[12px]" style={{ color: C.inkFaint }}>Smallest order (optional)
+                  <input inputMode="decimal" placeholder="Any amount" value={formatNumInput(form.min)} onChange={(e) => setForm({ ...form, min: parseNumInput(e.target.value) })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[14px] outline-none cx-mono" style={field} />
+                </label>
+                <label className="text-[12px]" style={{ color: C.inkFaint }}>How many uses (optional)
+                  <input inputMode="numeric" placeholder="No limit" value={form.max} onChange={(e) => setForm({ ...form, max: e.target.value.replace(/\D/g, '').slice(0, 5) })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[14px] outline-none cx-mono" style={field} />
+                </label>
+              </div>
+              <label className="block text-[12px]" style={{ color: C.inkFaint }}>Last day it works (optional)
+                <input type="date" value={form.ends} min={new Date().toLocaleDateString('sv-SE', LAGOS_TIME)} onChange={(e) => setForm({ ...form, ends: e.target.value })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[14px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+              </label>
+              {form.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{form.error}</div>}
+              <div className="grid gap-2" style={{ gridTemplateColumns: form.id ? 'minmax(0,1fr) minmax(0,1fr) minmax(0,2fr)' : 'minmax(0,1fr) minmax(0,2fr)' }}>
+                {form.id && <button onClick={() => { const d = codes.find((x) => x.id === form.id); setForm(null); if (d) deleteCode(d); }} className="h-11 rounded-xl text-[13px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.rust }}>Delete</button>}
+                <button onClick={() => setForm(null)} className="h-11 rounded-xl text-[13px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>Cancel</button>
+                <button onClick={saveCode} disabled={form.busy} className="h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: form.busy ? 0.6 : 1 }}>{form.busy ? 'Saving…' : form.id ? 'Save changes' : 'Create code'}</button>
+              </div>
+            </div>
+          )}
+          {isOwner && !form && <button onClick={() => openForm(null)} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={17} /> New discount code</button>}
+          {!isOwner && <div className="text-[12px] text-center" style={{ color: C.inkFaint }}>Only the owner can create or change codes.</div>}
+        </>
+      )}
+      {view === 'poster' && (
+        <>
+          <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Print it for your counter, door or window. Customers scan the code with their phone camera and land on your storefront.</div>
+          <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            {[['dark', 'Dark'], ['light', 'Light (saves ink)']].map(([k, l]) => <button key={k} onClick={() => setPosterStyle(k)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={pill(posterStyle === k)}>{l}</button>)}
+          </div>
+          {previewBox('1240 / 1754', 340)}
+          <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
+            <button onClick={() => savePng(`${promoSlug(settings.businessName)}-poster.png`)} disabled={preview.busy} className={btn} style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Save image</button>
+            <button onClick={posterPdf} disabled={preview.busy || working === 'pdf'} className={btn} style={{ background: C.copper, color: C.bg, opacity: preview.busy ? 0.6 : 1 }}>{working === 'pdf' ? 'Preparing…' : 'Download A4 PDF'}</button>
+          </div>
+          <div className="text-[11.5px] text-center" style={{ color: C.inkFaint }}>Your name, tagline and logo come from Settings. Any print shop can print the PDF.</div>
+        </>
+      )}
+      {view === 'status' && (
+        <>
+          <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Ready-made pictures for your WhatsApp Status, Instagram story or Facebook. Each one carries your link and a code to scan.</div>
+          <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            {[['store', 'Your shop'], ['item', 'One item'], ['offer', 'Discount']].map(([k, l]) => <button key={k} onClick={() => setTpl(k)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={pill(tpl === k)}>{l}</button>)}
+          </div>
+          {tpl === 'item' && (sellable.length
+            ? <BrandSelect value={item?.id || ''} onChange={(e) => setItemId(e.target.value)} className="w-full rounded-xl px-3.5 py-2.5 text-sm" style={field} aria-label="Item to show">
+                {withPhotos.map((p) => <option key={p.id} value={p.id}>{p.name}{p.imageUrl ? '' : ' (no photo)'}</option>)}
+              </BrandSelect>
+            : <div className="text-[12.5px] rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, color: C.inkDim }}>Add something to your catalog first.</div>)}
+          {tpl === 'offer' && (liveCodes.length
+            ? <BrandSelect value={code?.id || ''} onChange={(e) => setCodeId(e.target.value)} className="w-full rounded-xl px-3.5 py-2.5 text-sm" style={field} aria-label="Discount code to show">
+                {liveCodes.map((d) => <option key={d.id} value={d.id}>{d.code} · {d.kind === 'percent' ? `${Number(d.value)}% off` : `${fmt(d.value)} off`}</option>)}
+              </BrandSelect>
+            : <button onClick={() => { setView('codes'); if (isOwner) openForm(null); }} className="w-full text-left text-[12.5px] rounded-xl px-3.5 py-3" style={{ background: C.copperSoft, color: C.copper }}>Create a discount code first →</button>)}
+          {(tpl === 'store' || (tpl === 'item' && sellable.length) || (tpl === 'offer' && liveCodes.length)) && (
+            <>
+              {previewBox('1080 / 1920', 300)}
+              <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
+                <button onClick={() => savePng(`${promoSlug(settings.businessName)}-${tpl}.png`)} disabled={preview.busy} className={btn} style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Save image</button>
+                <button onClick={shareCard} disabled={preview.busy || working === 'share'} className={btn} style={{ background: C.copper, color: C.bg, opacity: preview.busy ? 0.6 : 1 }}><Share size={15} /> {working === 'share' ? 'Opening…' : 'Share'}</button>
+              </div>
+              <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>On your phone: tap Share, pick WhatsApp, then My status.</div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function AppointmentOffer({ token }) {
   const [offer, setOffer] = useState(undefined);
   const [mode, setMode] = useState('view');      // view | choose
