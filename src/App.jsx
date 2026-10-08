@@ -8055,7 +8055,7 @@ function AdminDashboard() {
   const [filter, setFilter] = useState('all');
   const [loadingList, setLoadingList] = useState(false);
   const [updated, setUpdated] = useState(null);
-  const [mfa, setMfa] = useState({ factorId: '', qr: '', secret: '', code: '', busy: false, error: '' });
+  const [mfa, setMfa] = useState({ factorId: '', qr: '', secret: '', uri: '', code: '', busy: false, error: '', copied: false });
   const [detail, setDetail] = useState(null);   // { b, data }
   const tokenRef = useRef(null);
   useEffect(() => {
@@ -8099,7 +8099,14 @@ function AdminDashboard() {
         // clear any half-finished setup, then start a new one
         await Promise.all((user.factors || []).filter((f) => f.status !== 'verified').map((f) => sbAuthReq(`/factors/${f.id}`, tokenRef.current, 'DELETE').catch(() => null)));
         const f = await sbAuthReq('/factors', tokenRef.current, 'POST', { factor_type: 'totp', friendly_name: `Xorla founder ${Date.now()}` });
-        setMfa({ factorId: f.id, qr: f.totp?.qr_code || '', secret: f.totp?.secret || '', code: '', busy: false, error: '' });
+        // Build our own setup link and QR picture (Supabase's own picture doesn't show in some browsers)
+        const fromUri = (() => { try { return new URL(f.totp?.uri || '').searchParams.get('secret') || ''; } catch { return ''; } })();
+        const secret = String(f.totp?.secret || fromUri).replace(/\s/g, '').toUpperCase();
+        const uri = secret ? `otpauth://totp/${encodeURIComponent('Xorla:Founder dashboard')}?secret=${secret}&issuer=Xorla&algorithm=SHA1&digits=6&period=30` : (f.totp?.uri || '');
+        let qr = '';
+        try { const QR = await import('qrcode'); qr = await QR.toDataURL(uri, { margin: 1, width: 320, errorCorrectionLevel: 'M', color: { dark: '#0A1F1C', light: '#FFFFFF' } }); }
+        catch { qr = ''; }
+        setMfa({ factorId: f.id, qr, secret, uri, code: '', busy: false, error: '', copied: false });
         setState({ phase: 'mfa-setup', error: '' }); return;
       }
       const o = await call('admin_overview');
@@ -8110,6 +8117,12 @@ function AdminDashboard() {
   useEffect(() => { loadAll(); }, []);
   useEffect(() => { if (state.phase !== 'ready') return undefined; const t = setTimeout(() => loadList(search, filter), 300); return () => clearTimeout(t); }, [search, filter]);
 
+  const isPhone = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+  const copyKey = async () => {
+    try { await navigator.clipboard.writeText(mfa.secret); }
+    catch { const t = document.createElement('textarea'); t.value = mfa.secret; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); } catch { /* ignore */ } t.remove(); }
+    setMfa((m) => ({ ...m, copied: true })); setTimeout(() => setMfa((m) => ({ ...m, copied: false })), 2000);
+  };
   const verifyCode = async () => {
     const code = mfa.code.replace(/\s/g, '');
     if (!/^\d{6}$/.test(code)) { setMfa({ ...mfa, error: 'Enter the 6-digit code from your authenticator app.' }); return; }
@@ -8119,7 +8132,7 @@ function AdminDashboard() {
       const r = await sbAuthReq(`/factors/${mfa.factorId}/verify`, tokenRef.current, 'POST', { challenge_id: ch.id, code });
       await saveSession({ access_token: r.access_token, refresh_token: r.refresh_token, user_id: r.user?.id || (await loadSession())?.user_id });
       tokenRef.current = r.access_token;
-      setMfa({ factorId: '', qr: '', secret: '', code: '', busy: false, error: '' });
+      setMfa({ factorId: '', qr: '', secret: '', uri: '', code: '', busy: false, error: '', copied: false });
       setState({ phase: 'loading', error: '' }); loadAll();
     } catch (e) { setMfa((m) => ({ ...m, busy: false, error: /invalid|expired/i.test(e.message) ? "That code didn't work. Codes change every 30 seconds, so try the newest one." : e.message })); }
   };
@@ -8170,14 +8183,41 @@ function AdminDashboard() {
           ? 'This page shows every business on Xorla, so it needs a second step after your password: a 6-digit code from an authenticator app on your phone. Set it up once.'
           : 'Open your authenticator app and type the 6-digit code for Xorla.'}</p>
         {setup && (
-          <ol className="space-y-4 mb-5 text-[13.5px]" style={{ color: C.inkDim }}>
-            <li><strong style={{ color: C.ink }}>1.</strong> Install <strong style={{ color: C.ink }}>Google Authenticator</strong> or <strong style={{ color: C.ink }}>Microsoft Authenticator</strong> from the Play Store or App Store.</li>
-            <li><strong style={{ color: C.ink }}>2.</strong> In the app, add an account and scan this code:
-              {mfa.qr && <div className="mt-3 rounded-2xl p-3 inline-block" style={{ background: '#fff' }}><img src={mfa.qr} alt="Code to scan with your authenticator app" width={176} height={176} /></div>}
-              {mfa.secret && <div className="mt-2 text-[12px]">Can't scan? Type this key instead: <span className="cx-mono select-all break-all" style={{ color: C.ink }}>{mfa.secret}</span></div>}
-            </li>
-            <li><strong style={{ color: C.ink }}>3.</strong> Type the 6-digit code the app shows:</li>
-          </ol>
+          <div className="space-y-3 mb-5 text-[13.5px]" style={{ color: C.inkDim }}>
+            <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: C.copper }}>Step 1</div>
+              <div>Install <strong style={{ color: C.ink }}>Google Authenticator</strong> (or Microsoft Authenticator) from the Play Store or App Store. It's free.</div>
+            </div>
+            <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: C.copper }}>Step 2 · Add Xorla to the app</div>
+              {isPhone ? (
+                <>
+                  <div className="mb-3">You're on your phone, so there's nothing to scan. Tap this and choose your authenticator app:</div>
+                  {mfa.uri && <a href={mfa.uri} className="flex items-center justify-center gap-2 w-full rounded-xl py-3 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg }}><ShieldCheck size={16} /> Add to authenticator app</a>}
+                  <div className="mt-3 text-[12.5px]">If nothing opens: in the app tap <strong style={{ color: C.ink }}>+</strong> → <strong style={{ color: C.ink }}>Enter a setup key</strong>, name it <strong style={{ color: C.ink }}>Xorla</strong>, and paste this key:</div>
+                </>
+              ) : (
+                <>
+                  <div>In the app on your phone tap <strong style={{ color: C.ink }}>+</strong> → <strong style={{ color: C.ink }}>Scan a QR code</strong>, then point the camera at this:</div>
+                  {mfa.qr
+                    ? <div className="mt-3 flex justify-center"><div className="rounded-2xl p-3" style={{ background: '#fff' }}><img src={mfa.qr} alt="QR code to scan with your authenticator app" width={200} height={200} style={{ display: 'block' }} /></div></div>
+                    : <div className="mt-3 text-[12.5px]" style={{ color: C.copper }}>The picture couldn't load. Use the key below instead.</div>}
+                  <div className="mt-3 text-[12.5px]">Can't scan? Tap <strong style={{ color: C.ink }}>+</strong> → <strong style={{ color: C.ink }}>Enter a setup key</strong>, name it <strong style={{ color: C.ink }}>Xorla</strong>, and type this key:</div>
+                </>
+              )}
+              {mfa.secret && (
+                <div className="mt-2 flex items-center gap-2 rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  <span className="cx-mono select-all break-all flex-1 text-[13px] tracking-wider" style={{ color: C.ink }}>{mfa.secret.match(/.{1,4}/g).join(' ')}</span>
+                  <button onClick={copyKey} className="shrink-0 flex items-center gap-1 text-[12px] font-semibold px-2.5 py-1.5 rounded-lg" style={{ background: C.copperSoft, color: C.copper }}>{mfa.copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}</button>
+                </div>
+              )}
+              <div className="mt-2 text-[12px]" style={{ color: C.inkFaint }}>Key type: time-based. Spaces don't matter.</div>
+            </div>
+            <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: C.copper }}>Step 3</div>
+              <div>The app now shows <strong style={{ color: C.ink }}>Xorla</strong> with a 6-digit code that changes every 30 seconds. Type it here:</div>
+            </div>
+          </div>
         )}
         <input inputMode="numeric" autoComplete="one-time-code" autoFocus maxLength={7} placeholder="123 456" value={mfa.code} onChange={(e) => setMfa({ ...mfa, code: e.target.value.replace(/[^0-9 ]/g, '') })} onKeyDown={(e) => e.key === 'Enter' && verifyCode()}
           className="w-full rounded-xl px-4 py-3.5 text-[22px] tracking-[0.3em] text-center outline-none cx-mono" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }} />
