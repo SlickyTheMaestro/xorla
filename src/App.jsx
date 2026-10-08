@@ -9996,8 +9996,14 @@ async function scanPriceListPhotos(files, context) {
       body: JSON.stringify({ task: 'scan_list', images, context }),
     });
   } catch (e) { throw new Error("Couldn't reach Oga. Check your internet connection and try again."); }
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.error) throw new Error(data.error || "Oga couldn't read the photo just now. Please try again.");
+  const data = await response.json().catch(() => null);
+  if (!data) {
+    // No answer from the "ai" function itself: it was cut off or crashed before replying
+    if ([504, 546, 408].includes(response.status)) throw new Error('Oga took too long reading this list. Try one page at a time, or a closer photo.');
+    if (response.status === 413) throw new Error('That photo is too large. Try a smaller photo or one page at a time.');
+    throw new Error(`Oga couldn't read the photo just now (code ${response.status}). Please try again.`);
+  }
+  if (!response.ok || data.error) throw new Error(data.error || `Oga couldn't read the photo just now (code ${response.status}). Please try again.`);
   return data;
 }
 const SCAN_DURATIONS = ['15 minutes', '30 minutes', '45 minutes', '1 hour', '1.5 hours', '2 hours', '2.5 hours', '3 hours', '4 hours', '5 hours', '6 hours'];
