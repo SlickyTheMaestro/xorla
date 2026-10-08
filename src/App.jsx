@@ -3614,44 +3614,68 @@ function XorlaApp() {
                       {o.note && <div><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
                     </div>
                   )}
-                  <div className="flex items-center justify-between">
-                    <div className="cx-mono text-[14px] font-bold">{fmt(o.total)}</div>
-                    {o.status === 'pending' && o.startAt && o.awaitingCustomer && canAnswerRequests && (
-                      <div className="flex items-center gap-2.5">
-                        <button onClick={() => openAppt(o.acceptedAt ? 'cancel' : 'decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>{o.requestedStartAt && !o.acceptedAt ? 'Decline' : 'Cancel'}</button>
-                        {offerOpenOf(o) && o.customerPhone && o.proposalToken && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(offerMessage({ ...o, acceptedAt: null, startAt: o.requestedStartAt || o.startAt, endAt: new Date(new Date(o.requestedStartAt || o.startAt).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString() }, o.startAt, o.endAt, o.proposalToken, ''))}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>Send again</a>}
-                        {!offerOpenOf(o) && <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>}
-                        {offerOpenOf(o) && <button onClick={() => acceptAppt(o)} title="If they agreed by phone or in person" className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>They agreed</button>}
-                      </div>
-                    )}
-                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !o.awaitingCustomer && !canAnswerRequests && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to answer</span>}
-                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !o.awaitingCustomer && canAnswerRequests && (
-                      <div className="flex items-center gap-2.5">
-                        <button onClick={() => openAppt('decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
-                        <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>
-                        {!apptPassed(o) && !apptFull(o, apptClashes(o)) && <button onClick={() => acceptAppt(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Accept</button>}
-                      </div>
-                    )}
-                    {o.status === 'pending' && o.startAt && o.acceptedAt && !o.awaitingCustomer && (
-                      <div className="flex items-center gap-2.5">
-                        {!apptPassed(o) && <button onClick={() => openAppt('cancel', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>}
-                        {canAnswerRequests && !apptPassed(o) && <button onClick={() => openAppt('reschedule', o)} className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>Move</button>}
-                        {apptPassed(o) && <button onClick={() => markNoShow(o)} className="text-[11.5px] font-medium" style={{ color: C.rust }}>Didn't come</button>}
-                        {canRemind(o) ? <button onClick={() => sendReminder(o)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>{o.remindedAt ? 'Remind again' : 'Remind'}</button>
-                          : !apptPassed(o) && waConfirmLink(o) && <a href={waConfirmLink(o)} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
-                        <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark done</button>
-                      </div>
-                    )}
-                    {o.status === 'pending' && !o.startAt && (
-                      <div className="flex items-center gap-3">
-                        <button onClick={() => cancelOrder(o.id)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
-                        <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>{T.tracksStock ? 'Fulfill' : 'Mark done'}</button>
-                      </div>
-                    )}
-                    {o.status !== 'pending' && isOwnerRole && (
-                      <button onClick={() => removeOrder(o.id)} className="text-[11.5px]" style={{ color: C.inkFaint }}>Remove</button>
-                    )}
-                  </div>
+                  {(() => {
+                    const pending = o.status === 'pending';
+                    const sec = [];
+                    let primary = null;
+                    let note = '';
+                    if (pending && o.startAt && o.awaitingCustomer && canAnswerRequests) {
+                      sec.push({ label: o.requestedStartAt && !o.acceptedAt ? 'Decline' : 'Cancel', tone: 'danger', onClick: () => openAppt(o.acceptedAt ? 'cancel' : 'decline', o) });
+                      if (offerOpenOf(o) && o.customerPhone && o.proposalToken) sec.push({ label: 'Send again', tone: 'accent', href: `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(offerMessage({ ...o, acceptedAt: null, startAt: o.requestedStartAt || o.startAt, endAt: new Date(new Date(o.requestedStartAt || o.startAt).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString() }, o.startAt, o.endAt, o.proposalToken, ''))}` });
+                      if (!offerOpenOf(o)) sec.push({ label: 'Other time', onClick: () => openAppt('reschedule', o) });
+                      if (offerOpenOf(o)) sec.push({ label: 'They agreed', title: 'If they agreed by phone or in person', onClick: () => acceptAppt(o) });
+                    } else if (pending && o.startAt && !o.acceptedAt && !o.awaitingCustomer) {
+                      if (canAnswerRequests) {
+                        sec.push({ label: 'Decline', tone: 'danger', onClick: () => openAppt('decline', o) });
+                        sec.push({ label: 'Other time', onClick: () => openAppt('reschedule', o) });
+                        if (!apptPassed(o) && !apptFull(o, apptClashes(o))) primary = { label: 'Accept', onClick: () => acceptAppt(o) };
+                      } else note = 'Waiting for the owner to answer';
+                    } else if (pending && o.startAt && o.acceptedAt) {
+                      if (apptPassed(o)) sec.push({ label: "Didn't come", tone: 'danger', onClick: () => markNoShow(o) });
+                      else {
+                        if (canRemind(o)) sec.push({ label: o.remindedAt ? 'Remind again' : 'Remind', tone: 'accent', onClick: () => sendReminder(o) });
+                        else if (waConfirmLink(o)) sec.push({ label: 'WhatsApp', tone: 'accent', href: waConfirmLink(o) });
+                        if (canAnswerRequests) sec.push({ label: 'Move', onClick: () => openAppt('reschedule', o) });
+                        sec.push({ label: 'Cancel', tone: 'danger', onClick: () => openAppt('cancel', o) });
+                      }
+                      primary = { label: 'Mark done', onClick: () => fulfillOrder(o) };
+                    } else if (pending) {
+                      sec.push({ label: 'Cancel', tone: 'danger', onClick: () => cancelOrder(o.id) });
+                      primary = { label: T.tracksStock ? 'Fulfill' : 'Mark done', onClick: () => fulfillOrder(o) };
+                    }
+                    const secBtn = (b, i) => {
+                      const cls = 'h-10 px-2 rounded-xl text-[12.5px] font-semibold whitespace-nowrap flex items-center justify-center min-w-0 transition-opacity active:opacity-70';
+                      const st = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: b.tone === 'danger' ? C.rust : b.tone === 'accent' ? C.copper : C.ink };
+                      return b.href
+                        ? <a key={i} href={b.href} target="_blank" rel="noopener noreferrer" className={cls} style={st}>{b.label}</a>
+                        : <button key={i} onClick={b.onClick} title={b.title} className={cls} style={st}>{b.label}</button>;
+                    };
+                    const primBtn = primary && <button onClick={primary.onClick} className="h-10 px-4 rounded-xl text-[13px] font-semibold whitespace-nowrap w-full transition-opacity active:opacity-80" style={{ background: C.sage, color: C.bg }}>{primary.label}</button>;
+                    return (
+                      <>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[12px]" style={{ color: C.inkFaint }}>Total</span>
+                          <div className="flex items-center gap-3">
+                            {!pending && isOwnerRole && <button onClick={() => removeOrder(o.id)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Remove</button>}
+                            <span className="cx-mono text-[15px] font-bold">{fmt(o.total)}</span>
+                          </div>
+                        </div>
+                        {note && <div className="mt-2 text-[12px]" style={{ color: C.inkFaint }}>{note}</div>}
+                        {(sec.length > 0 || primary) && (
+                          <div className="mt-3 pt-3 space-y-2" style={{ borderTop: `1px solid ${C.line}` }}>
+                            {sec.length === 1 && primary ? (
+                              <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,2fr)' }}>{secBtn(sec[0], 0)}{primBtn}</div>
+                            ) : (
+                              <>
+                                {sec.length > 0 && <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${sec.length}, minmax(0,1fr))` }}>{sec.map(secBtn)}</div>}
+                                {primBtn}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
   );
   // ---------- Bulk import of products, services and extras ----------
