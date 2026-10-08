@@ -562,7 +562,7 @@ function fromSbProduct(row) {
   return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront' };
 }
 
 function staticMessage(inv, settings) {
@@ -1234,7 +1234,6 @@ function XorlaApp() {
   const [bookingBusy, setBookingBusy] = useState(false);
   const [roomCharges, setRoomCharges] = useState([]);
   const [apptPanel, setApptPanel] = useState(null);
-  const submitApptRef = useRef(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importKind, setImportKind] = useState('product');
@@ -2396,7 +2395,7 @@ function XorlaApp() {
   const todayExpenses = todayExpensesList.reduce((a, e) => a + Number(e.amount), 0);
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
-  const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer).length;
+  const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt).length;
   const unpaidInvoiceCount = invoices.filter((i) => computeStatus(i) !== 'paid').length;
   const currentStaffNames = settings.staffList.map((s) => s.name);
   const sellerOptions = [...new Set([...currentStaffNames, ...sales.map((s) => s.loggedBy), ...expenses.map((e) => e.loggedBy)].filter(Boolean))]
@@ -3051,16 +3050,6 @@ function XorlaApp() {
     ];
     return lines.filter(Boolean).join('\n\n');
   };
-  const offerOpenOf = (o) => o.awaitingCustomer && o.holdUntil && new Date(o.holdUntil) > new Date();
-  const offerLink = (token) => `${window.location.origin}/appt/${token}`;
-  const offerMessage = (o, start, end, token, reason) => {
-    const first = String(o.customerName || '').split(' ')[0] || 'there';
-    const when = `${apptDay(start)}, ${apptTime(start)} to ${apptTime(end)}`;
-    const opener = o.acceptedAt
-      ? `Hi ${first}, sorry, ${settings.businessName} needs to move your appointment on ${apptRange(o)}.`
-      : `Hi ${first}, thanks for booking with ${settings.businessName}. The time you asked for (${apptRange(o)}) isn't free.`;
-    return [opener, reason ? `Reason: ${reason}` : '', `We can offer you ${when} instead.`, `Tap here to accept it, choose another time, or let us know you can't make it:\n${offerLink(token)}`].filter(Boolean).join('\n\n');
-  };
   const waConfirmLink = (o) => o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, your appointment with ${settings.businessName} is confirmed for ${apptRange(o)}. See you then!`)}`;
   const loadApptCal = async (panel) => {
     const items = panel.mode === 'new' ? panel.items.map((id) => ({ productId: id, quantity: 1 })) : panel.order.items.map((it) => ({ productId: it.productId, quantity: it.quantity }));
@@ -3099,31 +3088,18 @@ function XorlaApp() {
   };
   const submitAppt = () => {
     const a = apptPanel; if (!a || a.busy) return;
-    if (a.direct) setApptPanel((p) => p && { ...p, direct: false });
     if (a.mode === 'new') {
       if (!a.items.length) { setApptPanel({ ...a, error: 'Pick at least one service.' }); return; }
       if (!a.slot) { setApptPanel({ ...a, error: 'Pick a time.' }); return; }
       if (!a.name.trim()) { setApptPanel({ ...a, error: "Enter the customer's name." }); return; }
       runAppt(() => sbRpc('create_appointment', session.access_token, { p_shop: targetShopId, p_items: a.items.map((id) => ({ productId: id, quantity: 1 })), p_start_at: a.slot, p_name: a.name, p_phone: a.phone, p_note: a.note }));
-    } else if (a.mode === 'reschedule' && !a.direct) {
-      // Offer the time: the customer accepts it, picks another, or declines, from a link
-      if (!a.slot) { setApptPanel({ ...a, error: 'Pick the time to offer.' }); return; }
-      const o = a.order, start = a.slot, reason = a.reason.trim();
-      const end = new Date(new Date(start).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString();
-      let token = null;
-      runAppt(async () => { token = await sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'propose', p_reason: reason, p_start_at: start }); }, () => {
-        if (!token) return;
-        const msg = offerMessage(o, start, end, token, reason);
-        if (o.customerPhone) offerWhatsApp(o.customerPhone, msg, 'New time offered', `${o.customerName} will get this on WhatsApp, with a link to accept, choose another time or decline. The time is held for them for 24 hours.\n\n"${msg}"`);
-        else brandAlert(`${o.customerName} didn't leave a phone number. Share this link with them another way: ${offerLink(token)}`, { title: 'New time offered', tone: 'info' });
-      });
     } else if (a.mode === 'reschedule') {
       if (!a.slot) { setApptPanel({ ...a, error: 'Pick the new time.' }); return; }
       const o = a.order, start = a.slot;
       runAppt(() => sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'reschedule', p_reason: '', p_start_at: start }), async () => {
         const end = new Date(new Date(start).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString();
         const moved = { ...o, startAt: start, endAt: end };
-        const link = o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, as we agreed, your appointment with ${settings.businessName} is now ${apptRange(moved)}. See you then!`)}`;
+        const link = o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, the time you asked for with ${settings.businessName} wasn't free, so we've booked you for ${apptRange(moved)} instead. Reply if that doesn't work for you.`)}`;
         if (link && await brandConfirm(`${o.customerName} is now booked for ${apptRange(moved)}. Let them know on WhatsApp?`, { title: 'New time confirmed', confirm: 'Send on WhatsApp', cancel: 'Not now' })) window.open(link, '_blank');
       });
     } else {
@@ -3134,12 +3110,10 @@ function XorlaApp() {
       });
     }
   };
-  submitApptRef.current = submitAppt;
   const renderApptPanel = () => {
     if (!apptPanel) return null;
     const a = apptPanel; const close = () => { if (!a.busy) setApptPanel(null); };
-    const title = { new: 'New appointment', reschedule: a.order?.acceptedAt ? 'Move appointment' : 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment' }[a.mode];
-    const firstName = String(a.order?.customerName || '').split(' ')[0];
+    const title = { new: 'New appointment', reschedule: 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment' }[a.mode];
     const days = a.cal?.days || [];
     const day = days.find((d) => d.date === a.day);
     const picker = (
@@ -3193,8 +3167,6 @@ function XorlaApp() {
               </>
             )}
             {a.mode === 'reschedule' && picker}
-            {a.mode === 'reschedule' && a.order?.acceptedAt && <input type="text" placeholder="Reason (optional), e.g. Our stylist is unwell that day" value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
-            {a.mode === 'reschedule' && <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{firstName} gets a link to accept this time, choose another free time, or say they can't make it. The time is held for them for 24 hours.</div>}
             {(a.mode === 'decline' || a.mode === 'cancel') && (
               <>
                 <input type="text" autoFocus placeholder={a.mode === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason, e.g. Our stylist is unwell that day'} value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -3204,13 +3176,8 @@ function XorlaApp() {
           </div>
           {a.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
           <button onClick={submitAppt} disabled={a.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: a.mode === 'decline' || a.mode === 'cancel' ? C.rust : C.copper, color: C.bg, opacity: a.busy ? 0.6 : 1 }}>
-            {a.busy ? 'Saving…' : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Offer ${apptDay(a.slot)}, ${apptTime(a.slot)} to ${firstName}` : `Offer a time to ${firstName}`) : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
+            {a.busy ? 'Saving…' : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Confirm ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Confirm new time') : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
           </button>
-          {a.mode === 'reschedule' && a.slot && (
-            <button onClick={() => { const next = { ...a, direct: true }; setApptPanel(next); setTimeout(() => submitApptRef.current && submitApptRef.current(), 0); }} disabled={a.busy} className="w-full mt-2 py-2.5 text-[12.5px] font-medium" style={{ color: C.inkDim }}>
-              {firstName} already agreed to this time? Confirm it now
-            </button>
-          )}
         </div>
       </div>
     );
@@ -3241,13 +3208,12 @@ function XorlaApp() {
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                     <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
-                      o.status === 'pending' && o.awaitingCustomer ? { background: C.surfaceRaised, color: C.inkDim } :
                       o.status === 'pending' && o.acceptedAt ? { background: C.sageSoft, color: C.sage } :
                       o.status === 'pending' && o.startAt && apptPassed(o) ? { background: C.surfaceRaised, color: C.inkFaint } :
                       o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
                       o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
                       { background: 'rgba(226,98,75,0.12)', color: C.rust }
-                    }>{o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
+                    }>{o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
                   </div>
                   <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
                     {o.items.map((it, i) => (
@@ -3258,8 +3224,7 @@ function XorlaApp() {
                     ))}
                   </div>
                   {o.startAt && (() => {
-                    const clash = o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer ? apptClashes(o) : [];
-                    const offerOpen = o.awaitingCustomer && o.holdUntil && new Date(o.holdUntil) > new Date();
+                    const clash = o.status === 'pending' && !o.acceptedAt ? apptClashes(o) : [];
                     const full = clash.length >= apptCap;
                     return (
                       <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: o.status !== 'pending' ? C.surfaceRaised : full ? C.rustSoft : o.acceptedAt ? C.sageSoft : C.surfaceRaised }}>
@@ -3267,19 +3232,12 @@ function XorlaApp() {
                           <CalendarClock size={15} style={{ color: full ? C.rust : o.acceptedAt ? C.sage : C.copper }} />
                           <span className="font-semibold" style={{ color: C.ink }}>{apptRange(o)}</span>
                         </div>
-                        {o.status === 'pending' && o.awaitingCustomer && (
-                          <div className="mt-1 space-y-0.5" style={{ color: C.inkDim }}>
-                            <div>New time offered{o.requestedStartAt ? `. They asked for ${apptDay(o.requestedStartAt)}, ${apptTime(o.requestedStartAt)}.` : '.'}</div>
-                            <div style={{ color: offerOpen ? C.copper : C.rust }}>{offerOpen ? `Held for them until ${new Date(o.holdUntil).toLocaleString('en-GB', { ...LAGOS_TIME, weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}.` : 'No reply, and the offer has expired. Offer another time, or decline.'}</div>
-                          </div>
-                        )}
-                        {o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer && o.proposalReply === 'chose_other' && <div className="mt-1" style={{ color: C.copper }}>{String(o.customerName).split(' ')[0]} picked this time instead of your offer.</div>}
-                        {o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer && !apptPassed(o) && (
+                        {o.status === 'pending' && !o.acceptedAt && !apptPassed(o) && (
                           <div className="mt-1" style={{ color: full ? C.rust : C.sage }}>{full
                             ? `Clashes with ${clash.map((x) => `${x.customerName} (${apptTime(x.startAt)} to ${apptTime(x.endAt)})`).join(', ')}. Offer another time, or decline.`
                             : clash.length ? `Free. ${clash.length} of ${apptCap} places already booked at that time.` : 'This time is free.'}</div>
                         )}
-                        {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.proposalReply === 'accepted' ? ` by ${String(o.customerName).split(' ')[0]} from your offer` : o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
+                        {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
                         {o.status === 'cancelled' && o.cancelReason && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
                         {o.note && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
                       </div>
@@ -3293,26 +3251,17 @@ function XorlaApp() {
                   )}
                   <div className="flex items-center justify-between">
                     <div className="cx-mono text-[14px] font-bold">{fmt(o.total)}</div>
-                    {o.status === 'pending' && o.startAt && o.awaitingCustomer && canAnswerRequests && (
-                      <div className="flex items-center gap-2.5">
-                        <button onClick={() => openAppt(o.acceptedAt ? 'cancel' : 'decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>{o.requestedStartAt && !o.acceptedAt ? 'Decline' : 'Cancel'}</button>
-                        {offerOpenOf(o) && o.customerPhone && o.proposalToken && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(offerMessage({ ...o, acceptedAt: null, startAt: o.requestedStartAt || o.startAt, endAt: new Date(new Date(o.requestedStartAt || o.startAt).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString() }, o.startAt, o.endAt, o.proposalToken, ''))}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>Send again</a>}
-                        {!offerOpenOf(o) && <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>}
-                        {offerOpenOf(o) && <button onClick={() => acceptAppt(o)} title="If they agreed by phone or in person" className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>They agreed</button>}
-                      </div>
-                    )}
-                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !o.awaitingCustomer && !canAnswerRequests && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to answer</span>}
-                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !o.awaitingCustomer && canAnswerRequests && (
+                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !canAnswerRequests && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to answer</span>}
+                    {o.status === 'pending' && o.startAt && !o.acceptedAt && canAnswerRequests && (
                       <div className="flex items-center gap-2.5">
                         <button onClick={() => openAppt('decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
                         <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>
                         {!apptPassed(o) && apptClashes(o).length < apptCap && <button onClick={() => acceptAppt(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Accept</button>}
                       </div>
                     )}
-                    {o.status === 'pending' && o.startAt && o.acceptedAt && !o.awaitingCustomer && (
+                    {o.status === 'pending' && o.startAt && o.acceptedAt && (
                       <div className="flex items-center gap-2.5">
                         <button onClick={() => openAppt('cancel', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
-                        {canAnswerRequests && !apptPassed(o) && <button onClick={() => openAppt('reschedule', o)} className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>Move</button>}
                         {waConfirmLink(o) && <a href={waConfirmLink(o)} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
                         <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark done</button>
                       </div>
@@ -8158,123 +8107,6 @@ function AdminDashboard() {
   );
 }
 
-// ============ The customer's page for an offered appointment time (/appt/<link>): accept, choose another, or decline ============
-function AppointmentOffer({ token }) {
-  const [offer, setOffer] = useState(undefined);
-  const [mode, setMode] = useState('view');      // view | choose
-  const [cal, setCal] = useState(null);
-  const [day, setDay] = useState('');
-  const [slot, setSlot] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(null);        // accepted | chose | declined
-  const load = useCallback(async () => {
-    try { setOffer(await sbRpc('get_appointment_offer', SB_KEY, { p_token: token })); } catch (e) { setOffer(null); }
-  }, [token]);
-  useEffect(() => {
-    load();
-    if (!document.getElementById('xorla-jakarta')) {
-      const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
-      document.head.appendChild(link);
-    }
-  }, [load]);
-  useEffect(() => { if (offer?.business) document.title = `${offer.business} · Your appointment`; }, [offer]);
-  const openChoose = async () => {
-    setMode('choose'); setSlot('');
-    try {
-      const c = await sbRpc('offer_calendar', SB_KEY, { p_token: token, p_days: 14 });
-      setCal(c); setDay((c?.days || []).find((d) => d.slots.length)?.date || '');
-    } catch (e) { brandAlert(e.message, { theme: 'light' }); }
-  };
-  const respond = async (action) => {
-    if (action === 'decline' && !(await brandConfirm(`${offer.business} will be told you can't make it, and the appointment will be cancelled.`, { title: "Can't make it?", confirm: "Yes, I can't make it", danger: true, theme: 'light', cancel: 'Go back' }))) return;
-    setBusy(true);
-    try {
-      await sbRpc('respond_to_offer', SB_KEY, { p_token: token, p_action: action, ...(action === 'choose' ? { p_start_at: slot } : {}) });
-      setDone(action === 'accept' ? 'accepted' : action === 'choose' ? 'chose' : 'declined'); await load();
-    } catch (e) {
-      brandAlert(e.message, { theme: 'light', title: 'Please try again' });
-      if (action === 'choose') openChoose(); else load();
-    }
-    setBusy(false);
-  };
-
-  const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
-  const btn = 'w-full py-3.5 rounded-xl text-[15px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black';
-  if (offer === undefined) return <div className="flex items-center justify-center" style={page}><Loader2 className="animate-spin" size={22} style={{ color: S.muted }} /></div>;
-  if (!offer) return (
-    <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
-      <div className="text-[20px] font-bold mb-2">This link isn't working</div>
-      <div className="text-[14px] max-w-sm" style={{ color: S.muted }}>It may have been replaced by a newer message. Check the latest message from the business, or contact them directly.</div>
-    </div>
-  );
-  const services = (offer.items || []).map((it) => it.description).join(', ');
-  const range = (a, b) => `${apptDay(a)}, ${apptTime(a)} to ${apptTime(b)}`;
-  const wa = offer.phone ? `https://wa.me/${toWhatsAppNumber(offer.phone)}` : null;
-  const store = offer.business_code ? `/store/${offer.business_code}` : null;
-  const card = (children) => <div className="rounded-2xl p-5" style={{ background: S.tile }}>{children}</div>;
-  const finished = (icon, title, body) => (
-    <div className="text-center pt-6">
-      <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5" style={{ background: S.ink }}>{icon}</div>
-      <div className="text-[22px] font-bold mb-2">{title}</div>
-      <div className="text-[14.5px] leading-relaxed max-w-sm mx-auto mb-7" style={{ color: S.muted }}>{body}</div>
-      <div className="flex flex-col gap-2 max-w-xs mx-auto">
-        {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className={btn} style={{ border: `1.5px solid ${S.ink}`, textAlign: 'center' }}>Message {offer.business}</a>}
-        {store && <a href={store} className="text-[13.5px] font-semibold py-2" style={{ color: S.ink }}>Visit {offer.business}</a>}
-      </div>
-    </div>
-  );
-
-  let body;
-  if (offer.state === 'confirmed' || done === 'accepted') body = finished(<Check size={26} color="#fff" />, "You're booked", `${services} at ${offer.business}, ${range(offer.start_at, offer.end_at)}. See you then!`);
-  else if (done === 'chose' || (offer.state === 'pending' && offer.reply === 'chose_other')) body = finished(<CalendarClock size={24} color="#fff" />, 'Time sent', `You asked for ${range(offer.start_at, offer.end_at)}. It's held for you while ${offer.business} confirms it.`);
-  else if (offer.state === 'cancelled' || done === 'declined') body = finished(<X size={24} color="#fff" />, 'Appointment cancelled', `${offer.business} has been told. You're welcome to book another time whenever suits you.`);
-  else if (offer.state === 'done') body = finished(<Check size={26} color="#fff" />, 'All done', `Thanks for visiting ${offer.business}.`);
-  else if (offer.state === 'expired') body = finished(<CalendarClock size={24} color="#fff" />, 'This offer has expired', `The time ${offer.business} offered is no longer held. Message them, or book a new time.`);
-  else if (mode === 'choose') body = (
-    <>
-      <button onClick={() => setMode('view')} className="flex items-center gap-1 text-[13px] font-medium mb-4" style={{ color: S.muted }}><ChevronLeft size={16} /> Back</button>
-      <div className="text-[22px] font-bold mb-1">Choose another time</div>
-      <div className="text-[14px] mb-4" style={{ color: S.muted }}>{services}. Only free times are shown.</div>
-      {!cal ? <div className="flex items-center gap-2 text-[13px]" style={{ color: S.muted }}><Loader2 size={15} className="animate-spin" /> Checking free times…</div>
-        : !cal.days.some((d) => d.slots.length) ? card(<div className="text-[14px]">No other free times in the next two weeks. Please message {offer.business}.</div>)
-        : <SlotPicker light cal={cal} day={day} onDay={setDay} slot={slot} onSlot={setSlot} />}
-      <button onClick={() => respond('choose')} disabled={!slot || busy} className={`${btn} mt-5`} style={{ background: S.ink, color: '#fff', opacity: !slot || busy ? 0.4 : 1 }}>{busy ? 'Sending…' : slot ? `Ask for ${apptDay(slot)}, ${apptTime(slot)}` : 'Pick a time'}</button>
-      <div className="text-[12px] text-center mt-3" style={{ color: S.muted }}>{offer.business} will confirm your new choice.</div>
-    </>
-  );
-  else body = (
-    <>
-      <div className="text-[13px] font-semibold mb-1" style={{ color: S.muted }}>Hi {offer.customer}</div>
-      <h1 className="text-[26px] font-extrabold leading-tight mb-5" style={{ letterSpacing: '-0.02em' }}>{offer.business} has offered you a new time</h1>
-      {card(
-        <>
-          <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: S.muted }}>New time</div>
-          <div className="text-[20px] font-bold leading-snug">{apptDay(offer.start_at)}</div>
-          <div className="text-[17px] font-semibold">{apptTime(offer.start_at)} to {apptTime(offer.end_at)}</div>
-          <div className="text-[14px] mt-2" style={{ color: S.muted }}>{services}{offer.total ? ` · ${fmt(offer.total)}` : ''}</div>
-          {offer.requested_start_at && <div className="text-[13px] mt-3 pt-3" style={{ color: S.muted, borderTop: `1px solid ${S.line}` }}>You asked for <span style={{ textDecoration: 'line-through' }}>{apptDay(offer.requested_start_at)}, {apptTime(offer.requested_start_at)}</span></div>}
-        </>
-      )}
-      <div className="flex flex-col gap-2.5 mt-6">
-        <button onClick={() => respond('accept')} disabled={busy} className={btn} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.5 : 1 }}>{busy ? 'Confirming…' : 'Accept this time'}</button>
-        <button onClick={openChoose} disabled={busy} className={btn} style={{ border: `1.5px solid ${S.ink}` }}>Choose another time</button>
-        <button onClick={() => respond('decline')} disabled={busy} className="py-2.5 text-[14px] font-medium" style={{ color: S.muted }}>I can't make it</button>
-      </div>
-      <div className="text-[12px] text-center mt-4" style={{ color: S.muted }}>This time is held for you for a limited time.{wa ? <> Questions? <a href={wa} target="_blank" rel="noopener noreferrer" className="underline">Message {offer.business}</a>.</> : null}</div>
-    </>
-  );
-  return (
-    <div style={page}>
-      <main className="max-w-md mx-auto px-5 py-8 pb-16">
-        <div className="text-[15px] font-bold mb-8">{offer.business}</div>
-        {body}
-      </main>
-      <footer className="max-w-md mx-auto px-5 pb-8 text-[11.5px] flex justify-between" style={{ color: S.muted }}><span>Powered by Xorla</span><a href="/privacy" className="underline">Privacy</a></footer>
-    </div>
-  );
-}
-
 // ============ Slot picker: a week calendar, then the free times for the chosen day grouped by part of the day ============
 function SlotPicker({ cal, day, onDay, slot, onSlot, light, scarcity = 'one' }) {
   const P = light
@@ -8425,8 +8257,7 @@ export default function Root() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
   const clean = path.replace(/\/+$/, '');
-  const offerMatch = path.match(/^\/appt\/([a-f0-9]{20,64})/);
-  const page = offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
+  const page = storeMatch ? <Storefront businessCode={storeMatch[1]} />
     : clean === '/pricing' ? <PricingPage />
     : clean === '/privacy' ? <LegalPage kind="privacy" />
     : clean === '/terms' ? <LegalPage kind="terms" />
