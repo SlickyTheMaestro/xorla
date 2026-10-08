@@ -1289,6 +1289,7 @@ function XorlaApp() {
   const [discountCodes, setDiscountCodes] = useState([]);
   // Guided setup for new owners, the storefront readiness check, and the checklist on Overview
   const [setup, setSetup] = useState(null); // { step, f, busy, error, paused }
+  const [listTool, setListTool] = useState(null); // photo of a price list, or common items to pick from
   const [readyCheck, setReadyCheck] = useState(null); // { onGoLive }
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [personForm, setPersonForm] = useState(null);
@@ -3805,6 +3806,16 @@ function XorlaApp() {
             <button onClick={close} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
           </div>
           <div className="text-[12.5px] leading-relaxed mb-4" style={{ color: C.inkDim }}>Add everything at once instead of one by one. Copy rows straight from Excel, Google Sheets or your phone notes, and paste them below.</div>
+          {!['accommodation', 'rentals'].includes(serviceKind) && (
+            <div className="grid gap-2 mb-4" style={{ gridTemplateColumns: starterList ? '1fr 1fr' : '1fr' }}>
+              <button onClick={() => { setImportOpen(false); openScan(); }} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
+                <Camera size={16} style={{ color: C.copper }} className="shrink-0" /><span className="text-[12.5px] font-semibold leading-tight" style={{ color: C.copper }}>On paper? Snap a photo</span>
+              </button>
+              {starterList && <button onClick={() => { setImportOpen(false); openStarter(); }} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.22)' }}>
+                <Sparkles size={16} style={{ color: C.sage }} className="shrink-0" /><span className="text-[12.5px] font-semibold leading-tight" style={{ color: C.sage }}>Pick from common items</span>
+              </button>}
+            </div>
+          )}
           {importKinds.length > 1 && (
             <div className="flex gap-1 p-1 mb-3 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
               {importKinds.map(([k, l]) => <button key={k} onClick={() => setImportKind(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={importKind === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
@@ -5377,6 +5388,184 @@ function XorlaApp() {
     updateSettings({ setupDoneAt: new Date().toISOString(), setupSteps: [...new Set([...(settings.setupSteps || []), ...confirmed])] });
     setSetup(null);
   };
+  // ---------- Snap your price list / pick from common items ----------
+  const starterList = settings.businessType === 'products' ? STARTER_LISTS._products : (['accommodation', 'rentals'].includes(serviceKind) ? null : STARTER_LISTS[serviceKind] || null);
+  const itemKindFor = (k) => (settings.businessType === 'products' ? 'product' : settings.businessType === 'services' ? 'service' : (k === 'service' ? 'service' : 'product'));
+  const haveNames = new Set(productsAll.map((p) => p.name.trim().toLowerCase()));
+  const openScan = () => setListTool({ source: 'photo', stage: 'pick', files: [], items: [], error: '', busy: false });
+  const openStarter = () => starterList && setListTool({ source: 'starter', stage: 'review', files: [], error: '', busy: false,
+    items: starterList.items.map(([name, duration, category]) => ({ name, price: '', kind: itemKindFor(settings.businessType === 'products' ? 'product' : 'service'), duration, category, unsure: false, note: '', on: false, exists: haveNames.has(name.toLowerCase()) })).sort((a, b) => Number(a.exists) - Number(b.exists)) });
+  const addScanFiles = (e) => {
+    const picked = [...(e.target.files || [])].filter((f) => /^image\//.test(f.type));
+    e.target.value = '';
+    setListTool((t) => t && { ...t, error: '', files: [...t.files, ...picked.map((file) => ({ file, url: URL.createObjectURL(file) }))].slice(0, 3) });
+  };
+  const readScan = async () => {
+    const t = listTool; if (!t || !t.files.length) return;
+    setListTool({ ...t, stage: 'reading', error: '' });
+    try {
+      const what = settings.businessType === 'products' ? 'a shop' : (SERVICE_KINDS[serviceKind]?.hint || 'a service business').toLowerCase();
+      const res = await scanPriceListPhotos(t.files.map((x) => x.file), { type: settings.businessType, what });
+      const items = (res.items || []).map((it) => {
+        const exists = haveNames.has(it.name.trim().toLowerCase());
+        return { name: it.name, price: it.price > 0 ? String(it.price) : '', kind: itemKindFor(it.kind), duration: cleanDuration(it.duration), category: it.category || '', unsure: !!it.unsure, note: it.note || '', exists, on: !exists && it.price > 0 };
+      });
+      items.sort((a, b) => Number(a.exists) - Number(b.exists));
+      if (!res.readable || !items.length) { setListTool((x) => x && { ...x, stage: 'pick', error: "Oga couldn't find prices in that photo. Try again closer up, in good light, with the whole list in the frame." }); return; }
+      setListTool((x) => x && { ...x, stage: 'review', items });
+    } catch (e) { setListTool((x) => x && { ...x, stage: 'pick', error: e.message }); }
+  };
+  const saveListTool = async () => {
+    const t = listTool; if (!t || t.busy) return;
+    const chosen = t.items.filter((it) => it.on && !it.exists && it.name.trim() && Number(parseNumInput(it.price)) > 0);
+    const missing = t.items.filter((it) => it.on && !it.exists && !(Number(parseNumInput(it.price)) > 0)).length;
+    if (missing) { setListTool({ ...t, error: `${missing} ticked item${missing > 1 ? 's need' : ' needs'} a price. Type it in, or untick ${missing > 1 ? 'them' : 'it'}.` }); return; }
+    if (!chosen.length) { setListTool({ ...t, error: 'Tick at least one item to add.' }); return; }
+    const room = planKnown && planCaps.products !== null ? Math.max(0, planCaps.products - productsAll.length) : Infinity;
+    const list = chosen.slice(0, room === Infinity ? chosen.length : room);
+    if (!list.length) { setLimitPrompt({ title: `The Free plan includes ${planCaps.products} ${T.catalog.toLowerCase()}`, body: 'Upgrade to Pro for an unlimited catalog.' }); return; }
+    const unit = (() => { const u = SERVICE_KINDS[serviceKind]?.unit || 'session'; return u === 'night' || u === 'day' ? 'session' : u; })();
+    setListTool({ ...t, busy: true, error: '' });
+    try {
+      const created = [];
+      for (let i = 0; i < list.length; i += 100) {
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: list.slice(i, i + 100).map((it) => {
+          const svc = it.kind === 'service';
+          return { business_id: settings.businessId, name: it.name.trim().slice(0, 80), selling_price: Number(parseNumInput(it.price)), cost_price: 0, track_stock: false, low_stock_threshold: 5,
+            category: (it.category || '').trim().slice(0, 40), kind: svc ? 'service' : 'product', units: 1, price_unit: svc ? unit : 'fixed', duration: svc ? cleanDuration(it.duration) : '', description: '' };
+        }) });
+        created.push(...rows);
+      }
+      setProducts((prev) => [...created.map(fromSbProduct), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
+      t.files.forEach((x) => URL.revokeObjectURL(x.url));
+      setListTool(null);
+      const word = created.length === 1 ? T.item : T.catalog.toLowerCase();
+      brandAlert(`${created.length} ${word} added.${chosen.length > list.length ? ` ${chosen.length - list.length} more didn't fit on your plan.` : ''}${apptMode && created.some((r) => r.kind === 'service' && !r.duration) ? ' Add how long each service takes from the list, so customers can book the right times.' : ''}`, { title: 'Your list is in', tone: 'info' });
+    } catch (e) { setListTool((x) => x && { ...x, busy: false, error: e.message }); }
+  };
+  const renderListTool = () => {
+    const t = listTool; if (!t) return null;
+    const close = () => { if (t.busy || t.stage === 'reading') return; t.files.forEach((x) => URL.revokeObjectURL(x.url)); setListTool(null); };
+    const setItem = (k, patch) => setListTool((x) => x && { ...x, error: '', items: x.items.map((it, j) => (j === k ? { ...it, ...patch } : it)) });
+    const HEAD = "'Plus Jakarta Sans', 'Inter', sans-serif";
+    const fieldS = { background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink };
+    const selectable = t.items.filter((it) => !it.exists);
+    const onCount = t.items.filter((it) => it.on && !it.exists).length;
+    const unsureCount = t.items.filter((it) => it.unsure && !it.exists).length;
+    const showDur = apptMode;
+    return (
+      <div className="fixed inset-0 z-[87] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.82)', backdropFilter: 'blur(4px)' }} onClick={close}>
+        <style>{'@keyframes xorlaScan{0%{top:2%}50%{top:94%}100%{top:2%}}'}</style>
+        <div className="w-full sm:max-w-xl rounded-t-[28px] sm:rounded-[28px] flex flex-col max-h-[94vh] xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.lineStrong}` }} onClick={(e) => e.stopPropagation()}>
+          <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[22px] font-extrabold leading-tight" style={{ fontFamily: HEAD, letterSpacing: '-0.025em' }}>{t.source === 'starter' ? `Pick from common ${T.catalog.toLowerCase()}` : t.stage === 'review' ? `Oga found ${t.items.length} item${t.items.length !== 1 ? 's' : ''}` : 'Snap your price list'}</div>
+              <div className="text-[13.5px] leading-relaxed mt-1" style={{ color: C.inkDim }}>
+                {t.source === 'starter' ? `${starterList?.title || ''}. Tick what you offer and type your price. Nothing is added until you say so.`
+                  : t.stage === 'review' ? (unsureCount ? `${unsureCount} need${unsureCount === 1 ? 's' : ''} a second look, marked in amber. Fix anything that's wrong, then add.` : 'Check the names and prices, fix anything that is wrong, then add.')
+                  : t.stage === 'reading' ? 'This takes about 20 seconds.' : 'A handwritten list, printed menu or wall board all work. Oga reads it and you check everything before it is added.'}
+              </div>
+            </div>
+            <button onClick={close} aria-label="Close" className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><X size={17} /></button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 pb-4">
+            {t.stage === 'pick' && (
+              <div className="space-y-4">
+                {t.files.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2.5">
+                    {t.files.map((x, k) => (
+                      <div key={x.url} className="relative rounded-2xl overflow-hidden" style={{ aspectRatio: '3 / 4', background: C.surfaceRaised }}>
+                        <img src={x.url} alt={`Photo ${k + 1}`} className="w-full h-full object-cover" />
+                        <button onClick={() => setListTool((y) => y && { ...y, files: y.files.filter((_, j) => j !== k) })} aria-label="Remove photo" className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}><X size={14} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {t.files.length < 3 && (
+                  <div className="rounded-3xl p-6 text-center" style={{ background: 'linear-gradient(160deg, rgba(255,176,32,0.10), rgba(255,176,32,0.02))', border: `1.5px dashed rgba(255,176,32,0.35)` }}>
+                    <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: C.copper }}><Camera size={24} style={{ color: C.bg }} /></div>
+                    <div className="text-[15px] font-semibold">{t.files.length ? 'Add another page' : 'Take a photo of your list'}</div>
+                    <div className="text-[12.5px] mt-1 mb-4" style={{ color: C.inkDim }}>Up to 3 photos for a long list.</div>
+                    <div className="grid grid-cols-2 gap-2.5 max-w-sm mx-auto">
+                      <label className="h-11 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-2 cursor-pointer" style={{ background: C.copper, color: C.bg }}><Camera size={16} /> Take photo<input type="file" accept="image/*" capture="environment" className="hidden" onChange={addScanFiles} /></label>
+                      <label className="h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2 cursor-pointer" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.lineStrong}`, color: C.ink }}><ImagePlus size={16} /> From gallery<input type="file" accept="image/*" multiple className="hidden" onChange={addScanFiles} /></label>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[['Lay it flat', 'and fill the frame'], ['Good light', 'no shadows or glare'], ['Sharp photo', 'hold steady']].map(([a, b]) => (
+                    <div key={a} className="rounded-2xl px-2 py-3" style={{ background: 'rgba(255,255,255,0.03)' }}><div className="text-[12.5px] font-semibold">{a}</div><div className="text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{b}</div></div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {t.stage === 'reading' && (
+              <div className="py-4">
+                <div className="relative mx-auto rounded-3xl overflow-hidden" style={{ width: 'min(260px, 70vw)', aspectRatio: '3 / 4', background: C.surfaceRaised, boxShadow: '0 30px 60px -30px rgba(0,0,0,0.8)' }}>
+                  {t.files[0] && <img src={t.files[0].url} alt="" className="w-full h-full object-cover" style={{ filter: 'saturate(0.6) brightness(0.8)' }} />}
+                  <div className="absolute left-0 right-0 h-16 -translate-y-1/2 pointer-events-none" style={{ animation: 'xorlaScan 2.4s ease-in-out infinite', background: 'linear-gradient(180deg, transparent, rgba(255,176,32,0.35) 48%, rgba(255,200,90,0.9) 50%, rgba(255,176,32,0.35) 52%, transparent)' }} />
+                </div>
+                <div className="text-center mt-6"><div className="text-[16px] font-bold" style={{ fontFamily: HEAD }}>Oga is reading your list…</div><div className="text-[12.5px] mt-1" style={{ color: C.inkFaint }}>Names, prices and sections</div></div>
+              </div>
+            )}
+            {t.stage === 'review' && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <button onClick={() => { const all = selectable.every((it) => it.on); setListTool((x) => x && { ...x, error: '', items: x.items.map((it) => (it.exists ? it : { ...it, on: !all })) }); }} className="text-[12.5px] font-semibold" style={{ color: C.copper }}>{selectable.length && selectable.every((it) => it.on) ? 'Untick all' : 'Tick all'}</button>
+                  <span className="text-[12px]" style={{ color: C.inkFaint }}>{onCount} ticked</span>
+                </div>
+                <div className="space-y-2">
+                  {t.items.map((it, k) => (
+                    <div key={k} className="rounded-2xl p-3" style={{ background: it.on ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.02)', border: `1px solid ${it.unsure && !it.exists ? 'rgba(255,176,32,0.45)' : C.line}`, opacity: it.exists ? 0.55 : 1 }}>
+                      <div className="flex items-center gap-2.5">
+                        <button onClick={() => !it.exists && setItem(k, { on: !it.on })} disabled={it.exists} role="checkbox" aria-checked={it.on} aria-label={`Include ${it.name}`} className="w-6 h-6 rounded-lg shrink-0 flex items-center justify-center" style={it.on ? { background: C.copper } : { border: `1.5px solid ${C.inkFaint}` }}>{it.on && <Check size={14} strokeWidth={3} style={{ color: C.bg }} />}</button>
+                        <input value={it.name} disabled={it.exists} onChange={(e) => setItem(k, { name: e.target.value, on: true })} className="flex-1 min-w-0 rounded-xl px-3 h-10 text-[14px] outline-none" style={fieldS} aria-label="Name" />
+                        <div className="relative w-[118px] shrink-0">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px]" style={{ color: C.inkFaint }}>₦</span>
+                          <input inputMode="decimal" placeholder="Price" value={formatNumInput(it.price)} disabled={it.exists} onChange={(e) => setItem(k, { price: parseNumInput(e.target.value), on: true })} className="w-full rounded-xl pl-7 pr-3 h-10 text-[14px] outline-none tabular-nums" style={{ ...fieldS, ...(it.on && !(Number(parseNumInput(it.price)) > 0) ? { borderColor: C.copper } : {}) }} aria-label="Price" />
+                        </div>
+                      </div>
+                      {(it.exists || (it.unsure && it.note) || (showDur && it.kind === 'service') || it.category) && (
+                        <div className="flex items-center flex-wrap gap-2 mt-2 pl-[34px]">
+                          {it.exists && <span className="text-[11.5px] font-semibold" style={{ color: C.inkFaint }}>Already in your list</span>}
+                          {!it.exists && it.unsure && <span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.copperSoft, color: C.copper }}>Check this{it.note ? `: ${it.note}` : ''}</span>}
+                          {!it.exists && showDur && it.kind === 'service' && (
+                            <BrandSelect value={it.duration || ''} onChange={(e) => setItem(k, { duration: e.target.value })} className="rounded-lg px-2.5 h-8 text-[12px]" style={{ ...fieldS, color: it.duration ? C.ink : C.copper }} aria-label="How long it takes">
+                              <option value="">How long it takes</option>
+                              {[...new Set([...(it.duration && !SCAN_DURATIONS.includes(it.duration) ? [it.duration] : []), ...SCAN_DURATIONS])].map((d) => <option key={d} value={d}>{d}</option>)}
+                            </BrandSelect>
+                          )}
+                          {!it.exists && it.category && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>{it.category}</span>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="px-6 py-4" style={{ borderTop: `1px solid ${C.line}`, paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
+            {t.error && <div className="mb-3 rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.rustSoft, color: C.rust }}>{t.error}</div>}
+            {t.stage === 'pick' && (
+              <>
+                <button onClick={readScan} disabled={!t.files.length} className="w-full h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: t.files.length ? 1 : 0.4 }}><Sparkles size={17} /> Read my list</button>
+                <div className="text-[11.5px] text-center mt-2" style={{ color: C.inkFaint }}>Uses one Oga question from your plan.</div>
+              </>
+            )}
+            {t.stage === 'review' && (
+              <div className="flex gap-2.5">
+                {t.source === 'photo' && <button onClick={() => setListTool({ ...t, stage: 'pick', items: [], error: '' })} disabled={t.busy} className="h-[52px] px-5 rounded-2xl text-[13.5px] font-semibold" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.inkDim }}>Retake</button>}
+                <button onClick={saveListTool} disabled={t.busy || !onCount} className="flex-1 h-[52px] rounded-2xl text-[15px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: t.busy || !onCount ? 0.45 : 1 }}>{t.busy ? 'Adding…' : onCount ? `Add ${onCount} ${onCount === 1 ? T.item : T.catalog.toLowerCase()}` : 'Tick what you offer'}</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderSetup = () => {
     if (!setup || !isOwnerRole) return null;
     const realSteps = setupIds.filter((x) => x !== 'welcome' && x !== 'done');
@@ -5638,6 +5827,11 @@ function XorlaApp() {
               ? tile(BedDouble, [C.copperSoft, C.copper], n ? 'Add another room type' : 'Add a room type', 'Standard, Deluxe, Suite: the price per night and how many you have.', () => pause(() => openCatalogForm('room')))
               : (
                 <>
+                  <div className="relative">
+                    {tile(Camera, [C.copper, C.bg], 'Snap your price list', 'Take a photo of your menu, price board or handwritten list. Oga reads it and you check it.', openScan)}
+                    <span className="absolute -top-2 right-4 text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: C.copper, color: C.bg }}>Fastest</span>
+                  </div>
+                  {starterList && tile(Sparkles, [C.sageSoft, C.sage], `Pick from common ${T2.catalog.toLowerCase()}`, `${starterList.title}: tick what you offer and type your prices.`, openStarter)}
                   {tile(Receipt, [C.copperSoft, C.copper], 'Type or paste your list', "One per line with its price, e.g. Men's haircut, 3000. Copy from Excel or your phone notes.", () => openImport())}
                   {tile(Plus, [C.sageSoft, C.sage], 'Add one at a time', `With a photo${apptMode ? ' and how long it takes' : ''}. Best for a short list.`, () => pause(() => { setTab('products'); setShowProductForm(true); }))}
                 </>
@@ -8000,6 +8194,7 @@ function XorlaApp() {
       {renderStockPanel()}
       {renderBookingPanels()}
       {renderImportPanel()}
+      {renderListTool()}
       {renderFulfilPanel()}
       {renderApptPanel()}
       {renderNotifPanel()}
@@ -9529,6 +9724,54 @@ function AdminDashboard() {
 }
 
 // ============ The customer's page for an offered appointment time (/appt/<link>): accept, choose another, or decline ============
+// ---------- Filling the catalog fast: Oga reads a photo of the price list, or pick from common items ----------
+async function scanPriceListPhotos(files, context) {
+  if (!AI_ACCESS_TOKEN) throw new Error('Please log in again to use Oga.');
+  const images = [];
+  for (const f of files.slice(0, 3)) {
+    const blob = await resizeImageToBlob(f, 1500, 0.82);
+    const data = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(',')[1] || ''); r.onerror = reject; r.readAsDataURL(blob); });
+    images.push({ media_type: 'image/jpeg', data });
+  }
+  let response;
+  try {
+    response = await fetch(`${SB_URL}/functions/v1/ai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${AI_ACCESS_TOKEN}` },
+      body: JSON.stringify({ task: 'scan_list', images, context }),
+    });
+  } catch (e) { throw new Error("Couldn't reach Oga. Check your internet connection and try again."); }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error) throw new Error(data.error || "Oga couldn't read the photo just now. Please try again.");
+  return data;
+}
+const SCAN_DURATIONS = ['15 minutes', '30 minutes', '45 minutes', '1 hour', '1.5 hours', '2 hours', '2.5 hours', '3 hours', '4 hours', '5 hours', '6 hours'];
+const cleanDuration = (d) => (/^\s*\d+(\.\d+)?\s*(min|hour)/i.test(String(d || '')) ? String(d).trim().replace(/\bmins?\b/i, 'minutes').replace(/\bhrs?\b/i, 'hours') : '');
+// Common items by kind of business. The owner ticks what they offer and types their own prices.
+const STARTER_LISTS = {
+  personal_care: { title: 'Salon, barbing and beauty', items: [
+    ['Knotless braids', '3 hours', 'Hair'], ['Box braids', '3 hours', 'Hair'], ['Cornrows', '1 hour', 'Hair'], ['Weaving', '1 hour', 'Hair'], ['Wig installation', '1 hour', 'Hair'], ['Wig revamp', '2 hours', 'Hair'], ['Wash and set', '1 hour', 'Hair'], ['Relaxer or retouch', '1 hour', 'Hair'], ['Silk press', '1.5 hours', 'Hair'],
+    ["Men's haircut", '30 minutes', 'Barbing'], ['Haircut and dye', '45 minutes', 'Barbing'], ['Beard trim and shape', '15 minutes', 'Barbing'], ["Children's haircut", '30 minutes', 'Barbing'],
+    ['Manicure', '45 minutes', 'Nails'], ['Pedicure', '1 hour', 'Nails'], ['Gel polish', '45 minutes', 'Nails'], ['Acrylic nails', '1.5 hours', 'Nails'],
+    ['Makeup', '1 hour', 'Beauty'], ['Bridal makeup', '2 hours', 'Beauty'], ['Lash extensions', '1.5 hours', 'Beauty'], ['Brow shaping', '15 minutes', 'Beauty'], ['Facial', '1 hour', 'Spa'], ['Full body massage', '1 hour', 'Spa'],
+  ] },
+  repairs: { title: 'Repairs and trades', items: [
+    ['Phone screen replacement', '1 hour', 'Phones'], ['Phone battery replacement', '30 minutes', 'Phones'], ['Charging port repair', '1 hour', 'Phones'], ['Software update or flashing', '1 hour', 'Phones'], ['Laptop repair', '2 hours', 'Computers'],
+    ['Engine service and oil change', '1 hour', 'Cars'], ['Brake pads replacement', '1 hour', 'Cars'], ['Wheel alignment and balancing', '30 minutes', 'Cars'], ['Car AC regas', '1 hour', 'Cars'], ['Generator servicing', '2 hours', 'Generators'],
+    ['Trouser adjustment', '30 minutes', 'Tailoring'], ['Dress amendment', '1 hour', 'Tailoring'], ['Native wear sewing', '', 'Tailoring'],
+  ] },
+  professional: { title: 'Professional services', items: [
+    ['Consultation', '1 hour', ''], ['Business name registration (CAC)', '', ''], ['Tax filing', '', ''], ['Monthly bookkeeping', '', ''], ['Business plan', '', ''], ['Logo design', '', 'Design'], ['Flyer design', '', 'Design'], ['Website design', '', 'Design'], ['Legal advice', '1 hour', ''],
+  ] },
+  events: { title: 'Events and media', items: [
+    ['Studio photo shoot', '1 hour', 'Photography'], ['Event photography', '', 'Photography'], ['Event videography', '', 'Video'], ['Event MC', '', 'Entertainment'], ['DJ', '', 'Entertainment'], ['Small chops (per pack)', '', 'Food'], ['Catering (per head)', '', 'Food'], ['Event decoration', '', 'Decor'], ['Celebration cake', '', 'Food'],
+  ] },
+  _products: { title: 'Provisions and foodstuff', items: [
+    ['Rice (50kg bag)', '', 'Foodstuff'], ['Beans (paint)', '', 'Foodstuff'], ['Garri (paint)', '', 'Foodstuff'], ['Semovita (1kg)', '', 'Foodstuff'], ['Spaghetti (500g)', '', 'Foodstuff'], ['Indomie (carton)', '', 'Foodstuff'],
+    ['Groundnut oil (5 litres)', '', 'Oils'], ['Palm oil (5 litres)', '', 'Oils'], ['Sugar (1 pack)', '', 'Provisions'], ['Milk (tin)', '', 'Provisions'], ['Milo (tin)', '', 'Provisions'], ['Eggs (crate)', '', 'Provisions'],
+    ['Bottled water (pack)', '', 'Drinks'], ['Soft drinks (crate)', '', 'Drinks'], ['Malt drinks (pack)', '', 'Drinks'], ['Bread', '', 'Bakery'],
+  ] },
+};
 // ---------- Promotion: a printable poster, WhatsApp Status cards and discount codes ----------
 // Everything is drawn in the browser on a canvas, so nothing is uploaded and it works for every business.
 const PROMO = { dark: '#0A1F1C', panel: '#0F2925', raised: '#13322C', ink: '#EAF6F2', dim: '#93B0AA', faint: '#54706A', copper: '#FFB020', sage: '#1FD9C4', paper: '#FFFFFF', paperInk: '#0E1F1B', paperDim: '#5B6E69', paperLine: '#E3E8E6' };
