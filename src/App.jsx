@@ -9119,6 +9119,20 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
     } catch (e) { brandAlert("Couldn't make the PDF. Try Save image instead."); }
     setWorking('');
   };
+  // Phones share pictures straight into WhatsApp; computers get Save, Copy picture and a WhatsApp link instead
+  const onPhone = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  const shareText = tpl === 'offer' && code ? `Use code ${code.code} for ${code.kind === 'percent' ? `${Number(code.value)}%` : fmt(code.value)} off: ${storeLink}?code=${code.code}` : `${words.cta}: ${storeLink}`;
+  const copyPicture = async () => {
+    const b = pngRef.current; if (!b) return;
+    try {
+      if (!navigator.clipboard || typeof window.ClipboardItem === 'undefined') throw new Error('no clipboard');
+      await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': b })]);
+      setWorking('copied'); setTimeout(() => setWorking((w) => (w === 'copied' ? '' : w)), 2500);
+    } catch (e) {
+      downloadBlob(b, `${promoSlug(settings.businessName)}-${tpl}.png`);
+      brandAlert("This browser can't copy pictures, so it was saved to your Downloads folder instead.", { title: 'Picture saved', tone: 'info' });
+    }
+  };
   const shareCard = async () => {
     if (!pngRef.current) return;
     setWorking('share');
@@ -9126,7 +9140,7 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
     try {
       const b = pngRef.current; if (!b) { setWorking(''); return; }
       const file = new File([b], filename, { type: 'image/png' });
-      const text = tpl === 'offer' && code ? `Use code ${code.code} for ${code.kind === 'percent' ? `${Number(code.value)}%` : fmt(code.value)} off: ${storeLink}?code=${code.code}` : `${words.cta}: ${storeLink}`;
+      const text = shareText;
       if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], text });
       else { downloadBlob(b, filename); brandAlert('Saved to your downloads. Open WhatsApp, tap Status, then add this picture.', { title: 'Image saved', tone: 'info' }); }
     } catch (e) { if (e && e.name !== 'AbortError') brandAlert("Couldn't share. Use Save image, then add it to your Status from WhatsApp."); }
@@ -9313,11 +9327,26 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
           {(tpl === 'store' || (tpl === 'item' && sellable.length) || (tpl === 'offer' && liveCodes.length)) && (
             <>
               {previewBox('1080 / 1920', 300)}
-              <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
-                <button onClick={() => savePng(`${promoSlug(settings.businessName)}-${tpl}.png`)} disabled={preview.busy} className={btn} style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Save image</button>
-                <button onClick={shareCard} disabled={preview.busy || working === 'share'} className={btn} style={{ background: C.copper, color: C.bg, opacity: preview.busy ? 0.6 : 1 }}><Share size={15} /> {working === 'share' ? 'Opening…' : 'Share'}</button>
-              </div>
-              <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>On your phone: tap Share, pick WhatsApp, then My status.</div>
+              {onPhone ? (
+                <>
+                  <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
+                    <button onClick={() => savePng(`${promoSlug(settings.businessName)}-${tpl}.png`)} disabled={preview.busy} className={btn} style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Save image</button>
+                    <button onClick={shareCard} disabled={preview.busy || working === 'share'} className={btn} style={{ background: C.copper, color: C.bg, opacity: preview.busy ? 0.6 : 1 }}><Share size={15} /> {working === 'share' ? 'Opening…' : 'Share'}</button>
+                  </div>
+                  <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>Tap Share, pick WhatsApp, then My status.</div>
+                </>
+              ) : (
+                <>
+                  <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
+                    <button onClick={() => savePng(`${promoSlug(settings.businessName)}-${tpl}.png`)} disabled={preview.busy} className={btn} style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Save image</button>
+                    <button onClick={copyPicture} disabled={preview.busy} className={btn} style={{ background: working === 'copied' ? C.sage : C.copper, color: C.bg, opacity: preview.busy ? 0.6 : 1 }}>{working === 'copied' ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy picture</>}</button>
+                  </div>
+                  <a href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noopener noreferrer" className={`${btn} w-full`} style={{ border: `1px solid ${C.line}`, color: C.ink }}><Send size={15} /> Send the link on WhatsApp</a>
+                  <div className="rounded-xl px-3.5 py-3 text-[12px] leading-relaxed" style={{ background: C.surfaceRaised, color: C.inkDim }}>
+                    <strong style={{ color: C.ink }}>On a computer:</strong> Save image, then in WhatsApp on your computer open Status and add the picture (newer versions of WhatsApp Web and Desktop allow this). You can also Copy picture and paste it (Ctrl+V) into a chat, Facebook or Instagram. The quickest way is on your phone: open Xorla there and tap Share.
+                  </div>
+                </>
+              )}
             </>
           )}
         </>
