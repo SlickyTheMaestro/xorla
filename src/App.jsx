@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -844,7 +844,8 @@ function PinSetup({ currentPin, mode, onFinish, onCancel }) {
 }
 
 function XorlaMark({ size = 30 }) {
-  const id = 'xg-' + size;
+  // a unique id per logo, so a hidden copy elsewhere on the page can't blank out its colours
+  const id = 'xg' + React.useId().replace(/:/g, '');
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" fill="none" style={{ flexShrink: 0 }}>
       <defs>
@@ -5327,7 +5328,7 @@ function XorlaApp() {
         <div className="flex items-center justify-between mt-3">
           <button onClick={() => setChecklistOpen(!checklistOpen)} className="text-[12px] font-semibold" style={{ color: C.inkDim }}>{checklistOpen ? 'Show less' : `See all ${readyItems.length}`}</button>
           <div className="flex items-center gap-4">
-            {settings.setupDoneAt !== null && <button onClick={() => setSetup({ step: 1, f: null, busy: false, error: '', paused: false })} className="text-[12px] font-semibold" style={{ color: C.copper }}>Guided setup</button>}
+            {settings.setupDoneAt !== null && <button onClick={() => setSetup({ step: 2, f: null, busy: false, error: '', paused: false })} className="text-[12px] font-semibold" style={{ color: C.copper }}>Guided setup</button>}
             <button onClick={async () => { if (await brandConfirm('You can still find everything in Settings. Hide the checklist from Overview?', { title: 'Hide the checklist?', confirm: 'Hide' })) updateSettings({ checklistHidden: true }); }} className="text-[12px]" style={{ color: C.inkFaint }}>Hide</button>
           </div>
         </div>
@@ -5337,9 +5338,11 @@ function XorlaApp() {
 
   // The guided setup itself
   const setupIds = (() => {
-    const ids = ['type', 'details', 'branches'];
-    if (settings.businessType && settings.businessType !== 'products') {
-      if (['accommodation', 'rentals'].includes(serviceKind)) ids.push('deposits'); else ids.push('hours');
+    const ids = ['welcome', 'type', 'details', 'branches'];
+    const liveType = (setup && setup.f && setup.f.type) || settings.businessType;
+    const liveKind = (setup && setup.f && setup.f.kind) || serviceKind;
+    if (liveType && liveType !== 'products') {
+      if (['accommodation', 'rentals'].includes(liveKind)) ids.push('deposits'); else ids.push('hours');
     }
     ids.push('list', 'storefront', 'team', 'done');
     return ids;
@@ -5358,10 +5361,12 @@ function XorlaApp() {
   };
   const renderSetup = () => {
     if (!setup || !isOwnerRole) return null;
+    const realSteps = setupIds.filter((x) => x !== 'welcome' && x !== 'done');
     if (setup.paused) {
+      const pos = Math.max(1, realSteps.indexOf(setupIds[setup.step]) + 1);
       return (
         <button onClick={() => { if (tab === 'settings') setTab('overview'); setSetup({ ...setup, paused: false }); }} className="fixed z-[60] left-1/2 -translate-x-1/2 bottom-[150px] lg:bottom-6 flex items-center gap-2 pl-4 pr-5 py-3 rounded-full whitespace-nowrap text-[13px] font-semibold xorla-fade-up" style={{ background: C.ink, color: C.bg, boxShadow: '0 12px 30px rgba(0,0,0,0.45)' }}>
-          <ChevronLeft size={16} /> Back to setup · step {Math.max(1, Math.min(setup.step, setupIds.length - 1))} of {setupIds.length - 1}
+          <ChevronLeft size={16} /> Back to setup, step {pos} of {realSteps.length}
         </button>
       );
     }
@@ -5369,9 +5374,21 @@ function XorlaApp() {
     const setF = (patch) => setSetup((x) => x && { ...x, f: { ...(x.f || setupDefaults()), ...patch }, error: '' });
     const i = Math.min(setup.step, setupIds.length - 1);
     const id = setupIds[i];
-    const go = (n) => setSetup((x) => x && { ...x, step: Math.max(0, Math.min(setupIds.length - 1, n)), busy: false, error: '' });
+    const go = (n) => setSetup((x) => x && { ...x, step: Math.max(0, Math.min(setupIds.length - 1, n)), busy: false, error: '', dir: n > x.step ? 1 : -1 });
     const T2 = BUSINESS_TERMS[f.type] || T;
-    const nameFor = settings.businessName || 'your business';
+    const nameFor = (f.name || settings.businessName || 'your business').trim();
+    const kindInfo = f.type && f.type !== 'products' ? SERVICE_KINDS[f.kind] : null;
+    const typeText = !f.type ? '' : f.type === 'products' ? 'Shop' : f.type === 'both' ? `${kindInfo ? kindInfo.label : 'Products and services'}, with products` : (kindInfo ? kindInfo.label : 'Services');
+    const META = {
+      type: { label: 'What you do', Icon: Shapes },
+      details: { label: 'Contact details', Icon: Phone },
+      branches: { label: f.type ? L.Many : 'Locations', Icon: Store },
+      hours: { label: 'Opening hours', Icon: Clock },
+      deposits: { label: 'Deposits', Icon: ShieldCheck },
+      list: { label: !f.type ? 'What you sell or offer' : serviceKind === 'accommodation' ? 'Room types' : T2.catalog, Icon: Boxes },
+      storefront: { label: 'Storefront', Icon: Globe },
+      team: { label: 'Staff', Icon: Users },
+    };
     const next = async () => {
       const step = setupIds[i];
       try {
@@ -5381,18 +5398,18 @@ function XorlaApp() {
           if (f.type !== 'products' && !f.kind) throw new Error('Choose the kind of services you offer.');
           updateSettings({ businessType: f.type, ...(f.type !== 'products' ? { serviceKind: f.kind } : {}) });
         } else if (step === 'details') {
-          if (f.phone.trim() && !phoneOk(f.phone)) throw new Error("That phone number looks too short. Use the full number, e.g. 0803 123 4567.");
+          if (f.phone.trim() && !phoneOk(f.phone)) throw new Error('That phone number looks too short. Use the full number, e.g. 0803 123 4567.');
           updateSettings({ businessName: f.name.trim() || settings.businessName, ownerPhone: f.phone.trim(), businessAddress: f.address.trim() });
         } else if (step === 'branches') {
           if (f.multi) {
             const main = shops[0];
-            if (main && f.mainName.trim() && f.mainName.trim() !== main.name) {
+            if (main && f.mainName.trim() && f.mainName.trim() !== locName(main)) {
               await sbRest(`shops?id=eq.${main.id}`, { method: 'PATCH', accessToken: session.access_token, body: { name: f.mainName.trim() } });
             }
             const names = f.newBranches.map((x) => x.trim()).filter(Boolean).filter((x) => !shops.some((s0) => s0.name.toLowerCase() === x.toLowerCase()));
             const room = planKnown ? Math.max(0, planCaps.locations - liveLocations.length) : names.length;
             for (const nm of names.slice(0, room)) await sbRest('shops', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: nm } });
-            if (names.length || (main && f.mainName.trim() !== main.name)) await loadBusinessData(session.access_token);
+            if (names.length || (main && f.mainName.trim() !== locName(main))) await loadBusinessData(session.access_token);
             if (names.length > room) brandAlert(`Your plan includes ${planCaps.locations} locations, so ${names.length - room} weren't added. You can add more ${L.many} later in Settings.`, { tone: 'info' });
             setF({ newBranches: [''] });
           }
@@ -5414,159 +5431,227 @@ function XorlaApp() {
       } catch (e) { setSetup((x) => x && { ...x, busy: false, error: e.message }); }
     };
     const pause = (fn) => { setSetup({ ...setup, f, paused: true }); fn(); };
-    const chip = (on) => (on ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` });
-    const sfield = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
-    const label = (t, hint) => <div className="mb-1.5"><div className="text-[13px] font-semibold">{t}</div>{hint && <div className="text-[11.5px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>{hint}</div>}</div>;
+    const HEAD = "'Plus Jakarta Sans', 'Inter', sans-serif";
+    const sfield = { background: 'rgba(255,255,255,0.035)', border: `1px solid ${C.lineStrong}`, color: C.ink };
+    const inputCls = 'w-full rounded-2xl px-4 h-[52px] text-[15px] outline-none transition-colors focus:border-[#FFB020]';
+    const label = (t, hint) => <div className="mb-2"><div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>{t}</div>{hint && <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>{hint}</div>}</div>;
+    const option = (on, onClick, { title, desc, Icon, compact }) => (
+      <button type="button" onClick={onClick} aria-pressed={on} className={`relative w-full text-left rounded-2xl transition-all ${compact ? 'p-3' : 'p-4'} flex items-start gap-3`}
+        style={{ background: on ? 'linear-gradient(160deg, rgba(255,176,32,0.14), rgba(255,176,32,0.04))' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${on ? C.copper : C.line}`, boxShadow: on ? '0 10px 30px -14px rgba(255,176,32,0.55)' : 'none' }}>
+        {Icon && <span className={`${compact ? 'w-9 h-9 rounded-xl' : 'w-11 h-11 rounded-2xl'} shrink-0 flex items-center justify-center`} style={{ background: on ? C.copper : C.surfaceRaised }}><Icon size={compact ? 17 : 20} style={{ color: on ? C.bg : C.inkDim }} /></span>}
+        <span className="min-w-0 flex-1 pr-5">
+          <span className={`block font-semibold ${compact ? 'text-[13px]' : 'text-[15px]'}`} style={{ color: on ? C.ink : C.ink }}>{title}</span>
+          {desc && <span className={`block leading-snug mt-0.5 ${compact ? 'text-[11px]' : 'text-[12.5px]'}`} style={{ color: C.inkDim }}>{desc}</span>}
+        </span>
+        {on && <span className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: C.copper }}><Check size={12} strokeWidth={3} style={{ color: C.bg }} /></span>}
+      </button>
+    );
+    const seg = (opts, value, onPick) => (
+      <div className="flex gap-1 p-1 rounded-2xl" style={{ background: 'rgba(255,255,255,0.035)', border: `1px solid ${C.line}` }}>
+        {opts.map(([v, l]) => <button key={String(v)} onClick={() => onPick(v)} className="flex-1 h-11 rounded-xl text-[13px] font-semibold transition-all" style={value === v ? { background: C.copper, color: C.bg, boxShadow: '0 6px 18px -8px rgba(255,176,32,0.7)' } : { color: C.inkDim }}>{l}</button>)}
+      </div>
+    );
+
+    // The card that fills in as they answer: the business taking shape
+    const hoursText = (settings.setupSteps || []).includes('hours') || i > setupIds.indexOf('hours') && setupIds.includes('hours') ? `${daysLabel(f.days)}, ${hhmmLabel(f.open)} to ${hhmmLabel(f.close)}` : '';
+    const branchCount = shops.length + (f.multi ? f.newBranches.filter((x) => x.trim()).length : 0);
+    const bar = (w) => <span className="inline-block h-2.5 rounded-full align-middle" style={{ width: w, background: 'rgba(255,255,255,0.08)' }} />;
+    const card = (big) => (
+      <div className="relative w-full overflow-hidden" style={{ minHeight: big ? 236 : undefined, borderRadius: big ? 28 : 22, background: 'linear-gradient(150deg, #174339 0%, #0F2C27 48%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)', boxShadow: big ? '0 40px 80px -30px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(115deg, transparent 38%, rgba(255,176,32,0.10) 50%, transparent 62%)' }} />
+        <div className="absolute -right-10 -bottom-12 opacity-[0.07] pointer-events-none"><XorlaMark size={big ? 200 : 120} /></div>
+        <div className={`relative h-full flex flex-col ${big ? 'p-6' : 'p-4'}`}>
+          <div className="flex items-start justify-between gap-3">
+            {settings.logoUrl
+              ? <img src={settings.logoUrl} alt="" className={`${big ? 'w-14 h-14' : 'w-10 h-10'} rounded-2xl object-cover`} style={{ border: '1px solid rgba(255,255,255,0.12)' }} />
+              : <span className={`${big ? 'w-14 h-14 text-[24px]' : 'w-10 h-10 text-[17px]'} rounded-2xl flex items-center justify-center font-extrabold`} style={{ fontFamily: HEAD, background: `linear-gradient(140deg, #FFC85A, ${C.copper})`, color: C.bg }}>{(nameFor[0] || 'X').toUpperCase()}</span>}
+            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full" style={settings.storefrontEnabled ? { background: C.sageSoft, color: C.sage } : { background: 'rgba(255,255,255,0.06)', color: C.inkFaint }}>{settings.storefrontEnabled ? 'Storefront live' : 'Storefront off'}</span>
+          </div>
+          <div className={big ? 'mt-auto' : 'mt-3'}>
+            <div className={`font-extrabold leading-[1.1] ${big ? 'text-[26px]' : 'text-[18px]'} truncate`} style={{ fontFamily: HEAD, letterSpacing: '-0.025em', color: C.ink }}>{nameFor}</div>
+            <div className={`${big ? 'text-[13px] mt-1' : 'text-[12px] mt-0.5'}`} style={{ color: C.inkDim }}>{typeText || bar(110)}</div>
+          </div>
+          {big && (
+            <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2.5 text-[12px]">
+              <div className="flex items-center gap-2 min-w-0"><Phone size={13} style={{ color: C.copper }} className="shrink-0" /><span className="truncate" style={{ color: C.ink }}>{phoneOk(f.phone) ? formatPhoneDisplay(f.phone) : bar(90)}</span></div>
+              <div className="flex items-center gap-2 min-w-0"><Boxes size={13} style={{ color: C.copper }} className="shrink-0" /><span className="truncate" style={{ color: C.ink }}>{listItems.length ? `${listItems.length} ${listItems.length === 1 ? (serviceKind === 'accommodation' ? 'room type' : T2.item) : (serviceKind === 'accommodation' ? 'room types' : T2.catalog.toLowerCase())}` : bar(70)}</span></div>
+              <div className="col-span-2 flex items-center gap-2 min-w-0"><MapPin size={13} style={{ color: C.copper }} className="shrink-0" /><span className="truncate" style={{ color: C.ink }}>{f.address.trim() || bar(140)}</span></div>
+              <div className="col-span-2 flex items-center gap-2 min-w-0"><Clock size={13} style={{ color: C.copper }} className="shrink-0" /><span className="truncate" style={{ color: C.ink }}>{setupIds.includes('hours') ? (hoursText || bar(150)) : `${branchCount} ${branchCount === 1 ? L.one : L.many}`}</span></div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+
     const heads = {
-      type: [`What does ${f.name || nameFor} do?`, 'Xorla uses the right words and tools for your kind of business. You can change this later.'],
+      welcome: [`Let's set up ${nameFor}`, "A few quick questions so Xorla fits the way you work. It takes about five minutes, and you can skip anything and finish it later."],
+      type: [`What does ${nameFor} do?`, 'Xorla uses the right words and tools for your kind of business.'],
       details: ['How customers reach you', 'These go on your receipts, invoices, storefront and posters.'],
-      branches: [`Your ${L.many}`, `One ${L.one} or several? Each keeps its own sales, stock and staff, and you see them together.`],
-      hours: ["When you're open", 'Customers can only book times inside these hours. Each service uses its own length.'],
+      branches: [`How many ${L.many} do you have?`, `Each ${L.one} keeps its own sales, stock and staff, and you see them all together.`],
+      hours: ["When are you open?", 'Customers can only book times inside these hours. Each service uses its own length.'],
       deposits: ['Deposits and cancellations', `A deposit holds a booking firmly, so unpaid holds can go to walk-in ${serviceKind === 'rentals' ? 'customers' : 'guests'}.`],
-      list: [serviceKind === 'accommodation' ? 'Your room types' : `What you ${T2.tracksStock && f.type !== 'services' ? 'sell' : 'offer'}`, `Add it once. After that, recording a ${T2.sale} takes one tap, and customers can ${actWord} online.`],
+      list: [serviceKind === 'accommodation' ? 'Add your room types' : `What do you ${T2.tracksStock && f.type !== 'services' ? 'sell' : 'offer'}?`, `Add it once. After that, recording a ${T2.sale} takes one tap, and customers can ${actWord} online.`],
       storefront: ['Your online storefront', `A free page with your own link. Customers see your ${T2.catalog.toLowerCase()} and ${actWord} without calling you.`],
-      team: ['Your staff', 'Optional. Staff record sales on their own phones. You see everything; they only see what they need.'],
-      done: [readyItems.every((x) => x.done || x.optional) ? `${nameFor} is ready` : `${nameFor} is nearly ready`, 'You can finish anything left from the checklist on your Overview screen.'],
+      team: ['Bring in your staff', 'Optional. Staff record sales on their own phones. You see everything; they only see what they need.'],
+      done: [readyItems.every((x) => x.done || x.optional) ? `${nameFor} is ready` : `${nameFor} is ready to start`, readyItems.every((x) => x.done || x.optional) ? 'Everything customers and staff need is in place.' : 'Anything left is on your checklist on the Overview screen, so you can finish it whenever suits you.'],
     }[id];
+
     const body = (() => {
+      if (id === 'welcome') return (
+        <div className="space-y-1">
+          {realSteps.map((sid, k) => { const m = META[sid]; return (
+            <div key={sid} className="flex items-center gap-3.5 py-2.5">
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.surfaceRaised }}><m.Icon size={16} style={{ color: C.copper }} /></span>
+              <span className="text-[14px] font-medium flex-1" style={{ color: C.ink }}>{m.label}</span>
+              <span className="text-[12px] tabular-nums" style={{ color: C.inkFaint }}>{k + 1}</span>
+            </div>
+          ); })}
+        </div>
+      );
       if (id === 'type') return (
-        <>
-          {renderBusinessTypeChoices(f.type, (t) => setF({ type: t }))}
-          {(f.type === 'services' || f.type === 'both') && renderServiceKindChoices(f.kind, (k) => setF({ kind: k }))}
-        </>
+        <div className="space-y-5">
+          <div className="space-y-2.5">
+            {[['products', 'I sell products', 'Shops, boutiques, distributors, provisions: things you keep in stock.', ShoppingBag], ['services', 'I offer services', 'Salons, hotels, tailors, mechanics, photographers, consulting.', Sparkle], ['both', 'Both', 'For example, a salon that also sells hair products.', Layers]]
+              .map(([v, t, d, Icon]) => <div key={v}>{option(f.type === v, () => setF({ type: v }), { title: t, desc: d, Icon })}</div>)}
+          </div>
+          {(f.type === 'services' || f.type === 'both') && (
+            <div className="xorla-fade-up">
+              {label('What kind of services?')}
+              <div className="grid grid-cols-2 gap-2">
+                {[['personal_care', Scissors], ['accommodation', BedDouble], ['rentals', Car], ['repairs', Wrench], ['professional', Briefcase], ['events', Camera]].map(([k, Icon]) => <div key={k}>{option(f.kind === k, () => setF({ kind: k }), { title: SERVICE_KINDS[k].label, desc: SERVICE_KINDS[k].hint, Icon, compact: true })}</div>)}
+              </div>
+            </div>
+          )}
+        </div>
       );
       if (id === 'details') return (
-        <div className="space-y-4">
-          <div>{label('Business name')}<input value={f.name} maxLength={60} onChange={(e) => setF({ name: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} /></div>
+        <div className="space-y-5">
+          <div>{label('Business name')}<input value={f.name} maxLength={60} onChange={(e) => setF({ name: e.target.value })} className={inputCls} style={sfield} /></div>
           <div>
-            {label('WhatsApp number', 'Storefront orders, requests and customer replies come here. This is the most important one.')}
-            <input type="tel" inputMode="tel" placeholder="e.g. 0803 123 4567" value={f.phone} onChange={(e) => setF({ phone: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} />
-            {phoneOk(f.phone) && <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: C.sage }}>✓ Customers will reach you on {formatPhoneDisplay(f.phone)}</div>}
+            {label('WhatsApp number', 'Storefront orders, requests and customer replies come here.')}
+            <div className="relative">
+              <Phone size={16} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: phoneOk(f.phone) ? C.sage : C.inkFaint }} />
+              <input type="tel" inputMode="tel" placeholder="0803 123 4567" value={f.phone} onChange={(e) => setF({ phone: e.target.value })} className={`${inputCls} pl-11`} style={sfield} />
+              {phoneOk(f.phone) && <Check size={16} strokeWidth={3} className="absolute right-4 top-1/2 -translate-y-1/2" style={{ color: C.sage }} />}
+            </div>
           </div>
-          <div>{label('Address (optional)', 'Printed on receipts and invoices, and sent in appointment reminders.')}<textarea rows={2} placeholder="Street, area, city" value={f.address} onChange={(e) => setF({ address: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none resize-none" style={sfield} /></div>
           <div>
-            {label('Logo (optional)', 'Shows on receipts, invoices, your storefront and posters.')}
-            <label className="flex items-center gap-3 rounded-xl px-3.5 py-3 cursor-pointer" style={{ ...sfield, borderStyle: 'dashed' }}>
-              {settings.logoUrl ? <img src={settings.logoUrl} alt="" className="w-11 h-11 rounded-xl object-cover" /> : <span className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: C.surface }}><Camera size={18} style={{ color: C.inkDim }} /></span>}
-              <span className="text-[13px] font-semibold" style={{ color: C.copper }}>{logoUploading ? 'Uploading…' : settings.logoUrl ? 'Change logo' : 'Upload logo'}</span>
-              <input type="file" accept="image/*" className="hidden" onChange={handleLogoSelect} disabled={logoUploading} />
-            </label>
+            {label('Address', 'Optional. Printed on receipts and invoices, and sent in reminders.')}
+            <div className="relative"><MapPin size={16} className="absolute left-4 top-[18px]" style={{ color: C.inkFaint }} />
+              <textarea rows={2} placeholder="Street, area, city" value={f.address} onChange={(e) => setF({ address: e.target.value })} className="w-full rounded-2xl pl-11 pr-4 py-3.5 text-[15px] outline-none resize-none focus:border-[#FFB020]" style={sfield} /></div>
           </div>
+          <label className="flex items-center gap-4 rounded-2xl p-3.5 cursor-pointer transition-colors" style={{ background: 'rgba(255,255,255,0.03)', border: `1.5px dashed ${C.lineStrong}` }}>
+            {settings.logoUrl ? <img src={settings.logoUrl} alt="" className="w-14 h-14 rounded-2xl object-cover" /> : <span className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: C.surfaceRaised }}>{logoUploading ? <Loader2 size={20} className="animate-spin" style={{ color: C.inkDim }} /> : <ImagePlus size={20} style={{ color: C.copper }} />}</span>}
+            <span className="flex-1"><span className="block text-[14px] font-semibold" style={{ color: C.ink }}>{logoUploading ? 'Uploading…' : settings.logoUrl ? 'Change your logo' : 'Add your logo'}</span><span className="block text-[12px]" style={{ color: C.inkFaint }}>Optional. Shows on receipts, invoices and your storefront.</span></span>
+            <input type="file" accept="image/*" className="hidden" onChange={handleLogoSelect} disabled={logoUploading} />
+          </label>
         </div>
       );
       if (id === 'branches') return (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-2">
-            {[[false, `Just one ${L.one}`], [true, `More than one`]].map(([v, l]) => <button key={l} onClick={() => setF({ multi: v })} className="py-3.5 rounded-xl text-[13.5px] font-semibold" style={f.multi === v ? { background: C.copperSoft, color: C.copper, border: `1.5px solid ${C.copper}` } : { background: C.surfaceRaised, color: C.ink, border: `1.5px solid ${C.line}` }}>{l}</button>)}
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-2.5">
+            {option(!f.multi, () => setF({ multi: false }), { title: `Just one`, desc: `One ${L.one}`, Icon: Store })}
+            {option(f.multi, () => setF({ multi: true }), { title: 'More than one', desc: `Several ${L.many}`, Icon: Building2 })}
           </div>
           {f.multi && (
-            <div className="space-y-3">
-              <div>{label(`Your main ${L.one}`, 'Give it a name customers and staff will recognise, e.g. the area it is in.')}<input value={f.mainName} onChange={(e) => setF({ mainName: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} /></div>
-              {shops.slice(1).map((s0) => <div key={s0.id} className="flex items-center gap-2 rounded-xl px-3.5 py-3 text-[13.5px]" style={{ background: C.surfaceRaised }}><Check size={15} style={{ color: C.sage }} /> {locName(s0)}</div>)}
+            <div className="space-y-4 xorla-fade-up">
+              <div>{label(`Your main ${L.one}`, 'A name staff and customers will recognise, like the area it is in.')}<input value={f.mainName} onChange={(e) => setF({ mainName: e.target.value })} className={inputCls} style={sfield} /></div>
+              {shops.slice(1).map((s0) => <div key={s0.id} className="flex items-center gap-2.5 rounded-2xl px-4 h-[52px] text-[14px]" style={{ background: C.surfaceRaised }}><Check size={15} style={{ color: C.sage }} /> {locName(s0)}</div>)}
               <div>
                 {label(`Your other ${L.many}`)}
-                <div className="space-y-2">
-                  {f.newBranches.map((b, k) => <input key={k} value={b} placeholder={k === 0 ? 'e.g. Umuahia' : `Another ${L.one} (optional)`} onChange={(e) => { const nb = [...f.newBranches]; nb[k] = e.target.value; if (k === nb.length - 1 && e.target.value.trim() && nb.length < 9) nb.push(''); setF({ newBranches: nb }); }} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} />)}
-                </div>
+                <div className="space-y-2">{f.newBranches.map((b, k) => <input key={k} value={b} placeholder={k === 0 ? 'e.g. Umuahia' : `Another ${L.one} (optional)`} onChange={(e) => { const nb = [...f.newBranches]; nb[k] = e.target.value; if (k === nb.length - 1 && e.target.value.trim() && nb.length < 9) nb.push(''); setF({ newBranches: nb }); }} className={inputCls} style={sfield} />)}</div>
               </div>
-              {planKnown && <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Your plan includes {planCaps.locations} location{planCaps.locations !== 1 ? 's' : ''}{onTrial ? ' during the free trial' : ''}.</div>}
+              {planKnown && <div className="text-[12px]" style={{ color: C.inkFaint }}>Your plan includes {planCaps.locations} location{planCaps.locations !== 1 ? 's' : ''}{onTrial ? ' during the free trial' : ''}.</div>}
             </div>
           )}
-          {!f.multi && <div className="text-[12px] leading-relaxed rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, color: C.inkDim }}>Perfect. You can add more {L.many} any time from Settings.</div>}
+          {!f.multi && <div className="text-[13px] leading-relaxed" style={{ color: C.inkDim }}>You can add more {L.many} any time from Settings.</div>}
         </div>
       );
       if (id === 'hours') return (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div>{label('Days you open')}
-            <div className="grid grid-cols-7 gap-1.5">{[1, 2, 3, 4, 5, 6, 7].map((d) => { const on = f.days.includes(d); return <button key={d} onClick={() => setF({ days: on ? f.days.filter((x) => x !== d) : [...f.days, d].sort() })} aria-pressed={on} className="py-2.5 rounded-lg text-[12px] font-semibold" style={chip(on)}>{DAY_SHORT[d]}</button>; })}</div>
+            <div className="grid grid-cols-7 gap-1.5">{[1, 2, 3, 4, 5, 6, 7].map((d) => { const on = f.days.includes(d); return <button key={d} onClick={() => setF({ days: on ? f.days.filter((x) => x !== d) : [...f.days, d].sort() })} aria-pressed={on} className="h-12 rounded-xl text-[12.5px] font-semibold transition-all" style={on ? { background: C.copper, color: C.bg } : { background: 'rgba(255,255,255,0.03)', color: C.inkDim, border: `1px solid ${C.line}` }}>{DAY_SHORT[d]}</button>; })}</div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[['open', 'Opens'], ['close', 'Closes']].map(([k, l]) => (
-              <label key={k} className="text-[13px] font-semibold">{l}
-                <BrandSelect value={f[k]} onChange={(e) => setF({ [k]: e.target.value })} className="w-full mt-1.5 rounded-xl px-3 py-3 text-sm" style={sfield}>{HALF_HOURS.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}</BrandSelect>
-              </label>
+              <div key={k}>{label(l)}<BrandSelect value={f[k]} onChange={(e) => setF({ [k]: e.target.value })} className="w-full rounded-2xl px-4 h-[52px] text-[15px]" style={sfield} aria-label={l}>{HALF_HOURS.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}</BrandSelect></div>
             ))}
           </div>
-          <div className="flex items-center gap-3 rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised }}>
-            <div className="flex-1"><div className="text-[13px] font-semibold">Customers at the same time</div><div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>How many you can serve at once, e.g. chairs or {PW.many}.</div></div>
-            <div className="flex items-center rounded-xl shrink-0" style={{ border: `1px solid ${C.line}` }}>
-              <button aria-label="Fewer" onClick={() => setF({ cap: Math.max(1, f.cap - 1) })} className="w-9 h-10 text-[18px]" style={{ color: C.inkDim }}>−</button>
-              <span className="w-7 text-center text-[15px] font-semibold cx-mono">{f.cap}</span>
-              <button aria-label="More" onClick={() => setF({ cap: Math.min(50, f.cap + 1) })} className="w-9 h-10 text-[18px]" style={{ color: C.inkDim }}>+</button>
+          <div className="flex items-center gap-4 rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.line}` }}>
+            <div className="flex-1"><div className="text-[14px] font-semibold">Customers at the same time</div><div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>How many you can serve at once, for example chairs or {PW.many}.</div></div>
+            <div className="flex items-center rounded-xl shrink-0" style={{ background: C.surfaceRaised }}>
+              <button aria-label="Fewer" onClick={() => setF({ cap: Math.max(1, f.cap - 1) })} className="w-10 h-11 text-[18px]" style={{ color: C.inkDim }}>−</button>
+              <span className="w-7 text-center text-[16px] font-bold tabular-nums">{f.cap}</span>
+              <button aria-label="More" onClick={() => setF({ cap: Math.min(50, f.cap + 1) })} className="w-10 h-11 text-[18px]" style={{ color: C.inkDim }}>+</button>
             </div>
           </div>
-          <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>Different hours at a {L.one}, or customers choosing their {PW.one}? Both are in Settings, Opening hours & appointments.</div>
+          <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>Different hours at a {L.one}, or customers choosing their {PW.one}? You'll find both in Settings, under Opening hours & appointments.</div>
         </div>
       );
       if (id === 'deposits') {
         const night = serviceKind === 'rentals' ? 'day' : 'night';
         return (
-          <div className="space-y-4">
-            <div>{label('Deposit to confirm a booking', `Part of the ${serviceKind === 'rentals' ? 'rental' : 'stay'}, paid by cash or transfer, capped at one ${night}.`)}
-              <div className="grid grid-cols-4 gap-1.5">{[[0, 'None'], [25, '25%'], [50, '50%'], [100, 'Full']].map(([v, l]) => <button key={v} onClick={() => setF({ dep: v })} className="py-2.5 rounded-lg text-[12.5px] font-semibold" style={chip(f.dep === v)}>{l}</button>)}</div>
-            </div>
-            <div>{label('Free cancellation until', 'Cancel earlier and the deposit is owed back; later, you keep it.')}
-              <div className="grid grid-cols-3 gap-1.5">{[[24, '24 hours before'], [48, '2 days before'], [72, '3 days before']].map(([v, l]) => <button key={v} onClick={() => setF({ cancel: v })} className="py-2.5 rounded-lg text-[12px] font-semibold" style={chip(f.cancel === v)}>{l}</button>)}</div>
-            </div>
-            <div className="text-[12px] leading-relaxed rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, color: C.inkDim }}>Most hotels in Nigeria ask for 50% and allow free cancellation up to 24 hours before check-in. You can change this any time.</div>
+          <div className="space-y-6">
+            <div>{label('Deposit to confirm a booking', `Paid by cash or transfer, and never more than one ${night}.`)}{seg([[0, 'None'], [25, '25%'], [50, '50%'], [100, 'Full']], f.dep, (v) => setF({ dep: v }))}</div>
+            <div>{label('Free cancellation until', 'Cancel before this and the deposit is owed back. After it, you keep the deposit.')}{seg([[24, '1 day before'], [48, '2 days'], [72, '3 days']], f.cancel, (v) => setF({ cancel: v }))}</div>
+            <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>Most hotels in Nigeria ask for 50% and allow free cancellation up to a day before check-in. You can change this any time.</div>
           </div>
         );
       }
       if (id === 'list') {
         const n = listItems.length;
         const isHotel = serviceKind === 'accommodation';
+        const tile = (Icon, tint, title, desc, onClick) => (
+          <button onClick={onClick} className="w-full flex items-center gap-4 rounded-2xl p-4 text-left transition-colors" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.lineStrong}` }}>
+            <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: tint[0] }}><Icon size={20} style={{ color: tint[1] }} /></span>
+            <span className="flex-1 min-w-0"><span className="block text-[15px] font-semibold">{title}</span><span className="block text-[12.5px] leading-snug mt-0.5" style={{ color: C.inkDim }}>{desc}</span></span>
+            <ChevronRight size={18} style={{ color: C.inkFaint }} className="shrink-0" />
+          </button>
+        );
         return (
           <div className="space-y-3">
             {n > 0 && (
-              <div className="rounded-xl p-3.5" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.25)' }}>
-                <div className="text-[13px] font-semibold mb-1.5" style={{ color: C.sage }}>✓ {n} {n === 1 ? (isHotel ? 'room type' : T2.item) : (isHotel ? 'room types' : T2.catalog.toLowerCase())} added</div>
-                <div className="text-[12px] leading-relaxed" style={{ color: C.inkDim }}>{listItems.slice(0, 4).map((p) => `${p.name} (${fmt(p.sellingPrice)})`).join(', ')}{n > 4 ? ` and ${n - 4} more` : ''}</div>
+              <div className="rounded-2xl p-4 mb-1" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.25)' }}>
+                <div className="flex items-center gap-2 text-[14px] font-semibold" style={{ color: C.sage }}><Check size={16} strokeWidth={3} /> {n} {n === 1 ? (isHotel ? 'room type' : T2.item) : (isHotel ? 'room types' : T2.catalog.toLowerCase())} added</div>
+                <div className="text-[12.5px] leading-relaxed mt-1" style={{ color: C.inkDim }}>{listItems.slice(0, 4).map((p) => `${p.name} (${fmt(p.sellingPrice)})`).join(', ')}{n > 4 ? `, and ${n - 4} more` : ''}</div>
               </div>
             )}
-            {isHotel ? (
-              <button onClick={() => pause(() => openCatalogForm('room'))} className="w-full flex items-center gap-3 rounded-2xl p-4 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Plus size={18} style={{ color: C.copper }} /></span>
-                <span className="flex-1"><span className="block text-[14px] font-semibold">Add a room type</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>e.g. Standard, Deluxe, Suite, with the price per night and how many you have</span></span>
-              </button>
-            ) : (
-              <>
-                <button onClick={() => openImport()} className="w-full flex items-center gap-3 rounded-2xl p-4 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                  <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Receipt size={18} style={{ color: C.copper }} /></span>
-                  <span className="flex-1"><span className="block text-[14px] font-semibold">Type or paste your list</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>One per line with its price, e.g. "Men's haircut, 3000". Copy from Excel or your phone notes.</span></span>
-                </button>
-                <button onClick={() => pause(() => { setTab('products'); setShowProductForm(true); })} className="w-full flex items-center gap-3 rounded-2xl p-4 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                  <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Plus size={18} style={{ color: C.sage }} /></span>
-                  <span className="flex-1"><span className="block text-[14px] font-semibold">Add one at a time</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>With a photo{apptMode ? ' and how long it takes' : ''}. Best for a short list.</span></span>
-                </button>
-              </>
-            )}
-            {apptMode && servicesWithoutTime.length > 0 && <div className="text-[12px] leading-relaxed rounded-xl px-3.5 py-3" style={{ background: C.copperSoft, color: C.copper }}>{servicesWithoutTime.length} service{servicesWithoutTime.length > 1 ? "s don't" : " doesn't"} say how long {servicesWithoutTime.length > 1 ? 'they take' : 'it takes'} yet. Add it on each one so customers can book the right times.</div>}
+            {isHotel
+              ? tile(BedDouble, [C.copperSoft, C.copper], n ? 'Add another room type' : 'Add a room type', 'Standard, Deluxe, Suite: the price per night and how many you have.', () => pause(() => openCatalogForm('room')))
+              : (
+                <>
+                  {tile(Receipt, [C.copperSoft, C.copper], 'Type or paste your list', "One per line with its price, e.g. Men's haircut, 3000. Copy from Excel or your phone notes.", () => openImport())}
+                  {tile(Plus, [C.sageSoft, C.sage], 'Add one at a time', `With a photo${apptMode ? ' and how long it takes' : ''}. Best for a short list.`, () => pause(() => { setTab('products'); setShowProductForm(true); }))}
+                </>
+              )}
+            {apptMode && servicesWithoutTime.length > 0 && <div className="text-[12.5px] leading-relaxed rounded-2xl px-4 py-3" style={{ background: C.copperSoft, color: C.copper }}>{servicesWithoutTime.length} service{servicesWithoutTime.length > 1 ? "s don't" : " doesn't"} say how long {servicesWithoutTime.length > 1 ? 'they take' : 'it takes'} yet. Add it on each one so customers can book the right times.</div>}
           </div>
         );
       }
       if (id === 'storefront') {
         const issues = storefrontIssues().filter((x) => x.fix !== 'storefront');
         return (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              {[[true, 'Turn it on'], [false, 'Not now']].map(([v, l]) => <button key={l} onClick={() => setF({ storeOn: v })} className="py-3.5 rounded-xl text-[13.5px] font-semibold" style={f.storeOn === v ? { background: C.copperSoft, color: C.copper, border: `1.5px solid ${C.copper}` } : { background: C.surfaceRaised, color: C.ink, border: `1.5px solid ${C.line}` }}>{l}</button>)}
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-2.5">
+              {option(!!f.storeOn, () => setF({ storeOn: true }), { title: 'Turn it on', desc: 'Get your link now', Icon: Globe })}
+              {option(!f.storeOn, () => setF({ storeOn: false }), { title: 'Not now', desc: 'Turn it on later', Icon: Clock })}
             </div>
-            {!listItems.length && <div className="text-[12px] leading-relaxed rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, color: C.inkDim }}>Tip: add your {T2.catalog.toLowerCase()} first, so customers have something to {actWord} when they open your link. You can turn the storefront on from your checklist later.</div>}
+            {!listItems.length && <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>Tip: add your {T2.catalog.toLowerCase()} first, so customers have something to {actWord} when they open your link.</div>}
             {f.storeOn && (
-              <>
-                <div>{label('Tagline (optional)', 'One line under your name that tells customers what you do.')}<input maxLength={80} placeholder={examplesFor(f.type === 'products' ? null : serviceKind).tagline} value={f.tagline} onChange={(e) => setF({ tagline: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={sfield} /></div>
-                <div className="rounded-xl px-3.5 py-3 text-[12.5px]" style={{ background: C.surfaceRaised }}>
-                  <div style={{ color: C.inkFaint }}>Your link</div>
-                  <div className="cx-mono mt-0.5 truncate" style={{ color: C.sage }}>{window.location.origin}/store/{settings.businessCode}</div>
+              <div className="space-y-5 xorla-fade-up">
+                <div>{label('Tagline', 'Optional. One line under your name that tells customers what you do.')}<input maxLength={80} placeholder={examplesFor(f.type === 'products' ? null : serviceKind).tagline.replace(/^e\.g\.\s*/, '')} value={f.tagline} onChange={(e) => setF({ tagline: e.target.value })} className={inputCls} style={sfield} /></div>
+                <div className="flex items-center gap-3 rounded-2xl px-4 py-3.5" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.line}` }}>
+                  <Link2 size={16} style={{ color: C.sage }} className="shrink-0" />
+                  <span className="text-[13.5px] truncate font-medium" style={{ color: C.sage }}>{window.location.host}/store/{settings.businessCode}</span>
                 </div>
                 {issues.length > 0 && (
                   <div>
-                    <div className="text-[12px] font-semibold mb-1" style={{ color: C.inkDim }}>Customers will notice</div>
-                    <div className="rounded-xl px-3.5" style={{ background: C.surfaceRaised }}>{issues.map((it, k) => issueRow(it, k, null))}</div>
-                    <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>These are on your checklist too, so you can fix them after setup.</div>
+                    <div className="text-[13px] font-semibold mb-1">Customers will notice</div>
+                    <div className="rounded-2xl px-4" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.line}` }}>{issues.map((it, k) => issueRow(it, k, null))}</div>
+                    <div className="text-[12px] mt-2" style={{ color: C.inkFaint }}>These are on your checklist too, so you can fix them after setup.</div>
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         );
@@ -5575,61 +5660,99 @@ function XorlaApp() {
         const invite = `Hi! Join ${settings.businessName} on Xorla so you can record sales on your phone.\n\n1. Open ${window.location.origin}\n2. Tap "Join with a code"\n3. Enter the code: ${settings.staffCode}`;
         return (
           <div className="space-y-4">
-            <div className="rounded-2xl p-4 text-center" style={{ background: C.surfaceRaised }}>
-              <div className="text-[12px] mb-1" style={{ color: C.inkFaint }}>Your staff join code</div>
-              <div className="cx-mono text-[26px] font-bold tracking-[0.15em]" style={{ color: C.sage }}>{settings.staffCode || '········'}</div>
-              <div className="text-[11.5px] mt-1" style={{ color: C.inkFaint }}>You approve each person before they get in.</div>
+            <div className="rounded-3xl p-6 text-center relative overflow-hidden" style={{ background: 'linear-gradient(160deg, rgba(31,217,196,0.10), rgba(31,217,196,0.02))', border: '1px solid rgba(31,217,196,0.22)' }}>
+              <KeyRound size={20} className="mx-auto mb-2" style={{ color: C.sage }} />
+              <div className="text-[12.5px]" style={{ color: C.inkDim }}>Your staff join code</div>
+              <div className="text-[30px] font-extrabold mt-1" style={{ fontFamily: HEAD, letterSpacing: '0.18em', color: C.ink }}>{settings.staffCode || '········'}</div>
+              <div className="text-[12px] mt-1.5" style={{ color: C.inkFaint }}>You approve each person before they get in.</div>
             </div>
-            <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
-              <button onClick={() => copyText('code', settings.staffCode)} className="h-11 rounded-xl text-[13px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: copiedKey === 'code' ? C.sage : C.ink }}>{copiedKey === 'code' ? '✓ Copied' : 'Copy code'}</button>
-              <a href={`https://wa.me/?text=${encodeURIComponent(invite)}`} target="_blank" rel="noopener noreferrer" className="h-11 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><Send size={15} /> Invite on WhatsApp</a>
+            <div className="grid gap-2.5" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.5fr)' }}>
+              <button onClick={() => copyText('code', settings.staffCode)} className="h-12 rounded-2xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: copiedKey === 'code' ? C.sage : C.ink }}>{copiedKey === 'code' ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy code</>}</button>
+              <a href={`https://wa.me/?text=${encodeURIComponent(invite)}`} target="_blank" rel="noopener noreferrer" className="h-12 rounded-2xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><Send size={15} /> Invite on WhatsApp</a>
             </div>
-            {settings.staffList.length > 0 && <div className="text-[12.5px]" style={{ color: C.sage }}>✓ {settings.staffList.length} staff already joined</div>}
+            {settings.staffList.length > 0 && <div className="text-[13px] flex items-center gap-2" style={{ color: C.sage }}><Check size={15} /> {settings.staffList.length} staff already joined</div>}
           </div>
         );
       }
       // done
       return (
-        <div className="space-y-1.5">
+        <div className="grid sm:grid-cols-2 gap-x-4">
           {readyItems.map((it) => (
-            <div key={it.id} className="flex items-center gap-3 rounded-xl px-3.5 py-2.5" style={{ background: C.surfaceRaised }}>
-              <span className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={it.done ? { background: C.sage } : { border: `2px solid ${C.inkFaint}` }}>{it.done && <Check size={12} style={{ color: C.bg }} />}</span>
+            <div key={it.id} className="flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>
+              <span className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={it.done ? { background: C.sage } : { border: `1.5px solid ${C.inkFaint}` }}>{it.done && <Check size={12} strokeWidth={3} style={{ color: C.bg }} />}</span>
               <span className="text-[13px]" style={{ color: it.done ? C.ink : C.inkDim }}>{it.label}{!it.done && it.optional ? ' (optional)' : ''}</span>
             </div>
           ))}
         </div>
       );
     })();
+
     const canSkip = !!settings.businessType;
-    const progress = Math.round(((i + 1) / setupIds.length) * 100);
+    const stepPos = realSteps.indexOf(id);
+    const typeBlocked = id === 'type' && (!f.type || (f.type !== 'products' && !f.kind));
+    const primaryLabel = setup.busy ? 'Saving…' : id === 'welcome' ? "Let's begin" : id === 'done' ? 'Start using Xorla' : id === 'list' && !listItems.length ? 'Skip this step' : id === 'team' && !settings.staffList.length ? 'Done for now' : id === 'details' && !f.phone.trim() ? 'Continue without a number' : 'Continue';
+    const quiet = id === 'list' && !listItems.length;
+    const showCard = id === 'welcome' || id === 'done';
     return (
-      <div className="fixed inset-0 z-[80] flex flex-col cx-body" style={{ background: C.bg, color: C.ink }}>
-        <div className="shrink-0" style={{ borderBottom: `1px solid ${C.line}` }}>
-          <div className="max-w-lg mx-auto px-5 pt-4 pb-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5"><XorlaMark size={24} /><span className="text-[13px]" style={{ color: C.inkDim }}>{id === 'type' ? 'About 5 minutes' : `Step ${i} of ${setupIds.length - 1}`}</span></div>
-            {canSkip && id !== 'done' && <button onClick={() => finishSetup()} className="text-[12.5px] font-semibold" style={{ color: C.inkDim }}>Skip for now</button>}
-          </div>
-          <div className="h-1" style={{ background: C.surfaceRaised }}><div className="h-full transition-all duration-300" style={{ width: `${progress}%`, background: `linear-gradient(90deg, ${C.copper}, ${C.sage})` }} /></div>
-        </div>
-        <div className="flex-1 overflow-y-auto">
-          <div key={id} className="max-w-lg mx-auto px-5 py-7 xorla-fade-up">
-            {id === 'done' && <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.sageSoft }}><PartyPopper size={24} style={{ color: C.sage }} /></div>}
-            <h1 className="text-[23px] font-bold cx-display leading-tight mb-2">{heads[0]}</h1>
-            <p className="text-[13.5px] leading-relaxed mb-6" style={{ color: C.inkDim }}>{heads[1]}</p>
-            {body}
-          </div>
-        </div>
-        <div className="shrink-0" style={{ borderTop: `1px solid ${C.line}`, background: C.surface, paddingBottom: 'env(safe-area-inset-bottom)' }}>
-          <div className="max-w-lg mx-auto px-5 py-3.5">
-            {setup.error && <div className="mb-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{setup.error}</div>}
-            <div className="grid gap-2" style={{ gridTemplateColumns: i > 0 ? 'minmax(0,1fr) minmax(0,2.2fr)' : '1fr' }}>
-              {i > 0 && <button onClick={() => go(i - 1)} disabled={setup.busy} className="h-12 rounded-xl text-[13.5px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>Back</button>}
-              <button onClick={next} disabled={setup.busy || (id === 'type' && (!f.type || (f.type !== 'products' && !f.kind)))} className="h-12 rounded-xl text-[14px] font-semibold" style={{ ...(id === 'list' && !listItems.length ? { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink } : { background: C.copper, color: C.bg }), opacity: setup.busy || (id === 'type' && (!f.type || (f.type !== 'products' && !f.kind))) ? 0.45 : 1 }}>
-                {setup.busy ? 'Saving…' : id === 'done' ? 'Start using Xorla' : id === 'list' && !listItems.length ? 'Skip this step' : id === 'team' && !settings.staffList.length ? 'Done for now' : id === 'details' && !f.phone.trim() ? 'Continue without a number' : 'Continue'}
-              </button>
+      <div className="fixed inset-0 z-[80] flex cx-body" style={{ background: C.bg, color: C.ink }}>
+        {/* Left: the business taking shape (computers) */}
+        <aside className="hidden lg:flex w-[44%] max-w-[620px] flex-col justify-between relative overflow-hidden px-12 py-10" style={{ background: 'radial-gradient(120% 80% at 10% 0%, #143A33 0%, #0B221E 55%, #081A17 100%)', borderRight: `1px solid ${C.line}` }}>
+          <div className="absolute -top-40 -left-40 w-[520px] h-[520px] rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(31,217,196,0.16), transparent 65%)' }} />
+          <div className="relative flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span></div>
+          <div className="relative">
+            <div className="max-w-[420px] mx-auto" style={{ transform: 'perspective(1200px) rotateY(-6deg) rotateX(3deg)' }}>{card(true)}</div>
+            <div className="max-w-[420px] mx-auto mt-10 space-y-1">
+              {realSteps.map((sid, k) => {
+                const m = META[sid]; const doneStep = stepPos > k || id === 'done'; const cur = sid === id;
+                return (
+                  <div key={sid} className="flex items-center gap-3 py-1.5">
+                    <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold transition-all" style={doneStep ? { background: C.sage, color: C.bg } : cur ? { background: C.copper, color: C.bg } : { border: `1.5px solid ${C.lineStrong}`, color: C.inkFaint }}>{doneStep ? <Check size={12} strokeWidth={3} /> : k + 1}</span>
+                    <span className="text-[13.5px]" style={{ color: cur ? C.ink : doneStep ? C.inkDim : C.inkFaint, fontWeight: cur ? 600 : 400 }}>{m.label}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        </div>
+          <div className="relative text-[12px]" style={{ color: C.inkFaint }}>Your answers save as you go. Change any of them later in Settings.</div>
+        </aside>
+
+        {/* Right: one question at a time */}
+        <section className="flex-1 flex flex-col min-w-0">
+          <header className="shrink-0">
+            <div className="max-w-xl w-full mx-auto px-5 lg:px-10 pt-5 pb-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 lg:invisible"><XorlaMark size={22} /></div>
+              {canSkip && id !== 'done' && <button onClick={() => finishSetup()} className="text-[13px] font-semibold px-3 py-1.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Skip for now</button>}
+            </div>
+            {stepPos >= 0 && (
+              <div className="max-w-xl w-full mx-auto px-5 lg:px-10">
+                <div className="flex gap-1.5">{realSteps.map((sid, k) => <span key={sid} className="flex-1 h-1 rounded-full transition-all duration-500" style={{ background: k < stepPos ? C.sage : k === stepPos ? C.copper : 'rgba(255,255,255,0.08)' }} />)}</div>
+                <div className="text-[12px] mt-2.5" style={{ color: C.inkFaint }}>{META[id].label}, {stepPos + 1} of {realSteps.length}</div>
+              </div>
+            )}
+          </header>
+          <div className="flex-1 overflow-y-auto">
+            <div key={id} className="max-w-xl w-full mx-auto px-5 lg:px-10 pt-6 pb-10 xorla-fade-up">
+              {showCard && <div className="mb-8 lg:hidden" style={id === 'done' ? { filter: 'drop-shadow(0 0 40px rgba(31,217,196,0.18))' } : undefined}><div className="max-w-[400px]">{card(true)}</div></div>}
+              {!showCard && <div className="lg:hidden mb-6">{card(false)}</div>}
+              <h1 className="text-[28px] lg:text-[34px] font-extrabold leading-[1.12]" style={{ fontFamily: HEAD, letterSpacing: '-0.03em' }}>{heads[0]}</h1>
+              <p className="text-[14.5px] leading-relaxed mt-3 mb-8 max-w-[52ch]" style={{ color: C.inkDim }}>{heads[1]}</p>
+              {body}
+            </div>
+          </div>
+          <footer className="shrink-0" style={{ borderTop: `1px solid ${C.line}`, background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(12px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+            <div className="max-w-xl w-full mx-auto px-5 lg:px-10 py-4">
+              {setup.error && <div className="mb-3 rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.rustSoft, color: C.rust }}>{setup.error}</div>}
+              <div className="flex gap-2.5">
+                {i > 0 && id !== 'done' && <button onClick={() => go(i - 1)} disabled={setup.busy} aria-label="Back" className="h-[54px] w-[54px] shrink-0 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.inkDim }}><ChevronLeft size={20} /></button>}
+                <button onClick={id === 'welcome' ? () => go(i + 1) : next} disabled={setup.busy || typeBlocked} className="flex-1 h-[54px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
+                  style={{ ...(quiet ? { background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink } : { background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, boxShadow: '0 14px 30px -12px rgba(255,176,32,0.65), inset 0 1px 0 rgba(255,255,255,0.35)' }), opacity: setup.busy || typeBlocked ? 0.4 : 1 }}>
+                  {primaryLabel}{!setup.busy && !quiet && id !== 'done' && <ArrowRight size={18} />}
+                </button>
+              </div>
+              {id === 'welcome' && canSkip && <button onClick={() => finishSetup()} className="w-full mt-3 text-[13px] font-medium" style={{ color: C.inkFaint }}>I'll do this later</button>}
+            </div>
+          </footer>
+        </section>
       </div>
     );
   };
