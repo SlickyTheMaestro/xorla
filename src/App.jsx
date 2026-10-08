@@ -155,6 +155,24 @@ function formatNumInput(v) {
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson'];
+const SETTINGS_DESCRIPTIONS = {
+  plan: 'What your plan includes, and renewing it.',
+  notifications: 'Alerts on this device for new orders, requests and staff.',
+  shops: 'Each {one} keeps its own sales, stock and staff. You see them all together.',
+  automation: 'Reminders and summaries Xorla sends on WhatsApp for you.',
+  businessType: 'Xorla uses the right words and tools for your kind of business.',
+  tour: 'A quick look at where everything is.',
+  branding: 'Shown on receipts, invoices, your storefront and posters.',
+  storefront: 'Your free online page where customers order and book without calling.',
+  messages: 'The language Oga speaks, and how your reminders sound.',
+  contact: 'How customers reach you. Printed on receipts and invoices.',
+  team: 'Who works with you, and the code they use to join.',
+  security: 'Lock Xorla on this device with a 4-digit PIN.',
+  deposits: 'The deposit that holds a booking, and your cancellation rule.',
+  export: 'Your records as spreadsheets, whenever you need them.',
+  hours: 'When customers can book, and who serves them.',
+  promote: 'A poster for your shop, pictures for WhatsApp Status, and discount codes.',
+};
 const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Download your records', hours: 'Opening hours & appointments', promote: 'Promote your business' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
@@ -5841,17 +5859,166 @@ function XorlaApp() {
       if (settingsDirty && !(await brandConfirm('You have unsaved changes. Leave without saving?', { confirm: 'Leave', danger: true, cancel: 'Keep editing' }))) return;
       setTab(previousTab);
     };
+    const HEADF = "'Plus Jakarta Sans', 'Inter', sans-serif";
+    let navMode = 'list';
+    const navRowClick = (r) => (r.toggle ? r.onToggle : r.action ? r.action : () => setSettingsPage(r.id));
+    const toggleKnob = (on, small) => (
+      <span className={`shrink-0 ${small ? 'w-10 h-6' : 'w-12 h-7'} rounded-full relative transition-colors`} style={{ background: on ? C.sage : 'rgba(255,255,255,0.12)' }}>
+        <span className={`absolute ${small ? 'top-[3px] w-[18px] h-[18px]' : 'top-1 w-5 h-5'} rounded-full transition-all`} style={{ background: '#fff', left: on ? (small ? '19px' : '24px') : (small ? '3px' : '4px'), boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+      </span>
+    );
+    // Phones: grouped cards. Computers: a compact sidebar with the open page highlighted.
+    const navGroup = (title, rows) => {
+      if (navMode === 'side') {
+        return (
+          <div key={title || 'end'}>
+            {title && <div className="text-[12px] font-medium px-3 mb-1" style={{ color: C.inkFaint }}>{title}</div>}
+            <div className="space-y-0.5">
+              {rows.map((r) => {
+                const active = r.id && r.id === settingsPage;
+                return (
+                  <button key={r.label} onClick={navRowClick(r)} role={r.toggle ? 'switch' : undefined} aria-checked={r.toggle ? r.on : undefined} aria-current={active ? 'page' : undefined}
+                    className="w-full flex items-center gap-3 px-3 h-10 rounded-xl text-left transition-colors hover:bg-white/[0.04]" style={active ? { background: C.copperSoft } : undefined}>
+                    <r.Icon size={16} className="shrink-0" style={{ color: r.danger ? C.rust : active ? C.copper : C.inkDim }} />
+                    <span className="flex-1 min-w-0 truncate text-[13.5px]" style={{ color: r.danger ? C.rust : active ? C.copper : C.ink, fontWeight: active ? 600 : 500 }}>{r.label}</span>
+                    {r.toggle ? toggleKnob(r.on, true) : r.value && !r.danger ? <span className="shrink-0 max-w-[96px] truncate text-[12px]" style={{ color: r.valueColor || C.inkFaint }}>{r.value}</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+      return (
+        <div key={title || 'end'}>
+          {title && <div className="text-[13px] font-semibold px-1 mb-2" style={{ color: C.inkDim }}>{title}</div>}
+          <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+            {rows.map((r, i) => (
+              <button key={r.label} onClick={navRowClick(r)} role={r.toggle ? 'switch' : undefined} aria-checked={r.toggle ? r.on : undefined} className="w-full flex items-center gap-3.5 px-4 min-h-[58px] py-2.5 active:bg-white/[0.04] text-left" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: r.danger ? C.rustSoft : 'rgba(255,176,32,0.10)' }}><r.Icon size={17} style={{ color: r.danger ? C.rust : C.copper }} /></span>
+                <span className="flex-1 min-w-0 truncate text-[15px] font-medium" style={{ color: r.danger ? C.rust : C.ink }}>{r.label}</span>
+                {r.toggle ? toggleKnob(r.on) : !r.danger && (
+                  <span className="flex items-center gap-1.5 shrink-0 max-w-[42%]">
+                    {r.value && <span className="text-[13px] truncate" style={{ color: r.valueColor || C.inkFaint }}>{r.value}</span>}
+                    <ChevronRight size={17} style={{ color: C.inkFaint }} className="shrink-0" />
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    };
+    const settingsGroups = (mode) => { navMode = mode; return (
+      <>
+                {isOwnerRole && planKnown && navGroup('Plan', [
+                  { id: 'plan', Icon: Sparkles, label: 'Your plan', value: onTrial ? `Free trial, ${planDaysLeft}d left` : PLAN_INFO[effPlan].name, valueColor: effPlan === 'free' ? undefined : C.sage },
+                ])}
+                {navGroup('Business', [
+                  { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
+                  { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
+                  { id: 'promote', Icon: Megaphone, label: 'Promote your business', value: (() => { const n = discountCodes.filter((d) => codeStateOf(d).tone === 'on').length; return n ? `${n} code${n > 1 ? 's' : ''} live` : 'Poster, Status, codes'; })(), valueColor: discountCodes.some((d) => codeStateOf(d).tone === 'on') ? C.sage : undefined },
+                  { id: 'shops', Icon: Store, label: L.Many, value: `${shops.length} ${shops.length !== 1 ? L.many : L.one}` },
+                  { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
+                  ...(isOwnerRole ? [{ id: 'export', Icon: Download, label: 'Download your records', value: '' }] : []),
+                  { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
+                ])}
+                {isOwnerRole && hasBookables && navGroup('Bookings', [
+                  { id: 'deposits', Icon: ShieldCheck, label: 'Deposits & cancellations', value: Number(draft.depositPercent ?? 50) === 0 ? 'No deposit' : `${draft.depositPercent ?? 50}% deposit` },
+                ])}
+                {isOwnerRole && apptMode && navGroup('Appointments', [
+                  { id: 'hours', Icon: CalendarClock, label: 'Opening hours & appointments', value: draft.apptEnabled === false ? 'Off' : `${hhmmLabel(draft.openTime || '08:00')} to ${hhmmLabel(draft.closeTime || '18:00')}` },
+                ])}
+                {navGroup('Language', [
+                  { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
+                ])}
+                {navGroup('Customers', [
+                  { id: 'automation', Icon: Bell, label: 'Automatic WhatsApp', value: draft.autoReminders || draft.summaryFrequency !== 'off' ? 'On' : 'Off', valueColor: draft.autoReminders || draft.summaryFrequency !== 'off' ? C.sage : undefined },
+                  { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
+                ])}
+                {navGroup('Team', [
+                  { id: 'team', Icon: Users, label: 'Staff & join code', value: `${settings.staffList.length} staff` },
+                  { toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) },
+                  ...(hasBookables || apptMode ? [{ toggle: true, Icon: CalendarClock, label: hasBookables && apptMode ? 'Let staff confirm bookings and appointments' : apptMode ? 'Let staff accept appointment requests' : 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
+                ])}
+                {navGroup('Security', [
+                  { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
+                ])}
+                {navGroup('Help', [
+                  { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
+                  ...(isFounder ? [{ action: () => window.open('/admin', '_blank'), Icon: TrendingUp, label: 'Founder dashboard', value: '' }] : []),
+                  { action: () => window.open('/privacy', '_blank'), Icon: ShieldCheck, label: 'Privacy policy', value: '' },
+                  { action: () => window.open('/terms', '_blank'), Icon: Receipt, label: 'Terms of service', value: '' },
+                ])}
+                {navGroup('Notifications', [
+                  { id: 'notifications', Icon: Bell, label: 'Notifications', value: pushState === 'on' ? 'On' : pushState === 'denied' ? 'Blocked' : 'Off', valueColor: pushState === 'on' ? C.sage : undefined },
+                ])}
+                {!isStandalone && navGroup('App', [
+                  { action: openInstallFromSettings, Icon: Download, label: 'Install Xorla app', value: '' },
+                ])}
+                {navGroup(null, [
+                  { action: logout, Icon: LogOut, label: 'Log out', danger: true },
+                ])}
+      </>
+    ); };
+    // The business at a glance, in the same card style as the guided setup
+    const settingsIdentity = (big) => {
+      const nm = settings.businessName || 'Your business';
+      const kindLabel = settings.businessType === 'products' ? 'Shop' : SERVICE_KINDS[serviceKind]?.label || (BUSINESS_TERMS[settings.businessType] || BUSINESS_TERMS.products).typeLabel;
+      const planText = !planKnown ? '' : onTrial ? `Free trial, ${planDaysLeft} day${planDaysLeft === 1 ? '' : 's'} left` : `${PLAN_INFO[effPlan].name} plan`;
+      const left = readyItems.filter((x) => !x.done).length;
+      return (
+        <div className="relative overflow-hidden" style={{ borderRadius: big ? 28 : 24, background: 'linear-gradient(150deg, #174339 0%, #0F2C27 48%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)', boxShadow: big ? '0 30px 60px -30px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+          <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(115deg, transparent 40%, rgba(255,176,32,0.09) 52%, transparent 64%)' }} />
+          <div className="absolute -right-8 -bottom-10 opacity-[0.07] pointer-events-none"><XorlaMark size={big ? 190 : 130} /></div>
+          <div className={`relative ${big ? 'p-7' : 'p-5'}`}>
+            <div className="flex items-center gap-4">
+              {settings.logoUrl
+                ? <img src={settings.logoUrl} alt="" className={`${big ? 'w-16 h-16' : 'w-14 h-14'} rounded-2xl object-cover shrink-0`} style={{ border: '1px solid rgba(255,255,255,0.12)' }} />
+                : <span className={`${big ? 'w-16 h-16 text-[27px]' : 'w-14 h-14 text-[23px]'} rounded-2xl flex items-center justify-center font-extrabold shrink-0`} style={{ fontFamily: HEADF, background: 'linear-gradient(140deg, #FFC85A, #FFB020)', color: C.bg }}>{(nm.trim()[0] || 'X').toUpperCase()}</span>}
+              <div className="min-w-0 flex-1">
+                <div className={`font-extrabold leading-tight break-words ${big ? 'text-[26px]' : 'text-[20px]'}`} style={{ fontFamily: HEADF, letterSpacing: '-0.025em' }}>{nm}</div>
+                <div className="text-[13px] mt-0.5 truncate" style={{ color: C.inkDim }}>{kindLabel}{settings.role !== 'owner' ? `, signed in as ${settings.activeStaff || 'staff'}` : ''}</div>
+              </div>
+              {isOwnerRole && <button onClick={() => setSettingsPage('branding')} className="shrink-0 text-[12.5px] font-semibold px-3 py-1.5 rounded-full" style={{ color: C.ink, background: 'rgba(255,255,255,0.07)' }}>Edit</button>}
+            </div>
+            <div className="flex flex-wrap gap-2 mt-5">
+              {planText && <button onClick={() => isOwnerRole && setSettingsPage('plan')} className="text-[12px] font-semibold px-3 py-1.5 rounded-full" style={{ background: 'rgba(255,176,32,0.12)', color: C.copper }}>{planText}</button>}
+              <button onClick={() => setSettingsPage('storefront')} className="text-[12px] font-semibold px-3 py-1.5 rounded-full" style={settings.storefrontEnabled ? { background: C.sageSoft, color: C.sage } : { background: 'rgba(255,255,255,0.06)', color: C.inkDim }}>{settings.storefrontEnabled ? 'Storefront live' : 'Storefront off'}</button>
+              {isOwnerRole && settings.setupDoneAt !== undefined && left > 0 && <button onClick={() => { setTab('overview'); setSetup({ step: 2, f: null, busy: false, error: '', paused: false }); }} className="text-[12px] font-semibold px-3 py-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.06)', color: C.ink }}>{left} thing{left > 1 ? 's' : ''} left to set up</button>}
+            </div>
+          </div>
+        </div>
+      );
+    };
+    const pageTitle = settingsPage === 'shops' ? L.Many : SETTINGS_TITLES[settingsPage] || 'Settings';
+    const pageDesc = settingsPage ? (SETTINGS_DESCRIPTIONS[settingsPage] || '').replace('{one}', L.one).replace('{many}', L.many) : 'Your business, your team and how Xorla works for you.';
     return (
-      <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
+      <div className="min-h-screen cx-body lg:flex lg:h-screen lg:overflow-hidden" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
-        <div className="max-w-2xl mx-auto min-h-screen flex flex-col">
-          <div className="sticky top-0 z-20 grid items-center h-14 px-2" style={{ gridTemplateColumns: '96px 1fr 96px', background: C.bg, borderBottom: `1px solid ${C.line}` }}>
-            <button onClick={() => (settingsPage ? setSettingsPage(null) : leaveSettings())} className="justify-self-start flex items-center gap-0.5 pl-1 pr-3 py-2 rounded-lg active:opacity-60" style={{ color: C.copper }}>
+        <aside className="hidden lg:flex flex-col w-[316px] shrink-0 h-screen overflow-y-auto" style={{ background: 'linear-gradient(180deg, #0D2622 0%, #091C19 100%)', borderRight: `1px solid ${C.line}` }}>
+          <div className="px-5 pt-5 pb-4 flex items-center justify-between">
+            <button onClick={leaveSettings} className="flex items-center gap-1.5 text-[13px] font-semibold px-2.5 py-1.5 -ml-2.5 rounded-lg hover:bg-white/[0.04]" style={{ color: C.inkDim }}><ChevronLeft size={17} /> Back to Xorla</button>
+            <XorlaMark size={22} />
+          </div>
+          <div className="px-5 pb-1">
+            <button onClick={() => setSettingsPage(null)} className="w-full flex items-center gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-white/[0.04]" style={settingsPage === null ? { background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.lineStrong}` } : { border: '1px solid transparent' }}>
+              {settings.logoUrl ? <img src={settings.logoUrl} alt="" className="w-10 h-10 rounded-xl object-cover" /> : <span className="w-10 h-10 rounded-xl flex items-center justify-center text-[17px] font-extrabold" style={{ fontFamily: HEADF, background: 'linear-gradient(140deg, #FFC85A, #FFB020)', color: C.bg }}>{((settings.businessName || 'X').trim()[0] || 'X').toUpperCase()}</span>}
+              <span className="min-w-0"><span className="block text-[14px] font-bold truncate" style={{ fontFamily: HEADF }}>{settings.businessName}</span><span className="block text-[12px]" style={{ color: C.inkFaint }}>Settings</span></span>
+            </button>
+          </div>
+          <nav className="px-3 pt-4 pb-8 space-y-5">{settingsGroups('side')}</nav>
+        </aside>
+        <div className="flex-1 min-w-0 flex flex-col min-h-screen lg:h-screen lg:overflow-y-auto">
+          <div className="lg:hidden sticky top-0 z-20 flex items-center h-14 px-2" style={{ background: 'rgba(10,31,28,0.9)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${C.line}` }}>
+            <button onClick={() => (settingsPage ? setSettingsPage(null) : leaveSettings())} className="flex items-center gap-0.5 pl-1 pr-3 py-2 rounded-lg active:opacity-60" style={{ color: C.copper }}>
               <ChevronLeft size={22} />
               <span className="text-[14px] font-medium">{settingsPage ? 'Settings' : 'Back'}</span>
             </button>
-            <div className="text-center text-[16px] font-semibold cx-display truncate">{settingsPage === 'shops' ? L.Many : SETTINGS_TITLES[settingsPage] || 'Settings'}</div>
-            <div />
+          </div>
+          <div className="w-full max-w-2xl mx-auto px-4 lg:px-10 pt-6 lg:pt-12">
+            <h1 className="text-[28px] lg:text-[34px] font-extrabold leading-tight" style={{ fontFamily: HEADF, letterSpacing: '-0.03em' }}>{pageTitle}</h1>
+            {pageDesc && <p className="text-[14px] leading-relaxed mt-1.5" style={{ color: C.inkDim }}>{pageDesc}</p>}
           </div>
 
           {renderLimitPrompt()}
@@ -5870,69 +6037,29 @@ function XorlaApp() {
               }}
             />
           )}
-          <div className="flex-1 overflow-y-auto px-4 py-5">
+          <div className="flex-1 w-full max-w-2xl mx-auto px-4 lg:px-10 py-6 lg:pb-16">
             {settingsPage === null && (
-              <div className="space-y-6">
-                {isOwnerRole && planKnown && renderSettingsGroup('Plan', [
-                  { id: 'plan', Icon: Sparkles, label: 'Your plan', value: onTrial ? `Free trial, ${planDaysLeft}d left` : PLAN_INFO[effPlan].name, valueColor: effPlan === 'free' ? undefined : C.sage },
-                ])}
-                {renderSettingsGroup('Business', [
-                  { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
-                  { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
-                  { id: 'promote', Icon: Megaphone, label: 'Promote your business', value: (() => { const n = discountCodes.filter((d) => codeStateOf(d).tone === 'on').length; return n ? `${n} code${n > 1 ? 's' : ''} live` : 'Poster, Status, codes'; })(), valueColor: discountCodes.some((d) => codeStateOf(d).tone === 'on') ? C.sage : undefined },
-                  { id: 'shops', Icon: Store, label: L.Many, value: `${shops.length} ${shops.length !== 1 ? L.many : L.one}` },
-                  { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
-                  ...(isOwnerRole ? [{ id: 'export', Icon: Download, label: 'Download your records', value: '' }] : []),
-                  { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
-                ])}
-                {isOwnerRole && hasBookables && renderSettingsGroup('Bookings', [
-                  { id: 'deposits', Icon: ShieldCheck, label: 'Deposits & cancellations', value: Number(draft.depositPercent ?? 50) === 0 ? 'No deposit' : `${draft.depositPercent ?? 50}% deposit` },
-                ])}
-                {isOwnerRole && apptMode && renderSettingsGroup('Appointments', [
-                  { id: 'hours', Icon: CalendarClock, label: 'Opening hours & appointments', value: draft.apptEnabled === false ? 'Off' : `${hhmmLabel(draft.openTime || '08:00')} to ${hhmmLabel(draft.closeTime || '18:00')}` },
-                ])}
-                {renderSettingsGroup('Language', [
-                  { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
-                ])}
-                {renderSettingsGroup('Customers', [
-                  { id: 'automation', Icon: Bell, label: 'Automatic WhatsApp', value: draft.autoReminders || draft.summaryFrequency !== 'off' ? 'On' : 'Off', valueColor: draft.autoReminders || draft.summaryFrequency !== 'off' ? C.sage : undefined },
-                  { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
-                ])}
-                {renderSettingsGroup('Team', [
-                  { id: 'team', Icon: Users, label: 'Staff & join code', value: `${settings.staffList.length} staff` },
-                  { toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) },
-                  ...(hasBookables || apptMode ? [{ toggle: true, Icon: CalendarClock, label: hasBookables && apptMode ? 'Let staff confirm bookings and appointments' : apptMode ? 'Let staff accept appointment requests' : 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
-                ])}
-                {renderSettingsGroup('Security', [
-                  { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
-                ])}
-                {renderSettingsGroup('Help', [
-                  { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
-                  ...(isFounder ? [{ action: () => window.open('/admin', '_blank'), Icon: TrendingUp, label: 'Founder dashboard', value: '' }] : []),
-                  { action: () => window.open('/privacy', '_blank'), Icon: ShieldCheck, label: 'Privacy policy', value: '' },
-                  { action: () => window.open('/terms', '_blank'), Icon: Receipt, label: 'Terms of service', value: '' },
-                ])}
-                {renderSettingsGroup('Notifications', [
-                  { id: 'notifications', Icon: Bell, label: 'Notifications', value: pushState === 'on' ? 'On' : pushState === 'denied' ? 'Blocked' : 'Off', valueColor: pushState === 'on' ? C.sage : undefined },
-                ])}
-                {!isStandalone && renderSettingsGroup('App', [
-                  { action: openInstallFromSettings, Icon: Download, label: 'Install Xorla app', value: '' },
-                ])}
-                {renderSettingsGroup(null, [
-                  { action: logout, Icon: LogOut, label: 'Log out', danger: true },
-                ])}
+              <div className="lg:hidden space-y-6">
+                {settingsIdentity(false)}
+                {settingsGroups('list')}
+              </div>
+            )}
+            {settingsPage === null && (
+              <div className="hidden lg:block space-y-6">
+                {settingsIdentity(true)}
+                {isOwnerRole && settings.setupDoneAt !== undefined && !settings.checklistHidden && readyItems.some((x) => !x.done) ? renderChecklist() : <div className="text-[13.5px]" style={{ color: C.inkFaint }}>Choose a setting on the left to change it.</div>}
               </div>
             )}
             {settingsPage === 'branding' && (
-              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
-                  <div className="text-[11px] font-medium mb-2 mt-3" style={{ color: C.inkDim }}>YOUR NAME</div>
+                  <div className="text-[13px] font-semibold mb-2 mt-3" style={{ color: C.ink }}>Your name</div>
                   <input type="text" maxLength={40} placeholder="e.g. Ikenna" value={draft.myName || ''} onChange={(e) => setDraft({ ...draft, myName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   <div className="text-[11px] mt-1.5 mb-5" style={{ color: C.inkFaint }}>Your own name, shown on receipts ("Served by") and stock records. Your past records update too.</div>
-                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS NAME</div>
+                  <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Business name</div>
                   <input type="text" maxLength={60} value={draft.businessName} onChange={(e) => setDraft({ ...draft, businessName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   <div className="text-[11px] mt-1.5 mb-5" style={{ color: C.inkFaint }}>Shows on your storefront, invoices, and receipts. Saves when you tap Save.</div>
-                  <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS LOGO</div>
+                  <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Logo</div>
                   <div className="flex items-center gap-3">
                     {settings.logoUrl ? (
                       <img src={settings.logoUrl} alt="Logo" className="w-14 h-14 rounded-xl object-cover" style={{ border: `1px solid ${C.line}` }} />
@@ -5954,7 +6081,7 @@ function XorlaApp() {
                 words={promoWords(settings.businessType)} isOwner={isOwnerRole} onOpenStorefront={() => setSettingsPage('storefront')} />
             )}
             {settingsPage === 'storefront' && (
-              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   {draft.storefrontEnabled && !draft.ownerPhone && (
                     <button onClick={() => setSettingsPage('contact')} className="w-full text-left mt-3 rounded-xl px-3.5 py-3 text-[12px] leading-relaxed" style={{ background: C.rustSoft, color: C.rust }}>
@@ -5979,7 +6106,7 @@ function XorlaApp() {
                   )}
                   {settings.storefrontEnabled && (
                     <div className="mt-4">
-                      <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BANNER PHOTOS ({(settings.heroImages || []).length}/5)</div>
+                      <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Banner photos ({(settings.heroImages || []).length}/5)</div>
                       <div className="grid grid-cols-2 gap-2 mb-1.5">
                         {(settings.heroImages || []).map((url, i) => (
                           <div key={url} className="relative rounded-xl overflow-hidden" style={{ aspectRatio: '16 / 9', background: C.bg }}>
@@ -5998,10 +6125,10 @@ function XorlaApp() {
                       </div>
                       <div className="text-[10.5px] mb-4" style={{ color: C.inkFaint }}>Add up to 5 wide, bright photos — they slide automatically at the top of your store. Photos save as soon as they upload.</div>
 
-                      <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>STORE TAGLINE</div>
+                      <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Tagline</div>
                       <input type="text" maxLength={80} placeholder={examplesFor(settings.businessType === 'products' ? null : serviceKind).tagline} value={draft.storefrontTagline} onChange={(e) => setDraft({ ...draft, storefrontTagline: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-4" style={field} />
 
-                      <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>YOUR STORE LINK</div>
+                      <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Your store link</div>
                       <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                         <span className="cx-mono text-[12px] truncate pr-2" style={{ color: C.sage }}>{window.location.origin}/store/{settings.businessCode}</span>
                         <button onClick={() => copyText('store', `${window.location.origin}/store/${settings.businessCode}`)} className="shrink-0 text-[11px] font-medium" style={{ color: copiedKey === 'store' ? C.sage : C.copper }}>{copiedKey === 'store' ? '✓ Copied' : 'Copy'}</button>
@@ -6016,15 +6143,15 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'messages' && (
-              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   <div className="mt-3">
-                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>PAYMENT LINK</div>
+                    <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Payment link</div>
                     <input type="text" placeholder="Paystack link, bank details, etc." value={draft.paymentLink} onChange={(e) => setDraft({ ...draft, paymentLink: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Added to the end of every reminder message automatically.</div>
                   </div>
                   <div>
-                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>REMINDER TONE</div>
+                    <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Reminder tone</div>
                     <div className="flex flex-wrap gap-1.5">
                       {TONES.map((t) => (
                         <button key={t.id} onClick={() => setDraft({ ...draft, tone: t.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.tone === t.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t.label}</button>
@@ -6035,7 +6162,7 @@ function XorlaApp() {
                     )}
                   </div>
                   <div>
-                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>LANGUAGE</div>
+                    <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Language</div>
                     <div className="flex flex-wrap gap-1.5">
                       {LANGUAGES.map((l) => (
                         <button key={l.id} onClick={() => setDraft({ ...draft, language: l.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.language === l.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
@@ -6048,7 +6175,7 @@ function XorlaApp() {
             {settingsPage === 'shops' && (
               <div className="space-y-4">
                 <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Running more than one location? Add each {L.one} here. Everything you record is kept per {L.one}, and the switcher at the top lets you see one {L.one} or all of them together.</div>
-                <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                   {locations.map((s, i) => {
                     const isWarehouse = s.kind === 'warehouse';
                     const edit = shopEdits[s.id] || {};
@@ -6060,7 +6187,7 @@ function XorlaApp() {
                           {isWarehouse ? <Warehouse size={15} style={{ color: C.copper }} /> : <Store size={15} style={{ color: C.copper }} />}
                           <input aria-label={`${L.One} name`} value={edit.name ?? locName(s)} onChange={(e) => setShopEdits((p) => ({ ...p, [s.id]: { ...edit, name: e.target.value } }))} className="flex-1 min-w-0 bg-transparent text-[14.5px] font-semibold outline-none rounded-lg px-2 py-1" style={{ border: `1px solid ${changed ? C.copper : 'transparent'}` }} />
                           {s.id === mainShopId && <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold shrink-0" style={{ background: C.surfaceRaised, color: C.inkDim }}>MAIN</span>}
-                          {isWarehouse && <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold shrink-0" style={{ background: C.copperSoft, color: C.copper }}>WAREHOUSE</span>}
+                          {isWarehouse && <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold shrink-0" style={{ background: C.copperSoft, color: C.copper }}>Warehouse</span>}
                         </div>
                         <input aria-label="Shop address" placeholder="Address (optional)" value={edit.address ?? (s.address || '')} onChange={(e) => setShopEdits((p) => ({ ...p, [s.id]: { ...edit, address: e.target.value } }))} className="w-full rounded-xl px-3 py-2 text-[12.5px] outline-none" style={field} />
                         <div className="flex items-center justify-between">
@@ -6078,7 +6205,7 @@ function XorlaApp() {
                 {closedLocations.length > 0 && (
                   <div>
                     <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Closed locations</div>
-                    <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                       {closedLocations.map((s, i) => (
                         <div key={s.id} className="flex items-center justify-between px-4 py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                           <span className="text-[13px]" style={{ color: C.inkDim }}>{locName(s)}<span className="text-[11px]" style={{ color: C.inkFaint }}> · history kept</span></span>
@@ -6088,7 +6215,7 @@ function XorlaApp() {
                     </div>
                   </div>
                 )}
-                <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                   <div className="text-[13.5px] font-semibold mb-2.5">Add a location</div>
                   <div className="flex gap-1 p-1 mb-2 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                     {[['shop', L.One], ['warehouse', 'Warehouse']].map(([k, l]) => (
@@ -6129,7 +6256,7 @@ function XorlaApp() {
               return (
                 <div className="space-y-4">
                   <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Your records belong to you. Download any of them as a spreadsheet file that opens in Excel or Google Sheets, for your accountant, a backup, or to take elsewhere. Every {L.one} is included.</div>
-                  <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                     {sets.map(([label, sub, rows, run], i) => (
                       <button key={label} onClick={run} disabled={!rows.length} className="w-full flex items-center gap-3 px-4 py-3.5 text-left" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: rows.length ? 1 : 0.5 }}>
                         <span className="flex-1 min-w-0"><span className="block text-[14px] font-semibold">{label}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{rows.length ? `${rows.length >= 1000 ? '1,000+' : rows.length} record${rows.length !== 1 ? 's' : ''}, ${sub}` : 'Nothing recorded yet'}</span></span>
@@ -6146,7 +6273,7 @@ function XorlaApp() {
               const bad = (draft.closeTime || '18:00') <= (draft.openTime || '08:00');
               return (
                 <div className="space-y-4">
-                  <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                     <button onClick={() => setDraft({ ...draft, apptEnabled: draft.apptEnabled === false })} role="switch" aria-checked={draft.apptEnabled !== false} className="w-full flex items-start gap-3 px-4 py-4 text-left">
                       <div className="flex-1">
                         <div className="text-[14.5px] font-semibold mb-1">Let customers pick a time</div>
@@ -6214,7 +6341,7 @@ function XorlaApp() {
               return (
                 <div className="space-y-4">
                   <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>A deposit holds a booking firmly. Your team records it when the guest pays by cash or transfer, and Xorla keeps track of what is owed back if plans change.</div>
-                  <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                     <div className="px-4 py-4">
                       <div className="text-[14.5px] font-semibold mb-1">Deposit</div>
                       <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>How much of the {stayWord} the guest pays to confirm it.</div>
@@ -6275,7 +6402,7 @@ function XorlaApp() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                   <button onClick={() => setDraft({ ...draft, autoReminders: !draft.autoReminders })} role="switch" aria-checked={draft.autoReminders} className="w-full flex items-start gap-3 px-4 py-4 text-left">
                     <div className="flex-1">
                       <div className="text-[14.5px] font-semibold mb-1">Automatic payment reminders</div>
@@ -6313,7 +6440,7 @@ function XorlaApp() {
 
                 <div>
                     <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Recent automatic messages</div>
-                    <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                       {waLog.length === 0 && (
                         <div className="px-4 py-5 text-center text-[12.5px] leading-relaxed" style={{ color: C.inkFaint }}>No automatic messages yet. Every reminder and summary Xorla sends will be listed here, marked Sent or Failed.</div>
                       )}
@@ -6333,12 +6460,12 @@ function XorlaApp() {
             {settingsPage === 'plan' && renderPlanPage()}
             {settingsPage === 'notifications' && (
               <div className="space-y-4">
-                <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                   <div className="text-[14.5px] font-semibold mb-1">Notifications on this {DEVICE_WORD}</div>
                   <div className="text-[12px] leading-relaxed mb-4" style={{ color: C.inkFaint }}>Only the things worth interrupting you for. Each phone or computer is turned on separately — this only turns them on for the {DEVICE_WORD} you're using now.</div>
                   {renderPushControl(false)}
                 </div>
-                <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                   <div className="text-[12px] font-semibold uppercase tracking-wide mb-2.5" style={{ color: C.inkFaint }}>What you'll get</div>
                   <div className="space-y-2 text-[12.5px]" style={{ color: C.inkDim }}>
                     {(isOwnerRole ? [
@@ -6372,11 +6499,11 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'contact' && (
-              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   <div className="mt-3">
-                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS WHATSAPP NUMBER</div>
-                    <input type="tel" inputMode="tel" placeholder="e.g. 0803 123 4567" value={draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>WhatsApp number</div>
+                    <input type="tel" inputMode="tel" placeholder="e.g. 0803 123 4567" value={draft.ownerPhone && draft.ownerPhone === settings.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : draft.ownerPhone} onChange={(e) => setDraft({ ...draft, ownerPhone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     {draft.ownerPhone && toWhatsAppNumber(draft.ownerPhone).length >= 12 && (
                       <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: C.sage }}>✓ Customers will reach you on {formatPhoneDisplay(draft.ownerPhone)}</div>
                     )}
@@ -6386,11 +6513,11 @@ function XorlaApp() {
                     <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Storefront orders are sent here on WhatsApp, and so are your business summaries. Local format like 0803… is fine.</div>
                   </div>
                   <div>
-                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS EMAIL (OPTIONAL)</div>
+                    <div className="text-[13px] font-semibold mb-2 mt-5" style={{ color: C.ink }}>Email (optional)</div>
                     <input type="email" placeholder="hello@yourbusiness.com" value={draft.businessEmail} onChange={(e) => setDraft({ ...draft, businessEmail: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                   </div>
                   <div>
-                    <div className="text-[11px] font-medium mb-2" style={{ color: C.inkDim }}>BUSINESS ADDRESS (OPTIONAL)</div>
+                    <div className="text-[13px] font-semibold mb-2 mt-5" style={{ color: C.ink }}>Address (optional)</div>
                     <textarea placeholder={`${L.One} address, street, city`} value={draft.businessAddress} onChange={(e) => setDraft({ ...draft, businessAddress: e.target.value })} rows={2} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
                     <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Shows on your invoice PDFs.</div>
                   </div>
@@ -6398,7 +6525,7 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'team' && (
-              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   {staffRequests.length > 0 && (
                     <div className="mt-3 mb-4">
@@ -6448,7 +6575,7 @@ function XorlaApp() {
             {settingsPage === 'team' && shops.length > 1 && settings.staffList.length > 0 && (
               <div className="mt-4">
                 <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Which {L.many} each person works in</div>
-                <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                   {settings.staffList.map((st, i) => (
                     <div key={st.id} className="px-4 py-3.5" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                       <div className="text-[13.5px] font-semibold mb-2">{st.name}</div>
@@ -6465,7 +6592,7 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'security' && (
-              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   <div className="flex items-center gap-3 mt-3 mb-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: settings.pin ? C.sageSoft : C.surfaceRaised }}>
@@ -6494,14 +6621,17 @@ function XorlaApp() {
           </div>
 
           {settingsDirty ? (
-            <div className="sticky bottom-0 flex items-center gap-2.5 px-4 py-3.5 xorla-fade-up" style={{ background: C.surface, borderTop: `1px solid ${C.line}`, paddingBottom: 'max(14px, env(safe-area-inset-bottom))' }}>
-              <span className="flex-1 text-[12.5px] font-medium" style={{ color: C.inkDim }}>Unsaved changes</span>
-              <button onClick={() => setDraft({ ...settings })} className="px-4 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Discard</button>
-              <button onClick={saveSettingsDraft} className="px-5 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg }}>Save changes</button>
+            <div className="sticky bottom-0 z-20 w-full px-3 lg:px-10 pb-3 lg:pb-6 xorla-fade-up" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+              <div className="max-w-2xl mx-auto flex items-center gap-2.5 rounded-2xl pl-4 pr-2 py-2" style={{ background: 'rgba(19,50,44,0.96)', backdropFilter: 'blur(14px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 18px 40px -16px rgba(0,0,0,0.75)' }}>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: C.copper }} />
+                <span className="flex-1 text-[13px] font-medium" style={{ color: C.ink }}>Unsaved changes</span>
+                <button onClick={() => setDraft({ ...settings })} className="px-4 h-10 rounded-xl text-[13px] font-semibold" style={{ color: C.inkDim }}>Discard</button>
+                <button onClick={saveSettingsDraft} className="px-5 h-10 rounded-xl text-[13.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>Save changes</button>
+              </div>
             </div>
           ) : saveNotice ? (
-            <div className="sticky bottom-0 flex items-center justify-center gap-2 px-4 py-3.5 text-[13px] font-medium xorla-fade-up" style={{ background: C.sageSoft, color: C.sage, paddingBottom: 'max(14px, env(safe-area-inset-bottom))' }}>
-              <Check size={16} /> {saveNotice}
+            <div className="sticky bottom-0 z-20 w-full px-3 lg:px-10 pb-3 lg:pb-6 xorla-fade-up" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+              <div className="max-w-2xl mx-auto flex items-center justify-center gap-2 rounded-2xl px-4 h-12 text-[13.5px] font-semibold" style={{ background: 'rgba(14,52,46,0.96)', color: C.sage, border: '1px solid rgba(31,217,196,0.25)' }}><Check size={16} /> {saveNotice}</div>
             </div>
           ) : null}
         </div>
