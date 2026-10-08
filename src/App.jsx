@@ -154,7 +154,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson'];
 const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Download your records', hours: 'Opening hours & appointments' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
@@ -191,6 +191,21 @@ const SERVICE_KINDS = {
   repairs: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. Labour included, parts charged separately', label: 'Repairs & trades', hint: 'Mechanics, phones, tailoring', name: 'e.g. Engine service, Phone screen repair', category: 'e.g. Repairs, Servicing', unit: 'fixed' },
   professional: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. Two rounds of changes, delivered in 5 days', label: 'Professional services', hint: 'Consulting, design, accounting', name: 'e.g. Tax filing, Logo design', category: 'e.g. Consulting, Design', unit: 'fixed' },
   events: { includesLabel: "WHAT'S INCLUDED", includes: 'e.g. 6 hours of coverage, 200 edited photos', label: 'Events & media', hint: 'Photography, catering, MCs', name: 'e.g. Wedding photography, Event MC', category: 'e.g. Photography, Catering', unit: 'session' },
+};
+const DAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+function daysLabel(days) {
+  const d = [...new Set(days || [])].sort((a, b) => a - b);
+  if (d.length === 7) return 'Every day';
+  if (!d.length) return 'Closed';
+  const run = d.every((x, i) => i === 0 || x === d[i - 1] + 1);
+  return run && d.length > 2 ? `${DAY_SHORT[d[0]]} to ${DAY_SHORT[d[d.length - 1]]}` : d.map((x) => DAY_SHORT[x]).join(', ');
+}
+// Who serves an appointment, in the business's own words
+const PERSON_WORDS = {
+  personal_care: { one: 'stylist', many: 'stylists', One: 'Stylist', Many: 'Stylists', example: 'e.g. Amaka' },
+  repairs: { one: 'technician', many: 'technicians', One: 'Technician', Many: 'Technicians', example: 'e.g. Emeka' },
+  professional: { one: 'consultant', many: 'consultants', One: 'Consultant', Many: 'Consultants', example: 'e.g. Mrs Okafor' },
+  _default: { one: 'team member', many: 'team members', One: 'Team member', Many: 'Team members', example: 'e.g. Chidi' },
 };
 // Examples that fit the business: what its products are called, and what customers usually tell it
 const PRODUCT_EXAMPLES = {
@@ -562,7 +577,7 @@ function fromSbProduct(row) {
   return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null };
 }
 
 function staticMessage(inv, settings) {
@@ -1250,6 +1265,10 @@ function XorlaApp() {
   const [actForm, setActForm] = useState({ room: '', amount: '', reason: '' });
   const [bookingBusy, setBookingBusy] = useState(false);
   const [roomCharges, setRoomCharges] = useState([]);
+  const [apptPeople, setApptPeople] = useState([]);
+  const [apptMineOnly, setApptMineOnly] = useState(false);
+  const [personForm, setPersonForm] = useState(null);
+  const [branchHours, setBranchHours] = useState(null);
   const [apptPanel, setApptPanel] = useState(null);
   const submitApptRef = useRef(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -1589,7 +1608,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows] = await Promise.all([
+      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, peopleRows] = await Promise.all([
         sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
         sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
         sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
@@ -1607,6 +1626,7 @@ function XorlaApp() {
         sbRest('rooms', { accessToken, query: '?select=*&active=eq.true&order=label.asc' }).catch(() => []),
         sbRest('bookings', { accessToken, query: '?select=*&deposit_status=eq.refund_due&limit=200' }).catch(() => []),
         sbRest('room_charges', { accessToken, query: '?select=*&status=eq.open&order=created_at.asc&limit=1000' }).catch(() => []),
+        sbRest('appt_people', { accessToken, query: '?select=*&order=name.asc' }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
       setInvoices(invoiceRows.map(fromSbInvoice));
@@ -1625,6 +1645,7 @@ function XorlaApp() {
       setBookingsAll([...(bookingRows || []), ...(Array.isArray(refundRows) ? refundRows : []).filter((b) => !bookingIds.has(b.id))]);
       setRoomsAll(roomRows || []);
       setRoomCharges(Array.isArray(chargeRows) ? chargeRows : []);
+      setApptPeople(Array.isArray(peopleRows) ? peopleRows : []);
       loadStaffRequests(accessToken);
       sbRpc('admin_access', accessToken, {}).then((a) => setIsFounder(!!a?.admin)).catch(() => setIsFounder(false));
     } catch (e) {
@@ -1771,6 +1792,7 @@ function XorlaApp() {
       closeTime: String(business.close_time || '18:00').slice(0, 5),
       openDays: Array.isArray(business.open_days) ? business.open_days : [1, 2, 3, 4, 5, 6],
       apptCapacity: business.appt_capacity ?? 1,
+      apptByPerson: !!business.appt_by_person,
       logoUrl: business.logo_url || null,
       businessAddress: business.address || '',
       businessEmail: business.email || '',
@@ -2418,6 +2440,7 @@ function XorlaApp() {
       if ('closeTime' in patch) bizPatch.close_time = patch.closeTime;
       if ('openDays' in patch) bizPatch.open_days = patch.openDays;
       if ('apptCapacity' in patch) bizPatch.appt_capacity = Number(patch.apptCapacity);
+      if ('apptByPerson' in patch) bizPatch.appt_by_person = !!patch.apptByPerson;
       if ('ownerPhone' in patch) bizPatch.owner_phone = patch.ownerPhone;
       if ('businessAddress' in patch) bizPatch.address = patch.businessAddress;
       if ('businessEmail' in patch) bizPatch.email = patch.businessEmail;
@@ -3076,6 +3099,45 @@ function XorlaApp() {
   // ---------- Appointments (salons, barbers, clinics, consultants): times that can't clash ----------
   const apptMode = settings.businessType !== 'products' && !['accommodation', 'rentals'].includes(serviceKind);
   const apptCap = Math.max(1, Number(settings.apptCapacity ?? 1));
+  // Team diaries: who serves the customer (stylist, barber, technician…), each with their own times
+  const PW = PERSON_WORDS[serviceKind] || PERSON_WORDS._default;
+  const activePeople = apptPeople.filter((p) => p.active);
+  const peopleAt = (shopId) => activePeople.filter((p) => p.shop_id === (shopId || mainShopId));
+  const teamOn = (shopId) => !!settings.apptByPerson && peopleAt(shopId).length > 0;
+  const apptCapAt = (shopId) => (teamOn(shopId) ? peopleAt(shopId).length : apptCap);
+  const myPerson = activePeople.find((p) => p.profile_id && p.profile_id === session?.user_id) || null;
+  const apptFull = (o, clash) => (teamOn(o.shopId) && o.personId && !o.personAny ? clash.some((x) => x.personId === o.personId) : clash.length >= apptCapAt(o.shopId));
+  // Customers who didn't come before (matched by phone number)
+  const phoneKey = (ph) => String(ph || '').replace(/\D/g, '').slice(-10);
+  const missedBefore = (o) => { const k = phoneKey(o.customerPhone); return k.length < 7 ? 0 : ordersAll.filter((x) => x.id !== o.id && x.noShow && phoneKey(x.customerPhone) === k).length; };
+  // Reminders: a WhatsApp message the day before (or on the day)
+  const lagosToday = lagosDateKey(new Date());
+  const lagosTomorrow = lagosDateKey(new Date(Date.now() + 86400000));
+  const canRemind = (o) => isConfirmedAppt(o) && !!o.customerPhone && new Date(o.startAt) > new Date() && new Date(o.startAt) - Date.now() < 48 * 3600000;
+  const reminderMessage = (o) => {
+    const first = String(o.customerName || '').split(' ')[0] || 'there';
+    const k = lagosDateKey(o.startAt);
+    const when = k === lagosToday ? `today at ${apptTime(o.startAt)}` : k === lagosTomorrow ? `tomorrow, ${apptDay(o.startAt)}, at ${apptTime(o.startAt)}` : `on ${apptDay(o.startAt)} at ${apptTime(o.startAt)}`;
+    const shop = locationsAll.find((x) => x.id === (o.shopId || mainShopId));
+    const address = (shop && shop.address) || settings.businessAddress || '';
+    return [
+      `Hi ${first}, a friendly reminder of your appointment with ${settings.businessName} ${when}${o.personName ? `, with ${o.personName}` : ''}.`,
+      `For: ${o.items.map((it) => it.description).join(', ')}`,
+      address ? `Address: ${address}` : '',
+      "If you can't make it, please reply to let us know so we can give the time to someone else. See you soon!",
+    ].filter(Boolean).join('\n\n');
+  };
+  const sendReminder = (o) => {
+    window.open(`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(reminderMessage(o))}`, '_blank');
+    setOrders((prev) => prev.map((x) => (x.id === o.id ? { ...x, remindedAt: new Date().toISOString() } : x)));
+    sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'reminded', p_reason: '' }).catch(() => {});
+  };
+  const markNoShow = async (o) => {
+    const prior = missedBefore(o);
+    if (!(await brandConfirm(`${o.customerName} didn't come for ${apptRange(o)}. The appointment closes, and Xorla remembers it${prior ? ` (their ${prior + 1}${prior + 1 === 2 ? 'nd' : prior + 1 === 3 ? 'rd' : 'th'} time)` : ''}, so you'll see a note if they book again.`, { title: 'Mark as didn\'t come?', confirm: "Didn't come", danger: true }))) return;
+    try { await sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'no_show', p_reason: '' }); await loadBusinessData(session.access_token); }
+    catch (e) { brandAlert(e.message); }
+  };
   const timedServices = productsAll.filter((p) => kindOf(p, settings.businessType) === 'service' && serviceMinutes(p) !== null);
   const isConfirmedAppt = (x) => x.status === 'pending' && x.startAt && x.acceptedAt;
   const apptClashes = (o) => ordersAll.filter((x) => x.id !== o.id && isConfirmedAppt(x) && (x.shopId || mainShopId) === (o.shopId || mainShopId)
@@ -3115,7 +3177,7 @@ function XorlaApp() {
     if (!items.length) { setApptPanel((p) => p && { ...p, cal: null, slot: '' }); return; }
     setApptPanel((p) => p && { ...p, calLoading: true, error: '' });
     try {
-      const cal = await sbRpc('my_appointment_calendar', session.access_token, { p_shop: panel.order ? (panel.order.shopId || mainShopId) : targetShopId, p_items: items, p_exclude: panel.order?.id || null, p_days: 21 });
+      const cal = await sbRpc('my_appointment_calendar', session.access_token, { p_shop: panel.order ? (panel.order.shopId || mainShopId) : targetShopId, p_items: items, p_exclude: panel.order?.id || null, p_days: 21, p_person: panel.person || null });
       setApptPanel((p) => {
         if (!p) return p;
         const firstDay = (cal?.days || []).find((d) => d.slots.length)?.date || '';
@@ -3124,9 +3186,13 @@ function XorlaApp() {
     } catch (e) { setApptPanel((p) => p && { ...p, calLoading: false, error: e.message }); }
   };
   const openAppt = (mode, order) => {
-    const panel = { mode, order: order || null, items: [], name: '', phone: '', note: '', reason: '', day: '', slot: '', cal: null, error: '', busy: false };
+    const panel = { mode, order: order || null, items: [], name: '', phone: '', note: '', reason: '', day: '', slot: '', cal: null, error: '', busy: false, person: order && !order.personAny ? order.personId : (mode === 'assign' && order ? order.personId : null) };
     setApptPanel(panel);
     if (mode === 'reschedule') loadApptCal(panel);
+  };
+  const pickApptPerson = (id) => {
+    const next = { ...apptPanel, person: id, slot: '' };
+    setApptPanel(next); if (next.mode !== 'assign' && (next.mode !== 'new' || next.items.length)) loadApptCal(next);
   };
   const toggleApptItem = (id) => {
     const next = { ...apptPanel, items: apptPanel.items.includes(id) ? apptPanel.items.filter((x) => x !== id) : [...apptPanel.items, id] };
@@ -3152,7 +3218,9 @@ function XorlaApp() {
       if (!a.items.length) { setApptPanel({ ...a, error: 'Pick at least one service.' }); return; }
       if (!a.slot) { setApptPanel({ ...a, error: 'Pick a time.' }); return; }
       if (!a.name.trim()) { setApptPanel({ ...a, error: "Enter the customer's name." }); return; }
-      runAppt(() => sbRpc('create_appointment', session.access_token, { p_shop: targetShopId, p_items: a.items.map((id) => ({ productId: id, quantity: 1 })), p_start_at: a.slot, p_name: a.name, p_phone: a.phone, p_note: a.note }));
+      runAppt(() => sbRpc('create_appointment', session.access_token, { p_shop: targetShopId, p_items: a.items.map((id) => ({ productId: id, quantity: 1 })), p_start_at: a.slot, p_name: a.name, p_phone: a.phone, p_note: a.note, p_person: a.person || null }));
+    } else if (a.mode === 'assign') {
+      runAppt(() => sbRpc('answer_appointment', session.access_token, { p_order: a.order.id, p_action: 'assign', p_reason: '', p_person: a.person || null }));
     } else if (a.mode === 'reschedule' && !a.direct) {
       // Offer the time: the customer accepts it, picks another, or declines, from a link
       if (!a.slot) { setApptPanel({ ...a, error: 'Pick the time to offer.' }); return; }
@@ -3186,7 +3254,20 @@ function XorlaApp() {
   const renderApptPanel = () => {
     if (!apptPanel) return null;
     const a = apptPanel; const close = () => { if (!a.busy) setApptPanel(null); };
-    const title = { new: 'New appointment', reschedule: a.order?.acceptedAt ? 'Move appointment' : 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment' }[a.mode];
+    const title = { new: 'New appointment', reschedule: a.order?.acceptedAt ? 'Move appointment' : 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment', assign: `Change ${PW.one}` }[a.mode];
+    const panelShop = a.order ? (a.order.shopId || mainShopId) : targetShopId;
+    const chips = teamOn(panelShop) && (
+      <div>
+        <div className="text-[12.5px] font-semibold mb-2">{a.mode === 'assign' ? `Who will serve ${String(a.order?.customerName || '').split(' ')[0]}?` : `${PW.One}`}</div>
+        <div className="flex flex-wrap gap-2">
+          {[{ id: null, name: `Anyone free` }, ...peopleAt(panelShop)].map((p) => {
+            const on = (a.person || null) === p.id;
+            return <button key={p.id || 'any'} type="button" onClick={() => pickApptPerson(p.id)} aria-pressed={on} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={on ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{p.name}</button>;
+          })}
+        </div>
+        {a.mode === 'assign' && <div className="text-[11.5px] mt-2 leading-relaxed" style={{ color: C.inkFaint }}>"Anyone free" lets Xorla pick whoever is free at {apptTime(a.order.startAt)}.</div>}
+      </div>
+    );
     const firstName = String(a.order?.customerName || '').split(' ')[0];
     const days = a.cal?.days || [];
     const day = days.find((d) => d.date === a.day);
@@ -3214,7 +3295,7 @@ function XorlaApp() {
               <div className="rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised }}>
                 <div className="text-[13.5px] font-semibold">{a.order.customerName}</div>
                 <div className="text-[12px]" style={{ color: C.inkDim }}>{a.order.items.map((it) => it.description).join(', ')}</div>
-                <div className="text-[12px] mt-0.5" style={{ color: C.inkFaint }}>{a.mode === 'reschedule' ? 'Asked for ' : ''}{apptRange(a.order)}</div>
+                <div className="text-[12px] mt-0.5" style={{ color: C.inkFaint }}>{a.mode === 'reschedule' ? 'Asked for ' : ''}{apptRange(a.order)}{a.order.personName ? ` · with ${a.order.personName}` : ''}</div>
               </div>
             )}
             {a.mode === 'new' && (
@@ -3235,11 +3316,14 @@ function XorlaApp() {
                       </div>
                     </div>
                   )}
+                {chips}
                 {a.items.length > 0 && picker}
                 <input type="text" placeholder="Customer's name" value={a.name} onChange={(e) => setApptPanel({ ...a, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <input type="tel" placeholder="Phone (optional)" value={a.phone} onChange={(e) => setApptPanel({ ...a, phone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
               </>
             )}
+            {a.mode === 'assign' && chips}
+            {a.mode === 'reschedule' && a.order?.personName && <div className="text-[12px]" style={{ color: C.inkDim }}>{a.order.personAny ? `Showing times when anyone is free. ${a.order.personName} may change if they're busy.` : `${a.order.customerName.split(' ')[0]} asked for ${a.order.personName}, so these are ${a.order.personName}'s free times.`}</div>}
             {a.mode === 'reschedule' && picker}
             {a.mode === 'reschedule' && a.order?.acceptedAt && <input type="text" placeholder="Reason (optional), e.g. Our stylist is unwell that day" value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
             {a.mode === 'reschedule' && <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{firstName} gets a link to accept this time, choose another free time, or say they can't make it. The time is held for them for 24 hours.</div>}
@@ -3252,7 +3336,7 @@ function XorlaApp() {
           </div>
           {a.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
           <button onClick={submitAppt} disabled={a.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: a.mode === 'decline' || a.mode === 'cancel' ? C.rust : C.copper, color: C.bg, opacity: a.busy ? 0.6 : 1 }}>
-            {a.busy ? 'Saving…' : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Offer ${apptDay(a.slot)}, ${apptTime(a.slot)} to ${firstName}` : `Offer a time to ${firstName}`) : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
+            {a.busy ? 'Saving…' : a.mode === 'assign' ? (a.person ? `Give to ${(activePeople.find((p) => p.id === a.person) || {}).name || ''}` : 'Give to anyone free') : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Offer ${apptDay(a.slot)}, ${apptTime(a.slot)} to ${firstName}` : `Offer a time to ${firstName}`) : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
           </button>
           {a.mode === 'reschedule' && a.slot && (
             <button onClick={() => { const next = { ...a, direct: true }; setApptPanel(next); setTimeout(() => submitApptRef.current && submitApptRef.current(), 0); }} disabled={a.busy} className="w-full mt-2 py-2.5 text-[12.5px] font-medium" style={{ color: C.inkDim }}>
@@ -3263,24 +3347,206 @@ function XorlaApp() {
       </div>
     );
   };
-  const renderApptTop = () => apptMode && (
+  // ---------- Settings: the team who take appointments, and each branch's own hours ----------
+  const savePerson = async () => {
+    const f = personForm; if (!f || f.busy) return;
+    if (!f.name.trim()) { setPersonForm({ ...f, error: 'Enter a name.' }); return; }
+    setPersonForm({ ...f, busy: true, error: '' });
+    try {
+      await sbRpc('save_appt_person', session.access_token, { p_id: f.id || null, p_shop: f.shop, p_name: f.name.trim(), p_profile: f.profile || null, p_active: true });
+      await loadBusinessData(session.access_token); setPersonForm(null);
+    } catch (e) { setPersonForm((x) => x && { ...x, busy: false, error: e.message }); }
+  };
+  const removePerson = async (p) => {
+    const upcoming = ordersAll.filter((o) => o.status === 'pending' && o.personId === p.id && o.startAt && new Date(o.startAt) > new Date()).length;
+    if (!(await brandConfirm(upcoming
+      ? `${p.name} has ${upcoming} upcoming appointment${upcoming > 1 ? 's' : ''}. They stay booked; use "Change" on each to give them to someone else. Customers can no longer choose ${p.name}.`
+      : `Customers can no longer choose ${p.name}. Past appointments keep their name.`, { title: `Remove ${p.name}?`, confirm: 'Remove', danger: true }))) return;
+    try { await sbRpc('save_appt_person', session.access_token, { p_id: p.id, p_shop: p.shop_id, p_name: p.name, p_profile: p.profile_id || null, p_active: false }); await loadBusinessData(session.access_token); }
+    catch (e) { brandAlert(e.message); }
+  };
+  const renderTeamCard = () => {
+    if (!isOwnerRole) return null;
+    const on = !!draft.apptByPerson;
+    const f = personForm;
+    const logins = [{ id: session?.user_id, name: `${settings.myName || 'You'} (you)` }, ...staffPresence.map((x) => ({ id: x.id, name: x.name }))];
+    const loginName = (id) => (logins.find((x) => x.id === id) || {}).name || '';
+    const form = f && (
+      <div className="rounded-xl p-3 space-y-2.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+        <input type="text" autoFocus maxLength={40} placeholder={`Name, ${PW.example}`} value={f.name} onChange={(e) => setPersonForm({ ...f, name: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && savePerson()} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
+        {shops.length > 1 && (
+          <label className="block text-[12px]" style={{ color: C.inkFaint }}>Works at
+            <BrandSelect value={f.shop} onChange={(e) => setPersonForm({ ...f, shop: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }}>
+              {shops.map((x) => <option key={x.id} value={x.id}>{locName(x)}</option>)}
+            </BrandSelect>
+          </label>
+        )}
+        <label className="block text-[12px]" style={{ color: C.inkFaint }}>Their Xorla login (optional, so they see "Mine")
+          <BrandSelect value={f.profile || ''} onChange={(e) => setPersonForm({ ...f, profile: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }}>
+            <option value="">No login</option>
+            {logins.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </BrandSelect>
+        </label>
+        {f.error && <div className="rounded-lg px-3 py-2 text-[12px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
+        <div className="flex gap-2">
+          <button onClick={() => setPersonForm(null)} className="flex-1 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Cancel</button>
+          <button onClick={savePerson} disabled={f.busy} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : f.id ? 'Save' : `Add ${PW.one}`}</button>
+        </div>
+      </div>
+    );
+    return (
+      <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        <button onClick={() => setDraft({ ...draft, apptByPerson: !on })} role="switch" aria-checked={on} className="w-full flex items-start gap-3 px-4 py-4 text-left">
+          <div className="flex-1">
+            <div className="text-[14.5px] font-semibold mb-1">Customers choose their {PW.one}</div>
+            <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>Each {PW.one} gets their own diary, so no one is double-booked. Customers pick someone, or "Anyone free".</div>
+          </div>
+          <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: on ? C.sage : C.line }}>
+            <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: on ? '24px' : '4px' }} />
+          </span>
+        </button>
+        {on && (
+          <div className="px-4 py-4 space-y-3" style={{ borderTop: `1px solid ${C.line}` }}>
+            {shops.map((shop) => {
+              const list = peopleAt(shop.id);
+              return (
+                <div key={shop.id}>
+                  {shops.length > 1 && <div className="text-[11.5px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: C.inkFaint }}>{locName(shop)}</div>}
+                  {list.length === 0 && <div className="text-[12px] mb-1" style={{ color: C.inkFaint }}>No {PW.many} yet{shops.length > 1 ? ' here' : ''}. Until you add one, "Customers at the same time" is used.</div>}
+                  <div className="space-y-1.5">
+                    {list.map((p) => (
+                      f && f.id === p.id ? <div key={p.id}>{form}</div> : (
+                        <div key={p.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised }}>
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0" style={{ background: C.copperSoft, color: C.copper }}>{p.name.slice(0, 1).toUpperCase()}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13.5px] font-semibold truncate">{p.name}</div>
+                            {p.profile_id && <div className="text-[11px]" style={{ color: C.inkFaint }}>Login: {loginName(p.profile_id) || 'linked'}</div>}
+                          </div>
+                          <button onClick={() => setPersonForm({ id: p.id, name: p.name, shop: p.shop_id, profile: p.profile_id || '', busy: false, error: '' })} className="text-[12px] font-medium" style={{ color: C.inkDim }}>Edit</button>
+                          <button onClick={() => removePerson(p)} className="text-[12px] font-medium" style={{ color: C.inkFaint }}>Remove</button>
+                        </div>
+                      )
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {f && !f.id ? form : (
+              <button onClick={() => setPersonForm({ id: null, name: '', shop: targetShopId || mainShopId, profile: '', busy: false, error: '' })} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[13px] font-semibold" style={{ color: C.copper, border: `1px dashed ${C.lineStrong || C.line}` }}><Plus size={15} /> Add {PW.one}</button>
+            )}
+            {settings.apptByPerson !== on && <div className="text-[11.5px]" style={{ color: C.copper }}>Tap Save to switch this on.</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+  const saveBranchHours = async (clear) => {
+    const b = branchHours; if (!b || b.busy) return;
+    if (!clear && b.close <= b.open) { setBranchHours({ ...b, error: 'Closing time must be after opening time.' }); return; }
+    if (!clear && !b.days.length) { setBranchHours({ ...b, error: 'Pick at least one open day.' }); return; }
+    setBranchHours({ ...b, busy: true, error: '' });
+    try {
+      await sbRpc('set_branch_hours', session.access_token, clear ? { p_shop: b.shop } : { p_shop: b.shop, p_open: b.open, p_close: b.close, p_days: b.days });
+      await loadBusinessData(session.access_token); setBranchHours(null);
+    } catch (e) { setBranchHours((x) => x && { ...x, busy: false, error: e.message }); }
+  };
+  const renderBranchHours = () => {
+    if (!isOwnerRole || shops.length < 2) return null;
+    const b = branchHours;
+    const hhmm = (t) => String(t || '').slice(0, 5);
+    return (
+      <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        <div className="px-4 pt-4 pb-2">
+          <div className="text-[14.5px] font-semibold mb-1">Hours at each {L.one}</div>
+          <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>A {L.one} uses the hours above unless you give it its own.</div>
+        </div>
+        {shops.map((shop) => {
+          const own = !!shop.open_time;
+          const editing = b && b.shop === shop.id;
+          return (
+            <div key={shop.id} className="px-4 py-3" style={{ borderTop: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13.5px] font-semibold truncate">{locName(shop)}</div>
+                  <div className="text-[12px]" style={{ color: own ? C.copper : C.inkFaint }}>{own ? `${hhmmLabel(hhmm(shop.open_time))} to ${hhmmLabel(hhmm(shop.close_time))}, ${daysLabel(shop.open_days)}` : 'Same as above'}</div>
+                </div>
+                {!editing && <button onClick={() => setBranchHours({ shop: shop.id, open: own ? hhmm(shop.open_time) : (settings.openTime || '08:00'), close: own ? hhmm(shop.close_time) : (settings.closeTime || '18:00'), days: own ? shop.open_days : (settings.openDays || [1, 2, 3, 4, 5, 6]), own, busy: false, error: '' })} className="text-[12px] font-semibold" style={{ color: C.copper }}>{own ? 'Edit' : 'Set own hours'}</button>}
+              </div>
+              {editing && (
+                <div className="mt-3 space-y-3">
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {[1, 2, 3, 4, 5, 6, 7].map((d) => {
+                      const on = b.days.includes(d);
+                      return <button key={d} onClick={() => setBranchHours({ ...b, days: on ? b.days.filter((x) => x !== d) : [...b.days, d].sort() })} aria-pressed={on} className="py-2 rounded-lg text-[12px] font-semibold" style={on ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{DAY_SHORT[d]}</button>;
+                    })}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[['open', 'Opens'], ['close', 'Closes']].map(([k, l]) => (
+                      <label key={k} className="text-[12px]" style={{ color: C.inkFaint }}>{l}
+                        <BrandSelect value={b[k]} onChange={(e) => setBranchHours({ ...b, [k]: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm" style={field}>
+                          {HALF_HOURS.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}
+                        </BrandSelect>
+                      </label>
+                    ))}
+                  </div>
+                  {b.error && <div className="rounded-lg px-3 py-2 text-[12px]" style={{ background: C.rustSoft, color: C.rust }}>{b.error}</div>}
+                  <div className="flex gap-2">
+                    {b.own ? <button onClick={() => saveBranchHours(true)} disabled={b.busy} className="flex-1 py-2.5 rounded-xl text-[12.5px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Use the main hours</button>
+                      : <button onClick={() => setBranchHours(null)} className="flex-1 py-2.5 rounded-xl text-[12.5px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Cancel</button>}
+                    <button onClick={() => saveBranchHours(false)} disabled={b.busy} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: b.busy ? 0.6 : 1 }}>{b.busy ? 'Saving…' : 'Save hours'}</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+  const renderApptTop = () => {
+    if (!apptMode) return null;
+    const mineOnly = !!myPerson && apptMineOnly;
+    const forMe = (o) => !mineOnly || o.personId === myPerson.id;
+    const today = todaysAppts.filter(forMe);
+    const tomorrow = orders.filter((o) => isConfirmedAppt(o) && lagosDateKey(o.startAt) === lagosTomorrow && forMe(o)).sort((a, b) => a.startAt.localeCompare(b.startAt));
+    const showWho = settings.apptByPerson && activePeople.length > 0;
+    const row = (o, remind) => (
+      <div key={o.id} className="flex items-center gap-3 text-[12.5px]">
+        <span className="shrink-0 whitespace-nowrap cx-mono font-semibold" style={{ color: new Date(o.endAt) < new Date() ? C.inkFaint : C.copper }}>{apptTime(o.startAt)}</span>
+        <span className="min-w-0 flex-1 truncate"><strong>{o.customerName}</strong><span style={{ color: C.inkDim }}> · {o.items.map((it) => it.description).join(', ')}{showWho && o.personName && !mineOnly ? ` · ${o.personName}` : ''}</span></span>
+        {remind && (canRemind(o)
+          ? <button onClick={() => sendReminder(o)} className="shrink-0 text-[11.5px] font-semibold px-2.5 py-1 rounded-lg" style={o.remindedAt ? { color: C.sage } : { background: C.copperSoft, color: C.copper }}>{o.remindedAt ? <span className="flex items-center gap-1"><Check size={12} /> Reminded</span> : 'Remind'}</button>
+          : <span className="shrink-0 text-[11px]" style={{ color: C.inkFaint }}>{o.customerPhone ? '' : 'No phone'}</span>)}
+      </div>
+    );
+    const unreminded = tomorrow.filter((o) => canRemind(o) && !o.remindedAt).length;
+    return (
               <div className="mb-5 space-y-3">
                 <button onClick={() => openAppt('new')} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={17} /> New appointment</button>
-                {todaysAppts.length > 0 && (
-                  <div className="rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-                    <div className="text-[13px] font-semibold mb-2">Today's appointments</div>
-                    <div className="space-y-1.5">
-                      {todaysAppts.map((o) => (
-                        <div key={o.id} className="flex items-center gap-3 text-[12.5px]">
-                          <span className="shrink-0 whitespace-nowrap cx-mono font-semibold" style={{ color: new Date(o.endAt) < new Date() ? C.inkFaint : C.copper }}>{apptTime(o.startAt)} to {apptTime(o.endAt)}</span>
-                          <span className="min-w-0 truncate"><strong>{o.customerName}</strong><span style={{ color: C.inkDim }}> · {o.items.map((it) => it.description).join(', ')}</span></span>
-                        </div>
-                      ))}
-                    </div>
+                {myPerson && (
+                  <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                    {[[false, 'Everyone'], [true, 'Mine']].map(([v, l]) => <button key={l} onClick={() => setApptMineOnly(v)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={apptMineOnly === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
                   </div>
                 )}
+                {today.length > 0 && (
+                  <div className="rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    <div className="text-[13px] font-semibold mb-2">{mineOnly ? 'Your appointments today' : "Today's appointments"}</div>
+                    <div className="space-y-2">{today.map((o) => row(o, true))}</div>
+                  </div>
+                )}
+                {tomorrow.length > 0 && (
+                  <div className="rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    <div className="flex items-center justify-between mb-2 gap-2">
+                      <div className="text-[13px] font-semibold">Tomorrow</div>
+                      <div className="text-[11.5px]" style={{ color: unreminded ? C.copper : C.sage }}>{unreminded ? `${unreminded} to remind` : 'All reminded'}</div>
+                    </div>
+                    <div className="space-y-2">{tomorrow.map((o) => row(o, true))}</div>
+                  </div>
+                )}
+                {mineOnly && !today.length && !tomorrow.length && <div className="text-[12.5px] text-center py-2" style={{ color: C.inkFaint }}>Nothing booked with you today or tomorrow.</div>}
               </div>
-  );
+    );
+  };
   const renderOrderCard = (o) => (
                 <div key={o.id} className="rounded-2xl p-4" style={card}>
                   <div className="flex items-start justify-between mb-2.5">
@@ -3295,7 +3561,7 @@ function XorlaApp() {
                       o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
                       o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
                       { background: 'rgba(226,98,75,0.12)', color: C.rust }
-                    }>{o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
+                    }>{o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.noShow ? "Didn't come" : o.startAt && !o.acceptedAt ? 'Declined' : 'Cancelled'}</span>
                   </div>
                   <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
                     {o.items.map((it, i) => (
@@ -3308,13 +3574,21 @@ function XorlaApp() {
                   {o.startAt && (() => {
                     const clash = o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer ? apptClashes(o) : [];
                     const offerOpen = o.awaitingCustomer && o.holdUntil && new Date(o.holdUntil) > new Date();
-                    const full = clash.length >= apptCap;
+                    const full = apptFull(o, clash);
+                    const missed = o.status === 'pending' ? missedBefore(o) : 0;
                     return (
                       <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: o.status !== 'pending' ? C.surfaceRaised : full ? C.rustSoft : o.acceptedAt ? C.sageSoft : C.surfaceRaised }}>
                         <div className="flex items-center gap-2">
                           <CalendarClock size={15} style={{ color: full ? C.rust : o.acceptedAt ? C.sage : C.copper }} />
                           <span className="font-semibold" style={{ color: C.ink }}>{apptRange(o)}</span>
                         </div>
+                        {(o.personName || (o.status === 'pending' && teamOn(o.shopId))) && (
+                          <div className="mt-1 flex items-center gap-2 flex-wrap" style={{ color: C.inkDim }}>
+                            <span>{o.personName ? <>With <strong style={{ color: C.ink }}>{o.personName}</strong>{!o.personAny && <span style={{ color: C.inkFaint }}> · {String(o.customerName).split(' ')[0]}'s choice</span>}</> : `No ${PW.one} yet`}</span>
+                            {o.status === 'pending' && !apptPassed(o) && canAnswerRequests && teamOn(o.shopId) && <button onClick={() => openAppt('assign', o)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>Change</button>}
+                          </div>
+                        )}
+                        {missed > 0 && <div className="mt-1 font-semibold" style={{ color: C.rust }}>Didn't come {missed === 1 ? 'once' : `${missed} times`} before</div>}
                         {o.status === 'pending' && o.awaitingCustomer && (
                           <div className="mt-1 space-y-0.5" style={{ color: C.inkDim }}>
                             <div>New time offered{o.requestedStartAt ? `. They asked for ${apptDay(o.requestedStartAt)}, ${apptTime(o.requestedStartAt)}.` : '.'}</div>
@@ -3325,10 +3599,11 @@ function XorlaApp() {
                         {o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer && !apptPassed(o) && (
                           <div className="mt-1" style={{ color: full ? C.rust : C.sage }}>{full
                             ? `Clashes with ${clash.map((x) => `${x.customerName} (${apptTime(x.startAt)} to ${apptTime(x.endAt)})`).join(', ')}. Offer another time, or decline.`
-                            : clash.length ? `Free. ${clash.length} of ${apptCap} places already booked at that time.` : 'This time is free.'}</div>
+                            : clash.length ? `Free. ${clash.length} of ${apptCapAt(o.shopId)} places already booked at that time.` : 'This time is free.'}</div>
                         )}
+                        {o.acceptedAt && o.status === 'pending' && o.remindedAt && <div className="mt-1" style={{ color: C.sage }}>Reminder sent {lagosDateKey(o.remindedAt) === lagosToday ? 'today' : apptDay(o.remindedAt)} at {apptTime(o.remindedAt)}</div>}
                         {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.proposalReply === 'accepted' ? ` by ${String(o.customerName).split(' ')[0]} from your offer` : o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
-                        {o.status === 'cancelled' && o.cancelReason && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
+                        {o.status === 'cancelled' && o.cancelReason && !o.noShow && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
                         {o.note && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
                       </div>
                     );
@@ -3354,14 +3629,16 @@ function XorlaApp() {
                       <div className="flex items-center gap-2.5">
                         <button onClick={() => openAppt('decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
                         <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>
-                        {!apptPassed(o) && apptClashes(o).length < apptCap && <button onClick={() => acceptAppt(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Accept</button>}
+                        {!apptPassed(o) && !apptFull(o, apptClashes(o)) && <button onClick={() => acceptAppt(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Accept</button>}
                       </div>
                     )}
                     {o.status === 'pending' && o.startAt && o.acceptedAt && !o.awaitingCustomer && (
                       <div className="flex items-center gap-2.5">
-                        <button onClick={() => openAppt('cancel', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
+                        {!apptPassed(o) && <button onClick={() => openAppt('cancel', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>}
                         {canAnswerRequests && !apptPassed(o) && <button onClick={() => openAppt('reschedule', o)} className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>Move</button>}
-                        {waConfirmLink(o) && <a href={waConfirmLink(o)} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
+                        {apptPassed(o) && <button onClick={() => markNoShow(o)} className="text-[11.5px] font-medium" style={{ color: C.rust }}>Didn't come</button>}
+                        {canRemind(o) ? <button onClick={() => sendReminder(o)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>{o.remindedAt ? 'Remind again' : 'Remind'}</button>
+                          : !apptPassed(o) && waConfirmLink(o) && <a href={waConfirmLink(o)} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
                         <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark done</button>
                       </div>
                     )}
@@ -5286,7 +5563,9 @@ function XorlaApp() {
                     <div className="px-4 py-4 flex items-center gap-3" style={{ borderTop: `1px solid ${C.line}` }}>
                       <div className="flex-1">
                         <div className="text-[14.5px] font-semibold mb-0.5">Customers at the same time</div>
-                        <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>How many you can serve at once, for example your chairs or stylists{shops.length > 1 ? `, at each ${L.one}` : ''}.</div>
+                        <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>{draft.apptByPerson && activePeople.length
+                          ? `Used only at a ${L.one} with no ${PW.many} listed. Elsewhere, each ${PW.one} takes one customer at a time.`
+                          : `How many you can serve at once, for example your chairs or ${PW.many}${shops.length > 1 ? `, at each ${L.one}` : ''}.`}</div>
                       </div>
                       <div className="flex items-center rounded-xl shrink-0" style={{ border: `1px solid ${C.line}` }}>
                         <button aria-label="Fewer" onClick={() => setDraft({ ...draft, apptCapacity: Math.max(1, cap - 1) })} className="w-9 h-10 text-[18px]" style={{ color: C.inkDim }}>−</button>
@@ -5295,6 +5574,8 @@ function XorlaApp() {
                       </div>
                     </div>
                   </div>
+                  {renderTeamCard()}
+                  {renderBranchHours()}
                   <div className="rounded-2xl p-4 text-[12.5px] leading-relaxed space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>
                     <div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>How times are worked out</div>
                     <div>Each service uses its <strong style={{ color: C.ink }}>How long it takes</strong> setting. Services without one count as 1 hour, and full-day services are asked for by date instead.</div>
@@ -7053,6 +7334,7 @@ function Storefront({ businessCode }) {
   const [apptCalLoading, setApptCalLoading] = useState(false);
   const [apptPickDay, setApptPickDay] = useState('');
   const [apptSlot, setApptSlot] = useState('');
+  const [apptPerson, setApptPerson] = useState(null);
   const [sentWhen, setSentWhen] = useState('');
   // Bookings (hotels and rentals): chosen dates, live availability, and the booking form
   const [stayIn, setStayIn] = useState('');
@@ -7175,12 +7457,13 @@ function Storefront({ businessCode }) {
     if (!items.length || !business) { setApptCal(null); return; }
     setApptCalLoading(true);
     try {
-      const cal = await sbRpc('appointment_calendar', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_items: items, p_days: 14 });
+      const cal = await sbRpc('appointment_calendar', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_items: items, p_days: 14, ...(apptPerson ? { p_person: apptPerson } : {}) });
       setApptCal(cal && cal.minutes ? cal : null);
+      if (apptPerson && cal && !cal.person) setApptPerson(null);   // that person is no longer listed
       setApptPickDay((d) => (cal?.days || []).some((x) => x.date === d && x.slots.length) ? d : ((cal?.days || []).find((x) => x.slots.length)?.date || ''));
     } catch (e) { setApptCal(null); }
     setApptCalLoading(false);
-  }, [serviceKey, business, businessCode]);
+  }, [serviceKey, business, businessCode, apptPerson]);
   // Free times load as soon as a service is in the basket: on a computer the basket and its form are always on screen,
   // and on a phone they refresh each time the basket is opened
   useEffect(() => { setApptSlot(''); loadStoreCalendar(); }, [loadStoreCalendar]);
@@ -7205,8 +7488,9 @@ function Storefront({ businessCode }) {
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      await sbRpc('place_order', SB_KEY, { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot } : {}) });
-      setSentWhen(usesSlots && apptSlot ? when : '');
+      await sbRpc('place_order', SB_KEY, { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}) });
+      const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
+      setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
         const lines = cartList.map((c) => `• ${c.product.name}${lineQtyText(c)} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
         const extra = `${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
@@ -7476,8 +7760,19 @@ function Storefront({ businessCode }) {
             return (
               <div className="mb-4 mt-2">
                 <div className="text-[13px] font-semibold mb-1">Pick a time</div>
+                {(apptCal.people || []).length > 0 && (
+                  <div className="mb-3">
+                    <div className="text-[12.5px] mb-1.5" style={{ color: S.muted }}>Who would you like?</div>
+                    <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Who would you like?">
+                      {[{ id: null, name: 'Anyone free' }, ...apptCal.people].map((p) => {
+                        const on = (apptPerson || null) === p.id;
+                        return <button key={p.id || 'any'} type="button" role="radio" aria-checked={on} onClick={() => setApptPerson(p.id)} className={`px-3.5 py-2 rounded-full text-[13px] font-semibold ${focusRing}`} style={on ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{p.name}</button>;
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="text-[12px] mb-2" style={{ color: S.muted }}>Takes about {apptCal.minutes >= 60 ? `${apptCal.minutes / 60} hour${apptCal.minutes !== 60 ? 's' : ''}` : `${apptCal.minutes} minutes`}. Only free times are shown.</div>
-                {!anyFree ? <div className="text-[13px] rounded-xl px-4 py-3" style={{ background: S.tile }}>No free times in the next two weeks. Send your request anyway and they'll suggest a time.</div> : (
+                {!anyFree ? <div className="text-[13px] rounded-xl px-4 py-3" style={{ background: S.tile }}>{apptPerson ? `${(apptCal.people.find((p) => p.id === apptPerson) || {}).name || 'They'} has no free times in the next two weeks. Try "Anyone free", or send your request anyway.` : "No free times in the next two weeks. Send your request anyway and they'll suggest a time."}</div> : (
                   <>
                     <SlotPicker light cal={apptCal} day={apptPickDay} onDay={setApptPickDay} slot={apptSlot} onSlot={setApptSlot} />
                   </>
@@ -7491,7 +7786,7 @@ function Storefront({ businessCode }) {
             </>
           )}
           <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-note">Anything they should know? <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
-          <textarea id="sf-note" rows={2} maxLength={300} value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder={examplesFor(business.business_type === 'products' ? null : business.service_kind).note} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 resize-none ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+          <textarea id="sf-note" rows={2} maxLength={300} value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder={examplesFor(business.business_type === 'products' ? null : business.service_kind).note.replace((apptCal?.people || []).length ? /, preferred stylist$/ : /^$/, '')} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 resize-none ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
         </>
       )}
       <div className="text-[12px] mb-5" style={{ color: S.muted }}>{usesSlots && apptSlot ? `No payment now. Your time is held while ${business.name} confirms it.` : `No payment now. ${business.name} will contact you to confirm${cartHasService ? ' the time' : ''} and arrange payment.`}</div>
@@ -8469,7 +8764,7 @@ function AppointmentOffer({ token }) {
       <div className="text-[14px] max-w-sm" style={{ color: S.muted }}>It may have been replaced by a newer message. Check the latest message from the business, or contact them directly.</div>
     </div>
   );
-  const services = (offer.items || []).map((it) => it.description).join(', ');
+  const services = (offer.items || []).map((it) => it.description).join(', ') + (offer.person ? `, with ${offer.person}` : '');
   const range = (a, b) => `${apptDay(a)}, ${apptTime(a)} to ${apptTime(b)}`;
   const wa = offer.phone ? `https://wa.me/${toWhatsAppNumber(offer.phone)}` : null;
   const store = offer.business_code ? `/store/${offer.business_code}` : null;
