@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, History, FileSpreadsheet, Undo2, Upload } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -184,11 +184,11 @@ const SETTINGS_DESCRIPTIONS = {
   team: 'Who works with you, and the code they use to join.',
   security: 'Lock Xorla on this device with a 4-digit PIN.',
   deposits: 'The deposit that holds a booking, and your cancellation rule.',
-  export: 'Your records as spreadsheets, whenever you need them.',
+  export: 'Bring in your sales from before Xorla, or download everything as spreadsheets.',
   hours: 'When customers can book, and who serves them.',
   promote: 'A poster for your shop, pictures for WhatsApp Status, and discount codes.',
 };
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Download your records', hours: 'Opening hours & appointments', promote: 'Promote your business' };
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -1312,6 +1312,8 @@ function XorlaApp() {
   const [apptPanel, setApptPanel] = useState(null);
   const submitApptRef = useRef(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [pastImport, setPastImport] = useState(null);     // bringing in sales from before Xorla
+  const [pastImports, setPastImports] = useState(null);
   const [importText, setImportText] = useState('');
   const [importKind, setImportKind] = useState('product');
   const [importBusy, setImportBusy] = useState('');
@@ -3903,6 +3905,313 @@ function XorlaApp() {
       </div>
     );
   };
+  // ---------- Bringing in past sales (owner only) ----------
+  const loadPastImports = async () => {
+    try { setPastImports(await sbRest('sales_imports', { accessToken: session.access_token, query: '?select=*&order=created_at.desc&limit=30' })); }
+    catch (e) { setPastImports([]); }
+  };
+  const markHistoryStep = () => { if (!(settings.setupSteps || []).includes('history')) updateSettings({ setupSteps: [...new Set([...(settings.setupSteps || []), 'history'])] }); };
+  const openPastImport = async (opts) => {
+    if (!isOwnerRole) return;
+    setPastImport({ stage: 'start', paste: false, text: '', error: '', firstXorlaDay: null, fromChecklist: !!opts?.fromChecklist });
+    loadPastImports();
+    // The first day sales were recorded in Xorla itself. Days before it are safe to bring in; days after would count twice.
+    try {
+      const r = await sbRest('sales', { accessToken: session.access_token, query: '?select=sold_at&import_id=is.null&order=sold_at.asc&limit=1' });
+      const first = r[0]?.sold_at ? new Date(r[0].sold_at).toLocaleDateString('en-CA', LAGOS_TIME) : null;
+      setPastImport((x) => x && { ...x, firstXorlaDay: first || 'none' });
+    } catch (e) {
+      const min = salesAll.filter((s) => s.loggedBy !== 'Imported').reduce((m, s) => (!m || s.dateKey < m ? s.dateKey : m), null);
+      setPastImport((x) => x && { ...x, firstXorlaDay: min || 'none' });
+    }
+  };
+  const readPastRows = (rows, fileName) => {
+    const clean = rows.map((r) => r.map((c) => (c === null || c === undefined ? '' : c instanceof Date || typeof c === 'number' ? c : String(c).trim()))).filter((r) => r.some((c) => c !== ''));
+    if (!clean.length) { setPastImport((x) => x && { ...x, error: 'That file looks empty. Check that your sales are on the first sheet.' }); return; }
+    const guess = guessPastColumns(clean);
+    const order = dateOrderOf(guess.map.date >= 0 ? clean.slice(guess.headerRow + 1).map((r) => r[guess.map.date]) : []);
+    setPastImport((x) => x && { ...x, stage: 'check', rows: clean, fileName, guess, map: { ...guess.map }, perUnit: guess.perUnit, dayFirst: order.dayFirst, askOrder: order.unclear, shopId: targetShopId, onlyBefore: true, error: '', showSkipped: false });
+  };
+  const loadPastFile = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    e.target.value = '';
+    if (/\.(xls|numbers)$/i.test(file.name)) { setPastImport((x) => x && { ...x, error: 'This is an older spreadsheet format. In Excel or Numbers, choose Save As and pick "Excel Workbook (.xlsx)" or CSV, then upload that.' }); return; }
+    if (file.size > 15 * 1024 * 1024) { setPastImport((x) => x && { ...x, error: 'That file is very big. Split it into one file per year and bring them in one at a time.' }); return; }
+    setPastImport((x) => x && { ...x, reading: true, error: '' });
+    try {
+      if (/\.xlsx$/i.test(file.name)) { const { default: readXlsxFile } = await import('read-excel-file'); readPastRows(await readXlsxFile(file), file.name); }
+      else readPastRows(rowsFromText(await file.text()), file.name);
+    } catch (err) { setPastImport((x) => x && { ...x, error: "Couldn't read that file. Try saving it again as .xlsx or CSV, or copy the rows and paste them instead." }); }
+    setPastImport((x) => x && { ...x, reading: false });
+  };
+  const runPastImport = async (list) => {
+    const p = pastImport; if (!p || p.stage !== 'check' || !list.length) return;
+    let importId = null; let res = null;
+    setPastImport({ ...p, stage: 'saving', progress: 0, total: list.length, error: '' });
+    try {
+      for (let i = 0; i < list.length; i += 2000) {
+        res = await sbRpc('import_past_sales', session.access_token, { p_rows: list.slice(i, i + 2000), p_shop: p.shopId || null, p_file: p.fileName || 'Pasted rows', p_import: importId });
+        importId = res.import;
+        setPastImport((x) => x && { ...x, progress: Math.min(i + 2000, list.length) });
+      }
+      setPastImport((x) => x && { ...x, stage: 'done', result: res });
+      markHistoryStep(); loadPastImports(); loadBusinessData(session.access_token);
+    } catch (e) {
+      // All or nothing: take back any part that went in
+      if (importId) await sbRpc('undo_sales_import', session.access_token, { p_import: importId }).catch(() => null);
+      const msg = /could not find the function|does not exist|schema cache/i.test(e.message) ? "Bringing in past sales isn't switched on yet. Please try again later." : e.message;
+      setPastImport((x) => x && { ...x, stage: 'check', error: `Nothing was added. ${msg}` });
+    }
+  };
+  const undoPastImport = async (im) => {
+    if (!(await brandConfirm(`Remove the ${Number(im.row_count).toLocaleString()} past sales brought in from ${im.file_name || 'pasted rows'}? Your reports go back to how they were. Sales recorded in Xorla aren't touched.`, { title: 'Undo this import?', confirm: 'Remove them', danger: true }))) return;
+    try {
+      await sbRpc('undo_sales_import', session.access_token, { p_import: im.id });
+      setPastImport((x) => x && (x.stage === 'done' ? { ...x, stage: 'start', result: null } : x));
+      loadPastImports(); loadBusinessData(session.access_token);
+    } catch (e) { brandAlert(e.message); }
+  };
+  const pastImportSummary = (im) => `${Number(im.row_count).toLocaleString()} sale${Number(im.row_count) !== 1 ? 's' : ''} · ${compactNaira(Number(im.total))} · ${im.first_day === im.last_day ? shortDay(im.first_day) : `${shortDay(im.first_day)} to ${shortDay(im.last_day)}`}`;
+  const renderPastImport = () => {
+    const p = pastImport; if (!p) return null;
+    const busy = p.stage === 'saving';
+    const close = () => { if (!busy) setPastImport(null); };
+    const set = (patch) => setPastImport((x) => x && { ...x, ...patch });
+    const card = { background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` };
+    const header = (title, sub, back) => (
+      <div className="flex items-start gap-3 mb-4">
+        {back ? <button onClick={back} aria-label="Back" className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}><ChevronLeft size={17} /></button>
+          : <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft, color: C.copper, border: '1px solid rgba(255,176,32,0.25)' }}><History size={20} /></div>}
+        <div className="flex-1 min-w-0 pt-0.5">
+          <div className="text-[18px] font-semibold cx-display leading-tight">{title}</div>
+          {sub && <div className="text-[12.5px] leading-relaxed mt-1" style={{ color: C.inkDim }}>{sub}</div>}
+        </div>
+        {!busy && <button onClick={close} aria-label="Close" className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ color: C.inkFaint }}><X size={18} /></button>}
+      </div>
+    );
+    const errorBox = p.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px] leading-relaxed" style={{ background: C.rustSoft, color: C.rust }}>{p.error}</div>;
+    let body;
+    if (p.stage === 'start') {
+      body = (
+        <>
+          {header('Bring in past sales', 'Selling before you joined Xorla? Add your old sales records so your reports, best sellers and Oga can see your whole history.')}
+          <label className="block rounded-2xl px-5 py-6 text-center cursor-pointer" style={{ background: 'linear-gradient(180deg, rgba(255,176,32,0.09), rgba(255,176,32,0.02))', border: '1.5px dashed rgba(255,176,32,0.45)' }}>
+            <div className="mx-auto w-12 h-12 rounded-2xl flex items-center justify-center mb-3" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>{p.reading ? <Loader2 size={21} className="animate-spin" /> : <FileSpreadsheet size={22} />}</div>
+            <div className="text-[15px] font-semibold">{p.reading ? 'Reading your file…' : 'Upload your sales file'}</div>
+            <div className="text-[12px] mt-1" style={{ color: C.inkFaint }}>Excel (.xlsx) or CSV, from your phone or computer</div>
+            <input type="file" accept=".csv,.txt,.tsv,.xlsx,.xls,.numbers,text/csv,text/plain" className="hidden" onChange={loadPastFile} disabled={p.reading} />
+          </label>
+          {!p.paste ? (
+            <button onClick={() => set({ paste: true })} className="mt-2.5 w-full text-center text-[12.5px] font-medium py-1.5" style={{ color: C.copper }}>Or paste rows from Excel or Google Sheets</button>
+          ) : (
+            <div className="mt-3">
+              <textarea autoFocus rows={5} value={p.text} onChange={(e) => set({ text: e.target.value })} placeholder={'14/03/2025\tRice 50kg\t85000\n14/03/2025\tPeak milk (tin)\t650\n15/03/2025\tIndomie (carton)\t4500'} className="w-full rounded-xl px-3.5 py-3 text-[13px] outline-none resize-y cx-mono" style={{ ...field, minHeight: 120 }} />
+              <button onClick={() => readPastRows(rowsFromText(p.text), 'Pasted rows')} disabled={!p.text.trim()} className="mt-2 w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink, opacity: p.text.trim() ? 1 : 0.5 }}>Read these rows</button>
+            </div>
+          )}
+          {errorBox}
+          <div className="mt-4 rounded-2xl p-4" style={card}>
+            <div className="text-[13px] font-semibold">What your file needs</div>
+            <div className="text-[12px] leading-relaxed mt-0.5 mb-3" style={{ color: C.inkFaint }}>One sale per row, or one total per day. Only the date and the amount are a must.</div>
+            <div className="rounded-xl overflow-hidden text-[12px]" style={{ border: `1px solid ${C.line}` }}>
+              <div className="grid px-3 py-2 font-semibold" style={{ gridTemplateColumns: '0.95fr 1.3fr 0.9fr', background: C.surfaceRaised, color: C.inkDim }}>
+                <span>Date</span><span>What was sold <span className="font-normal" style={{ color: C.inkFaint }}>(optional)</span></span><span className="text-right">Amount</span>
+              </div>
+              {[['14/03/2025', 'Rice 50kg', '₦85,000'], ['14/03/2025', 'Peak milk (tin)', '₦650'], ['15/03/2025', '', '₦52,300']].map((r, i) => (
+                <div key={i} className="grid px-3 py-2 cx-mono" style={{ gridTemplateColumns: '0.95fr 1.3fr 0.9fr', borderTop: `1px solid ${C.line}` }}>
+                  <span style={{ color: C.inkDim }}>{r[0]}</span><span className="truncate" style={{ color: r[1] ? C.ink : C.inkFaint }}>{r[1] || 'Day total'}</span><span className="text-right">{r[2]}</span>
+                </div>
+              ))}
+            </div>
+            <div className="text-[11.5px] leading-relaxed mt-2.5" style={{ color: C.inkFaint }}>Quantity, cost price and time are picked up too if your file has them. Dates like 03/04/2025 are read day first, the Nigerian way, unless your file shows otherwise.</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            {[[Package, "Today's stock won't change"], [Undo2, 'You can undo it any time']].map(([Ic, t]) => (
+              <div key={t} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-[11.5px] font-medium leading-tight" style={{ background: C.sageSoft, color: C.sage }}><Ic size={15} className="shrink-0" />{t}</div>
+            ))}
+          </div>
+          {p.fromChecklist && <button onClick={() => { markHistoryStep(); setPastImport(null); }} className="mt-4 w-full text-center text-[12.5px] font-medium py-1.5" style={{ color: C.inkFaint }}>I'm new, I have no past records</button>}
+          {pastImports?.length > 0 && (
+            <div className="mt-5">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-2 px-1" style={{ color: C.inkFaint }}>Brought in before</div>
+              <div className="rounded-2xl overflow-hidden" style={card}>
+                {pastImports.map((im, i) => (
+                  <div key={im.id} className="flex items-center gap-3 px-4 py-3" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                    <FileSpreadsheet size={17} style={{ color: C.inkFaint }} className="shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold truncate">{im.file_name || 'Pasted rows'}</div>
+                      <div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{pastImportSummary(im)}</div>
+                    </div>
+                    <button onClick={() => undoPastImport(im)} className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.rust, background: C.rustSoft }}><Undo2 size={13} /> Undo</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      );
+    } else if (p.stage === 'check') {
+      const map = p.map;
+      const built = buildPastSales(p.rows, { ...p.guess, map }, { dayFirst: p.dayFirst, perUnit: p.perUnit && map.qty >= 0 });
+      const cutoff = p.firstXorlaDay && p.firstXorlaDay !== 'none' ? p.firstXorlaDay : null;
+      const overlap = cutoff ? built.sales.filter((s) => s.d >= cutoff).length : 0;
+      const list = overlap && p.onlyBefore ? built.sales.filter((s) => s.d < cutoff) : built.sales;
+      const total = list.reduce((a, s) => a + s.amount, 0);
+      const days = list.map((s) => s.d).sort();
+      const first = days[0], last = days[days.length - 1];
+      const twice = first && (pastImports || []).find((im) => im.first_day <= last && im.last_day >= first);
+      const skippedN = Object.values(built.skipped).reduce((a, b) => a + b, 0);
+      const sample = (col) => { if (col < 0) return ''; const v = p.rows.slice(p.guess.headerRow + 1).map((r) => r[col]).find((c) => c !== '' && c != null); return v instanceof Date ? shortDay(v.toISOString().slice(0, 10)) : v == null ? '' : String(v).slice(0, 28); };
+      const cols = p.guess.headers;
+      const needs = map.date < 0 ? 'Choose which column has the date' : map.amount < 0 ? 'Choose which column has the amount' : '';
+      const picker = (key, label, required) => (
+        <div className="flex items-center gap-3 px-4 py-3" style={{ borderTop: key === 'date' ? 'none' : `1px solid ${C.line}` }}>
+          <div className="w-[38%] min-w-0">
+            <div className="text-[13px] font-semibold">{label}{required && <span style={{ color: C.copper }}> *</span>}</div>
+            <div className="text-[11px] truncate cx-mono" style={{ color: C.inkFaint }}>{map[key] >= 0 ? `e.g. ${sample(map[key])}` : required ? 'Needed' : 'Not used'}</div>
+          </div>
+          <BrandSelect value={String(map[key])} onChange={(e) => set({ map: { ...map, [key]: Number(e.target.value) }, ...(key === 'qty' && Number(e.target.value) < 0 ? { perUnit: false } : {}) })} className="flex-1 min-w-0" aria-label={label}>
+            <option value="-1">{required ? 'Choose a column' : 'Not in my file'}</option>
+            {cols.map((h, i) => <option key={i} value={String(i)}>{h}</option>)}
+          </BrandSelect>
+        </div>
+      );
+      body = (
+        <>
+          {header('Check before adding', null, () => set({ stage: 'start', error: '' }))}
+          <div className="flex items-center gap-2 mb-3 text-[12.5px]" style={{ color: C.inkDim }}>
+            <FileSpreadsheet size={15} style={{ color: C.copper }} className="shrink-0" /><span className="truncate font-medium">{p.fileName}</span>
+            <span style={{ color: C.inkFaint }}>·</span><span className="shrink-0">{(p.rows.length - (p.guess.headerRow + 1)).toLocaleString()} rows</span>
+          </div>
+          <div className="rounded-2xl p-4 mb-4 relative overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(31,217,196,0.14), rgba(255,176,32,0.08))', border: '1px solid rgba(31,217,196,0.25)' }}>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: C.sage }}>Ready to bring in</div>
+            <div className="flex items-baseline gap-2 mt-1 flex-wrap">
+              <span className="text-[30px] font-semibold cx-display leading-none">{list.length.toLocaleString()}</span>
+              <span className="text-[14px]" style={{ color: C.inkDim }}>{map.item >= 0 ? `sale${list.length !== 1 ? 's' : ''}` : `day total${list.length !== 1 ? 's' : ''}`}</span>
+              <span className="ml-auto text-[18px] font-semibold cx-mono">{fmt(total)}</span>
+            </div>
+            {first && <div className="text-[12px] mt-2 flex items-center gap-1.5" style={{ color: C.inkDim }}><CalendarClock size={13} />{first === last ? shortDay(first) : `${shortDay(first)} to ${shortDay(last)}`}</div>}
+          </div>
+
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-2 px-1" style={{ color: C.inkFaint }}>Your columns</div>
+          <div className="rounded-2xl" style={card}>
+            {picker('date', 'Date', true)}
+            {picker('amount', 'Amount', true)}
+            {map.qty >= 0 && map.amount >= 0 && (
+              <div className="px-4 pb-3 -mt-1">
+                <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  {[[false, 'Total for the row'], [true, 'Price for one']].map(([v, l]) => <button key={l} onClick={() => set({ perUnit: v })} className="flex-1 py-1.5 rounded-lg text-[12px] font-semibold" style={!!p.perUnit === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+                </div>
+                <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>{p.perUnit ? 'Amount is multiplied by quantity.' : 'Amount is already the full price paid.'}</div>
+              </div>
+            )}
+            {picker('item', 'What was sold', false)}
+            {picker('qty', 'Quantity', false)}
+            {picker('cost', 'Cost price', false)}
+          </div>
+
+          {p.askOrder && map.date >= 0 && (
+            <div className="mt-3 rounded-2xl p-4" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
+              <div className="text-[13px] font-semibold mb-2.5">In your file, is 03/04/2025 the 3rd of April or March 4th?</div>
+              <div className="grid grid-cols-2 gap-2">
+                {[[true, '3rd of April'], [false, 'March 4th']].map(([v, l]) => <button key={l} onClick={() => set({ dayFirst: v })} className="py-2.5 rounded-xl text-[13px] font-semibold" style={p.dayFirst === v ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}
+              </div>
+            </div>
+          )}
+          {shops.length > 1 && (
+            <div className="mt-3 rounded-2xl px-4 py-3 flex items-center gap-3" style={card}>
+              <div className="w-[38%] text-[13px] font-semibold">Sold at</div>
+              <BrandSelect value={p.shopId || ''} onChange={(e) => set({ shopId: e.target.value })} className="flex-1 min-w-0" aria-label={`Which ${L.one}`} icon={<Store size={15} />}>
+                {shops.map((s) => <option key={s.id} value={s.id}>{locName(s)}</option>)}
+              </BrandSelect>
+            </div>
+          )}
+          {overlap > 0 && (
+            <button onClick={() => set({ onlyBefore: !p.onlyBefore })} role="switch" aria-checked={!!p.onlyBefore} className="mt-3 w-full rounded-2xl p-4 flex items-start gap-3 text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
+              <div className="flex-1">
+                <div className="text-[13px] font-semibold">Only bring in sales before {shortDay(cutoff)}</div>
+                <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>You started recording sales in Xorla on {shortDay(cutoff)}. {overlap.toLocaleString()} row{overlap !== 1 ? 's' : ''} in this file {overlap !== 1 ? 'are' : 'is'} from then on and would be counted twice.</div>
+              </div>
+              <span className="shrink-0 mt-0.5 w-11 h-6 rounded-full relative" style={{ background: p.onlyBefore ? C.sage : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: p.onlyBefore ? '22px' : '2px' }} /></span>
+            </button>
+          )}
+          {twice && (
+            <div className="mt-3 rounded-2xl p-4 text-[12.5px] leading-relaxed" style={{ background: C.rustSoft, color: C.ink, border: '1px solid rgba(255,107,74,0.25)' }}>
+              <strong style={{ color: C.rust }}>You already brought in sales for some of these days</strong> from {twice.file_name || 'pasted rows'} ({pastImportSummary(twice)}). If this is the same file, undo that one first so nothing is counted twice.
+              <button onClick={() => undoPastImport(twice)} className="block mt-2 font-semibold underline" style={{ color: C.rust }}>Undo the earlier import</button>
+            </div>
+          )}
+          {skippedN > 0 && (
+            <div className="mt-3 rounded-2xl px-4 py-3" style={card}>
+              <button onClick={() => set({ showSkipped: !p.showSkipped })} className="w-full flex items-center gap-2 text-left">
+                <Info size={15} style={{ color: C.inkFaint }} className="shrink-0" />
+                <span className="flex-1 text-[12.5px]" style={{ color: C.inkDim }}>{skippedN.toLocaleString()} row{skippedN !== 1 ? 's' : ''} left out</span>
+                <ChevronRight size={15} style={{ color: C.inkFaint, transform: p.showSkipped ? 'rotate(90deg)' : 'none' }} />
+              </button>
+              {p.showSkipped && (
+                <div className="mt-2 space-y-1 text-[12px] pl-6" style={{ color: C.inkFaint }}>
+                  {built.skipped.total > 0 && <div>{built.skipped.total} total or balance row{built.skipped.total !== 1 ? 's' : ''}, so nothing is counted twice</div>}
+                  {built.skipped.nodate > 0 && <div>{built.skipped.nodate} without a date Xorla could read</div>}
+                  {built.skipped.noamount > 0 && <div>{built.skipped.noamount} without an amount</div>}
+                  {built.skipped.future > 0 && <div>{built.skipped.future} dated in the future</div>}
+                </div>
+              )}
+            </div>
+          )}
+          {list.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-2 px-1" style={{ color: C.inkFaint }}>First few</div>
+              <div className="rounded-2xl overflow-hidden" style={card}>
+                {list.slice(0, 5).map((s, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                    <span className="w-[86px] shrink-0 text-[11.5px] cx-mono" style={{ color: C.inkFaint }}>{shortDay(s.d)}</span>
+                    <span className="flex-1 min-w-0 text-[13px] truncate" style={{ color: s.item ? C.ink : C.inkDim }}>{s.item || 'Sales for the day'}{s.qty > 1 ? <span style={{ color: C.inkFaint }}> ×{s.qty}</span> : null}</span>
+                    <span className="shrink-0 text-[13px] font-semibold cx-mono">{fmt(s.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {errorBox}
+          <button onClick={() => runPastImport(list)} disabled={!!needs || !list.length} className="w-full mt-5 h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: needs || !list.length ? 0.45 : 1 }}>
+            {needs || (list.length ? <><Upload size={17} /> Add {list.length.toLocaleString()} past {map.item >= 0 ? `sale${list.length !== 1 ? 's' : ''}` : `day${list.length !== 1 ? 's' : ''}`}</> : 'Nothing to add')}
+          </button>
+          <div className="text-[11.5px] text-center mt-2" style={{ color: C.inkFaint }}>Marked as Imported{shops.length > 1 ? ` at ${shopNameOf(p.shopId)}` : ''}. Today's stock won't change.</div>
+        </>
+      );
+    } else if (p.stage === 'saving') {
+      const pct = p.total ? Math.round((p.progress / p.total) * 100) : 0;
+      body = (
+        <div className="py-8 text-center">
+          <div className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.copperSoft, color: C.copper }}><Loader2 size={26} className="animate-spin" /></div>
+          <div className="text-[18px] font-semibold cx-display">Adding your history…</div>
+          <div className="text-[12.5px] mt-1" style={{ color: C.inkDim }}>{p.progress.toLocaleString()} of {p.total.toLocaleString()}. Keep this open until it finishes.</div>
+          <div className="mt-5 h-2 rounded-full overflow-hidden mx-auto max-w-xs" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full transition-all" style={{ width: `${Math.max(4, pct)}%`, background: `linear-gradient(90deg, ${C.sage}, ${C.copper})` }} /></div>
+        </div>
+      );
+    } else {
+      const r = p.result || {};
+      body = (
+        <div className="text-center pt-4">
+          <div className="mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ background: C.sageSoft, color: C.sage, boxShadow: '0 0 0 8px rgba(31,217,196,0.06)' }}><Check size={30} strokeWidth={2.5} /></div>
+          <div className="text-[20px] font-semibold cx-display">Your history is in</div>
+          <div className="text-[13px] leading-relaxed mt-1.5 max-w-sm mx-auto" style={{ color: C.inkDim }}>{Number(r.rows || 0).toLocaleString()} past sales, worth {fmt(Number(r.total || 0))}, from {shortDay(r.first_day)}{r.last_day !== r.first_day ? ` to ${shortDay(r.last_day)}` : ''}. Your reports now include them.</div>
+          <div className="grid gap-2 mt-6">
+            <button onClick={() => { setPastImport(null); setTab('reports'); }} className="h-[50px] rounded-2xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><TrendingUp size={17} /> See your reports</button>
+            <button onClick={() => setPastImport(null)} className="h-[46px] rounded-2xl text-[14px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>Done</button>
+          </div>
+          {r.import && <button onClick={() => undoPastImport({ id: r.import, row_count: r.rows, file_name: p.fileName })} className="mt-4 text-[12.5px] font-medium inline-flex items-center gap-1" style={{ color: C.inkFaint }}><Undo2 size={13} /> Wrong file? Undo this import</button>}
+        </div>
+      );
+    }
+    return (
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+        <div className="w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+          {body}
+        </div>
+      </div>
+    );
+  };
   const renderExtrasEmpty = () => (
     <div className="rounded-xl p-3.5 mb-3" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
       <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
@@ -5360,6 +5669,7 @@ function XorlaApp() {
       { id: 'address', label: 'Add your address', why: 'It goes on receipts and invoices, and in appointment reminders.', done: !!String(settings.businessAddress || '').trim(), go: () => openSettingsPage('contact') },
       { id: 'logo', label: 'Add your logo', why: 'It shows on receipts, invoices, your storefront and posters.', done: !!settings.logoUrl, go: () => openSettingsPage('branding') },
       { id: 'storefront', label: 'Turn on your storefront', why: `A free page where customers see your ${T.catalog.toLowerCase()} and ${actWord} without calling you.`, done: !!settings.storefrontEnabled, go: () => openSettingsPage('storefront') },
+      { id: 'history', label: 'Bring in your past sales', why: 'Optional. Selling before Xorla? Add your old records from Excel so your reports show your whole history.', done: steps.includes('history'), go: () => openPastImport({ fromChecklist: true }), optional: true },
       { id: 'team', label: 'Invite your staff', why: 'Optional. Staff record sales on their own phones; you see everything.', done: settings.staffList.length > 0 || steps.includes('team'), go: () => openSettingsPage('team'), optional: true },
     ];
     return items;
@@ -6162,7 +6472,7 @@ function XorlaApp() {
                   { id: 'promote', Icon: Megaphone, label: 'Promote your business', value: (() => { const n = discountCodes.filter((d) => codeStateOf(d).tone === 'on').length; return n ? `${n} code${n > 1 ? 's' : ''} live` : 'Poster, Status, codes'; })(), valueColor: discountCodes.some((d) => codeStateOf(d).tone === 'on') ? C.sage : undefined },
                   { id: 'shops', Icon: Store, label: L.Many, value: `${shops.length} ${shops.length !== 1 ? L.many : L.one}` },
                   { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
-                  ...(isOwnerRole ? [{ id: 'export', Icon: Download, label: 'Download your records', value: '' }] : []),
+                  ...(isOwnerRole ? [{ id: 'export', Icon: FileSpreadsheet, label: 'Your records', value: 'Bring in, download' }] : []),
                   { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
                 {isOwnerRole && hasBookables && navGroup('Bookings', [
@@ -6497,6 +6807,15 @@ function XorlaApp() {
               ];
               return (
                 <div className="space-y-4">
+                  <button onClick={() => openPastImport()} className="w-full rounded-[20px] p-4 sm:p-5 flex items-center gap-4 text-left" style={{ background: 'linear-gradient(135deg, rgba(255,176,32,0.12), rgba(31,217,196,0.06))', border: '1px solid rgba(255,176,32,0.28)' }}>
+                    <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><History size={22} /></span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[15px] font-semibold">Bring in past sales</span>
+                      <span className="block text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>Selling before Xorla? Add your old records from Excel or CSV so your reports show your whole history.</span>
+                    </span>
+                    <ChevronRight size={18} style={{ color: C.copper }} className="shrink-0" />
+                  </button>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] px-1 pt-2" style={{ color: C.inkFaint }}>Download</div>
                   <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Your records belong to you. Download any of them as a spreadsheet file that opens in Excel or Google Sheets, for your accountant, a backup, or to take elsewhere. Every {L.one} is included.</div>
                   <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                     {sets.map(([label, sub, rows, run], i) => (
@@ -6879,6 +7198,7 @@ function XorlaApp() {
         </div>
         {renderReadyCheck()}
         {renderSetup()}
+        {renderPastImport()}
       </div>
     );
   }
@@ -7834,7 +8154,7 @@ function XorlaApp() {
         )}
 
         {/* ============ EXPENSES TAB ============ */}
-        {tab === 'reports' && isOwnerRole && <ReportsView token={session.access_token} shops={shops} L={L} T={T} businessName={settings.businessName} onOpenInvoices={() => setTab('invoices')} locName={locName} />}
+        {tab === 'reports' && isOwnerRole && <ReportsView token={session.access_token} shops={shops} L={L} T={T} businessName={settings.businessName} onOpenInvoices={() => setTab('invoices')} locName={locName} onImportPast={() => openPastImport()} />}
         {tab === 'expenses' && (
           <>
             <div className="rounded-2xl p-5 mb-6" style={card}>
@@ -8250,6 +8570,7 @@ function XorlaApp() {
       {renderBookingPanels()}
       {renderImportPanel()}
       {renderListTool()}
+      {renderPastImport()}
       {renderFulfilPanel()}
       {renderApptPanel()}
       {renderNotifPanel()}
@@ -9801,7 +10122,7 @@ function rangeLabel(from, to) {
 }
 const compactNaira = (n) => { const v = Math.abs(Number(n) || 0); const sign = Number(n) < 0 ? '−' : ''; return v >= 1e9 ? `${sign}₦${(v / 1e9).toFixed(1)}bn` : v >= 1e6 ? `${sign}₦${(v / 1e6).toFixed(1)}m` : v >= 1e3 ? `${sign}₦${Math.round(v / 1e3)}k` : `${sign}₦${Math.round(v)}`; };
 
-function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName }) {
+function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName, onImportPast }) {
   const [period, setPeriod] = useState('month');
   const [custom, setCustom] = useState(() => { const t = new Date().toLocaleDateString('sv-SE', LAGOS_TIME); return { from: `${t.slice(0, 8)}01`, to: t }; });
   const [shop, setShop] = useState('');
@@ -9953,7 +10274,7 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
           <div className="grid lg:grid-cols-2 gap-4">
             <div className="rounded-[20px] p-4 lg:p-5" style={card}>
               <div className="text-[14.5px] font-semibold mb-4">Best sellers</div>
-              {r.top_items.length ? barList(r.top_items, 'amount', C.sage, (x) => `${Number(x.qty).toLocaleString('en-NG')} sold`) : <div className="text-[13px]" style={{ color: C.inkFaint }}>Nothing recorded in this period.</div>}
+              {r.top_items.some((x) => x.name !== 'Sales for the day') ? barList(r.top_items.filter((x) => x.name !== 'Sales for the day'), 'amount', C.sage, (x) => `${Number(x.qty).toLocaleString('en-NG')} sold`) : <div className="text-[13px]" style={{ color: C.inkFaint }}>Nothing recorded in this period.</div>}
             </div>
             <div className="rounded-[20px] p-4 lg:p-5" style={card}>
               <div className="text-[14.5px] font-semibold mb-4">Where the money went</div>
@@ -9972,6 +10293,16 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
               </div>
             )}
           </div>
+          {onImportPast && (
+            <button onClick={onImportPast} className="w-full rounded-[20px] p-4 lg:p-5 flex items-center gap-3.5 text-left" style={card}>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft, color: C.copper }}><History size={19} /></span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[14px] font-semibold">Selling before Xorla?</span>
+                <span className="block text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>Bring in your past sales from Excel so your reports go further back.</span>
+              </span>
+              <ChevronRight size={17} style={{ color: C.copper }} className="shrink-0" />
+            </button>
+          )}
           <div className="text-[12px] text-center pt-2" style={{ color: C.inkFaint }}>Profit is money in, less the cost of what you sold, less your expenses. Days run midnight to midnight, Nigeria time.</div>
         </div>
       )}
@@ -9979,6 +10310,128 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
   );
 }
 
+// ---------- Bringing in past sales from Excel or CSV ----------
+// Reads the messy ways people keep sales records: Nigerian day-first dates, "₦5,000", "5k", Excel date cells, total rows.
+const pad2 = (n) => String(n).padStart(2, '0');
+const validYmd = (y, m, d) => {
+  if (y < 100) y += 2000;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? `${y}-${pad2(m)}-${pad2(d)}` : null;
+};
+const MONTH_NUM = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+function readSaleTime(s) {
+  const m = String(s || '').match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?/i);
+  if (!m) return '';
+  let h = +m[1]; const ap = (m[3] || '').toLowerCase();
+  if (ap === 'pm' && h < 12) h += 12; if (ap === 'am' && h === 12) h = 0;
+  return h < 24 && +m[2] < 60 ? `${pad2(h)}:${m[2]}` : '';
+}
+function readSaleDate(v, dayFirst = true, allowSerial = true) {
+  if (v instanceof Date) {
+    if (isNaN(v)) return null;
+    const t = v.getUTCHours() || v.getUTCMinutes() ? `${pad2(v.getUTCHours())}:${pad2(v.getUTCMinutes())}` : '';
+    const d = validYmd(v.getUTCFullYear(), v.getUTCMonth() + 1, v.getUTCDate());
+    return d ? { d, t } : null;
+  }
+  const s = String(v ?? '').trim(); if (!s) return null;
+  // Excel's date numbers (days since 1900), when a date cell arrives as a plain number
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    if (!allowSerial) return null;
+    const n = Number(s); if (n < 20000 || n > 80000) return null;
+    const dt = new Date(Math.round((n - 25569) * 86400000));
+    return { d: dt.toISOString().slice(0, 10), t: n % 1 ? `${pad2(dt.getUTCHours())}:${pad2(dt.getUTCMinutes())}` : '' };
+  }
+  const t = readSaleTime(s);
+  let m, d = null;
+  if ((m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/))) d = validYmd(+m[1], +m[2], +m[3]);
+  else if ((m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})(?!\d)/))) d = dayFirst ? validYmd(+m[3], +m[2], +m[1]) : validYmd(+m[3], +m[1], +m[2]);
+  else if ((m = s.match(/^(?:[a-z]+,?\s+)?(\d{1,2})(?:st|nd|rd|th)?[\s\-/.]+([a-z]{3,9})\.?,?[\s\-/.]+(\d{2,4})(?!\d)/i)) && MONTH_NUM[m[2].slice(0, 3).toLowerCase()]) d = validYmd(+m[3], MONTH_NUM[m[2].slice(0, 3).toLowerCase()], +m[1]);
+  else if ((m = s.match(/^(?:[a-z]+,?\s+)?([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{2,4})(?!\d)/i)) && MONTH_NUM[m[1].slice(0, 3).toLowerCase()]) d = validYmd(+m[3], MONTH_NUM[m[1].slice(0, 3).toLowerCase()], +m[2]);
+  return d ? { d, t } : null;
+}
+// Is 03/04/2025 the 3rd of April or March 4th? The rest of the column usually tells us.
+function dateOrderOf(values) {
+  let dayFirst = 0, monthFirst = 0, unclear = 0;
+  for (const v of values) {
+    const m = typeof v === 'string' && v.trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.]\d{2,4}/);
+    if (!m) continue;
+    if (+m[1] > 12) dayFirst++; else if (+m[2] > 12) monthFirst++; else unclear++;
+  }
+  return { dayFirst: monthFirst <= dayFirst, unclear: !dayFirst && !monthFirst && unclear > 0, decided: dayFirst > 0 || monthFirst > 0 };
+}
+function readAmount(v) {
+  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? v : null;
+  let s = String(v ?? '').trim(); if (!s || /^\(.*\)$|^-/.test(s)) return null;
+  s = s.replace(/ngn|naira|\u20A6/gi, '').replace(/^n(?=\s*\d)/i, '').replace(/[#,\s]/g, '');
+  const m = s.match(/^(\d+(?:\.\d+)?)([km])?$/i); if (!m) return null;
+  const n = Number(m[1]) * (m[2] ? (m[2].toLowerCase() === 'k' ? 1000 : 1000000) : 1);
+  return n > 0 ? n : null;
+}
+const PAST_HEAD = {
+  time: /^\s*(time|time sold|hour)\s*$/i,
+  date: /\b(date|day|when|sold on|dated)\b/i,
+  cost: /\b(cost|buying|purchase|cp)\b/i,
+  qty: /\b(qty|quantity|units?|pcs|pieces|no\.? of|count|number sold)\b/i,
+  item: /\b(item|items|product|products|description|details|service|services|name|goods|particulars|narration|what)\b/i,
+  amount: /\b(amount|total|sales?|revenue|value|naira|ngn|price|paid|income|selling|sp|money)\b/i,
+};
+// Turns the sheet's rows into a best guess of which column is which
+function guessPastColumns(rows) {
+  const looksHeader = (r) => r.filter((c) => typeof c === 'string' && Object.values(PAST_HEAD).some((re) => re.test(c))).length >= 2 && !r.some((c) => c instanceof Date);
+  const h = rows.slice(0, 6).findIndex(looksHeader);
+  const width = Math.max(0, ...rows.slice(0, 60).map((r) => r.length));
+  const body = rows.slice(h + 1, h + 61);
+  const map = { date: -1, amount: -1, item: -1, qty: -1, cost: -1, time: -1 };
+  const taken = new Set();
+  const share = (col, test) => { const vals = body.map((r) => r[col]).filter((c) => c !== '' && c != null); return vals.length ? vals.filter(test).length / vals.length : 0; };
+  if (h >= 0) {
+    const head = rows[h].map((c) => String(c ?? ''));
+    const pick = (key, prefer) => {
+      const cands = head.map((c, i) => i).filter((i) => !taken.has(i) && PAST_HEAD[key].test(head[i]));
+      const i = (prefer ? cands.find((j) => prefer.test(head[j])) : undefined) ?? cands[0];
+      if (i !== undefined) { map[key] = i; taken.add(i); }
+    };
+    pick('time'); pick('date'); pick('cost'); pick('qty');
+    pick('amount', /total|amount|sales|revenue|paid/i); pick('item');
+  }
+  if (map.date < 0) { for (let i = 0; i < width; i++) if (!taken.has(i) && share(i, (c) => readSaleDate(c, true, false)) > 0.6) { map.date = i; taken.add(i); break; } }
+  if (map.amount < 0) { for (let i = width - 1; i >= 0; i--) if (!taken.has(i) && share(i, (c) => readAmount(c) !== null) > 0.6) { map.amount = i; taken.add(i); break; } }
+  if (map.item < 0) { for (let i = 0; i < width; i++) if (!taken.has(i) && share(i, (c) => typeof c === 'string' && /[a-z]/i.test(c) && !readSaleDate(c)) > 0.6) { map.item = i; taken.add(i); break; } }
+  const amountHead = h >= 0 && map.amount >= 0 ? String(rows[h][map.amount] ?? '') : '';
+  const perUnit = map.qty >= 0 && /price|rate|unit|each/i.test(amountHead) && !/total|amount/i.test(amountHead);
+  const headers = Array.from({ length: width }, (_, i) => (h >= 0 && String(rows[h][i] ?? '').trim()) || `Column ${String.fromCharCode(65 + (i % 26))}`);
+  return { headerRow: h, map, perUnit, headers };
+}
+// Builds the sales to bring in, and counts what was left out and why
+function buildPastSales(rows, guess, opts) {
+  const { map, headerRow } = guess;
+  const today = new Date().toLocaleDateString('en-CA', LAGOS_TIME);
+  const out = []; const skipped = { nodate: 0, future: 0, noamount: 0, total: 0 };
+  rows.slice(headerRow + 1).forEach((r) => {
+    if (!r.some((c) => c !== '' && c != null)) return;
+    const itemRaw = map.item >= 0 ? String(r[map.item] ?? '').replace(/\s+/g, ' ').trim() : '';
+    if (/^(grand\s*)?(sub\s*)?totals?\b|^balance\b|^b\/f\b/i.test(itemRaw) || (map.item < 0 && r.some((c) => typeof c === 'string' && /^(grand\s*)?totals?\b/i.test(c.trim())))) { skipped.total++; return; }
+    const dt = map.date >= 0 ? readSaleDate(r[map.date], opts.dayFirst) : null;
+    if (!dt) { skipped.nodate++; return; }
+    if (dt.d > today) { skipped.future++; return; }
+    const qty = map.qty >= 0 ? (readAmount(r[map.qty]) || 1) : 1;
+    let amount = map.amount >= 0 ? readAmount(r[map.amount]) : null;
+    if (!amount) { skipped.noamount++; return; }
+    let cost = map.cost >= 0 ? (readAmount(r[map.cost]) || 0) : 0;
+    if (opts.perUnit) { amount *= qty; cost *= qty; }
+    const t = (map.time >= 0 ? readSaleTime(r[map.time] instanceof Date ? `${pad2(r[map.time].getUTCHours())}:${pad2(r[map.time].getUTCMinutes())}` : r[map.time]) : '') || dt.t;
+    out.push({ d: dt.d, t, item: itemRaw.slice(0, 120), amount: Math.round(amount * 100) / 100, cost: Math.round(cost * 100) / 100, qty });
+  });
+  return { sales: out, skipped };
+}
+// Spreadsheet or pasted text into rows of cells
+function rowsFromText(text) {
+  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim());
+  const tabs = lines.some((l) => l.includes('\t'));
+  const splitCsv = (line) => { const cells = []; let cur = '', q = false; for (let i = 0; i < line.length; i++) { const ch = line[i]; if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; } else if (ch === '"') q = true; else if (ch === ',' || ch === ';') { cells.push(cur.trim()); cur = ''; } else cur += ch; } cells.push(cur.trim()); return cells; };
+  return lines.map((l) => (tabs ? l.split('\t').map((c) => c.trim()) : splitCsv(l)));
+}
+const shortDay = (ymd) => (ymd ? new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '');
 // ---------- Filling the catalog fast: Oga reads a photo of the price list, or pick from common items ----------
 async function scanPriceListPhotos(files, context) {
   if (!AI_ACCESS_TOKEN) throw new Error('Please log in again to use Oga.');
