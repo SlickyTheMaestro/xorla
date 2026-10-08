@@ -73,6 +73,21 @@ async function sbRest(table, { method = 'GET', accessToken, query = '', body, up
   return data;
 }
 
+// The database sends at most 1,000 rows at a time, so long lists are fetched page by page
+async function sbRestAll(table, { accessToken, query = '', pageSize = 1000, cap = 25000 } = {}) {
+  const out = [];
+  const join = query.includes('?') ? '&' : '?';
+  for (let offset = 0; offset < cap; offset += pageSize) {
+    const rows = await sbRest(table, { accessToken, query: `${query}${join}limit=${pageSize}&offset=${offset}` });
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return out;
+}
+// Day-to-day screens load the last 400 days in full; older days load when someone opens them, and Reports cover any period
+const RECENT_DAYS = 400;
+const recentSince = () => new Date(Date.now() - RECENT_DAYS * 86400000).toISOString();
+
 async function sbRpc(fnName, accessToken, params) {
   const res = await fetch(`${SB_URL}/rest/v1/rpc/${fnName}`, {
     method: 'POST',
@@ -1597,6 +1612,22 @@ function XorlaApp() {
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [invoiceView, setInvoiceView] = useState('active');
   const [viewDate, setViewDate] = useState(todayKey());
+  // Opening a day older than what's loaded fetches just that day
+  const olderDaysRef = useRef(new Set());
+  const [dataVersion, setDataVersion] = useState(0);
+  useEffect(() => {
+    if (!session?.access_token || !viewDate) return;
+    const start = new Date(`${viewDate}T00:00:00`), end = new Date(start.getTime() + 86400000);
+    if (start.getTime() >= Date.now() - (RECENT_DAYS - 1) * 86400000 || olderDaysRef.current.has(viewDate)) return;
+    olderDaysRef.current.add(viewDate);
+    const q = (col) => `?select=*&${col}=gte.${start.toISOString()}&${col}=lt.${end.toISOString()}`;
+    Promise.all([sbRestAll('sales', { accessToken: session.access_token, query: q('sold_at') }), sbRestAll('expenses', { accessToken: session.access_token, query: q('spent_at') })])
+      .then(([sRows, eRows]) => {
+        setSales((prev) => { const have = new Set(prev.map((x) => x.id)); return [...prev, ...sRows.filter((r) => !have.has(r.id)).map(fromSbSale)]; });
+        setExpenses((prev) => { const have = new Set(prev.map((x) => x.id)); return [...prev, ...eRows.filter((r) => !have.has(r.id)).map(fromSbExpense)]; });
+      })
+      .catch(() => olderDaysRef.current.delete(viewDate));
+  }, [viewDate, session?.access_token, dataVersion]);
   const [staffFilter, setStaffFilter] = useState('');
   const [error, setError] = useState('');
   const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0', notes: '' });
@@ -1640,15 +1671,15 @@ function XorlaApp() {
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
       const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, peopleRows, codeRows] = await Promise.all([
-        sbRest('sales', { accessToken, query: '?select=*&order=sold_at.desc' }),
-        sbRest('invoices', { accessToken, query: '?select=*&order=created_at.desc' }),
-        sbRest('expenses', { accessToken, query: '?select=*&order=spent_at.desc' }),
-        sbRest('products', { accessToken, query: '?select=*&order=name.asc' }),
-        sbRest('orders', { accessToken, query: '?select=*&order=created_at.desc' }),
+        sbRestAll('sales', { accessToken, query: `?select=*&sold_at=gte.${recentSince()}&order=sold_at.desc,id.desc` }),
+        sbRestAll('invoices', { accessToken, query: '?select=*&order=created_at.desc,id.desc' }),
+        sbRestAll('expenses', { accessToken, query: `?select=*&spent_at=gte.${recentSince()}&order=spent_at.desc,id.desc` }),
+        sbRestAll('products', { accessToken, query: '?select=*&order=name.asc,id.asc' }),
+        sbRestAll('orders', { accessToken, query: `?select=*&or=(status.eq.pending,created_at.gte.${recentSince()})&order=created_at.desc,id.desc` }),
         sbRest('shops', { accessToken, query: '?select=*&order=created_at.asc' }).catch(() => []),
         sbRest('staff_shops', { accessToken, query: '?select=*' }).catch(() => []),
         sbRest('profiles', { accessToken, query: '?role=eq.staff&select=id,name,last_seen_at' }).catch(() => []),
-        sbRest('product_shops', { accessToken, query: '?select=*' }).catch(() => []),
+        sbRestAll('product_shops', { accessToken, query: '?select=*&order=product_id.asc,shop_id.asc' }).catch(() => []),
         sbRest('stock_transfers', { accessToken, query: '?select=*&order=created_at.desc&limit=300' }).catch(() => []),
         sbRest('stock_requests', { accessToken, query: '?select=*&order=created_at.desc&limit=100' }).catch(() => []),
         sbRest('subscriptions', { accessToken, query: '?select=business_id,plan,billing_interval,extra_shops,status,trial_ends_at,current_period_end,early_supporter,early_supporter_until,auto_renew,card_last4,card_brand' }).catch(() => null),
@@ -1661,6 +1692,7 @@ function XorlaApp() {
         sbRest('discount_codes', { accessToken, query: '?select=*&order=created_at.desc' }).catch(() => []),
       ]);
       setSales(salesRows.map(fromSbSale));
+      olderDaysRef.current = new Set(); setDataVersion((v) => v + 1);   // a full reload drops older days; refetch the one on screen
       setInvoices(invoiceRows.map(fromSbInvoice));
       setExpenses(expenseRows.map(fromSbExpense));
       setProducts(productRows.map(fromSbProduct));
@@ -3754,12 +3786,27 @@ function XorlaApp() {
     const w = importKind === 'product' ? 'product' : importKind === 'extra' ? 'extra' : 'service';
     return `${n} ${w}${n !== 1 ? 's' : ''}`;
   };
-  const loadImportFile = (e) => {
+  const loadImportFile = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    if (/\.(xlsx|xls|numbers)$/i.test(file.name)) { setImportError('Excel files can\'t be read directly. Open the file, select your rows, copy, and paste them here. Or save it as CSV and upload that.'); e.target.value = ''; return; }
+    e.target.value = '';
+    if (/\.(xls|numbers)$/i.test(file.name)) { setImportError('This is an older spreadsheet format. In Excel or Numbers, choose Save As and pick "Excel Workbook (.xlsx)" or CSV, then upload that.'); return; }
+    if (/\.xlsx$/i.test(file.name)) {
+      // Excel: the first sheet's rows become lines the list reader already understands (tab-separated)
+      try {
+        setImportBusy('Reading your spreadsheet…');
+        const { default: readXlsxFile } = await import('read-excel-file');
+        const rows = await readXlsxFile(file);
+        const cell = (v) => (v === null || v === undefined ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).replace(/[\t\r\n]+/g, ' ').trim());
+        const lines = rows.map((r) => r.map(cell)).filter((r) => r.some((c) => c !== '')).map((r) => r.join('\t'));
+        setImportBusy('');
+        if (!lines.length) { setImportError('That spreadsheet looks empty. Check that your list is on the first sheet.'); return; }
+        setImportText(lines.join('\n')); setImportError('');
+      } catch (err) { setImportBusy(''); setImportError("Couldn't read that spreadsheet. Try saving it again as .xlsx, or copy the rows and paste them here."); }
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => { setImportText(String(reader.result || '')); setImportError(''); };
-    reader.readAsText(file); e.target.value = '';
+    reader.readAsText(file);
   };
   const runImport = async () => {
     const list = importable.slice(0, importRoom === Infinity ? importable.length : importRoom);
@@ -3824,7 +3871,7 @@ function XorlaApp() {
           <div className="text-[11.5px] mb-1.5" style={{ color: C.inkFaint }}>One per line: <strong style={{ color: C.inkDim }}>name, price{importKind === 'product' ? ', stock, cost price' : ''}</strong>{importKind === 'product' ? ' (stock and cost are optional)' : ''}</div>
           <textarea autoFocus rows={7} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={ex} className="w-full rounded-xl px-3.5 py-3 text-[13px] outline-none resize-y cx-mono" style={{ ...field, minHeight: 150 }} />
           <label className="mt-2 inline-flex items-center gap-1.5 text-[12.5px] font-medium cursor-pointer" style={{ color: C.copper }}>
-            <Download size={14} style={{ transform: 'rotate(180deg)' }} /> Or upload a CSV file
+            <Download size={14} style={{ transform: 'rotate(180deg)' }} /> Or upload an Excel or CSV file
             <input type="file" accept=".csv,.txt,.tsv,.xlsx,.xls,text/csv,text/plain" onChange={loadImportFile} className="hidden" />
           </label>
 
@@ -6858,6 +6905,7 @@ function XorlaApp() {
             ...(hasBookables ? [{ id: 'bookings', label: 'Bookings', Icon: CalendarClock }] : []),
             { id: 'expenses', label: 'Expenses', Icon: Receipt },
             { id: 'invoices', label: 'Invoices', Icon: Wallet },
+            ...(isOwnerRole ? [{ id: 'reports', label: 'Reports', Icon: TrendingUp }] : []),
             { id: 'advisor', label: 'Oga', Icon: Lightbulb },
           ].map(({ id, label, Icon }) => (
             <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: C.sageSoft, color: C.sage } : { color: C.inkDim }}>
@@ -7165,6 +7213,12 @@ function XorlaApp() {
                   <div className="flex justify-between mt-1 px-1">
                     {last7.map((d) => <span key={d.key} className="text-[9.5px]" style={{ color: C.inkFaint }}>{d.label}</span>)}
                   </div>
+                  {isOwnerRole && (
+                    <button onClick={() => setTab('reports')} className="w-full mt-4 flex items-center justify-between rounded-xl px-3.5 py-3 text-left" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>
+                      <span className="flex items-center gap-2.5"><TrendingUp size={16} style={{ color: C.copper }} /><span className="text-[13px] font-semibold">Reports</span><span className="text-[12px]" style={{ color: C.inkFaint }}>profit, best sellers, any period</span></span>
+                      <ChevronRight size={16} style={{ color: C.inkFaint }} />
+                    </button>
+                  )}
                 </div>
 
                 <div className="lg:col-span-2 rounded-2xl p-5" style={card}>
@@ -7780,6 +7834,7 @@ function XorlaApp() {
         )}
 
         {/* ============ EXPENSES TAB ============ */}
+        {tab === 'reports' && isOwnerRole && <ReportsView token={session.access_token} shops={shops} L={L} T={T} businessName={settings.businessName} onOpenInvoices={() => setTab('invoices')} locName={locName} />}
         {tab === 'expenses' && (
           <>
             <div className="rounded-2xl p-5 mb-6" style={card}>
@@ -9724,6 +9779,206 @@ function AdminDashboard() {
 }
 
 // ============ The customer's page for an offered appointment time (/appt/<link>): accept, choose another, or decline ============
+// ---------- Reports: worked out in the database, so they stay right however many sales there are ----------
+const REPORT_PERIODS = [['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['last_month', 'Last month'], ['year', 'This year'], ['custom', 'Custom']];
+function reportRange(period, custom) {
+  const today = new Date().toLocaleDateString('sv-SE', LAGOS_TIME);
+  const [y, m, d] = today.split('-').map(Number);
+  const iso = (dt) => dt.toISOString().slice(0, 10);
+  const utc = (yy, mm, dd) => new Date(Date.UTC(yy, mm, dd));
+  if (period === 'today') return [today, today];
+  if (period === 'week') { const t = utc(y, m - 1, d); const dow = (t.getUTCDay() + 6) % 7; return [iso(utc(y, m - 1, d - dow)), today]; }
+  if (period === 'month') return [iso(utc(y, m - 1, 1)), today];
+  if (period === 'last_month') return [iso(utc(y, m - 2, 1)), iso(utc(y, m - 1, 0))];
+  if (period === 'year') return [iso(utc(y, 0, 1)), today];
+  return [custom.from || today, custom.to || today];
+}
+const shortDate = (s, opts) => new Date(`${s}T12:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', ...opts });
+function rangeLabel(from, to) {
+  if (from === to) return shortDate(from, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const sameYear = from.slice(0, 4) === to.slice(0, 4);
+  return `${shortDate(from, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) })} to ${shortDate(to, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+}
+const compactNaira = (n) => { const v = Math.abs(Number(n) || 0); const sign = Number(n) < 0 ? '−' : ''; return v >= 1e9 ? `${sign}₦${(v / 1e9).toFixed(1)}bn` : v >= 1e6 ? `${sign}₦${(v / 1e6).toFixed(1)}m` : v >= 1e3 ? `${sign}₦${Math.round(v / 1e3)}k` : `${sign}₦${Math.round(v)}`; };
+
+function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName }) {
+  const [period, setPeriod] = useState('month');
+  const [custom, setCustom] = useState(() => { const t = new Date().toLocaleDateString('sv-SE', LAGOS_TIME); return { from: `${t.slice(0, 8)}01`, to: t }; });
+  const [shop, setShop] = useState('');
+  const [state, setState] = useState({ loading: true, data: null, error: '' });
+  const [from, to] = reportRange(period, custom);
+  const HEAD = "'Plus Jakarta Sans', 'Inter', sans-serif";
+
+  useEffect(() => {
+    let gone = false;
+    if (period === 'custom' && (!custom.from || !custom.to || custom.to < custom.from)) { setState({ loading: false, data: null, error: 'Choose an end date on or after the start date.' }); return undefined; }
+    setState((s) => ({ ...s, loading: true, error: '' }));
+    sbRpc('report_summary', token, { p_from: from, p_to: to, p_shop: shop || null })
+      .then((data) => { if (!gone) setState({ loading: false, data, error: '' }); })
+      .catch((e) => { if (!gone) setState({ loading: false, data: null, error: /report_summary|function/i.test(e.message) ? 'Reports need the latest database update (reports.sql).' : e.message }); });
+    return () => { gone = true; };
+  }, [from, to, shop, token]);
+
+  const r = state.data;
+  const sales = Number(r?.sales || 0), cost = Number(r?.cost || 0), expenses = Number(r?.expenses || 0);
+  const gross = sales - cost, net = gross - expenses;
+  const prev = r?.prev || {};
+  const prevNet = Number(prev.sales || 0) - Number(prev.cost || 0) - Number(prev.expenses || 0);
+  const change = (now, before) => (Number(before) > 0 ? Math.round(((now - before) / Number(before)) * 100) : null);
+  const periodWord = period === 'today' ? 'yesterday' : period === 'week' ? 'last week' : period === 'month' ? 'the same days last month' : period === 'last_month' ? 'the month before' : period === 'year' ? 'the same days last year' : 'the period before';
+  const unitWord = r?.unit === 'month' ? 'month' : r?.unit === 'week' ? 'week' : 'day';
+  const series = (r?.series || []).map((p) => ({ ...p, sales: Number(p.sales), profit: Number(p.profit), label: r.unit === 'month' ? shortDate(p.d, { month: 'short' }) : shortDate(p.d, { day: 'numeric', month: 'short' }) }));
+  const card = { background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` };
+
+  const delta = (pct, goodUp = true) => (pct === null || !isFinite(pct) ? <span className="text-[12px]" style={{ color: C.inkFaint }}>No earlier figures to compare</span> : (
+    <span className="inline-flex items-center gap-1 text-[12px] font-semibold" style={{ color: (pct >= 0) === goodUp ? C.sage : C.rust }}>
+      {pct >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />} {Math.abs(pct)}% <span className="font-normal" style={{ color: C.inkFaint }}>vs {periodWord}</span>
+    </span>
+  ));
+  const tile = (label, value, sub, extra) => (
+    <div className="rounded-[20px] p-4 lg:p-5" style={card}>
+      <div className="text-[12.5px]" style={{ color: C.inkDim }}>{label}</div>
+      <div className="text-[22px] lg:text-[26px] font-extrabold mt-1 tabular-nums" style={{ fontFamily: HEAD, letterSpacing: '-0.02em' }}>{value}</div>
+      <div className="mt-1.5">{sub}</div>
+      {extra}
+    </div>
+  );
+  const barList = (rows, valueKey, color, fmtRow) => {
+    const max = Math.max(1, ...rows.map((x) => Number(x[valueKey]) || 0));
+    return (
+      <div className="space-y-3">
+        {rows.map((x, i) => (
+          <div key={i}>
+            <div className="flex items-baseline justify-between gap-3 text-[13px]">
+              <span className="min-w-0 truncate font-medium">{x.name}</span>
+              <span className="shrink-0 tabular-nums font-semibold">{fmt(x[valueKey])}</span>
+            </div>
+            <div className="flex items-center gap-2 mt-1.5">
+              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, (Number(x[valueKey]) / max) * 100)}%`, background: color }} /></div>
+              {fmtRow && <span className="text-[11.5px] shrink-0 w-24 text-right" style={{ color: C.inkFaint }}>{fmtRow(x)}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+  const download = () => {
+    if (!r) return;
+    const nm = String(businessName || 'xorla').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    downloadCsv(`${nm}-report-${from}-to-${to}.csv`, [[unitWord === 'day' ? 'Day' : `${unitWord[0].toUpperCase()}${unitWord.slice(1)} starting`, (p) => p.d], ['Sales', (p) => p.sales], ['Expenses', (p) => p.expenses], ['Profit', (p) => p.profit]], r.series);
+  };
+
+  return (
+    <div className="pb-10">
+      <div className="flex items-start lg:items-end justify-between gap-4 mb-5">
+        <div>
+          <h1 className="text-[28px] lg:text-[34px] font-extrabold leading-tight" style={{ fontFamily: HEAD, letterSpacing: '-0.03em' }}>Reports</h1>
+          <div className="text-[14px] mt-1" style={{ color: C.inkDim }}>{rangeLabel(from, to)}{shop ? `, ${locName(shops.find((s) => s.id === shop))}` : shops.length > 1 ? `, all ${L.many}` : ''}</div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {shops.length > 1 && (
+            <BrandSelect value={shop} onChange={(e) => setShop(e.target.value)} className="rounded-xl px-3 h-10 text-[13px]" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink }} aria-label={L.One}>
+              <option value="">All {L.many}</option>
+              {shops.map((s) => <option key={s.id} value={s.id}>{locName(s)}</option>)}
+            </BrandSelect>
+          )}
+          <button onClick={download} disabled={!r} className="h-10 px-3.5 rounded-xl text-[13px] font-semibold flex items-center gap-1.5" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink, opacity: r ? 1 : 0.4 }}><Download size={15} /> <span className="hidden sm:inline">Download</span></button>
+        </div>
+      </div>
+      <div className="-mx-4 px-4 lg:mx-0 lg:px-0 overflow-x-auto mb-4" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex gap-1.5 w-max p-1 rounded-2xl" style={{ background: 'rgba(255,255,255,0.035)', border: `1px solid ${C.line}` }}>
+          {REPORT_PERIODS.map(([k, l]) => <button key={k} onClick={() => setPeriod(k)} className="h-9 px-3.5 rounded-xl text-[13px] font-semibold whitespace-nowrap transition-colors" style={period === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+        </div>
+      </div>
+      {period === 'custom' && (
+        <div className="grid grid-cols-2 gap-3 mb-4 max-w-md">
+          {[['from', 'From'], ['to', 'To']].map(([k, l]) => (
+            <label key={k} className="text-[12.5px] font-semibold">{l}
+              <input type="date" value={custom[k]} max={new Date().toLocaleDateString('sv-SE', LAGOS_TIME)} onChange={(e) => setCustom({ ...custom, [k]: e.target.value })} className="w-full mt-1.5 rounded-xl px-3 h-11 text-[14px] outline-none" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink, colorScheme: 'dark' }} />
+            </label>
+          ))}
+        </div>
+      )}
+      {state.error && <div className="rounded-2xl px-4 py-3 text-[13px] mb-4" style={{ background: C.rustSoft, color: C.rust }}>{state.error}</div>}
+      {!r && state.loading && <div className="flex items-center gap-2 py-16 justify-center text-[13px]" style={{ color: C.inkFaint }}><Loader2 size={17} className="animate-spin" /> Working out your numbers…</div>}
+      {r && (
+        <div className="space-y-4 transition-opacity" style={{ opacity: state.loading ? 0.55 : 1 }}>
+          <div className="relative overflow-hidden rounded-[26px] p-5 lg:p-7" style={{ background: net >= 0 ? 'linear-gradient(150deg, #174339 0%, #0F2C27 55%, #0B211D 100%)' : 'linear-gradient(150deg, #3A2219 0%, #24160F 60%, #1A100B 100%)', border: '1px solid rgba(255,255,255,0.09)' }}>
+            <div className="absolute -right-8 -bottom-10 opacity-[0.06] pointer-events-none"><XorlaMark size={170} /></div>
+            <div className="relative">
+              <div className="text-[13px]" style={{ color: C.inkDim }}>{net >= 0 ? 'Profit' : 'Loss'} after costs and expenses</div>
+              <div className="text-[38px] lg:text-[46px] font-extrabold tabular-nums leading-tight mt-1" style={{ fontFamily: HEAD, letterSpacing: '-0.03em', color: net >= 0 ? C.ink : '#FFB4A2' }}>{fmt(net)}</div>
+              <div className="mt-1.5">{delta(change(net, prevNet))}</div>
+              <div className="grid grid-cols-3 gap-3 mt-5 pt-4 text-[12.5px]" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                <div><div style={{ color: C.inkFaint }}>Money in</div><div className="text-[15px] font-bold tabular-nums mt-0.5">{fmt(sales)}</div></div>
+                <div><div style={{ color: C.inkFaint }}>Cost of {T.tracksStock ? 'goods' : 'materials'}</div><div className="text-[15px] font-bold tabular-nums mt-0.5">{fmt(cost)}</div></div>
+                <div><div style={{ color: C.inkFaint }}>Expenses</div><div className="text-[15px] font-bold tabular-nums mt-0.5">{fmt(expenses)}</div></div>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {tile(T.salesTab, fmt(sales), delta(change(sales, prev.sales)))}
+            {tile('Gross profit', fmt(gross), <span className="text-[12px]" style={{ color: C.inkFaint }}>{sales > 0 ? `${Math.round((gross / sales) * 100)}% of ${T.salesTab.toLowerCase()}` : 'Nothing sold yet'}</span>)}
+            {tile(`${T.salesTab} recorded`, Number(r.sales_count).toLocaleString('en-NG'), <span className="text-[12px]" style={{ color: C.inkFaint }}>{r.baskets > 0 ? `Average ${fmt(Math.round(sales / Number(r.baskets)))} each` : '—'}</span>)}
+            {tile('Owed to you', fmt(r.owed?.total || 0), Number(r.owed?.overdue) > 0 ? <span className="text-[12px] font-semibold" style={{ color: C.rust }}>{fmt(r.owed.overdue)} overdue</span> : <span className="text-[12px]" style={{ color: C.inkFaint }}>{r.owed?.count ? `${r.owed.count} unpaid invoice${r.owed.count > 1 ? 's' : ''}` : 'Nothing owed'}</span>,
+              Number(r.owed?.total) > 0 && <button onClick={onOpenInvoices} className="text-[12px] font-semibold mt-2" style={{ color: C.copper }}>See invoices</button>)}
+          </div>
+          {series.length > 1 && (
+            <div className="rounded-[20px] p-4 lg:p-5" style={card}>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="text-[14.5px] font-semibold">{T.salesTab} and profit, by {unitWord}</div>
+                <div className="flex items-center gap-3 text-[11.5px]" style={{ color: C.inkDim }}>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: C.sage }} /> {T.salesTab}</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copper }} /> Profit</span>
+                </div>
+              </div>
+              <div style={{ height: 230 }} role="img" aria-label={`${T.salesTab} and profit by ${unitWord} for ${rangeLabel(from, to)}`}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={series} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="rpSales" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.sage} stopOpacity={0.35} /><stop offset="100%" stopColor={C.sage} stopOpacity={0} /></linearGradient>
+                      <linearGradient id="rpProfit" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.copper} stopOpacity={0.25} /><stop offset="100%" stopColor={C.copper} stopOpacity={0} /></linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="label" tick={{ fill: C.inkFaint, fontSize: 11 }} axisLine={false} tickLine={false} minTickGap={18} />
+                    <YAxis tick={{ fill: C.inkFaint, fontSize: 11 }} axisLine={false} tickLine={false} width={52} tickFormatter={compactNaira} />
+                    <Tooltip contentStyle={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong}`, borderRadius: 12, fontSize: 12 }} labelStyle={{ color: C.inkDim }} formatter={(v, n) => [fmt(v), n === 'sales' ? T.salesTab : 'Profit']} />
+                    <Area type="monotone" dataKey="sales" stroke={C.sage} strokeWidth={2} fill="url(#rpSales)" />
+                    <Area type="monotone" dataKey="profit" stroke={C.copper} strokeWidth={2} fill="url(#rpProfit)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+          <div className="grid lg:grid-cols-2 gap-4">
+            <div className="rounded-[20px] p-4 lg:p-5" style={card}>
+              <div className="text-[14.5px] font-semibold mb-4">Best sellers</div>
+              {r.top_items.length ? barList(r.top_items, 'amount', C.sage, (x) => `${Number(x.qty).toLocaleString('en-NG')} sold`) : <div className="text-[13px]" style={{ color: C.inkFaint }}>Nothing recorded in this period.</div>}
+            </div>
+            <div className="rounded-[20px] p-4 lg:p-5" style={card}>
+              <div className="text-[14.5px] font-semibold mb-4">Where the money went</div>
+              {r.expense_categories.length ? barList(r.expense_categories, 'amount', C.copper, (x) => `${x.n} expense${x.n > 1 ? 's' : ''}`) : <div className="text-[13px]" style={{ color: C.inkFaint }}>No expenses recorded in this period.</div>}
+            </div>
+            {r.staff.length > 1 && (
+              <div className="rounded-[20px] p-4 lg:p-5" style={card}>
+                <div className="text-[14.5px] font-semibold mb-4">{T.salesTab} by who recorded them</div>
+                {barList(r.staff, 'amount', '#7FB3FF', (x) => `${x.n} recorded`)}
+              </div>
+            )}
+            {r.branches.length > 1 && (
+              <div className="rounded-[20px] p-4 lg:p-5" style={card}>
+                <div className="text-[14.5px] font-semibold mb-4">By {L.one}</div>
+                {barList(r.branches.map((b) => ({ ...b, name: locName(shops.find((s) => s.id === b.id)) || b.name })), 'amount', C.sage, (x) => `${fmt(x.profit)} profit`)}
+              </div>
+            )}
+          </div>
+          <div className="text-[12px] text-center pt-2" style={{ color: C.inkFaint }}>Profit is money in, less the cost of what you sold, less your expenses. Days run midnight to midnight, Nigeria time.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- Filling the catalog fast: Oga reads a photo of the price list, or pick from common items ----------
 async function scanPriceListPhotos(files, context) {
   if (!AI_ACCESS_TOKEN) throw new Error('Please log in again to use Oga.');
