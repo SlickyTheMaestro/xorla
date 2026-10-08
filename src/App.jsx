@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
 import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle } from 'lucide-react';
-import { AreaChart, Area, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
 const SALES_KEY = 'chaseit:sales';
@@ -155,7 +155,7 @@ function formatNumInput(v) {
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
 const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity'];
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', hours: 'Opening hours & appointments' };
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Download your records', hours: 'Opening hours & appointments' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -306,6 +306,14 @@ function parseCatalogList(text) {
     const category = String(at(r, map.category) || '').trim().slice(0, 40);
     return { name, price, stock: stock === null ? null : Math.floor(stock), cost, category };
   }).filter((r) => r.name);
+}
+// Download records as a spreadsheet file (CSV opens in Excel and Google Sheets)
+function downloadCsv(filename, columns, rows) {
+  const esc = (v) => { const t = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const text = [columns.map(([h]) => esc(h)).join(','), ...rows.map((r) => columns.map(([, f]) => esc(f(r))).join(','))].join('\r\n');
+  const blob = new Blob(['\uFEFF' + text], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 function base64UrlToUint8Array(b64) {
   const pad = '='.repeat((4 - (b64.length % 4)) % 4);
@@ -554,7 +562,7 @@ function fromSbProduct(row) {
   return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront' };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null };
 }
 
 function staticMessage(inv, settings) {
@@ -1058,6 +1066,7 @@ function AuthScreen({ onDone }) {
       <button disabled={loading || !form.email || !form.password || (mode === 'signup' && !form.business)} onClick={submitOwner} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
         {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}
       </button>
+      {mode === 'signup' && <div className="text-center text-[11.5px] leading-relaxed -mt-2 mb-4" style={{ color: C.inkFaint }}>By creating an account you agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: C.inkDim }}>Terms of service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: C.inkDim }}>Privacy policy</a>.</div>}
       <div className="text-center text-[12.5px]" style={{ color: C.inkFaint }}>
         {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
         <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }} className="font-semibold" style={{ color: C.sage }}>{mode === 'login' ? 'Sign up' : 'Log in'}</button>
@@ -1225,6 +1234,7 @@ function XorlaApp() {
   const [bookingBusy, setBookingBusy] = useState(false);
   const [roomCharges, setRoomCharges] = useState([]);
   const [apptPanel, setApptPanel] = useState(null);
+  const submitApptRef = useRef(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importKind, setImportKind] = useState('product');
@@ -2386,7 +2396,7 @@ function XorlaApp() {
   const todayExpenses = todayExpensesList.reduce((a, e) => a + Number(e.amount), 0);
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
-  const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt).length;
+  const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer).length;
   const unpaidInvoiceCount = invoices.filter((i) => computeStatus(i) !== 'paid').length;
   const currentStaffNames = settings.staffList.map((s) => s.name);
   const sellerOptions = [...new Set([...currentStaffNames, ...sales.map((s) => s.loggedBy), ...expenses.map((e) => e.loggedBy)].filter(Boolean))]
@@ -3041,6 +3051,16 @@ function XorlaApp() {
     ];
     return lines.filter(Boolean).join('\n\n');
   };
+  const offerOpenOf = (o) => o.awaitingCustomer && o.holdUntil && new Date(o.holdUntil) > new Date();
+  const offerLink = (token) => `${window.location.origin}/appt/${token}`;
+  const offerMessage = (o, start, end, token, reason) => {
+    const first = String(o.customerName || '').split(' ')[0] || 'there';
+    const when = `${apptDay(start)}, ${apptTime(start)} to ${apptTime(end)}`;
+    const opener = o.acceptedAt
+      ? `Hi ${first}, sorry, ${settings.businessName} needs to move your appointment on ${apptRange(o)}.`
+      : `Hi ${first}, thanks for booking with ${settings.businessName}. The time you asked for (${apptRange(o)}) isn't free.`;
+    return [opener, reason ? `Reason: ${reason}` : '', `We can offer you ${when} instead.`, `Tap here to accept it, choose another time, or let us know you can't make it:\n${offerLink(token)}`].filter(Boolean).join('\n\n');
+  };
   const waConfirmLink = (o) => o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, your appointment with ${settings.businessName} is confirmed for ${apptRange(o)}. See you then!`)}`;
   const loadApptCal = async (panel) => {
     const items = panel.mode === 'new' ? panel.items.map((id) => ({ productId: id, quantity: 1 })) : panel.order.items.map((it) => ({ productId: it.productId, quantity: it.quantity }));
@@ -3079,18 +3099,31 @@ function XorlaApp() {
   };
   const submitAppt = () => {
     const a = apptPanel; if (!a || a.busy) return;
+    if (a.direct) setApptPanel((p) => p && { ...p, direct: false });
     if (a.mode === 'new') {
       if (!a.items.length) { setApptPanel({ ...a, error: 'Pick at least one service.' }); return; }
       if (!a.slot) { setApptPanel({ ...a, error: 'Pick a time.' }); return; }
       if (!a.name.trim()) { setApptPanel({ ...a, error: "Enter the customer's name." }); return; }
       runAppt(() => sbRpc('create_appointment', session.access_token, { p_shop: targetShopId, p_items: a.items.map((id) => ({ productId: id, quantity: 1 })), p_start_at: a.slot, p_name: a.name, p_phone: a.phone, p_note: a.note }));
+    } else if (a.mode === 'reschedule' && !a.direct) {
+      // Offer the time: the customer accepts it, picks another, or declines, from a link
+      if (!a.slot) { setApptPanel({ ...a, error: 'Pick the time to offer.' }); return; }
+      const o = a.order, start = a.slot, reason = a.reason.trim();
+      const end = new Date(new Date(start).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString();
+      let token = null;
+      runAppt(async () => { token = await sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'propose', p_reason: reason, p_start_at: start }); }, () => {
+        if (!token) return;
+        const msg = offerMessage(o, start, end, token, reason);
+        if (o.customerPhone) offerWhatsApp(o.customerPhone, msg, 'New time offered', `${o.customerName} will get this on WhatsApp, with a link to accept, choose another time or decline. The time is held for them for 24 hours.\n\n"${msg}"`);
+        else brandAlert(`${o.customerName} didn't leave a phone number. Share this link with them another way: ${offerLink(token)}`, { title: 'New time offered', tone: 'info' });
+      });
     } else if (a.mode === 'reschedule') {
       if (!a.slot) { setApptPanel({ ...a, error: 'Pick the new time.' }); return; }
       const o = a.order, start = a.slot;
       runAppt(() => sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'reschedule', p_reason: '', p_start_at: start }), async () => {
         const end = new Date(new Date(start).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString();
         const moved = { ...o, startAt: start, endAt: end };
-        const link = o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, the time you asked for with ${settings.businessName} wasn't free, so we've booked you for ${apptRange(moved)} instead. Reply if that doesn't work for you.`)}`;
+        const link = o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, as we agreed, your appointment with ${settings.businessName} is now ${apptRange(moved)}. See you then!`)}`;
         if (link && await brandConfirm(`${o.customerName} is now booked for ${apptRange(moved)}. Let them know on WhatsApp?`, { title: 'New time confirmed', confirm: 'Send on WhatsApp', cancel: 'Not now' })) window.open(link, '_blank');
       });
     } else {
@@ -3101,10 +3134,12 @@ function XorlaApp() {
       });
     }
   };
+  submitApptRef.current = submitAppt;
   const renderApptPanel = () => {
     if (!apptPanel) return null;
     const a = apptPanel; const close = () => { if (!a.busy) setApptPanel(null); };
-    const title = { new: 'New appointment', reschedule: 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment' }[a.mode];
+    const title = { new: 'New appointment', reschedule: a.order?.acceptedAt ? 'Move appointment' : 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment' }[a.mode];
+    const firstName = String(a.order?.customerName || '').split(' ')[0];
     const days = a.cal?.days || [];
     const day = days.find((d) => d.date === a.day);
     const picker = (
@@ -3158,6 +3193,8 @@ function XorlaApp() {
               </>
             )}
             {a.mode === 'reschedule' && picker}
+            {a.mode === 'reschedule' && a.order?.acceptedAt && <input type="text" placeholder="Reason (optional), e.g. Our stylist is unwell that day" value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
+            {a.mode === 'reschedule' && <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{firstName} gets a link to accept this time, choose another free time, or say they can't make it. The time is held for them for 24 hours.</div>}
             {(a.mode === 'decline' || a.mode === 'cancel') && (
               <>
                 <input type="text" autoFocus placeholder={a.mode === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason, e.g. Our stylist is unwell that day'} value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -3167,8 +3204,13 @@ function XorlaApp() {
           </div>
           {a.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
           <button onClick={submitAppt} disabled={a.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: a.mode === 'decline' || a.mode === 'cancel' ? C.rust : C.copper, color: C.bg, opacity: a.busy ? 0.6 : 1 }}>
-            {a.busy ? 'Saving…' : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Confirm ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Confirm new time') : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
+            {a.busy ? 'Saving…' : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Offer ${apptDay(a.slot)}, ${apptTime(a.slot)} to ${firstName}` : `Offer a time to ${firstName}`) : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
           </button>
+          {a.mode === 'reschedule' && a.slot && (
+            <button onClick={() => { const next = { ...a, direct: true }; setApptPanel(next); setTimeout(() => submitApptRef.current && submitApptRef.current(), 0); }} disabled={a.busy} className="w-full mt-2 py-2.5 text-[12.5px] font-medium" style={{ color: C.inkDim }}>
+              {firstName} already agreed to this time? Confirm it now
+            </button>
+          )}
         </div>
       </div>
     );
@@ -3199,12 +3241,13 @@ function XorlaApp() {
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                     <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
+                      o.status === 'pending' && o.awaitingCustomer ? { background: C.surfaceRaised, color: C.inkDim } :
                       o.status === 'pending' && o.acceptedAt ? { background: C.sageSoft, color: C.sage } :
                       o.status === 'pending' && o.startAt && apptPassed(o) ? { background: C.surfaceRaised, color: C.inkFaint } :
                       o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
                       o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
                       { background: 'rgba(226,98,75,0.12)', color: C.rust }
-                    }>{o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
+                    }>{o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.startAt ? 'Declined' : 'Cancelled'}</span>
                   </div>
                   <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
                     {o.items.map((it, i) => (
@@ -3215,7 +3258,8 @@ function XorlaApp() {
                     ))}
                   </div>
                   {o.startAt && (() => {
-                    const clash = o.status === 'pending' && !o.acceptedAt ? apptClashes(o) : [];
+                    const clash = o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer ? apptClashes(o) : [];
+                    const offerOpen = o.awaitingCustomer && o.holdUntil && new Date(o.holdUntil) > new Date();
                     const full = clash.length >= apptCap;
                     return (
                       <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: o.status !== 'pending' ? C.surfaceRaised : full ? C.rustSoft : o.acceptedAt ? C.sageSoft : C.surfaceRaised }}>
@@ -3223,12 +3267,19 @@ function XorlaApp() {
                           <CalendarClock size={15} style={{ color: full ? C.rust : o.acceptedAt ? C.sage : C.copper }} />
                           <span className="font-semibold" style={{ color: C.ink }}>{apptRange(o)}</span>
                         </div>
-                        {o.status === 'pending' && !o.acceptedAt && !apptPassed(o) && (
+                        {o.status === 'pending' && o.awaitingCustomer && (
+                          <div className="mt-1 space-y-0.5" style={{ color: C.inkDim }}>
+                            <div>New time offered{o.requestedStartAt ? `. They asked for ${apptDay(o.requestedStartAt)}, ${apptTime(o.requestedStartAt)}.` : '.'}</div>
+                            <div style={{ color: offerOpen ? C.copper : C.rust }}>{offerOpen ? `Held for them until ${new Date(o.holdUntil).toLocaleString('en-GB', { ...LAGOS_TIME, weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}.` : 'No reply, and the offer has expired. Offer another time, or decline.'}</div>
+                          </div>
+                        )}
+                        {o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer && o.proposalReply === 'chose_other' && <div className="mt-1" style={{ color: C.copper }}>{String(o.customerName).split(' ')[0]} picked this time instead of your offer.</div>}
+                        {o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer && !apptPassed(o) && (
                           <div className="mt-1" style={{ color: full ? C.rust : C.sage }}>{full
                             ? `Clashes with ${clash.map((x) => `${x.customerName} (${apptTime(x.startAt)} to ${apptTime(x.endAt)})`).join(', ')}. Offer another time, or decline.`
                             : clash.length ? `Free. ${clash.length} of ${apptCap} places already booked at that time.` : 'This time is free.'}</div>
                         )}
-                        {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
+                        {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.proposalReply === 'accepted' ? ` by ${String(o.customerName).split(' ')[0]} from your offer` : o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
                         {o.status === 'cancelled' && o.cancelReason && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
                         {o.note && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
                       </div>
@@ -3242,17 +3293,26 @@ function XorlaApp() {
                   )}
                   <div className="flex items-center justify-between">
                     <div className="cx-mono text-[14px] font-bold">{fmt(o.total)}</div>
-                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !canAnswerRequests && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to answer</span>}
-                    {o.status === 'pending' && o.startAt && !o.acceptedAt && canAnswerRequests && (
+                    {o.status === 'pending' && o.startAt && o.awaitingCustomer && canAnswerRequests && (
+                      <div className="flex items-center gap-2.5">
+                        <button onClick={() => openAppt(o.acceptedAt ? 'cancel' : 'decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>{o.requestedStartAt && !o.acceptedAt ? 'Decline' : 'Cancel'}</button>
+                        {offerOpenOf(o) && o.customerPhone && o.proposalToken && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(offerMessage({ ...o, acceptedAt: null, startAt: o.requestedStartAt || o.startAt, endAt: new Date(new Date(o.requestedStartAt || o.startAt).getTime() + (new Date(o.endAt) - new Date(o.startAt))).toISOString() }, o.startAt, o.endAt, o.proposalToken, ''))}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>Send again</a>}
+                        {!offerOpenOf(o) && <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>}
+                        {offerOpenOf(o) && <button onClick={() => acceptAppt(o)} title="If they agreed by phone or in person" className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>They agreed</button>}
+                      </div>
+                    )}
+                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !o.awaitingCustomer && !canAnswerRequests && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to answer</span>}
+                    {o.status === 'pending' && o.startAt && !o.acceptedAt && !o.awaitingCustomer && canAnswerRequests && (
                       <div className="flex items-center gap-2.5">
                         <button onClick={() => openAppt('decline', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
                         <button onClick={() => openAppt('reschedule', o)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Other time</button>
                         {!apptPassed(o) && apptClashes(o).length < apptCap && <button onClick={() => acceptAppt(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Accept</button>}
                       </div>
                     )}
-                    {o.status === 'pending' && o.startAt && o.acceptedAt && (
+                    {o.status === 'pending' && o.startAt && o.acceptedAt && !o.awaitingCustomer && (
                       <div className="flex items-center gap-2.5">
                         <button onClick={() => openAppt('cancel', o)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Cancel</button>
+                        {canAnswerRequests && !apptPassed(o) && <button onClick={() => openAppt('reschedule', o)} className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>Move</button>}
                         {waConfirmLink(o) && <a href={waConfirmLink(o)} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
                         <button onClick={() => fulfillOrder(o)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark done</button>
                       </div>
@@ -4893,6 +4953,7 @@ function XorlaApp() {
                   { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
                   { id: 'shops', Icon: Store, label: L.Many, value: `${shops.length} ${shops.length !== 1 ? L.many : L.one}` },
                   { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
+                  ...(isOwnerRole ? [{ id: 'export', Icon: Download, label: 'Download your records', value: '' }] : []),
                   { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
                 {isOwnerRole && hasBookables && renderSettingsGroup('Bookings', [
@@ -4918,6 +4979,8 @@ function XorlaApp() {
                 ])}
                 {renderSettingsGroup('Help', [
                   { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
+                  { action: () => window.open('/privacy', '_blank'), Icon: ShieldCheck, label: 'Privacy policy', value: '' },
+                  { action: () => window.open('/terms', '_blank'), Icon: Receipt, label: 'Terms of service', value: '' },
                 ])}
                 {renderSettingsGroup('Notifications', [
                   { id: 'notifications', Icon: Bell, label: 'Notifications', value: pushState === 'on' ? 'On' : pushState === 'denied' ? 'Blocked' : 'Off', valueColor: pushState === 'on' ? C.sage : undefined },
@@ -5099,6 +5162,42 @@ function XorlaApp() {
                 </div>
               </div>
             )}
+            {settingsPage === 'export' && (() => {
+              // Large businesses can have more records than the app loads at once, so downloads fetch everything, a page at a time
+              const fetchAll = async (table, order, map) => {
+                const out = [];
+                for (let offset = 0; offset < 200000; offset += 1000) {
+                  const rows = await sbRest(table, { accessToken: session.access_token, query: `?select=*&order=${order}&limit=1000&offset=${offset}` });
+                  out.push(...rows.map(map)); if (rows.length < 1000) break;
+                }
+                return out;
+              };
+              const fresh = (table, order, map, fn) => async () => { try { fn(await fetchAll(table, order, map)); } catch (e) { brandAlert(e.message); } };
+              const day = todayKey();
+              const nm = (settings.businessName || 'xorla').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+              const where = (id) => shopNameOf(id);
+              const sets = [
+                ['Sales', `${T.salesTab.toLowerCase()} you've recorded`, salesAll, fresh('sales', 'sold_at.desc', fromSbSale, (rows) => downloadCsv(`${nm}-sales-${day}.csv`, [['Date', (r) => r.dateKey], ['Time', (r) => r.time], ['Item', (r) => r.item], ['Quantity', (r) => r.quantity], ['Amount', (r) => r.amount], ['Cost', (r) => r.cost], ['Still owed', (r) => r.owed], ['Recorded by', (r) => r.loggedBy], [L.One, (r) => where(r.shopId)]], rows))],
+                ['Expenses', 'what you spent, by category', expensesAll, fresh('expenses', 'spent_at.desc', fromSbExpense, (rows) => downloadCsv(`${nm}-expenses-${day}.csv`, [['Date', (r) => r.dateKey], ['Item', (r) => r.item], ['Category', (r) => r.category], ['Amount', (r) => r.amount], ['Recorded by', (r) => r.loggedBy], [L.One, (r) => where(r.shopId)]], rows))],
+                ['Invoices', 'customers, amounts and payments', invoicesAll, fresh('invoices', 'created_at.desc', fromSbInvoice, (rows) => downloadCsv(`${nm}-invoices-${day}.csv`, [['Invoice', (r) => r.invoiceNo], ['Customer', (r) => r.clientName], ['Phone', (r) => r.phone], ['Amount', (r) => r.amount], ['Paid', (r) => r.paidAmount], ['Balance', (r) => Math.max(0, Number(r.amount) - Number(r.paidAmount || 0))], ['Due date', (r) => r.dueDate], [L.One, (r) => where(r.shopId)]], rows))],
+                [T.catalog, 'names, prices and stock', productsAll, () => downloadCsv(`${nm}-catalog-${day}.csv`, [['Name', (r) => r.name], ['Type', (r) => kindOf(r, settings.businessType)], ['Category', (r) => r.category], ['Price', (r) => r.sellingPrice], ['Cost', (r) => r.costPrice], ['Stock', (r) => (r.trackStock ? locations.reduce((a, l) => a + stockAt(r, l.id), 0) : '')], ['Takes', (r) => r.duration]], productsAll)],
+                ...(bookingsAll.length ? [['Bookings', 'guests, dates, deposits and payments', bookingsAll, () => downloadCsv(`${nm}-bookings-${day}.csv`, [['Guest', (r) => r.customer_name], ['Phone', (r) => r.customer_phone], ['Room', (r) => r.item_name], ['Room number', (r) => r.room_label], ['Check in', (r) => r.check_in], ['Check out', (r) => r.check_out], ['Total', (r) => r.total], ['Paid', (r) => r.amount_paid], ['Deposit', (r) => r.deposit_paid], ['Status', (r) => r.status], [L.One, (r) => where(r.shop_id)]], bookingsAll)]] : []),
+                ...(ordersAll.length ? [[apptMode ? 'Requests & appointments' : 'Storefront orders', 'from your storefront and your team', ordersAll, () => downloadCsv(`${nm}-${apptMode ? 'appointments' : 'orders'}-${day}.csv`, [['Received', (r) => (r.createdAt || '').slice(0, 10)], ['Customer', (r) => r.customerName], ['Phone', (r) => r.customerPhone], ['Items', (r) => r.items.map((it) => `${it.description} x${it.quantity}`).join('; ')], ['Total', (r) => r.total], ['Time', (r) => r.preferredTime], ['Status', (r) => (r.status === 'pending' && r.acceptedAt ? 'confirmed' : r.status)]], ordersAll)]] : []),
+              ];
+              return (
+                <div className="space-y-4">
+                  <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Your records belong to you. Download any of them as a spreadsheet file that opens in Excel or Google Sheets, for your accountant, a backup, or to take elsewhere. Every {L.one} is included.</div>
+                  <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    {sets.map(([label, sub, rows, run], i) => (
+                      <button key={label} onClick={run} disabled={!rows.length} className="w-full flex items-center gap-3 px-4 py-3.5 text-left" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: rows.length ? 1 : 0.5 }}>
+                        <span className="flex-1 min-w-0"><span className="block text-[14px] font-semibold">{label}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{rows.length ? `${rows.length >= 1000 ? '1,000+' : rows.length} record${rows.length !== 1 ? 's' : ''}, ${sub}` : 'Nothing recorded yet'}</span></span>
+                        <Download size={17} style={{ color: C.copper }} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {settingsPage === 'hours' && (() => {
               const days = draft.openDays || [1, 2, 3, 4, 5, 6];
               const cap = Math.max(1, Number(draft.apptCapacity ?? 1));
@@ -7498,7 +7597,7 @@ function Storefront({ businessCode }) {
           <div className="font-semibold mb-0.5" style={{ color: S.ink }}>{business.name}</div>
           {business.address && <div>{business.address}</div>}
         </div>
-        {business.show_branding !== false && <div className="text-[12px]">Store powered by Xorla</div>}
+        <div className="text-[12px] flex items-center gap-3">{business.show_branding !== false && <span>Store powered by Xorla</span>}<a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">Privacy</a></div>
       </footer>
 
       {/* Mobile order bar */}
@@ -7673,10 +7772,505 @@ function PricingPage() {
 
           <footer className="mt-20 pt-8 flex flex-wrap items-center justify-between gap-3 text-[13px]" style={{ borderTop: `1px solid ${P.line}`, color: P.muted }}>
             <span>Xorla is made by PointBlank Softworks Ltd.</span>
-            <a href="/" style={{ color: P.teal }}>Open Xorla</a>
+            <span className="flex gap-4"><a href="/privacy" style={{ color: P.teal }}>Privacy</a><a href="/terms" style={{ color: P.teal }}>Terms</a><a href="/" style={{ color: P.teal }}>Open Xorla</a></span>
           </footer>
         </main>
       </div>
+    </div>
+  );
+}
+
+// ============ Privacy policy and terms of service (public pages: /privacy and /terms) ============
+// Fill these in before launch. Until LEGAL.email is set, the pages point people to the in-app Help instead.
+const LEGAL = {
+  company: 'PointBlank Softworks Ltd',
+  rc: '',                     // CAC registration number, e.g. 'RC 1234567'
+  address: 'Abia State, Nigeria',
+  email: '',                  // e.g. a support or privacy inbox
+  updated: '8 October 2026',
+};
+const legalContact = () => (LEGAL.email ? `email ${LEGAL.email}` : 'use Settings → Help in the Xorla app');
+
+const PRIVACY_SECTIONS = [
+  ['Who we are', [
+    `Xorla is a business management app made by ${LEGAL.company}${LEGAL.rc ? ` (${LEGAL.rc})` : ''}, ${LEGAL.address} ("we", "us"). This policy explains what personal data Xorla handles, why, and the choices you have. It is written to meet the Nigeria Data Protection Act 2023 and the Nigeria Data Protection Commission's guidance.`,
+    'Xorla handles data in two different roles, and it matters which one applies:',
+    ['For your own account (business owners and staff), we decide how the data is used. We are the data controller.',
+     'For the records a business keeps about its own customers (names, phone numbers, sales, invoices, bookings, appointments and storefront orders), the business is the data controller and we process that data only to run Xorla for them. If you are a customer of a business that uses Xorla, please contact that business first about your data. We will help them answer you.'],
+  ]],
+  ['What we collect', [
+    ['Account details: your name, email address, password (stored only in scrambled form), phone number, business name, address, logo and the business type you choose.',
+     'Staff details: the names of staff the owner invites, which branch they work at, and when they were last active, so the owner can see who is on shift.',
+     'Business records you enter: sales, expenses, invoices, products and services, stock, bookings, appointments, deposits and refunds. These can include your customers\' names, phone numbers and what they owe.',
+     'Storefront requests: when a customer orders or books on a business\'s storefront, the name, phone number, note and chosen time they give.',
+     'Payments for your Xorla plan: handled by Paystack. We receive confirmation of the payment, the amount, and the card type and last four digits so you can recognise it. We never see or store full card numbers.',
+     'Device and usage details: the notification settings on your device if you turn notifications on, the browser and device type, and basic technical logs our providers keep to run the service securely.'],
+  ]],
+  ['How we use it, and why we are allowed to', [
+    ['To provide Xorla: storing your records, showing your reports, running your storefront and bookings, and letting your staff work with you. Basis: our contract with you.',
+     'To bill your plan and prevent fraud. Basis: contract, and our legal obligations to keep financial records.',
+     'To send messages you switch on, such as WhatsApp payment reminders to your customers, business summaries, and app notifications. Basis: your instructions, and your consent where required. You can switch these off at any time in Settings.',
+     'To answer questions you ask Oga, Xorla\'s assistant. Basis: contract, at your request. See "Oga and AI" below.',
+     'To keep Xorla secure, fix problems and improve it, using totals rather than individual records wherever we can. Basis: our legitimate interest in running a safe, reliable service.',
+     'To contact you about your account, your plan, or important changes. We will not send you marketing without your consent, and you can unsubscribe at any time.'],
+    'We do not sell personal data, and we do not use your customers\' details to advertise to them.',
+  ]],
+  ['Oga and AI', [
+    'When you ask Oga a question, Xorla sends the question and a summary of the relevant business figures to an AI provider (Anthropic) to write the answer. The summary can include customer names and amounts owed when your question needs them. The provider processes this only to answer you and does not use it to train its models. Oga\'s answers are suggestions to help you think, not professional financial, legal or tax advice. Xorla never makes automated decisions about you that have legal or similarly significant effects.',
+  ]],
+  ['Who we share it with', [
+    'We share data only with providers who help us run Xorla, under contracts that require them to protect it and use it only for us:',
+    ['Supabase: database, sign-in and file storage.',
+     'Vercel: hosting of the Xorla website and app.',
+     'Paystack: plan payments, and later, payments to businesses through their storefront.',
+     'Anthropic: answers to questions asked to Oga.',
+     'Meta (WhatsApp Business): reminder and summary messages, only when the business switches them on.',
+     'Google, Apple and Mozilla: delivering app notifications to your device, only if you turn them on. Google Fonts also provides the typefaces the pages use.'],
+    'We may also share data when the law requires it, to protect people\'s safety, or as part of a merger or sale of our business, in which case this policy continues to apply.',
+  ]],
+  ['Data stored outside Nigeria', [
+    'Some of these providers store or process data on servers outside Nigeria. When that happens we rely on the safeguards the Nigeria Data Protection Act allows, such as contracts that require the same level of protection as Nigerian law, and we choose providers with strong security standards.',
+  ]],
+  ['How long we keep it', [
+    ['Your account and business records: for as long as your account is open.',
+     'If you close your account, we delete or anonymise your records within 90 days, except what the law requires us to keep.',
+     'Payment and billing records: kept for up to 6 years, as Nigerian tax law requires.',
+     'Records a business keeps about its customers: the business decides how long to keep them, and can delete them in Xorla at any time.'],
+  ]],
+  ['Keeping it safe', [
+    'Data is encrypted while it travels and when stored by our providers. Each business can only ever see its own records, enforced inside the database itself. Staff see only the branches they work at. You can add a PIN lock on your phone. If a data breach is likely to put people at risk, we will tell the Nigeria Data Protection Commission within 72 hours of becoming aware of it, and tell the people affected without delay.',
+  ]],
+  ['Your rights', [
+    'Under the Nigeria Data Protection Act you have the right to:',
+    ['be told how your data is used (this policy);',
+     'get a copy of your data;',
+     'have wrong data corrected;',
+     'have your data deleted, or its use restricted, where the law allows;',
+     'object to us using your data for our legitimate interests or for marketing;',
+     'receive your data in a format you can take elsewhere;',
+     'withdraw consent at any time, without affecting what was done before.'],
+    `To use any of these rights, ${legalContact()}. We will reply within 30 days. If you are not satisfied with our answer, you can complain to the Nigeria Data Protection Commission (ndpc.gov.ng).`,
+  ]],
+  ['Children', [
+    'Xorla is for businesses and is not meant for anyone under 18. We do not knowingly collect children\'s data. If you think a child has given us their details, please tell us and we will delete them.',
+  ]],
+  ['Cookies and storage on your device', [
+    'Xorla keeps a few small items on your device to work: your sign-in, your PIN lock, and preferences such as which branch you were viewing. We do not use advertising or tracking cookies.',
+  ]],
+  ['Changes to this policy', [
+    'If we make important changes, we will tell you in the app or by email before they take effect. The date at the top shows when this policy last changed.',
+  ]],
+  ['Contact', [
+    `${LEGAL.company}, ${LEGAL.address}. For anything about your data, ${legalContact()}.`,
+  ]],
+];
+
+const TERMS_SECTIONS = [
+  ['Agreement', [
+    `These terms are an agreement between you and ${LEGAL.company}${LEGAL.rc ? ` (${LEGAL.rc})` : ''}, ${LEGAL.address}, the makers of Xorla. By creating an account or using Xorla you agree to them. If you use Xorla for a business, you confirm you are allowed to accept these terms for that business.`,
+  ]],
+  ['What Xorla is', [
+    'Xorla helps you record sales and expenses, track stock, send invoices and reminders, take bookings and appointments, run an online storefront, and understand your numbers. Xorla is a tool. It does not hold your money, and it is not a bank, a payment provider, an accountant or a lawyer.',
+  ]],
+  ['Your account and your team', [
+    ['Give accurate details, and keep your password private. You are responsible for what happens under your account.',
+     'The business owner is responsible for the staff they invite and what those staff do in Xorla. Remove staff who leave.',
+     'You must be at least 18 years old.'],
+  ]],
+  ['Plans, trial and payment', [
+    ['New businesses get a 30-day free trial of the Business plan. No card is needed.',
+     'After the trial you can stay on the Free plan or pay for Pro or Business. Prices are in naira and shown on the Pricing page and in the app before you pay.',
+     'Paid plans run monthly or yearly. If auto-renew is on, we charge your saved card at the end of each period. You can turn auto-renew off at any time, and your plan stays active until the end of the period you paid for.',
+     'Early-supporter prices apply for 12 months from the first payment, then the normal price applies. We will remind you before a renewal at a different price.',
+     'Payments are processed by Paystack. Fees already paid are not refunded for unused time, unless the law requires it or we fail to provide the service.',
+     'If a plan ends, your records stay safe. Features beyond the Free plan pause until you upgrade, and nothing you recorded is deleted.',
+     'We may change prices for future periods. We will tell you at least 30 days before a change affects you.'],
+  ]],
+  ['Your data and your customers', [
+    ['Your business records belong to you. You can export or delete them.',
+     'When you record details about your customers or receive orders and bookings through your storefront, you are responsible for having a lawful reason to keep their details, and for answering their questions about it. Our Privacy Policy explains how we help.',
+     'Only send WhatsApp messages to customers who would expect to hear from you, and stop when they ask you to.'],
+  ]],
+  ['Your storefront, bookings and deposits', [
+    ['Sales, bookings, appointments, deposits and refunds made through your storefront are between you and your customer. You set your prices, your deposit and cancellation rules, and you are responsible for keeping them, including sending refunds you owe.',
+     'Xorla shows customers only the times and rooms you are free, based on what you and your team record. Keep your records up to date so customers are not double-booked.'],
+  ]],
+  ['Fair use', [
+    'Do not use Xorla to break the law, mislead or defraud anyone, send spam, sell prohibited goods or services, or try to access another business\'s data or interfere with how Xorla works. We may suspend accounts that do, after warning you where reasonable.',
+  ]],
+  ['Oga and reports', [
+    'Oga\'s answers, and Xorla\'s reports and suggestions, are based on what you record and are meant to help you decide. They are not professional financial, tax or legal advice. You remain responsible for your tax filings and business decisions.',
+  ]],
+  ['Availability', [
+    'We work hard to keep Xorla running and your data safe, but we cannot promise it will never be interrupted, for example during maintenance or problems with our providers or your internet connection. We will give notice of planned maintenance where we can.',
+  ]],
+  ['Our liability', [
+    'To the extent the law allows, we are not responsible for indirect losses such as lost profits or lost business opportunities, and our total responsibility to you for any claim is limited to what you paid us for Xorla in the 12 months before the claim. Nothing in these terms limits rights you have that the law does not allow us to limit.',
+  ]],
+  ['Ending your account', [
+    `You can stop using Xorla at any time. To close your account and have your data deleted, ${legalContact()}. We may close accounts that seriously or repeatedly break these terms. Before closing an account for any other reason, we will give at least 30 days' notice so you can export your records.`,
+  ]],
+  ['Changes to these terms', [
+    'If we make important changes, we will tell you in the app or by email at least 14 days before they take effect. If you keep using Xorla after that, the new terms apply.',
+  ]],
+  ['Law and disputes', [
+    'These terms are governed by the laws of the Federal Republic of Nigeria. If something goes wrong, please contact us first. Most problems can be solved quickly. If we cannot resolve a dispute together within 30 days, either of us may take it to the courts of Nigeria.',
+  ]],
+  ['Contact', [
+    `${LEGAL.company}, ${LEGAL.address}. For any question about these terms, ${legalContact()}.`,
+  ]],
+];
+
+function LegalPage({ kind }) {
+  const isPrivacy = kind === 'privacy';
+  const sections = isPrivacy ? PRIVACY_SECTIONS : TERMS_SECTIONS;
+  const title = isPrivacy ? 'Privacy policy' : 'Terms of service';
+  useEffect(() => {
+    document.title = `Xorla ${title.toLowerCase()}`;
+    if (!document.getElementById('xorla-jakarta')) {
+      const link = document.createElement('link');
+      link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+      document.head.appendChild(link);
+    }
+  }, [title]);
+  const P = { bg: '#0A1F1C', line: 'rgba(234,245,242,0.12)', ink: '#EAF5F2', muted: '#A9C5BE', teal: '#1FD9C4' };
+  const display = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  return (
+    <div className="min-h-screen" style={{ background: P.bg, color: P.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <header className="max-w-3xl mx-auto px-5 py-5 flex items-center justify-between">
+        <a href="/" className="flex items-center gap-2.5"><XorlaMark size={26} /><span style={{ fontFamily: display, fontWeight: 800, fontSize: 18, letterSpacing: '-0.02em' }}>Xorla</span></a>
+        <a href={isPrivacy ? '/terms' : '/privacy'} className="text-[13px] font-medium" style={{ color: P.teal }}>{isPrivacy ? 'Terms of service' : 'Privacy policy'}</a>
+      </header>
+      <main className="max-w-3xl mx-auto px-5 pb-20">
+        <h1 className="pt-6" style={{ fontFamily: display, fontWeight: 800, fontSize: 'clamp(30px, 5vw, 44px)', letterSpacing: '-0.03em', lineHeight: 1.1 }}>{title}</h1>
+        <p className="mt-3 text-[14px]" style={{ color: P.muted }}>Last updated {LEGAL.updated}</p>
+        <nav aria-label="Contents" className="mt-8 rounded-2xl p-5" style={{ border: `1px solid ${P.line}` }}>
+          <div className="text-[12px] font-semibold uppercase tracking-wide mb-3" style={{ color: P.muted }}>Contents</div>
+          <ol className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-[14px]">
+            {sections.map(([h], i) => <li key={h}><a href={`#${slug(h)}`} style={{ color: P.ink }}><span style={{ color: P.muted }}>{i + 1}.</span> {h}</a></li>)}
+          </ol>
+        </nav>
+        {sections.map(([h, blocks], i) => (
+          <section key={h} id={slug(h)} className="mt-10 scroll-mt-6">
+            <h2 className="text-[20px] mb-3" style={{ fontFamily: display, fontWeight: 700, letterSpacing: '-0.01em' }}>{i + 1}. {h}</h2>
+            {blocks.map((b, j) => Array.isArray(b)
+              ? <ul key={j} className="mt-3 space-y-2 text-[15px] leading-relaxed list-disc pl-5" style={{ color: P.muted }}>{b.map((li) => <li key={li}>{li}</li>)}</ul>
+              : <p key={j} className="mt-3 text-[15px] leading-relaxed" style={{ color: P.muted }}>{b}</p>)}
+          </section>
+        ))}
+        <footer className="mt-16 pt-6 flex flex-wrap justify-between gap-3 text-[13px]" style={{ borderTop: `1px solid ${P.line}`, color: P.muted }}>
+          <span>Xorla is made by {LEGAL.company}.</span>
+          <span className="flex gap-4"><a href="/pricing" style={{ color: P.teal }}>Pricing</a><a href="/" style={{ color: P.teal }}>Open Xorla</a></span>
+        </footer>
+      </main>
+    </div>
+  );
+}
+
+// ============ Founder dashboard (/admin): only for people in platform_admins ============
+function AdminDashboard() {
+  const [state, setState] = useState({ phase: 'loading', error: '' });
+  const [ov, setOv] = useState(null);
+  const [list, setList] = useState([]);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [loadingList, setLoadingList] = useState(false);
+  const [updated, setUpdated] = useState(null);
+  const tokenRef = useRef(null);
+  useEffect(() => { document.title = 'Xorla · Founder dashboard'; }, []);
+
+  // Calls a database function as the logged-in founder, renewing the login once if it has expired
+  const call = useCallback(async (fn, params = {}) => {
+    try { return await sbRpc(fn, tokenRef.current, params); }
+    catch (e) {
+      if (!/jwt|expired|token/i.test(e.message)) throw e;
+      const sess = await loadSession();
+      const r = await sbRefresh(sess.refresh_token);
+      const next = { access_token: r.access_token, refresh_token: r.refresh_token, user_id: r.user.id };
+      await saveSession(next); tokenRef.current = next.access_token;
+      return sbRpc(fn, tokenRef.current, params);
+    }
+  }, []);
+  const loadList = useCallback(async (q, f) => {
+    setLoadingList(true);
+    try { setList(await call('admin_businesses', { p_search: q, p_filter: f, p_limit: 100, p_offset: 0 }) || []); }
+    catch (e) { /* the overview shows any error */ }
+    setLoadingList(false);
+  }, [call]);
+  const loadAll = useCallback(async () => {
+    const sess = await loadSession();
+    if (!sess) { setState({ phase: 'login', error: '' }); return; }
+    tokenRef.current = sess.access_token;
+    try {
+      const o = await call('admin_overview');
+      setOv(o); setUpdated(new Date()); setState({ phase: 'ready', error: '' });
+      loadList(search, filter);
+    } catch (e) { setState({ phase: /not allowed/i.test(e.message) ? 'denied' : 'error', error: e.message }); }
+  }, [call, loadList, search, filter]);
+  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { if (state.phase !== 'ready') return undefined; const t = setTimeout(() => loadList(search, filter), 300); return () => clearTimeout(t); }, [search, filter]);
+
+  const extendTrial = async (b) => {
+    const choice = await brandConfirm(`${b.name} gets 14 more days of the full Business plan, free. Their records stay as they are.`, { title: `Extend ${b.name}'s trial?`, confirm: 'Add 14 days' });
+    if (!choice) return;
+    try { await call('admin_extend_trial', { p_business: b.id, p_days: 14 }); await loadAll(); }
+    catch (e) { brandAlert(e.message); }
+  };
+
+  const shell = (body) => (
+    <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <header className="sticky top-0 z-20" style={{ background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${C.line}` }}>
+        <div className="max-w-6xl mx-auto px-5 py-3.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span><span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.copperSoft, color: C.copper }}>Founder</span></div>
+          {state.phase === 'ready' && (
+            <button onClick={loadAll} className="flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>
+              Refresh{updated ? <span style={{ color: C.inkFaint }}> · {updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span> : null}
+            </button>
+          )}
+        </div>
+      </header>
+      <main className="max-w-6xl mx-auto px-5 py-6 pb-20">{body}</main>
+    </div>
+  );
+  if (state.phase === 'loading') return shell(<div className="flex items-center gap-2 py-20 justify-center" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /> Loading…</div>);
+  if (state.phase === 'login') return shell(<div className="text-center py-20"><div className="text-[18px] font-semibold mb-2">Log in first</div><div className="text-[13.5px] mb-5" style={{ color: C.inkDim }}>Open Xorla and log in with your founder account, then come back to this page.</div><a href="/" className="inline-block px-5 py-3 rounded-xl font-semibold" style={{ background: C.copper, color: C.bg }}>Open Xorla</a></div>);
+  if (state.phase === 'denied') return shell(<div className="text-center py-20"><div className="text-[18px] font-semibold mb-2">This page is for Xorla's team</div><div className="text-[13.5px]" style={{ color: C.inkDim }}>Your account doesn't have access. <a href="/" style={{ color: C.copper }}>Back to Xorla</a></div></div>);
+  if (state.phase === 'error') return shell(<div className="text-center py-20"><div className="text-[18px] font-semibold mb-2">Couldn't load the dashboard</div><div className="text-[13px] mb-5" style={{ color: C.inkDim }}>{state.error}</div><button onClick={loadAll} className="px-5 py-3 rounded-xl font-semibold" style={{ background: C.copper, color: C.bg }}>Try again</button></div>);
+
+  const n = (x) => Number(x || 0).toLocaleString('en-NG');
+  const tile = (label, value, sub, accent) => (
+    <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+      <div className="text-[12px] font-medium" style={{ color: C.inkFaint }}>{label}</div>
+      <div className="text-[26px] font-extrabold mt-1 cx-mono" style={{ letterSpacing: '-0.02em', color: accent || C.ink }}>{value}</div>
+      {sub && <div className="text-[12px] mt-0.5" style={{ color: C.inkDim }}>{sub}</div>}
+    </div>
+  );
+  const typeName = { products: 'Shops (products)', both: 'Products & services', services: 'Services (other)', accommodation: 'Hotels & stays', rentals: 'Rentals', personal_care: 'Salons & personal care', repairs: 'Repairs & trades', professional: 'Professional services', events: 'Events & media', 'not set': 'Not chosen yet' };
+  const types = Object.entries(ov.by_type || {}).sort((a, b) => b[1] - a[1]);
+  const maxType = Math.max(1, ...types.map(([, v]) => v));
+  const signups = (ov.signups || []).map((d) => ({ ...d, label: new Date(d.day + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) }));
+  const planOf = (b) => {
+    if (Number(b.monthly_value) > 0) return [b.plan === 'business' ? 'Business' : 'Pro', C.sageSoft, C.sage, `${b.billing_interval === 'yearly' ? 'Yearly' : 'Monthly'}${b.early_supporter ? ' · early' : ''}`];
+    if (b.status === 'trial' && new Date(b.trial_ends_at) > new Date()) { const left = Math.ceil((new Date(b.trial_ends_at) - Date.now()) / 86400000); return ['Trial', left <= 7 ? C.copperSoft : C.surfaceRaised, left <= 7 ? C.copper : C.inkDim, `${left} day${left !== 1 ? 's' : ''} left`]; }
+    return ['Free', C.surfaceRaised, C.inkFaint, b.status === 'expired' ? 'Trial ended' : ''];
+  };
+  const ago = (iso) => {
+    if (!iso) return 'Never';
+    const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
+    return d <= 0 ? 'Today' : d === 1 ? 'Yesterday' : d < 30 ? `${d} days ago` : new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
+  const nudge = (b) => b.owner_phone && `https://wa.me/${toWhatsAppNumber(b.owner_phone)}?text=${encodeURIComponent(`Hi ${(b.owner_name || '').split(' ')[0] || 'there'}, this is Ikenna from Xorla. How is ${b.name} finding it so far? Anything I can help you set up?`)}`;
+
+  return shell(
+    <>
+      <div className="mb-5">
+        <h1 className="text-[24px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>How Xorla is doing</h1>
+        <div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>Every business, every plan, live from the database.</div>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {tile('Businesses', n(ov.businesses), `+${n(ov.new_7d)} this week · +${n(ov.new_30d)} in 30 days`)}
+        {tile('Paying', n(ov.paying), `${n(ov.paying_pro)} Pro · ${n(ov.paying_business)} Business`, C.sage)}
+        {tile('Monthly recurring revenue', fmt(ov.mrr), `${fmt(ov.revenue_30d)} collected in 30 days`, C.copper)}
+        {tile('Active this week', n(ov.active_7d), `businesses that recorded a sale`)}
+        {tile('On free trial', n(ov.trials), ov.trials_ending_7d ? `${n(ov.trials_ending_7d)} ending this week` : 'none ending this week')}
+        {tile('Early supporters', `${n(ov.early_taken)} of 100`, `${n(Math.max(0, 100 - ov.early_taken))} places left`)}
+        {tile('Sales recorded', n(ov.sales_30d), `${fmt(ov.gmv_30d)} in the last 30 days`)}
+        {tile('Storefronts live', n(ov.storefronts), `${n(ov.orders_30d)} orders and requests in 30 days`)}
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-3 mt-3">
+        <div className="lg:col-span-2 rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="flex items-baseline justify-between mb-3">
+            <div className="text-[14px] font-semibold">New businesses per day</div>
+            <div className="text-[12px]" style={{ color: C.inkFaint }}>Last 30 days</div>
+          </div>
+          <div style={{ height: 240 }} role="img" aria-label={`New businesses per day over the last 30 days, ${n(ov.new_30d)} in total`}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={signups} margin={{ top: 6, right: 4, bottom: 0, left: 0 }} barCategoryGap={3}>
+                <CartesianGrid vertical={false} stroke={C.line} />
+                <XAxis dataKey="label" tick={{ fill: C.inkFaint, fontSize: 10.5 }} tickLine={false} axisLine={{ stroke: C.line }} interval={6} />
+                <YAxis allowDecimals={false} tick={{ fill: C.inkFaint, fontSize: 10.5 }} tickLine={false} axisLine={false} width={24} />
+                <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 12, color: C.ink }} labelStyle={{ color: C.inkDim }} formatter={(v) => [v, 'New businesses']} />
+                <Bar dataKey="count" fill={C.sage} radius={[4, 4, 0, 0]} maxBarSize={18} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="text-[14px] font-semibold mb-3">What kinds of business</div>
+          <div className="space-y-2.5">
+            {types.map(([t, v]) => (
+              <div key={t}>
+                <div className="flex justify-between text-[12.5px] mb-1"><span style={{ color: C.inkDim }}>{typeName[t] || t}</span><span className="cx-mono font-semibold">{v}</span></div>
+                <div className="h-1.5 rounded-full" style={{ background: C.surfaceRaised }}><div className="h-1.5 rounded-full" style={{ width: `${(v / maxType) * 100}%`, background: C.sage }} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        <div className="p-4 flex flex-col lg:flex-row lg:items-center gap-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+          <div className="text-[14px] font-semibold flex-1">Businesses</div>
+          <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: C.surfaceRaised }}>
+            {[['all', 'All'], ['paying', 'Paying'], ['trial', 'On trial'], ['ending', 'Trial ending'], ['free', 'Free']].map(([k, l]) => (
+              <button key={k} onClick={() => setFilter(k)} className="shrink-0 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={filter === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+            ))}
+          </div>
+          <div className="relative lg:w-64">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, email or phone" className="w-full rounded-xl pl-9 pr-3 py-2 text-[13px] outline-none" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }} />
+          </div>
+        </div>
+        {loadingList && !list.length ? <div className="p-6 text-center text-[13px]" style={{ color: C.inkFaint }}>Loading…</div>
+          : !list.length ? <div className="p-6 text-center text-[13px]" style={{ color: C.inkFaint }}>No businesses match.</div> : (
+          <div>
+            {list.map((b, i) => {
+              const [pl, pbg, pfg, psub] = planOf(b);
+              const canExtend = !(Number(b.monthly_value) > 0);
+              return (
+                <div key={b.id} className="px-4 py-3.5 grid gap-2 lg:grid-cols-[1.4fr_1.3fr_0.8fr_0.9fr_230px] lg:items-center" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: loadingList ? 0.6 : 1 }}>
+                  <div className="min-w-0">
+                    <div className="text-[13.5px] font-semibold truncate">{b.name}</div>
+                    <div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{typeName[b.business_type === 'services' && b.service_kind ? b.service_kind : b.business_type || 'not set'] || b.business_type} · joined {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                  </div>
+                  <div className="min-w-0 text-[12.5px]">
+                    <div className="truncate">{b.owner_name || 'Owner'}</div>
+                    <div className="truncate text-[11.5px]" style={{ color: C.inkFaint }}>{b.owner_email || ''}{b.owner_phone ? ` · ${formatPhoneDisplay(b.owner_phone)}` : ''}</div>
+                  </div>
+                  <div><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: pbg, color: pfg }}>{pl}</span>{psub && <span className="text-[11px] ml-1.5" style={{ color: C.inkFaint }}>{psub}</span>}</div>
+                  <div className="text-[12px]" style={{ color: C.inkDim }}>{n(b.sales_30d)} sales in 30 days<div className="text-[11px]" style={{ color: C.inkFaint }}>Last seen {ago(b.last_seen_at)}</div></div>
+                  <div className="flex items-center gap-3 lg:justify-end">
+                    {nudge(b) && <a href={nudge(b)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
+                    {canExtend && <button onClick={() => extendTrial(b)} className="text-[12px] font-medium" style={{ color: C.sage }}>Extend trial</button>}
+                    {b.storefront_enabled && b.business_code && <a href={`/store/${b.business_code}`} target="_blank" rel="noopener noreferrer" className="text-[12px] font-medium" style={{ color: C.inkDim }}>Storefront</a>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div className="text-[11.5px] mt-3" style={{ color: C.inkFaint }}>Showing up to 100 businesses, newest first. Search to find anyone else. Monthly recurring revenue counts yearly plans as one twelfth a month.</div>
+    </>
+  );
+}
+
+// ============ The customer's page for an offered appointment time (/appt/<link>): accept, choose another, or decline ============
+function AppointmentOffer({ token }) {
+  const [offer, setOffer] = useState(undefined);
+  const [mode, setMode] = useState('view');      // view | choose
+  const [cal, setCal] = useState(null);
+  const [day, setDay] = useState('');
+  const [slot, setSlot] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);        // accepted | chose | declined
+  const load = useCallback(async () => {
+    try { setOffer(await sbRpc('get_appointment_offer', SB_KEY, { p_token: token })); } catch (e) { setOffer(null); }
+  }, [token]);
+  useEffect(() => {
+    load();
+    if (!document.getElementById('xorla-jakarta')) {
+      const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+      document.head.appendChild(link);
+    }
+  }, [load]);
+  useEffect(() => { if (offer?.business) document.title = `${offer.business} · Your appointment`; }, [offer]);
+  const openChoose = async () => {
+    setMode('choose'); setSlot('');
+    try {
+      const c = await sbRpc('offer_calendar', SB_KEY, { p_token: token, p_days: 14 });
+      setCal(c); setDay((c?.days || []).find((d) => d.slots.length)?.date || '');
+    } catch (e) { brandAlert(e.message, { theme: 'light' }); }
+  };
+  const respond = async (action) => {
+    if (action === 'decline' && !(await brandConfirm(`${offer.business} will be told you can't make it, and the appointment will be cancelled.`, { title: "Can't make it?", confirm: "Yes, I can't make it", danger: true, theme: 'light', cancel: 'Go back' }))) return;
+    setBusy(true);
+    try {
+      await sbRpc('respond_to_offer', SB_KEY, { p_token: token, p_action: action, ...(action === 'choose' ? { p_start_at: slot } : {}) });
+      setDone(action === 'accept' ? 'accepted' : action === 'choose' ? 'chose' : 'declined'); await load();
+    } catch (e) {
+      brandAlert(e.message, { theme: 'light', title: 'Please try again' });
+      if (action === 'choose') openChoose(); else load();
+    }
+    setBusy(false);
+  };
+
+  const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
+  const btn = 'w-full py-3.5 rounded-xl text-[15px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black';
+  if (offer === undefined) return <div className="flex items-center justify-center" style={page}><Loader2 className="animate-spin" size={22} style={{ color: S.muted }} /></div>;
+  if (!offer) return (
+    <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
+      <div className="text-[20px] font-bold mb-2">This link isn't working</div>
+      <div className="text-[14px] max-w-sm" style={{ color: S.muted }}>It may have been replaced by a newer message. Check the latest message from the business, or contact them directly.</div>
+    </div>
+  );
+  const services = (offer.items || []).map((it) => it.description).join(', ');
+  const range = (a, b) => `${apptDay(a)}, ${apptTime(a)} to ${apptTime(b)}`;
+  const wa = offer.phone ? `https://wa.me/${toWhatsAppNumber(offer.phone)}` : null;
+  const store = offer.business_code ? `/store/${offer.business_code}` : null;
+  const card = (children) => <div className="rounded-2xl p-5" style={{ background: S.tile }}>{children}</div>;
+  const finished = (icon, title, body) => (
+    <div className="text-center pt-6">
+      <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5" style={{ background: S.ink }}>{icon}</div>
+      <div className="text-[22px] font-bold mb-2">{title}</div>
+      <div className="text-[14.5px] leading-relaxed max-w-sm mx-auto mb-7" style={{ color: S.muted }}>{body}</div>
+      <div className="flex flex-col gap-2 max-w-xs mx-auto">
+        {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className={btn} style={{ border: `1.5px solid ${S.ink}`, textAlign: 'center' }}>Message {offer.business}</a>}
+        {store && <a href={store} className="text-[13.5px] font-semibold py-2" style={{ color: S.ink }}>Visit {offer.business}</a>}
+      </div>
+    </div>
+  );
+
+  let body;
+  if (offer.state === 'confirmed' || done === 'accepted') body = finished(<Check size={26} color="#fff" />, "You're booked", `${services} at ${offer.business}, ${range(offer.start_at, offer.end_at)}. See you then!`);
+  else if (done === 'chose' || (offer.state === 'pending' && offer.reply === 'chose_other')) body = finished(<CalendarClock size={24} color="#fff" />, 'Time sent', `You asked for ${range(offer.start_at, offer.end_at)}. It's held for you while ${offer.business} confirms it.`);
+  else if (offer.state === 'cancelled' || done === 'declined') body = finished(<X size={24} color="#fff" />, 'Appointment cancelled', `${offer.business} has been told. You're welcome to book another time whenever suits you.`);
+  else if (offer.state === 'done') body = finished(<Check size={26} color="#fff" />, 'All done', `Thanks for visiting ${offer.business}.`);
+  else if (offer.state === 'expired') body = finished(<CalendarClock size={24} color="#fff" />, 'This offer has expired', `The time ${offer.business} offered is no longer held. Message them, or book a new time.`);
+  else if (mode === 'choose') body = (
+    <>
+      <button onClick={() => setMode('view')} className="flex items-center gap-1 text-[13px] font-medium mb-4" style={{ color: S.muted }}><ChevronLeft size={16} /> Back</button>
+      <div className="text-[22px] font-bold mb-1">Choose another time</div>
+      <div className="text-[14px] mb-4" style={{ color: S.muted }}>{services}. Only free times are shown.</div>
+      {!cal ? <div className="flex items-center gap-2 text-[13px]" style={{ color: S.muted }}><Loader2 size={15} className="animate-spin" /> Checking free times…</div>
+        : !cal.days.some((d) => d.slots.length) ? card(<div className="text-[14px]">No other free times in the next two weeks. Please message {offer.business}.</div>)
+        : <SlotPicker light cal={cal} day={day} onDay={setDay} slot={slot} onSlot={setSlot} />}
+      <button onClick={() => respond('choose')} disabled={!slot || busy} className={`${btn} mt-5`} style={{ background: S.ink, color: '#fff', opacity: !slot || busy ? 0.4 : 1 }}>{busy ? 'Sending…' : slot ? `Ask for ${apptDay(slot)}, ${apptTime(slot)}` : 'Pick a time'}</button>
+      <div className="text-[12px] text-center mt-3" style={{ color: S.muted }}>{offer.business} will confirm your new choice.</div>
+    </>
+  );
+  else body = (
+    <>
+      <div className="text-[13px] font-semibold mb-1" style={{ color: S.muted }}>Hi {offer.customer}</div>
+      <h1 className="text-[26px] font-extrabold leading-tight mb-5" style={{ letterSpacing: '-0.02em' }}>{offer.business} has offered you a new time</h1>
+      {card(
+        <>
+          <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: S.muted }}>New time</div>
+          <div className="text-[20px] font-bold leading-snug">{apptDay(offer.start_at)}</div>
+          <div className="text-[17px] font-semibold">{apptTime(offer.start_at)} to {apptTime(offer.end_at)}</div>
+          <div className="text-[14px] mt-2" style={{ color: S.muted }}>{services}{offer.total ? ` · ${fmt(offer.total)}` : ''}</div>
+          {offer.requested_start_at && <div className="text-[13px] mt-3 pt-3" style={{ color: S.muted, borderTop: `1px solid ${S.line}` }}>You asked for <span style={{ textDecoration: 'line-through' }}>{apptDay(offer.requested_start_at)}, {apptTime(offer.requested_start_at)}</span></div>}
+        </>
+      )}
+      <div className="flex flex-col gap-2.5 mt-6">
+        <button onClick={() => respond('accept')} disabled={busy} className={btn} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.5 : 1 }}>{busy ? 'Confirming…' : 'Accept this time'}</button>
+        <button onClick={openChoose} disabled={busy} className={btn} style={{ border: `1.5px solid ${S.ink}` }}>Choose another time</button>
+        <button onClick={() => respond('decline')} disabled={busy} className="py-2.5 text-[14px] font-medium" style={{ color: S.muted }}>I can't make it</button>
+      </div>
+      <div className="text-[12px] text-center mt-4" style={{ color: S.muted }}>This time is held for you for a limited time.{wa ? <> Questions? <a href={wa} target="_blank" rel="noopener noreferrer" className="underline">Message {offer.business}</a>.</> : null}</div>
+    </>
+  );
+  return (
+    <div style={page}>
+      <main className="max-w-md mx-auto px-5 py-8 pb-16">
+        <div className="text-[15px] font-bold mb-8">{offer.business}</div>
+        {body}
+      </main>
+      <footer className="max-w-md mx-auto px-5 pb-8 text-[11.5px] flex justify-between" style={{ color: S.muted }}><span>Powered by Xorla</span><a href="/privacy" className="underline">Privacy</a></footer>
     </div>
   );
 }
@@ -7830,6 +8424,13 @@ function BrandDialogHost() {
 export default function Root() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
-  const page = storeMatch ? <Storefront businessCode={storeMatch[1]} /> : (path === '/pricing' || path === '/pricing/') ? <PricingPage /> : <XorlaApp />;
+  const clean = path.replace(/\/+$/, '');
+  const offerMatch = path.match(/^\/appt\/([a-f0-9]{20,64})/);
+  const page = offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
+    : clean === '/pricing' ? <PricingPage />
+    : clean === '/privacy' ? <LegalPage kind="privacy" />
+    : clean === '/terms' ? <LegalPage kind="terms" />
+    : clean === '/admin' ? <AdminDashboard />
+    : <XorlaApp />;
   return <>{page}<BrandDialogHost /></>;
 }
