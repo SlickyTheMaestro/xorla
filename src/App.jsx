@@ -1583,6 +1583,7 @@ function XorlaApp() {
   const [pendingPlanOpen, setPendingPlanOpen] = useState(false);
   const [billingReturnRef, setBillingReturnRef] = useState(null);
   const [limitPrompt, setLimitPrompt] = useState(null);
+  const [addLoc, setAddLoc] = useState(null);   // buying extra locations part-way through a Business period
   const [seatOk, setSeatOk] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [tipsSeen, setTipsSeen] = useState(null);
@@ -1974,17 +1975,12 @@ function XorlaApp() {
   const [shopBusy, setShopBusy] = useState(false);
   const addShop = async () => {
     const name = newShopName.trim(); if (!name || shopBusy) return;
-    if (planKnown && liveLocations.length >= planCaps.locations) {
-      setLimitPrompt(effPlan === 'business'
-        ? { title: `Your plan includes ${planCaps.locations} locations`, body: 'Add extra locations to your Business plan for ₦3,500 a month each, then open this one.' }
-        : { title: 'More locations come with Business', body: settings.businessType === 'services' ? `Run several ${L.many}, each with its own staff, bookings and records, and see them together. Business includes 3 locations, with more as you grow.` : `Run several ${L.many} and warehouses with stock transfers, deliveries and requests between them. Business includes 3 locations, with more as you grow.` });
-      return;
-    }
+    if (planKnown && liveLocations.length >= planCaps.locations) { openLocationLimit(); return; }
     setShopBusy(true);
     try {
       const rows = await sbRest('shops', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name, ...(newShopKind === 'warehouse' ? { kind: 'warehouse' } : {}) } });
       setShops((prev) => [...prev, rows[0]]); setNewShopName('');
-    } catch (e) { brandAlert(e.message); } finally { setShopBusy(false); }
+    } catch (e) { if (isLocationLimitError(e)) openLocationLimit(); else brandAlert(e.message); } finally { setShopBusy(false); }
   };
   const saveShop = async (shop) => {
     const edit = shopEdits[shop.id]; if (!edit) return;
@@ -2029,11 +2025,32 @@ function XorlaApp() {
     } catch (e) { brandAlert(e.message); }
   };
   const reopenLocation = async (loc) => {
+    if (planKnown && liveLocations.length >= planCaps.locations) { openLocationLimit(loc); return; }
     try {
       await sbRest(`shops?id=eq.${loc.id}`, { method: 'PATCH', accessToken: session.access_token, body: { archived: false } });
       setShops((prev) => prev.map((s) => (s.id === loc.id ? { ...s, archived: false } : s)));
-    } catch (e) { brandAlert(e.message); }
+    } catch (e) { if (isLocationLimitError(e)) openLocationLimit(loc); else brandAlert(e.message); }
   };
+  // Every way of hitting the location limit lands here: buy an extra location now, or see the plans
+  const isLocationLimitError = (e) => /plan includes \d+ location|more locations|location limit|extra locations/i.test(String(e?.message || ''));
+  const openLocationLimit = (reopening = null) => {
+    const paidBusiness = planKnown && effPlan === 'business' && !onTrial && subscription?.status === 'active';
+    if (paidBusiness) { setAddLoc({ count: 1, quote: null, busy: false, error: '', reopening }); return; }
+    if (planKnown && effPlan === 'business' && onTrial) {
+      setLimitPrompt({ title: `Your trial includes ${planCaps.locations} locations`, body: `To open more ${L.many} now, choose the Business plan with extra locations (₦3,500 a month each). Everything you set up during the trial carries over.`, cta: 'Choose Business with more locations' });
+      return;
+    }
+    setLimitPrompt({ title: 'More locations come with Business', body: settings.businessType === 'services' ? `Run several ${L.many}, each with its own staff, bookings and records, and see them together. Business includes 3 locations, and you can add more for ₦3,500 a month each.` : `Run several ${L.many} and warehouses with stock transfers, deliveries and requests between them. Business includes 3 locations, and you can add more for ₦3,500 a month each.`, cta: 'See Business' });
+  };
+  // Price for the days left in this billing period; asked from the server so the app never decides prices
+  useEffect(() => {
+    if (!addLoc || !session) return undefined;
+    let gone = false;
+    setAddLoc((a) => a && { ...a, quote: null, error: '' });
+    callBilling('quote_locations', { count: addLoc.count }).then((q) => { if (!gone) setAddLoc((a) => a && { ...a, quote: q }); })
+      .catch((e) => { if (!gone) setAddLoc((a) => a && { ...a, error: e.message }); });
+    return () => { gone = true; };
+  }, [addLoc?.count, !!addLoc]);
 
   const toggleStaffShop = async (profileId, shopId) => {
     const assigned = staffShops.filter((ss) => ss.profile_id === profileId);
@@ -2774,7 +2791,8 @@ function XorlaApp() {
       setBillingBusy('verify'); setBillingNote(null);
       callBilling('verify', { reference: ref })
         .then((r) => {
-          if (r.ok) setBillingNote({ ok: true, text: `Payment received — thank you! You're on ${PLAN_INFO[r.plan]?.name || 'your new plan'}${r.until ? ` until ${fmtDate(r.until)}` : ''}.` });
+          if (r.ok && r.added_shops) setBillingNote({ ok: true, text: `Payment received, thank you! ${r.added_shops} more location${r.added_shops > 1 ? 's are' : ' is'} now on your plan. Open it in Settings → ${L.Many}.` });
+          else if (r.ok) setBillingNote({ ok: true, text: `Payment received — thank you! You're on ${PLAN_INFO[r.plan]?.name || 'your new plan'}${r.until ? ` until ${fmtDate(r.until)}` : ''}.` });
           else setBillingNote({ ok: false, text: r.status === 'abandoned' ? 'The payment was not completed. Nothing was charged.' : 'We could not confirm the payment yet. If money left your account, it will show here within a few minutes.' });
           return loadBusinessData(session.access_token);
         })
@@ -5314,11 +5332,61 @@ function XorlaApp() {
         <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-4" style={{ background: C.copperSoft }}><Sparkles size={20} style={{ color: C.copper }} /></div>
         <div className="text-[17px] font-bold cx-display mb-1.5">{limitPrompt.title}</div>
         <div className="text-[13px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{limitPrompt.body}</div>
-        <button onClick={openPlanPage} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-2" style={{ background: C.copper, color: C.bg }}>See plans</button>
+        <button onClick={openPlanPage} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-2" style={{ background: C.copper, color: C.bg }}>{limitPrompt.cta || 'See plans'}</button>
         <button onClick={() => setLimitPrompt(null)} className="w-full py-2.5 text-[13px] font-medium" style={{ color: C.inkFaint }}>Not now</button>
       </div>
     </div>
   );
+
+  const renderAddLocations = () => {
+    const a = addLoc; if (!a) return null;
+    const close = () => { if (!a.busy) setAddLoc(null); };
+    const q = a.quote;
+    const extraNow = Number(subscription?.extra_shops || 0);
+    const yearly = subscription?.billing_interval === 'yearly';
+    const per = yearly ? 'year' : 'month';
+    const pay = async () => {
+      setAddLoc({ ...a, busy: true, error: '' });
+      try { const r = await callBilling('add_locations', { count: a.count }); window.location.href = r.url; }
+      catch (e) { setAddLoc((x) => x && { ...x, busy: false, error: e.message }); }
+    };
+    return (
+      <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.82)' }} onClick={close}>
+        <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft, color: C.copper }}><Store size={20} /></div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[18px] font-bold cx-display leading-tight">{a.reopening ? `Reopen ${locName(a.reopening)}` : `Add ${a.count > 1 ? 'locations' : 'a location'} to your plan`}</div>
+              <div className="text-[12.5px] mt-1" style={{ color: C.inkDim }}>Your Business plan has {planCaps.locations} locations ({3} included{extraNow ? ` + ${extraNow} extra` : ''}), and all are in use.</div>
+            </div>
+            <button onClick={close} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
+          </div>
+          <div className="rounded-2xl p-4 flex items-center justify-between gap-3 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            <div><div className="text-[13.5px] font-semibold">Extra locations</div><div className="text-[12px]" style={{ color: C.inkFaint }}>{fmt(yearly ? PLAN_PRICES.extraShop.yearly : PLAN_PRICES.extraShop.monthly)} a {per} each</div></div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setAddLoc({ ...a, count: Math.max(1, a.count - 1) })} disabled={a.count <= 1 || a.busy} aria-label="One fewer" className="w-9 h-9 rounded-xl text-[18px] font-bold" style={{ background: C.surface, border: `1px solid ${C.line}`, opacity: a.count <= 1 ? 0.4 : 1 }}>−</button>
+              <span className="w-8 text-center text-[18px] font-bold tabular-nums">{a.count}</span>
+              <button onClick={() => setAddLoc({ ...a, count: Math.min(20, a.count + 1) })} disabled={a.busy} aria-label="One more" className="w-9 h-9 rounded-xl text-[18px] font-bold" style={{ background: C.surface, border: `1px solid ${C.line}` }}>+</button>
+            </div>
+          </div>
+          <div className="rounded-2xl p-4 mb-3" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 60%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)' }}>
+            {!q && !a.error ? <div className="flex items-center gap-2 text-[13px]" style={{ color: C.inkFaint }}><Loader2 size={15} className="animate-spin" /> Working out the price…</div> : q ? (
+              <>
+                <div className="text-[12px]" style={{ color: C.inkDim }}>Pay today</div>
+                <div className="text-[32px] font-extrabold tabular-nums leading-tight" style={{ color: '#FFD27A', letterSpacing: '-0.02em' }}>{fmt(q.amount)}</div>
+                <div className="text-[12.5px] leading-relaxed mt-1" style={{ color: C.inkDim }}>Only for the {q.daysLeft} day{q.daysLeft === 1 ? '' : 's'} left until your plan renews on <strong style={{ color: C.ink }}>{fmtDate(q.periodEnd)}</strong>.</div>
+                <div className="mt-3 pt-3 text-[12.5px] leading-relaxed" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', color: C.inkDim }}>From then, your plan is <strong style={{ color: C.ink }}>{fmt(q.nextRenewal)} a {per}</strong> (Business with {extraNow + a.count} extra location{extraNow + a.count === 1 ? '' : 's'}). You can choose fewer at renewal.</div>
+              </>
+            ) : null}
+          </div>
+          {a.error && <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
+          <button onClick={pay} disabled={!q || a.busy} className="w-full h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: !q || a.busy ? 0.55 : 1 }}>{a.busy ? <><Loader2 size={17} className="animate-spin" /> Opening payment…</> : q ? `Pay ${fmt(q.amount)} and add` : 'Add locations'}</button>
+          <div className="text-[11.5px] text-center mt-2.5" style={{ color: C.inkFaint }}>Card, bank transfer or USSD, through Paystack. Your renewal date doesn't change.</div>
+          <button onClick={() => { setAddLoc(null); openPlanPage(); }} className="w-full mt-3 py-2 text-[12.5px] font-medium" style={{ color: C.copper }}>See my plan instead</button>
+        </div>
+      </div>
+    );
+  };
 
   // ---------- Receipts ----------
   const makeReceipt = ({ id, items, total, owed, customerName, customerPhone, shopId, when }) => ({
@@ -6688,7 +6756,7 @@ function XorlaApp() {
             {pageDesc && <p className="text-[14px] leading-relaxed mt-1.5" style={{ color: C.inkDim }}>{pageDesc}</p>}
           </div>
 
-          {renderLimitPrompt()}
+          {renderLimitPrompt()}{renderAddLocations()}
           {pinFlow && (
             <PinSetup
               currentPin={pinFlow === 'set' ? '' : settings.pin}
@@ -8694,7 +8762,7 @@ function XorlaApp() {
       {renderFulfilPanel()}
       {renderApptPanel()}
       {renderNotifPanel()}
-      {renderLimitPrompt()}
+      {renderLimitPrompt()}{renderAddLocations()}
       {aiNotice && (
         <div role="status" className="fixed left-4 right-4 lg:left-auto lg:right-6 lg:w-[380px] bottom-24 lg:bottom-6 z-50 rounded-2xl px-4 py-3.5 flex items-start gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}>
           <Lightbulb size={17} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
