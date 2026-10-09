@@ -9955,7 +9955,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
               <option value="open">Needs reply</option><option value="waiting">Waiting on customer</option><option value="solved">Solved</option>
             </BrandSelect>
           </div>
-          <div className="grid lg:grid-cols-[1fr_230px] gap-4 flex-1 min-h-0 pt-3">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_230px] gap-4 flex-1 min-h-0 pt-3 [&>*]:min-w-0">
             <div className="flex flex-col min-h-0">
               <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
                 {thread.messages.map((m) => (
@@ -10050,7 +10050,7 @@ function SupportPublishing({ call }) {
     <div className="flex flex-wrap gap-1.5">{options.map(([k, l]) => <button key={k} onClick={() => onPick(k)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={value === k ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}</div>
   );
   return (
-    <div className="grid lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 [&>*]:min-w-0">
       <div className="rounded-2xl p-4 lg:p-5" style={box}>
         <div className="flex items-center gap-2 mb-1"><Gift size={17} style={{ color: C.sage }} /><div className="text-[15px] font-semibold">What's new</div></div>
         <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>Tell businesses about new features and fixes. It appears in Help → What's new, with a short note on their home screen.</div>
@@ -10109,11 +10109,11 @@ function SupportTeamAdmin({ call }) {
   const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
   const link = `${window.location.origin}/admin`;
   return (
-    <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 [&>*]:min-w-0">
       <div className="rounded-2xl p-4 lg:p-5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
         <div className="flex items-center gap-2 mb-1"><Headphones size={17} style={{ color: C.sage }} /><div className="text-[15px] font-semibold">Support team</div></div>
         <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>People you add can answer support messages. They only see the support inbox, never your revenue, the list of businesses, or this page.</div>
-        <div className="grid sm:grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Their name, e.g. Ada Nwosu" className="rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
           <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Their email" className="rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
         </div>
@@ -10124,7 +10124,7 @@ function SupportTeamAdmin({ call }) {
             : team.map((a) => (
               <div key={a.id} className="rounded-xl px-3.5 py-3 flex items-center gap-3" style={{ background: C.surfaceRaised }}>
                 <span className="w-9 h-9 rounded-full flex items-center justify-center text-[14px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>{(a.name[0] || '?').toUpperCase()}</span>
-                <div className="flex-1 min-w-0"><div className="text-[13.5px] font-semibold">{a.name}</div><div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{a.email} · {a.joined ? `${a.replies_30d} replies in 30 days` : 'Hasn\'t logged in yet'}</div></div>
+                <div className="flex-1 min-w-0"><div className="text-[13.5px] font-semibold truncate">{a.name}</div><div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{a.email}</div><div className="text-[11.5px]" style={{ color: a.joined ? C.sage : C.copper }}>{a.joined ? `${a.replies_30d} repl${Number(a.replies_30d) === 1 ? 'y' : 'ies'} in 30 days` : 'Hasn\'t logged in yet'}</div></div>
                 <button onClick={async () => { if (await brandConfirm(`${a.name} will stop seeing support messages straight away.`, { title: 'Remove from support team?', confirm: 'Remove', danger: true })) { try { await call('support_remove_agent', { p_id: a.id }); load(); } catch (e) { brandAlert(e.message); } } }} className="text-[12px] font-semibold" style={{ color: C.rust }}>Remove</button>
               </div>
             ))}
@@ -10133,7 +10133,7 @@ function SupportTeamAdmin({ call }) {
       <div className="rounded-2xl p-4 lg:p-5 text-[13px] leading-relaxed" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.inkDim }}>
         <div className="text-[15px] font-semibold mb-3" style={{ color: C.ink }}>What to send your support person</div>
         <ol className="space-y-2.5 list-decimal pl-5">
-          <li>Open <strong style={{ color: C.ink }}>{link}</strong> on their phone or computer.</li>
+          <li>Open <strong className="break-all" style={{ color: C.ink }}>{link}</strong> on their phone or computer.</li>
           <li>Choose <strong style={{ color: C.ink }}>"First time? Create your login"</strong> and use the same email you added here, with a password of their own.</li>
           <li>Set up an authenticator app (Google Authenticator) when asked. Support messages include customers' business details, so a code is needed every time.</li>
           <li>Turn on notifications on that device to hear about new messages, or keep the inbox open during support hours ({SUPPORT.hoursText}).</li>
@@ -10272,7 +10272,7 @@ function AdminDashboard() {
     setState({ phase: 'login', error: '' });
   };
   const shell = (body) => (
-    <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-screen cx-body" style={{ overflowX: 'clip', background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
       <header className="sticky top-0 z-20" style={{ background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${C.line}` }}>
         <div className="max-w-6xl mx-auto px-5 py-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span><span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: role === 'agent' ? C.sageSoft : C.copperSoft, color: role === 'agent' ? C.sage : C.copper }}>{role === 'agent' ? 'Support' : 'Founder'}</span></div>
