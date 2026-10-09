@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, FileSpreadsheet, Undo2, Upload } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, FileSpreadsheet, Undo2, Upload } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -1567,6 +1567,10 @@ function XorlaApp() {
   const [restockCost, setRestockCost] = useState('');
   const [productsView, setProductsView] = useState('list');
   const [notifOpen, setNotifOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(null);          // { ticket, view } while Help & support is open
+  const [supportUnread, setSupportUnread] = useState(0);   // replies from Xorla Support not read yet
+  const [xorlaNews, setXorlaNews] = useState(null);         // What's new + announcements from Xorla
+  const [hiddenNotices, setHiddenNotices] = useState(() => { try { return JSON.parse(localStorage.getItem('xorla:hidden-notices') || '[]'); } catch (e) { return []; } });
   const [subscription, setSubscription] = useState(null);
   const [payments, setPayments] = useState([]);
   const [usage, setUsage] = useState(null);
@@ -1810,16 +1814,33 @@ function XorlaApp() {
         const t = new URL(href, window.location.origin).searchParams.get('tab');
         if (t && ['overview', 'sales', 'orders', 'bookings', 'products', 'expenses', 'invoices', 'advisor'].includes(t)) setTab(t);
         if (t === 'plan') setPendingPlanOpen(true);
+        const sp = new URL(href, window.location.origin).searchParams;
+        if (sp.get('support')) setHelpOpen({ ticket: sp.get('support') });
+        else if (sp.get('help')) setHelpOpen({ view: sp.get('help') === 'updates' ? 'updates' : 'home' });
       } catch (e) {}
     };
     openFrom(window.location.href);
     const q = new URLSearchParams(window.location.search);
     if (q.get('billing') === 'return') setBillingReturnRef(q.get('reference') || q.get('trxref') || '');
-    if (window.location.search.includes('tab=') || q.get('billing')) window.history.replaceState(null, '', window.location.pathname);
+    if (window.location.search.includes('tab=') || q.get('billing') || q.get('support') || q.get('help')) window.history.replaceState(null, '', window.location.pathname);
     const onMsg = (e) => { if (e.data?.type === 'xorla-open') openFrom(e.data.url); };
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
   }, []);
+  // Replies from Xorla Support, What's new and announcements: checked on open, every few minutes and when the app comes back to the front
+  const loadXorlaNews = useCallback(async (token) => {
+    if (!token) return;
+    sbRpc('support_unread', token, {}).then((n) => setSupportUnread(Number(n) || 0)).catch(() => {});
+    sbRpc('my_updates', token, {}).then((r) => r && setXorlaNews(r)).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!session?.access_token) return undefined;
+    loadXorlaNews(session.access_token);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') loadXorlaNews(session.access_token); }, 120000);
+    const onVisible = () => { if (document.visibilityState === 'visible') loadXorlaNews(session.access_token); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
+  }, [session?.access_token]);
   // Work out whether this phone can get notifications, and whether it already does
   useEffect(() => {
     if (!session) return;
@@ -4858,6 +4879,63 @@ function XorlaApp() {
   })();
   const notifUrgent = notifItems.some((i) => i.urgent);
   badgeRef.current = notifItems.length;
+  // ---------- Help & support entry points ----------
+  const newsUnread = xorlaNews ? (xorlaNews.updates || []).filter((u) => !xorlaNews.seen_at || u.published_at > xorlaNews.seen_at).length : 0;
+  const hideNotice = (id) => setHiddenNotices((prev) => { const next = [...prev, id].slice(-50); try { localStorage.setItem('xorla:hidden-notices', JSON.stringify(next)); } catch (e) {} return next; });
+  const renderHelpButton = (variant = 'icon') => {
+    const dot = supportUnread > 0 || newsUnread > 0;
+    if (variant === 'side') return (
+      <button onClick={() => setHelpOpen({})} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim }}>
+        <LifeBuoy size={15} /> Help & support
+        {supportUnread > 0 ? <span className="ml-auto px-1.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: C.copper, color: C.bg }}>{supportUnread}</span> : newsUnread > 0 ? <span className="ml-auto w-2 h-2 rounded-full" style={{ background: C.copper }} /> : null}
+      </button>
+    );
+    return (
+      <button onClick={() => setHelpOpen({})} aria-label={`Help and support${supportUnread ? `, ${supportUnread} new repl${supportUnread > 1 ? 'ies' : 'y'}` : ''}`} className="relative flex items-center justify-center shrink-0" style={{ color: C.inkDim }}>
+        <LifeBuoy size={variant === 'staff' ? 17 : 18} />
+        {dot && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full" style={{ background: C.copper, border: `2px solid ${C.bg}` }} />}
+      </button>
+    );
+  };
+  // Banners: a reply from support, announcements from Xorla, and new features
+  const renderXorlaNotices = () => {
+    const anns = (xorlaNews?.announcements || []).filter((a) => !hiddenNotices.includes(a.id));
+    const latest = (xorlaNews?.updates || [])[0];
+    const showNew = latest && newsUnread > 0 && !hiddenNotices.includes(`u-${latest.id}`) && Date.now() - new Date(latest.published_at).getTime() < 21 * 86400000;
+    if (!supportUnread && !anns.length && !showNew) return null;
+    const tones = { info: [C.sageSoft, 'rgba(31,217,196,0.28)', C.sage, Megaphone], warning: [C.copperSoft, 'rgba(255,176,32,0.32)', C.copper, AlertCircle], success: [C.sageSoft, 'rgba(31,217,196,0.28)', C.sage, Check] };
+    return (
+      <div className="space-y-2 mb-4">
+        {supportUnread > 0 && (
+          <button onClick={() => setHelpOpen({})} className="w-full rounded-2xl px-4 py-3 flex items-center gap-3 text-left" style={{ background: 'linear-gradient(135deg, rgba(255,176,32,0.16), rgba(31,217,196,0.08))', border: '1px solid rgba(255,176,32,0.32)' }}>
+            <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: '#0F2C27' }}><XorlaMark size={20} /></span>
+            <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">Xorla Support replied to you</span><span className="block text-[12px]" style={{ color: C.inkDim }}>Tap to read {supportUnread > 1 ? `${supportUnread} new replies` : 'the reply'}</span></span>
+            <ChevronRight size={16} style={{ color: C.copper }} />
+          </button>
+        )}
+        {anns.map((a) => { const [bg, bd, fg, Ic] = tones[a.tone] || tones.info; return (
+          <div key={a.id} className="rounded-2xl px-4 py-3 flex items-start gap-3" style={{ background: bg, border: `1px solid ${bd}` }}>
+            <Ic size={16} style={{ color: fg }} className="shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0 text-[13px] leading-relaxed"><strong className="font-semibold" style={{ color: fg }}>From Xorla: </strong>{a.message}</div>
+            <button onClick={() => hideNotice(a.id)} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={15} /></button>
+          </div>
+        ); })}
+        {showNew && (
+          <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+            <Gift size={16} style={{ color: C.sage }} className="shrink-0" />
+            <button onClick={() => setHelpOpen({ view: 'updates' })} className="flex-1 min-w-0 text-left text-[13px]"><span className="font-semibold">New in Xorla: </span><span style={{ color: C.inkDim }}>{latest.title}</span> <span className="font-semibold whitespace-nowrap" style={{ color: C.copper }}>See what's new</span></button>
+            <button onClick={() => hideNotice(`u-${latest.id}`)} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={15} /></button>
+          </div>
+        )}
+      </div>
+    );
+  };
+  const renderHelp = () => helpOpen && session && (
+    <HelpCenter key={helpOpen.ticket || helpOpen.view || 'home'} token={session.access_token} userId={session.user_id} isOwner={isOwnerRole} T={T} L={L}
+      apptMode={apptMode} stays={hasBookables || ['accommodation', 'rentals'].includes(serviceKind)} tracksStock={!!T.tracksStock} businessName={settings.businessName}
+      initialTicket={helpOpen.ticket} initialView={helpOpen.view} onClose={() => { setHelpOpen(null); loadXorlaNews(session.access_token); }}
+      onUnread={(n) => setSupportUnread(n)} onUpdatesSeen={() => setXorlaNews((x) => x && { ...x, seen_at: new Date().toISOString() })} />
+  );
   const renderBell = (extraClass = '') => (
     <button onClick={() => setNotifOpen((o) => !o)} aria-label={`Notifications${notifItems.length ? `, ${notifItems.length} waiting` : ''}`} aria-expanded={notifOpen} className={`relative flex items-center justify-center shrink-0 ${extraClass}`} style={{ color: notifOpen ? C.copper : C.inkDim }}>
       <Bell size={16} />
@@ -5410,7 +5488,10 @@ function XorlaApp() {
                 <XorlaMark size={26} />
                 <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
               </div>
-              <button onClick={logout} className="flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LogOut size={13} /> Log out</button>
+              <div className="flex items-center gap-3">
+                <button onClick={() => setHelpOpen({})} className="relative flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LifeBuoy size={14} /> Help{(supportUnread > 0 || newsUnread > 0) && <span className="absolute top-0.5 left-5 w-2 h-2 rounded-full" style={{ background: C.copper }} />}</button>
+                <button onClick={logout} className="flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LogOut size={13} /> Log out</button>
+              </div>
             </div>
             {showShopSwitcher && <div className="mt-2.5">{renderShopSwitcher()}</div>}
           </div>
@@ -5426,6 +5507,8 @@ function XorlaApp() {
             <div className="text-[12px]" style={{ color: C.inkFaint }}>Logging in as</div>
             <div className="text-[20px] font-bold cx-display">{settings.activeStaff}</div>
           </div>
+          {renderXorlaNotices()}
+          {renderHelp()}
 
           {hasBookables && <div className="rounded-2xl p-4 mb-5" style={card}>{renderBookingDesk()}</div>}
           {apptMode && (() => {
@@ -6527,6 +6610,8 @@ function XorlaApp() {
                   { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
                 ])}
                 {navGroup('Help', [
+                  { action: () => setHelpOpen({}), Icon: LifeBuoy, label: 'Help & support', value: supportUnread ? `${supportUnread} new repl${supportUnread > 1 ? 'ies' : 'y'}` : 'Message Xorla', valueColor: supportUnread ? C.copper : undefined },
+                  { action: () => setHelpOpen({ view: 'updates' }), Icon: Gift, label: "What's new", value: newsUnread ? `${newsUnread} new` : '', valueColor: newsUnread ? C.copper : undefined },
                   { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
                   ...(isFounder ? [{ action: () => window.open('/admin', '_blank'), Icon: TrendingUp, label: 'Founder dashboard', value: '' }] : []),
                   { action: () => window.open('/privacy', '_blank'), Icon: ShieldCheck, label: 'Privacy policy', value: '' },
@@ -7229,6 +7314,7 @@ function XorlaApp() {
         {renderReadyCheck()}
         {renderSetup()}
         {renderPastImport()}
+        {renderHelp()}
       </div>
     );
   }
@@ -7291,6 +7377,7 @@ function XorlaApp() {
           {settings.pin && (
             <button onClick={() => setLocked(true)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkFaint }}><Lock size={15} /> Lock app</button>
           )}
+          {renderHelpButton('side')}
           <button data-tour="settings" onClick={() => { setDraft({ ...settings }); setSettingsPage(null); setPreviousTab(tab); setTab('settings'); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={15} /> Settings</button>
           <button onClick={logout} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkFaint }}><LogOut size={15} /> Log out</button>
         </div>
@@ -7308,12 +7395,14 @@ function XorlaApp() {
           <div className="flex items-center gap-4">
             {renderBell('sm:hidden')}
             {settings.pin && <button onClick={() => setLocked(true)} style={{ color: C.inkFaint }}><Lock size={16} /></button>}
+            {renderHelpButton()}
             <button data-tour="settings" onClick={() => { setDraft({ ...settings }); setSettingsPage(null); setPreviousTab(tab); setTab('settings'); }} style={{ color: tab === 'settings' ? C.copper : C.inkDim }}><Settings size={18} /></button>
           </div>
         </div>
 
         <div className="max-w-6xl mx-auto px-5 md:px-8 py-6 lg:py-8 pb-28 lg:pb-24">
           {renderShopSwitcher()}
+          {tab === 'overview' && renderXorlaNotices()}
           {activeShopId && isPausedLocation(activeShopId) && (
             <div className="rounded-2xl px-4 py-3 mb-4 flex items-center justify-between gap-3" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.3)' }}>
               <span className="text-[12.5px] leading-relaxed" style={{ color: C.ink }}><strong>{shopNameOf(activeShopId)} is paused on your plan.</strong> You can see its records, but new sales can't be recorded here.</span>
@@ -8601,6 +8690,7 @@ function XorlaApp() {
       {renderImportPanel()}
       {renderListTool()}
       {renderPastImport()}
+      {renderHelp()}
       {renderFulfilPanel()}
       {renderApptPanel()}
       {renderNotifPanel()}
@@ -9757,6 +9847,303 @@ async function sbAuthReq(path, token, method = 'GET', body) {
   if (!res.ok) throw new Error((data && (data.msg || data.message || data.error_description)) || 'Something went wrong. Please try again.');
   return data;
 }
+// ---------- Founder dashboard: support inbox, What's new, announcements and the support team ----------
+const SUPPORT_REPLIES = [
+  ['Thanks, looking into it', "Thanks for letting us know. I'm looking into this now and will get back to you shortly."],
+  ['Ask for a screenshot', 'Could you send a screenshot of what you see on your screen? Tap the paperclip below to attach it. That will help me fix this faster.'],
+  ['Update the app', 'Please close Xorla fully and open it again so you have the latest version, then try once more. Let me know if it still happens.'],
+  ['Fixed', "This is fixed now. Please try again, and reply here if anything still isn't right."],
+  ['Payment check', "I'm checking your payment with our payment provider now. Please don't pay again in the meantime. I'll confirm here as soon as I see it."],
+  ['Thanks for the idea', "Thank you for the idea. I've shared it with the team building Xorla. We'll let you know in What's new if we add it."],
+];
+const PLAN_CHIP = { business: ['Business', 'sage'], pro: ['Pro', 'sage'], free: ['Free', 'dim'] };
+function AdminChip({ tone, children }) {
+  const c = tone === 'copper' ? [C.copperSoft, C.copper] : tone === 'sage' ? [C.sageSoft, C.sage] : tone === 'rust' ? [C.rustSoft, C.rust] : [C.surfaceRaised, C.inkFaint];
+  return <span className="shrink-0 px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: c[0], color: c[1] }}>{children}</span>;
+}
+
+function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
+  const [status, setStatus] = useState(initialTicket ? 'all' : 'open');
+  const [search, setSearch] = useState('');
+  const [data, setData] = useState(null);
+  const [openId, setOpenId] = useState(initialTicket || null);
+  const [thread, setThread] = useState(null);
+  const [reply, setReply] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const endRef = useRef(null);
+  const load = useCallback(async () => {
+    try { const d = await call('support_inbox', { p_status: status, p_search: search }); setData(d); onCounts?.(d.counts); setErr(''); }
+    catch (e) { setErr(/support_inbox|schema cache/i.test(e.message) ? 'Run support.sql in Supabase to switch on the support inbox.' : e.message); }
+  }, [call, status, search]);
+  useEffect(() => { const t = setTimeout(load, search ? 300 : 0); return () => clearTimeout(t); }, [status, search]);
+  useEffect(() => { const t = setInterval(() => { if (document.visibilityState === 'visible') { load(); if (openId) loadThread(openId, true); } }, 20000); return () => clearInterval(t); }, [load, openId]);
+  const loadThread = async (id, quiet) => {
+    try { const th = await call('support_thread', { p_ticket: id }); setThread(th); if (!quiet) load(); }
+    catch (e) { if (!quiet) brandAlert(e.message); }
+  };
+  useEffect(() => { if (openId) { setThread(null); setReply(''); loadThread(openId); } }, [openId]);
+  useEffect(() => { setTimeout(() => endRef.current?.scrollIntoView({ block: 'end' }), 50); }, [thread?.messages?.length]);
+  const send = async (next) => {
+    if (!reply.trim() || busy) return;
+    setBusy(true);
+    try { await call('support_reply', { p_ticket: openId, p_body: reply.trim(), p_status: next }); setReply(''); await loadThread(openId); }
+    catch (e) { brandAlert(e.message); }
+    setBusy(false);
+  };
+  const setTicketStatus = async (next) => { try { await call('support_set_status', { p_ticket: openId, p_status: next }); await loadThread(openId); } catch (e) { brandAlert(e.message); } };
+  const counts = data?.counts || {};
+  const tickets = data?.tickets || [];
+  const t = thread?.ticket;
+  const biz = thread?.business;
+  const topic = (id) => (SUPPORT_TOPICS.find((x) => x.id === id) || SUPPORT_TOPICS[2]);
+  const first = (agentName || '').split(' ')[0];
+
+  const listPane = (
+    <div className={`${openId ? 'hidden lg:flex' : 'flex'} flex-col min-h-0 lg:w-[380px] lg:shrink-0`}>
+      <div className="flex gap-1 p-1 rounded-xl mb-2.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        {[['open', 'Needs reply', counts.open], ['waiting', 'Waiting', counts.waiting], ['solved', 'Solved', counts.solved], ['all', 'All']].map(([k, l, n]) => (
+          <button key={k} onClick={() => setStatus(k)} className="flex-1 py-2 rounded-lg text-[12px] font-semibold" style={status === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{n ? ` ${n}` : ''}</button>
+        ))}
+      </div>
+      <div className="relative mb-2.5">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search business, name, email or #number" className="w-full rounded-xl pl-9 pr-3 py-2.5 text-[13px] outline-none" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }} />
+      </div>
+      {err && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px] mb-2" style={{ background: C.copperSoft, color: C.ink }}>{err}</div>}
+      <div className="rounded-2xl overflow-hidden lg:overflow-y-auto lg:max-h-[calc(100vh-250px)]" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        {!data ? <div className="flex justify-center py-10" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /></div>
+          : !tickets.length ? <div className="px-4 py-10 text-center text-[13px]" style={{ color: C.inkFaint }}>{status === 'open' ? 'Nothing waiting for a reply. Well done.' : 'No conversations here.'}</div>
+          : tickets.map((x, i) => {
+            const T2 = topic(x.topic);
+            return (
+              <button key={x.id} onClick={() => setOpenId(x.id)} className="w-full text-left px-4 py-3 flex gap-3" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', background: openId === x.id ? 'rgba(255,176,32,0.07)' : 'transparent' }}>
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative" style={{ background: x.topic === 'billing' || x.topic === 'complaint' ? C.copperSoft : C.surfaceRaised }}>
+                  <T2.Icon size={15} style={{ color: x.topic === 'billing' || x.topic === 'complaint' ? C.copper : C.inkDim }} />
+                  {x.agent_unread && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: C.copper, border: `2px solid ${C.surface}` }} />}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="flex items-center gap-2"><span className="text-[13px] font-semibold truncate">{x.business_name || x.user_name || 'Customer'}</span><span className="ml-auto text-[11px] shrink-0" style={{ color: C.inkFaint }}>{supportWhen(x.last_message_at)}</span></span>
+                  <span className="block text-[12.5px] truncate" style={{ color: x.agent_unread ? C.ink : C.inkDim, fontWeight: x.agent_unread ? 600 : 400 }}>{x.subject}</span>
+                  <span className="block text-[11.5px] truncate mt-0.5" style={{ color: C.inkFaint }}>{x.last_from === 'agent' ? 'You: ' : ''}{x.preview}</span>
+                  <span className="flex items-center gap-1.5 mt-1.5">
+                    <AdminChip tone="dim">#{x.ref}</AdminChip><AdminChip tone={x.topic === 'billing' || x.topic === 'complaint' ? 'copper' : 'dim'}>{T2.short}</AdminChip>
+                    {x.plan && <AdminChip tone={(PLAN_CHIP[x.plan] || PLAN_CHIP.free)[1]}>{(PLAN_CHIP[x.plan] || PLAN_CHIP.free)[0]}</AdminChip>}
+                    {x.rating === 1 && <ThumbsUp size={12} style={{ color: C.sage }} />}{x.rating === -1 && <ThumbsDown size={12} style={{ color: C.rust }} />}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+      </div>
+    </div>
+  );
+  const threadPane = openId && (
+    <div className="flex-1 min-w-0 flex flex-col rounded-2xl p-4 lg:p-5 lg:h-[calc(100vh-170px)]" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+      {!thread ? <div className="flex justify-center py-16" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /></div> : (
+        <>
+          <div className="flex items-start gap-3 shrink-0 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+            <button onClick={() => setOpenId(null)} aria-label="Back to inbox" className="lg:hidden w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.surfaceRaised, color: C.inkDim }}><ChevronLeft size={17} /></button>
+            <div className="flex-1 min-w-0">
+              <div className="text-[16px] font-semibold truncate">{t.subject}</div>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <AdminChip tone="dim">#{t.ref}</AdminChip><AdminChip tone={t.topic === 'billing' || t.topic === 'complaint' ? 'copper' : 'dim'}>{topic(t.topic).short}</AdminChip>
+                <AdminChip tone={t.status === 'open' ? 'copper' : t.status === 'waiting' ? 'sage' : 'dim'}>{t.status === 'open' ? 'Needs reply' : t.status === 'waiting' ? 'Waiting on customer' : 'Solved'}</AdminChip>
+              </div>
+            </div>
+            <BrandSelect value={t.status} onChange={(e) => setTicketStatus(e.target.value)} aria-label="Status" className="w-[150px] shrink-0">
+              <option value="open">Needs reply</option><option value="waiting">Waiting on customer</option><option value="solved">Solved</option>
+            </BrandSelect>
+          </div>
+          <div className="grid lg:grid-cols-[1fr_230px] gap-4 flex-1 min-h-0 pt-3">
+            <div className="flex flex-col min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
+                {thread.messages.map((m) => (
+                  <div key={m.id} className={`flex ${m.from_agent ? 'justify-end' : 'justify-start'}`}>
+                    <div className="max-w-[85%]">
+                      <div className={`text-[11px] mb-1 ${m.from_agent ? 'text-right' : ''}`} style={{ color: C.inkFaint }}>{m.from_agent ? <><strong style={{ color: C.sage }}>{m.author_name}</strong> · Xorla Support</> : <strong style={{ color: C.inkDim }}>{m.author_name || t.user_name || 'Customer'}</strong>} · {supportWhen(m.created_at)}</div>
+                      <div className="rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words" style={m.from_agent ? { background: C.sageSoft, border: '1px solid rgba(31,217,196,0.22)', borderTopRightRadius: 6 } : { background: C.surfaceRaised, border: `1px solid ${C.line}`, borderTopLeftRadius: 6 }}>
+                        {m.body}{m.attachment && <SupportImage path={m.attachment} token={token} />}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div ref={endRef} />
+              </div>
+              <div className="shrink-0 pt-3 mt-2" style={{ borderTop: `1px solid ${C.line}` }}>
+                <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1">
+                  {SUPPORT_REPLIES.map(([l, text]) => <button key={l} onClick={() => setReply((r) => (r ? `${r}\n\n${text}` : `Hi ${(t.user_name || '').split(' ')[0] || 'there'}, ${/^I\b/.test(text) ? text : text.charAt(0).toLowerCase() + text.slice(1)}`))} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>{l}</button>)}
+                </div>
+                <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={4} placeholder={`Reply as ${first || 'you'} from Xorla Support…`} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink, minHeight: 96 }} />
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button onClick={() => send('waiting')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, opacity: !reply.trim() || busy ? 0.5 : 1 }}><SendHorizontal size={15} /> Send</button>
+                  <button onClick={() => send('solved')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageSoft, color: C.sage, opacity: !reply.trim() || busy ? 0.5 : 1 }}><Check size={15} /> Send and mark solved</button>
+                </div>
+                <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>They get a notification on their phone. Never ask for passwords, PINs or card details.</div>
+              </div>
+            </div>
+            <div className="hidden lg:block overflow-y-auto space-y-3 text-[12.5px]">
+              <div className="rounded-xl p-3.5" style={{ background: C.surfaceRaised }}>
+                <div className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>Customer</div>
+                <div className="font-semibold">{t.user_name || '—'}</div>
+                <div className="break-all" style={{ color: C.inkDim }}>{t.user_email}</div>
+                <div className="mt-1.5" style={{ color: C.inkDim }}>{t.context?.role === 'owner' ? 'Owner' : t.context?.role === 'staff' ? 'Staff' : t.context?.role || ''}</div>
+              </div>
+              {biz && (
+                <div className="rounded-xl p-3.5" style={{ background: C.surfaceRaised }}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>Business</div>
+                  <div className="font-semibold">{biz.name}</div>
+                  <div style={{ color: C.inkDim }}>{t.context?.plan ? `${(PLAN_CHIP[t.context.plan] || PLAN_CHIP.free)[0]} plan` : ''}{biz.type ? ` · ${biz.type.replace(/_/g, ' ')}` : ''}</div>
+                  <div style={{ color: C.inkFaint }}>Joined {new Date(biz.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                  {biz.phone && <a href={`https://wa.me/${toWhatsAppNumber(biz.phone)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 mt-2 font-semibold" style={{ color: C.sage }}><Phone size={13} /> WhatsApp the owner</a>}
+                </div>
+              )}
+              {(t.context?.device || t.context?.screen) && (
+                <div className="rounded-xl p-3.5" style={{ background: C.surfaceRaised }}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>Their phone</div>
+                  <div style={{ color: C.inkDim }}>{t.context.device}</div><div style={{ color: C.inkFaint }}>{t.context.screen}</div>
+                </div>
+              )}
+              {thread.history?.length > 0 && (
+                <div className="rounded-xl p-3.5" style={{ background: C.surfaceRaised }}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>Earlier conversations</div>
+                  {thread.history.slice(0, 6).map((h) => <button key={h.id} onClick={() => setOpenId(h.id)} className="block w-full text-left py-1 truncate" style={{ color: C.inkDim }}>#{h.ref} {h.subject}</button>)}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+  return (
+    <div className="flex flex-col lg:flex-row gap-4">
+      {listPane}
+      {threadPane || <div className="hidden lg:flex flex-1 items-center justify-center rounded-2xl text-[13px]" style={{ border: `1px dashed ${C.line}`, color: C.inkFaint, minHeight: 360 }}>Choose a conversation</div>}
+    </div>
+  );
+}
+
+function SupportPublishing({ call }) {
+  const [data, setData] = useState(null);
+  const [up, setUp] = useState({ title: '', body: '', kind: 'new', audience: 'all', busy: false });
+  const [an, setAn] = useState({ message: '', tone: 'info', audience: 'all', days: '7', busy: false });
+  const load = useCallback(async () => { try { setData(await call('admin_updates')); } catch (e) { setData({ error: e.message, updates: [], announcements: [] }); } }, [call]);
+  useEffect(() => { load(); }, []);
+  const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
+  const postUpdate = async () => {
+    if (up.title.trim().length < 3) { brandAlert('Add a title.'); return; }
+    if (!(await brandConfirm(`"${up.title.trim()}" will appear in What's new for ${up.audience === 'all' ? 'everyone' : up.audience === 'owners' ? 'business owners' : up.audience === 'products' ? 'businesses that sell products' : 'service businesses'}.`, { title: 'Publish this update?', confirm: 'Publish' }))) return;
+    setUp({ ...up, busy: true });
+    try { await call('post_update', { p_title: up.title, p_body: up.body, p_kind: up.kind, p_audience: up.audience }); setUp({ title: '', body: '', kind: 'new', audience: 'all', busy: false }); load(); }
+    catch (e) { setUp((x) => ({ ...x, busy: false })); brandAlert(e.message); }
+  };
+  const postAnn = async () => {
+    if (an.message.trim().length < 5) { brandAlert('Write the announcement first.'); return; }
+    if (!(await brandConfirm(`This shows at the top of Xorla for ${an.audience === 'all' ? 'everyone' : an.audience} for ${an.days} day${an.days === '1' ? '' : 's'}.`, { title: 'Send this announcement?', confirm: 'Send' }))) return;
+    setAn({ ...an, busy: true });
+    try { await call('post_announcement', { p_message: an.message, p_tone: an.tone, p_audience: an.audience, p_days: Number(an.days) }); setAn({ message: '', tone: 'info', audience: 'all', days: '7', busy: false }); load(); }
+    catch (e) { setAn((x) => ({ ...x, busy: false })); brandAlert(e.message); }
+  };
+  const box = { background: C.surface, border: `1px solid ${C.line}` };
+  const seg = (value, options, onPick) => (
+    <div className="flex flex-wrap gap-1.5">{options.map(([k, l]) => <button key={k} onClick={() => onPick(k)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={value === k ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}</div>
+  );
+  return (
+    <div className="grid lg:grid-cols-2 gap-4">
+      <div className="rounded-2xl p-4 lg:p-5" style={box}>
+        <div className="flex items-center gap-2 mb-1"><Gift size={17} style={{ color: C.sage }} /><div className="text-[15px] font-semibold">What's new</div></div>
+        <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>Tell businesses about new features and fixes. It appears in Help → What's new, with a short note on their home screen.</div>
+        <input value={up.title} maxLength={120} onChange={(e) => setUp({ ...up, title: e.target.value })} placeholder="Title, e.g. Bring in your past sales" className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none mb-2" style={field} />
+        <textarea value={up.body} rows={4} maxLength={2000} onChange={(e) => setUp({ ...up, body: e.target.value })} placeholder="A few plain sentences: what it does and where to find it." className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y mb-3" style={field} />
+        <div className="text-[12px] font-semibold mb-1.5" style={{ color: C.inkFaint }}>Type</div>
+        {seg(up.kind, [['new', 'New'], ['improved', 'Improved'], ['fixed', 'Fixed'], ['tip', 'Tip']], (k) => setUp({ ...up, kind: k }))}
+        <div className="text-[12px] font-semibold mb-1.5 mt-3" style={{ color: C.inkFaint }}>Who sees it</div>
+        {seg(up.audience, [['all', 'Everyone'], ['owners', 'Owners only'], ['products', 'Shops'], ['services', 'Service businesses']], (k) => setUp({ ...up, audience: k }))}
+        <button onClick={postUpdate} disabled={up.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: up.busy ? 0.6 : 1 }}>{up.busy ? 'Publishing…' : 'Publish update'}</button>
+        <div className="mt-5 space-y-2">
+          {(data?.updates || []).map((u) => (
+            <div key={u.id} className="rounded-xl px-3.5 py-3 flex items-start gap-3" style={{ background: C.surfaceRaised }}>
+              <div className="flex-1 min-w-0"><div className="text-[13px] font-semibold">{u.title}</div><div className="text-[11.5px]" style={{ color: C.inkFaint }}>{u.kind} · {u.audience} · {new Date(u.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div></div>
+              <button onClick={async () => { if (await brandConfirm(`Remove "${u.title}" from What's new?`, { title: 'Remove update?', confirm: 'Remove', danger: true })) { try { await call('delete_update', { p_id: u.id }); load(); } catch (e) { brandAlert(e.message); } } }} aria-label="Remove" style={{ color: C.inkFaint }}><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="rounded-2xl p-4 lg:p-5" style={box}>
+        <div className="flex items-center gap-2 mb-1"><Megaphone size={17} style={{ color: C.copper }} /><div className="text-[15px] font-semibold">Announcement banner</div></div>
+        <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>A short notice at the top of the home screen, for planned maintenance, holidays or offers. People can dismiss it.</div>
+        <textarea value={an.message} rows={3} maxLength={280} onChange={(e) => setAn({ ...an, message: e.target.value })} placeholder="e.g. Xorla will be down for 10 minutes on Sunday at 11pm for an upgrade." className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y mb-1" style={field} />
+        <div className="text-right text-[11px] mb-2" style={{ color: C.inkFaint }}>{an.message.length}/280</div>
+        <div className="text-[12px] font-semibold mb-1.5" style={{ color: C.inkFaint }}>Style</div>
+        {seg(an.tone, [['info', 'Information'], ['warning', 'Important'], ['success', 'Good news']], (k) => setAn({ ...an, tone: k }))}
+        <div className="text-[12px] font-semibold mb-1.5 mt-3" style={{ color: C.inkFaint }}>Who sees it</div>
+        {seg(an.audience, [['all', 'Everyone'], ['owners', 'Owners'], ['free', 'Free plan'], ['trial', 'On trial'], ['paying', 'Paying']], (k) => setAn({ ...an, audience: k }))}
+        <div className="text-[12px] font-semibold mb-1.5 mt-3" style={{ color: C.inkFaint }}>Show for</div>
+        {seg(an.days, [['1', '1 day'], ['3', '3 days'], ['7', '1 week'], ['30', '1 month']], (k) => setAn({ ...an, days: k }))}
+        <button onClick={postAnn} disabled={an.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: an.busy ? 0.6 : 1 }}>{an.busy ? 'Sending…' : 'Send announcement'}</button>
+        <div className="mt-5 space-y-2">
+          {(data?.announcements || []).map((a) => (
+            <div key={a.id} className="rounded-xl px-3.5 py-3 flex items-start gap-3" style={{ background: C.surfaceRaised, opacity: a.live ? 1 : 0.55 }}>
+              <div className="flex-1 min-w-0"><div className="text-[13px]">{a.message}</div><div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{a.live ? `Live until ${new Date(a.ends_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Ended'} · {a.audience}</div></div>
+              {a.live && <button onClick={async () => { try { await call('end_announcement', { p_id: a.id }); load(); } catch (e) { brandAlert(e.message); } }} className="shrink-0 text-[12px] font-semibold" style={{ color: C.rust }}>End now</button>}
+            </div>
+          ))}
+        </div>
+        {data?.error && <div className="mt-3 text-[12.5px]" style={{ color: C.rust }}>{/admin_updates|schema cache/i.test(data.error) ? 'Run support.sql in Supabase first.' : data.error}</div>}
+      </div>
+    </div>
+  );
+}
+
+function SupportTeamAdmin({ call }) {
+  const [team, setTeam] = useState(null);
+  const [form, setForm] = useState({ name: '', email: '', busy: false });
+  const load = useCallback(async () => { try { setTeam(await call('support_team')); } catch (e) { setTeam([]); } }, [call]);
+  useEffect(() => { load(); }, []);
+  const add = async () => {
+    setForm({ ...form, busy: true });
+    try { await call('support_add_agent', { p_email: form.email, p_name: form.name }); setForm({ name: '', email: '', busy: false }); load(); }
+    catch (e) { setForm((f) => ({ ...f, busy: false })); brandAlert(e.message); }
+  };
+  const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
+  const link = `${window.location.origin}/admin`;
+  return (
+    <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
+      <div className="rounded-2xl p-4 lg:p-5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        <div className="flex items-center gap-2 mb-1"><Headphones size={17} style={{ color: C.sage }} /><div className="text-[15px] font-semibold">Support team</div></div>
+        <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>People you add can answer support messages. They only see the support inbox, never your revenue, the list of businesses, or this page.</div>
+        <div className="grid sm:grid-cols-2 gap-2">
+          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Their name, e.g. Ada Nwosu" className="rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
+          <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Their email" className="rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
+        </div>
+        <button onClick={add} disabled={form.busy || !form.name.trim() || !form.email.trim()} className="w-full mt-2.5 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: form.busy || !form.name.trim() || !form.email.trim() ? 0.5 : 1 }}>{form.busy ? 'Adding…' : 'Add to support team'}</button>
+        <div className="mt-5 space-y-2">
+          {team === null ? <div className="flex justify-center py-6" style={{ color: C.inkFaint }}><Loader2 size={17} className="animate-spin" /></div>
+            : !team.length ? <div className="text-[12.5px] py-2" style={{ color: C.inkFaint }}>Nobody added yet. You can answer everything yourself from the Support tab.</div>
+            : team.map((a) => (
+              <div key={a.id} className="rounded-xl px-3.5 py-3 flex items-center gap-3" style={{ background: C.surfaceRaised }}>
+                <span className="w-9 h-9 rounded-full flex items-center justify-center text-[14px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>{(a.name[0] || '?').toUpperCase()}</span>
+                <div className="flex-1 min-w-0"><div className="text-[13.5px] font-semibold">{a.name}</div><div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{a.email} · {a.joined ? `${a.replies_30d} replies in 30 days` : 'Hasn\'t logged in yet'}</div></div>
+                <button onClick={async () => { if (await brandConfirm(`${a.name} will stop seeing support messages straight away.`, { title: 'Remove from support team?', confirm: 'Remove', danger: true })) { try { await call('support_remove_agent', { p_id: a.id }); load(); } catch (e) { brandAlert(e.message); } } }} className="text-[12px] font-semibold" style={{ color: C.rust }}>Remove</button>
+              </div>
+            ))}
+        </div>
+      </div>
+      <div className="rounded-2xl p-4 lg:p-5 text-[13px] leading-relaxed" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.inkDim }}>
+        <div className="text-[15px] font-semibold mb-3" style={{ color: C.ink }}>What to send your support person</div>
+        <ol className="space-y-2.5 list-decimal pl-5">
+          <li>Open <strong style={{ color: C.ink }}>{link}</strong> on their phone or computer.</li>
+          <li>Choose <strong style={{ color: C.ink }}>"First time? Create your login"</strong> and use the same email you added here, with a password of their own.</li>
+          <li>Set up an authenticator app (Google Authenticator) when asked. Support messages include customers' business details, so a code is needed every time.</li>
+          <li>Turn on notifications on that device to hear about new messages, or keep the inbox open during support hours ({SUPPORT.hoursText}).</li>
+        </ol>
+        <div className="mt-4 rounded-xl px-3.5 py-3 text-[12.5px]" style={{ background: C.copperSoft, color: C.ink }}>Good habits: reply within working hours, never ask for passwords, PINs or card numbers, and mark conversations solved once the customer is happy.</div>
+      </div>
+    </div>
+  );
+}
+
 function AdminDashboard() {
   const [state, setState] = useState({ phase: 'loading', error: '' });
   const [ov, setOv] = useState(null);
@@ -9767,6 +10154,12 @@ function AdminDashboard() {
   const [updated, setUpdated] = useState(null);
   const [mfa, setMfa] = useState({ factorId: '', qr: '', secret: '', uri: '', code: '', busy: false, error: '', copied: false });
   const [detail, setDetail] = useState(null);   // { b, data }
+  const [role, setRole] = useState('founder');    // founder sees everything; a support person sees only the inbox
+  const [agentName, setAgentName] = useState('');
+  const [section, setSection] = useState(() => { try { return new URLSearchParams(window.location.search).get('ticket') ? 'support' : 'overview'; } catch (e) { return 'overview'; } });
+  const [ticketFromLink] = useState(() => { try { return new URLSearchParams(window.location.search).get('ticket') || null; } catch (e) { return null; } });
+  const [supportCounts, setSupportCounts] = useState(null);
+  const [login, setLogin] = useState({ email: '', password: '', confirm: '', create: false, busy: false, error: '' });
   const tokenRef = useRef(null);
   useEffect(() => {
     document.title = 'Xorla · Founder dashboard';
@@ -9799,29 +10192,35 @@ function AdminDashboard() {
     tokenRef.current = sess.access_token;
     try {
       let access;
-      try { access = await sbRpc('admin_access', tokenRef.current, {}); }
-      catch (e) { if (!/jwt|expired|token/i.test(e.message)) throw e; await freshToken(); access = await sbRpc('admin_access', tokenRef.current, {}); }
-      if (!access?.admin) { setState({ phase: 'denied', error: '' }); return; }
+      // support_access also knows about the support team; older databases only have admin_access
+      const ask = async () => { try { const a = await sbRpc('support_access', tokenRef.current, {}); if (a && typeof a === 'object') return a; } catch (e) { if (/jwt|expired|token/i.test(e.message)) throw e; } return sbRpc('admin_access', tokenRef.current, {}); };
+      try { access = await ask(); }
+      catch (e) { if (!/jwt|expired|token/i.test(e.message)) throw e; await freshToken(); access = await ask(); }
+      if (!access?.admin && !access?.agent) { setState({ phase: 'denied', error: '' }); return; }
+      setRole(access.admin ? 'founder' : 'agent'); setAgentName(access.name || '');
+      if (!access.admin) setSection('support');
       if (!access.verified) {
         const user = await sbAuthReq('/user', tokenRef.current);
         const verified = (user.factors || []).find((f) => f.factor_type === 'totp' && f.status === 'verified');
         if (verified) { setMfa((m) => ({ ...m, factorId: verified.id, qr: '', code: '', error: '' })); setState({ phase: 'mfa-code', error: '' }); return; }
         // clear any half-finished setup, then start a new one
         await Promise.all((user.factors || []).filter((f) => f.status !== 'verified').map((f) => sbAuthReq(`/factors/${f.id}`, tokenRef.current, 'DELETE').catch(() => null)));
-        const f = await sbAuthReq('/factors', tokenRef.current, 'POST', { factor_type: 'totp', friendly_name: `Xorla founder ${Date.now()}` });
+        const f = await sbAuthReq('/factors', tokenRef.current, 'POST', { factor_type: 'totp', friendly_name: `Xorla team ${Date.now()}` });
         // Build our own setup link and QR picture (Supabase's own picture doesn't show in some browsers)
         const fromUri = (() => { try { return new URL(f.totp?.uri || '').searchParams.get('secret') || ''; } catch { return ''; } })();
         const secret = String(f.totp?.secret || fromUri).replace(/\s/g, '').toUpperCase();
-        const uri = secret ? `otpauth://totp/${encodeURIComponent('Xorla:Founder dashboard')}?secret=${secret}&issuer=Xorla&algorithm=SHA1&digits=6&period=30` : (f.totp?.uri || '');
+        const uri = secret ? `otpauth://totp/${encodeURIComponent(access.admin ? 'Xorla:Founder dashboard' : 'Xorla:Support inbox')}?secret=${secret}&issuer=Xorla&algorithm=SHA1&digits=6&period=30` : (f.totp?.uri || '');
         let qr = '';
         try { const QR = await import('qrcode'); qr = await QR.toDataURL(uri, { margin: 1, width: 320, errorCorrectionLevel: 'M', color: { dark: '#0A1F1C', light: '#FFFFFF' } }); }
         catch { qr = ''; }
         setMfa({ factorId: f.id, qr, secret, uri, code: '', busy: false, error: '', copied: false });
         setState({ phase: 'mfa-setup', error: '' }); return;
       }
+      if (!access.admin) { setUpdated(new Date()); setState({ phase: 'ready', error: '' }); call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {}); return; }
       const o = await call('admin_overview');
       setOv(o); setUpdated(new Date()); setState({ phase: 'ready', error: '' });
       loadList(search, filter);
+      call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {});
     } catch (e) { setState({ phase: /not allowed/i.test(e.message) ? 'denied' : 'error', error: e.message }); }
   }, [call, freshToken, loadList, search, filter]);
   useEffect(() => { loadAll(); }, []);
@@ -9867,7 +10266,14 @@ function AdminDashboard() {
     <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
       <header className="sticky top-0 z-20" style={{ background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${C.line}` }}>
         <div className="max-w-6xl mx-auto px-5 py-3.5 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span><span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.copperSoft, color: C.copper }}>Founder</span></div>
+          <div className="flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span><span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: role === 'agent' ? C.sageSoft : C.copperSoft, color: role === 'agent' ? C.sage : C.copper }}>{role === 'agent' ? 'Support' : 'Founder'}</span></div>
+          {state.phase === 'ready' && role === 'founder' && (
+            <nav className="hidden md:flex items-center gap-1 p-1 rounded-xl" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              {[['overview', 'Overview'], ['support', 'Support'], ['publish', "What's new"], ['team', 'Support team']].map(([k, l]) => (
+                <button key={k} onClick={() => setSection(k)} className="relative px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{k === 'support' && supportCounts?.open ? <span className="ml-1.5 px-1.5 rounded-full text-[10.5px]" style={{ background: section === k ? C.bg : C.copper, color: section === k ? C.copper : C.bg }}>{supportCounts.open}</span> : null}</button>
+              ))}
+            </nav>
+          )}
           {state.phase === 'ready' && (
             <button onClick={loadAll} className="flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>
               Refresh{updated ? <span style={{ color: C.inkFaint }}> · {updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span> : null}
@@ -9875,13 +10281,53 @@ function AdminDashboard() {
           )}
         </div>
       </header>
+      {state.phase === 'ready' && role === 'founder' && (
+        <div className="md:hidden max-w-6xl mx-auto px-5 pt-4">
+          <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            {[['overview', 'Overview'], ['support', 'Support'], ['publish', "What's new"], ['team', 'Team']].map(([k, l]) => (
+              <button key={k} onClick={() => setSection(k)} className="flex-1 shrink-0 px-3 py-2 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{k === 'support' && supportCounts?.open ? ` ${supportCounts.open}` : ''}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <main className="max-w-6xl mx-auto px-5 py-6 pb-20">{body}</main>
     </div>
   );
   const center = (title, text, extra) => shell(<div className="text-center py-16 max-w-md mx-auto"><div className="text-[19px] font-semibold mb-2">{title}</div><div className="text-[13.5px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{text}</div>{extra}</div>);
   if (state.phase === 'loading') return shell(<div className="flex items-center gap-2 py-20 justify-center" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /> Loading…</div>);
-  if (state.phase === 'login') return center('Log in first', 'Open Xorla and log in with your founder account, then come back to this page.', <a href="/" className="inline-block px-5 py-3 rounded-xl font-semibold" style={{ background: C.copper, color: C.bg }}>Open Xorla</a>);
-  if (state.phase === 'denied') return center("This page is for Xorla's team", "Your account doesn't have access.", <a href="/" style={{ color: C.copper }}>Back to Xorla</a>);
+  if (state.phase === 'login') {
+    const f = login;
+    const submit = async () => {
+      if (!f.email.trim() || !f.password) return;
+      if (f.create && passwordError(f.password)) { setLogin({ ...f, error: passwordError(f.password) }); return; }
+      if (f.create && f.confirm !== f.password) { setLogin({ ...f, error: "The two passwords don't match." }); return; }
+      setLogin({ ...f, busy: true, error: '' });
+      try {
+        let auth = f.create ? await sbSignUp(f.email.trim(), f.password) : await sbSignIn(f.email.trim(), f.password);
+        if (f.create && !auth.access_token) { setLogin({ ...f, busy: false, create: false, error: 'Check your email to confirm your address, then log in here.' }); return; }
+        await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
+        setState({ phase: 'loading', error: '' }); loadAll();
+      } catch (e) { setLogin((x) => ({ ...x, busy: false, error: friendlyAuthError(e.message) })); }
+    };
+    const field = { background: C.surface, border: `1px solid ${C.line}`, color: C.ink };
+    return shell(
+      <div className="max-w-sm mx-auto py-10">
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.sageSoft }}><Headphones size={22} style={{ color: C.sage }} /></div>
+        <h1 className="text-[22px] font-bold mb-1.5">{f.create ? 'Create your login' : 'Xorla team log in'}</h1>
+        <p className="text-[13px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{f.create ? 'For support team members. Use the email the founder added you with.' : 'For Xorla\'s founder and support team.'}</p>
+        <div className="space-y-2.5">
+          <input type="email" autoComplete="email" placeholder="Email address" value={f.email} onChange={(e) => setLogin({ ...f, email: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={field} />
+          <PasswordInput value={f.password} onChange={(e) => setLogin({ ...f, password: e.target.value })} placeholder={f.create ? 'Create a password' : 'Password'} autoComplete={f.create ? 'new-password' : 'current-password'} style={field} />
+          {f.create && <PasswordInput value={f.confirm} onChange={(e) => setLogin({ ...f, confirm: e.target.value })} placeholder="Type the password again" autoComplete="new-password" style={field} />}
+          {f.create && <PasswordChecks password={f.password} confirm={f.confirm} />}
+        </div>
+        {f.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
+        <button onClick={submit} disabled={f.busy || !f.email.trim() || !f.password} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy || !f.email.trim() || !f.password ? 0.6 : 1 }}>{f.busy ? 'Please wait…' : f.create ? 'Create login' : 'Log in'}</button>
+        <button onClick={() => setLogin({ ...f, create: !f.create, error: '' })} className="w-full mt-3 text-[13px] font-medium" style={{ color: C.copper }}>{f.create ? 'Already have a login? Log in' : 'First time? Create your login'}</button>
+      </div>
+    );
+  }
+  if (state.phase === 'denied') return center("This page is for Xorla's team", "This account doesn't have access. If the founder just added you to the support team, make sure you logged in with that same email.", <div className="flex items-center justify-center gap-4"><a href="/" style={{ color: C.copper }}>Back to Xorla</a><button onClick={async () => { await saveSession(null); setLogin({ email: '', password: '', confirm: '', create: false, busy: false, error: '' }); setState({ phase: 'login', error: '' }); }} className="font-semibold" style={{ color: C.inkDim }}>Use another account</button></div>);
   if (state.phase === 'error') return center("Couldn't load the dashboard", state.error, <button onClick={loadAll} className="px-5 py-3 rounded-xl font-semibold" style={{ background: C.copper, color: C.bg }}>Try again</button>);
   if (state.phase === 'mfa-setup' || state.phase === 'mfa-code') {
     const setup = state.phase === 'mfa-setup';
@@ -9938,6 +10384,17 @@ function AdminDashboard() {
     );
   }
 
+  if (section !== 'overview' || role !== 'founder' || !ov) {
+    const head = { support: ['Support inbox', role === 'agent' ? `Signed in as ${agentName || 'support'}. Replies go out as "${(agentName || 'Xorla').split(' ')[0]} from Xorla Support".` : 'Messages from businesses. Billing and complaints come first.'], publish: ["What's new and announcements", 'Keep every business up to date, in the app.'], team: ['Support team', 'Who can answer support messages.'] }[section === 'overview' ? 'support' : section];
+    return shell(
+      <>
+        <div className="mb-5"><h1 className="text-[24px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>{head[0]}</h1><div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>{head[1]}</div></div>
+        {(section === 'support' || section === 'overview') && <SupportInbox call={call} token={tokenRef.current} agentName={agentName} initialTicket={ticketFromLink} onCounts={setSupportCounts} />}
+        {section === 'publish' && role === 'founder' && <SupportPublishing call={call} />}
+        {section === 'team' && role === 'founder' && <SupportTeamAdmin call={call} />}
+      </>
+    );
+  }
   const n = (x) => Number(x || 0).toLocaleString('en-NG');
   const tile = (label, value, sub, accent) => (
     <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
@@ -10336,6 +10793,413 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
           <div className="text-[12px] text-center pt-2" style={{ color: C.inkFaint }}>Profit is money in, less the cost of what you sold, less your expenses. Days run midnight to midnight, Nigeria time.</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------- Help & support: talk to Xorla, see what's new, read how-to guides ----------
+// Fill in when ready. The WhatsApp button appears once a number is set (international format, e.g. '2348031234567').
+const SUPPORT = { whatsapp: '', email: '', hoursText: 'Monday to Saturday, 9am to 6pm', openDays: [1, 2, 3, 4, 5, 6], openHour: 9, closeHour: 18 };
+const SUPPORT_TOPICS = [
+  { id: 'problem', label: 'Something isn\'t working', short: 'Problem', Icon: Wrench },
+  { id: 'billing', label: 'Plans and payments', short: 'Billing', Icon: CreditCard },
+  { id: 'question', label: 'How do I…?', short: 'Question', Icon: CircleHelp },
+  { id: 'complaint', label: 'Make a complaint', short: 'Complaint', Icon: Frown },
+  { id: 'idea', label: 'Suggest an idea', short: 'Idea', Icon: Lightbulb },
+];
+// Is the support team at work right now (Nigeria time), and if not, when are they back?
+function supportHoursNow(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', weekday: 'short', hour: 'numeric', hourCycle: 'h23' }).formatToParts(now).map((p) => [p.type, p.value]));
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday);
+  const hour = Number(parts.hour);
+  const open = SUPPORT.openDays.includes(day) && hour >= SUPPORT.openHour && hour < SUPPORT.closeHour;
+  if (open) return { open: true, text: 'We\'re online now. Most replies come within a few hours.' };
+  const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  let d = day, sameDay = hour < SUPPORT.openHour && SUPPORT.openDays.includes(day);
+  if (!sameDay) { do { d = (d + 1) % 7; } while (!SUPPORT.openDays.includes(d)); }
+  const when = sameDay ? 'today' : d === (day + 1) % 7 ? 'tomorrow' : `on ${names[d]}`;
+  return { open: false, text: `We're away right now. Send your message and we'll reply from 9am ${when}.` };
+}
+const supportRef = (n) => `#${n}`;
+const supportWhen = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso), now = new Date();
+  const same = d.toLocaleDateString('en-CA', LAGOS_TIME) === now.toLocaleDateString('en-CA', LAGOS_TIME);
+  return same ? d.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Lagos' }) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' });
+};
+const SUPPORT_STATUS = {
+  open: { label: 'With our team', tone: 'copper' },
+  waiting: { label: 'We replied', tone: 'sage' },
+  solved: { label: 'Solved', tone: 'dim' },
+};
+async function supportUpload(token, userId, file) {
+  const blob = await resizeImageToBlob(file, 1400, 0.82);
+  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const res = await fetch(`${SB_URL}/storage/v1/object/support-files/${path}`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'image/jpeg' }, body: blob });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.message || "The screenshot couldn't be attached. Try again, or send without it."); }
+  return path;
+}
+// Private screenshots load with the viewer's own login
+function SupportImage({ path, token }) {
+  const [url, setUrl] = useState('');
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let gone = false, made = '';
+    fetch(`${SB_URL}/storage/v1/object/authenticated/support-files/${path}`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.blob() : null)).then((b) => { if (b && !gone) { made = URL.createObjectURL(b); setUrl(made); } }).catch(() => {});
+    return () => { gone = true; if (made) URL.revokeObjectURL(made); };
+  }, [path, token]);
+  if (!url) return <div className="mt-2 w-40 h-24 rounded-xl flex items-center justify-center text-[11px]" style={{ background: 'rgba(0,0,0,0.2)', color: C.inkFaint }}><ImagePlus size={15} className="mr-1.5" /> Screenshot</div>;
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="mt-2 block"><img src={url} alt="Screenshot" className="max-w-[220px] max-h-[220px] rounded-xl object-cover" style={{ border: '1px solid rgba(255,255,255,0.12)' }} /></button>
+      {open && <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.9)' }} onClick={() => setOpen(false)}><img src={url} alt="Screenshot" className="max-w-full max-h-full rounded-xl" /></div>}
+    </>
+  );
+}
+// Short how-to guides, worded for the business type
+function helpGuides({ T, L, isOwner, apptMode, stays, tracksStock }) {
+  const g = [
+    { id: 'sale', q: `How do I record a ${T.sale}?`, a: [`Tap Record a ${T.sale}. Pick what was sold from your list (or type it), check the amount, and save. It shows in today's numbers straight away.`, `Customer paying later? Fill in how much is still owed and Xorla keeps track of it for you.`] },
+    { id: 'basket', q: 'A customer bought several things. How do I record it?', a: [`When recording, tap "+ Customer buying several different things?". Add each item with its quantity, then save once. You get one receipt for the whole basket.`] },
+    { id: 'receipt', q: 'How do I give a customer a receipt?', a: [`After saving a ${T.sale}, tap Receipt. You can send it on WhatsApp, share it, or download it. It carries your business name and logo.`] },
+    { id: 'pin', q: 'How do I lock the app, or what if I forget my password?', a: ['Settings → App lock (PIN) adds a 4-digit lock on this phone.', 'Forgot your password? On the log-in screen tap "Forgot password?" and we\'ll email you a link to set a new one.'] },
+    { id: 'install', q: 'How do I put Xorla on my home screen?', a: ['On Android (Chrome): open the menu ⋮ and tap "Install app" or "Add to Home screen".', 'On iPhone (Safari): tap the Share button, then "Add to Home Screen". Xorla then opens like any other app.'] },
+  ];
+  if (isOwner) g.push(
+    { id: 'catalog', q: `How do I add my ${T.catalog.toLowerCase()} quickly?`, a: [`Open ${T.catalog} and tap Import a list. You can paste rows from Excel, upload an Excel or CSV file, snap a photo of your price list for Oga to read, or tick from common items.`, 'You check everything before it is added.'] },
+    ...(tracksStock ? [{ id: 'stock', q: 'How does stock tracking work?', a: [`Turn on stock for a product and enter how many you have. Every ${T.sale} takes it down automatically, and Xorla warns you when something is running low.`, `Use Restock when new goods arrive. With more than one ${L.one}, use Send stock to move goods between them.`] }] : []),
+    { id: 'invoice', q: 'How do I send an invoice and remind a customer to pay?', a: ['Open Invoices and create one with the customer\'s name, phone and what they owe. Send it on WhatsApp or as a PDF.', 'When it is due, tap Remind. Oga writes a polite reminder in the language your customer speaks. Mark part-payments as they come in.'] },
+    { id: 'storefront', q: 'What is the storefront and how do I share it?', a: ['Your storefront is a free web page showing what you sell, where customers can order or book without calling you.', 'Turn it on in Settings → Storefront, then share the link on WhatsApp, your Status or Instagram. Settings → Promote your business makes a poster with a QR code.'] },
+    ...(apptMode ? [{ id: 'appt', q: 'How do appointments work?', a: ['Customers pick a free time on your storefront. You accept, suggest another time, or decline. Xorla only offers times when you are open and free.', 'Set your hours in Settings → Opening hours & appointments. If you have a team, each person gets their own diary.'] }] : []),
+    ...(stays ? [{ id: 'bookings', q: 'How do bookings and deposits work?', a: ['Guests request dates on your storefront and the room is held while you confirm. A deposit secures it, so unpaid holds can be given to walk-ins.', 'Choose your deposit rule in Settings → Deposits & cancellations.'] }] : []),
+    { id: 'staff', q: 'How do I add my staff?', a: ['Settings → Staff & join code shows your code. Staff download Xorla, choose "I\'m a sales rep / staff" and enter the code.', 'Nobody gets in until you approve them. Staff only see what they need to record sales.'] },
+    { id: 'branches', q: `How do I manage more than one ${L.one}?`, a: [`Add each ${L.one} in Settings → ${L.Many}. Switch between them at the top of the screen, or choose All to see everything together.`, `Prices and stock can be different in each ${L.one}, and you choose which staff work where.`] },
+    { id: 'reports', q: 'Where are my reports and records?', a: ['Reports shows profit, best sellers, staff and branches for any period, and downloads as a PDF.', 'Settings → Your records downloads everything as spreadsheets, and lets you bring in sales from before Xorla.'] },
+    { id: 'oga', q: 'What can Oga help with?', a: ['Oga is your business advisor. Ask about your numbers, pricing, slow months, or how to grow. Oga answers using your real records and never invents figures.'] },
+    { id: 'plan', q: 'How do plans and payments work?', a: ['See Settings → Your plan for what each plan includes and how much is left on your trial. Pay by card, bank transfer or USSD.', 'Your records are never deleted if you change plans.'] },
+  );
+  return g;
+}
+
+function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock, businessName, onClose, initialTicket, initialView, onUnread, onUpdatesSeen }) {
+  const [view, setView] = useState(initialTicket ? 'thread' : initialView || 'home');
+  const [tickets, setTickets] = useState(null);
+  const [updates, setUpdates] = useState(null);
+  const [off, setOff] = useState(false);              // support isn't switched on in the database yet
+  const [ticketId, setTicketId] = useState(initialTicket || null);
+  const [thread, setThread] = useState(null);
+  const [draft, setDraft] = useState({ topic: '', subject: '', body: '', file: null, preview: '', busy: false, error: '' });
+  const [reply, setReply] = useState({ body: '', file: null, preview: '', busy: false, error: '' });
+  const [guideQ, setGuideQ] = useState('');
+  const [openGuide, setOpenGuide] = useState(null);
+  const endRef = useRef(null);
+  const hours = supportHoursNow();
+  const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
+  const card = { background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` };
+  const guides = helpGuides({ T, L, isOwner, apptMode, stays, tracksStock });
+
+  const loadTickets = useCallback(async () => {
+    try {
+      const rows = await sbRest('support_tickets', { accessToken: token, query: '?select=*&order=last_message_at.desc&limit=50' });
+      setTickets(rows); setOff(false);
+      onUnread?.(rows.reduce((a, t) => a + Number(t.user_unread || 0), 0));
+    } catch (e) { setTickets([]); if (/support_tickets|does not exist|schema cache/i.test(e.message)) setOff(true); }
+  }, [token]);
+  const loadUpdates = useCallback(async () => {
+    try { setUpdates(await sbRpc('my_updates', token, {})); } catch (e) { setUpdates({ updates: [], announcements: [] }); }
+  }, [token]);
+  useEffect(() => { loadTickets(); loadUpdates(); }, []);
+  const loadThread = useCallback(async (id) => {
+    try {
+      const msgs = await sbRest('support_messages', { accessToken: token, query: `?ticket_id=eq.${id}&select=*&order=created_at.asc` });
+      setThread((t) => ({ ...(t || {}), id, messages: msgs }));
+      sbRpc('support_seen', token, { p_ticket: id }).then(() => loadTickets()).catch(() => {});
+    } catch (e) { setThread({ id, messages: [], error: e.message }); }
+  }, [token, loadTickets]);
+  useEffect(() => {
+    if (view !== 'thread' || !ticketId) return undefined;
+    loadThread(ticketId);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') loadThread(ticketId); }, 12000);
+    return () => clearInterval(t);
+  }, [view, ticketId]);
+  useEffect(() => { if (view === 'thread') setTimeout(() => endRef.current?.scrollIntoView({ block: 'end' }), 60); }, [thread?.messages?.length, view]);
+  useEffect(() => {
+    if (view === 'updates' && updates?.updates?.length) { sbRpc('mark_updates_seen', token, {}).then(() => onUpdatesSeen?.()).catch(() => {}); }
+  }, [view, updates]);
+
+  const ticket = tickets?.find((t) => t.id === ticketId);
+  const unreadUpdates = updates ? updates.updates.filter((u) => !updates.seen_at || u.published_at > updates.seen_at).length : 0;
+  const pickFile = (setter) => (e) => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    if (!/^image\//.test(f.type)) { setter((x) => ({ ...x, error: 'Attach a picture or screenshot.' })); return; }
+    setter((x) => ({ ...x, file: f, preview: URL.createObjectURL(f), error: '' }));
+  };
+  const context = () => ({
+    device: (() => { const ua = navigator.userAgent || ''; const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iPhone' : /Windows/i.test(ua) ? 'Windows' : /Mac/i.test(ua) ? 'Mac' : 'Other'; const br = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox\//.test(ua) ? 'Firefox' : 'Browser'; return `${os} · ${br}${window.matchMedia('(display-mode: standalone)').matches ? ' · installed' : ''}`; })(),
+    screen: `${window.innerWidth}×${window.innerHeight}`,
+  });
+  const sendNew = async () => {
+    const d = draft;
+    if (!d.topic) { setDraft({ ...d, error: 'Choose what your message is about.' }); return; }
+    if (d.subject.trim().length < 3) { setDraft({ ...d, error: 'Add a short title, like "Receipt not printing".' }); return; }
+    if (d.body.trim().length < 5) { setDraft({ ...d, error: 'Tell us a little more so we can help.' }); return; }
+    setDraft({ ...d, busy: true, error: '' });
+    try {
+      const path = d.file ? await supportUpload(token, userId, d.file) : null;
+      const r = await sbRpc('support_open', token, { p_topic: d.topic, p_subject: d.subject.trim(), p_body: d.body.trim(), p_attachment: path, p_context: context() });
+      setDraft({ topic: '', subject: '', body: '', file: null, preview: '', busy: false, error: '' });
+      await loadTickets();
+      setTicketId(r.id); setThread(null); setView('thread');
+    } catch (e) { setDraft((x) => ({ ...x, busy: false, error: /support_open|schema cache/i.test(e.message) ? "Messaging isn't switched on yet. Please try again later." : e.message })); }
+  };
+  const sendReply = async () => {
+    const r = reply; if (r.busy || (!r.body.trim() && !r.file)) return;
+    setReply({ ...r, busy: true, error: '' });
+    try {
+      const path = r.file ? await supportUpload(token, userId, r.file) : null;
+      await sbRpc('support_send', token, { p_ticket: ticketId, p_body: r.body.trim(), p_attachment: path });
+      setReply({ body: '', file: null, preview: '', busy: false, error: '' });
+      loadThread(ticketId);
+    } catch (e) { setReply((x) => ({ ...x, busy: false, error: e.message })); }
+  };
+  const resolve = async (rating) => {
+    try { await sbRpc('support_resolve', token, { p_ticket: ticketId, p_rating: rating }); await loadTickets(); } catch (e) { brandAlert(e.message); }
+  };
+
+  const chip = (tone, text) => {
+    const c = tone === 'copper' ? [C.copperSoft, C.copper] : tone === 'sage' ? [C.sageSoft, C.sage] : [C.surfaceRaised, C.inkFaint];
+    return <span className="shrink-0 px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: c[0], color: c[1] }}>{text}</span>;
+  };
+  const back = (to = 'home') => (
+    <button onClick={() => setView(to)} aria-label="Back" className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}><ChevronLeft size={17} /></button>
+  );
+  const closeBtn = <button onClick={onClose} aria-label="Close" className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ color: C.inkFaint }}><X size={18} /></button>;
+  const hoursPill = (
+    <div className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-[12px] leading-relaxed" style={{ background: hours.open ? C.sageSoft : C.surfaceRaised, color: hours.open ? C.sage : C.inkDim }}>
+      <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: hours.open ? C.sage : C.inkFaint, boxShadow: hours.open ? `0 0 0 3px ${C.sageSoft}` : 'none' }} />
+      <span>{hours.text} <span style={{ color: hours.open ? C.sage : C.inkFaint, opacity: 0.85 }}>Support hours: {SUPPORT.hoursText}.</span></span>
+    </div>
+  );
+
+  let body;
+  if (view === 'home') {
+    const recent = (tickets || []).slice(0, 6);
+    const q = guideQ.trim().toLowerCase();
+    body = (
+      <>
+        <div className="relative overflow-hidden rounded-[24px] p-5 sm:p-6 mb-4" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 55%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)' }}>
+          <div className="absolute -right-6 -bottom-10 opacity-[0.08] pointer-events-none"><XorlaMark size={170} /></div>
+          <div className="relative">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2.5"><XorlaMark size={30} /><span className="text-[12px] font-semibold uppercase tracking-[0.1em]" style={{ color: C.sage }}>Xorla Support</span></div>
+              {closeBtn}
+            </div>
+            <div className="text-[24px] sm:text-[28px] font-extrabold cx-display leading-tight" style={{ letterSpacing: '-0.02em' }}>How can we help{businessName ? `, ${businessName}` : ''}?</div>
+            <div className="text-[13px] mt-1.5 mb-4" style={{ color: C.inkDim }}>Real people at Xorla read every message.</div>
+            {hoursPill}
+          </div>
+        </div>
+        {off && <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12.5px]" style={{ background: C.copperSoft, color: C.ink }}>Messaging Xorla isn't switched on yet. {SUPPORT.whatsapp ? 'Chat with us on WhatsApp for now.' : 'Please check back soon.'}</div>}
+        <div className="grid grid-cols-2 gap-2.5 mb-5">
+          <button onClick={() => { setDraft((d) => ({ ...d, error: '' })); setView('new'); }} disabled={off} className="col-span-2 sm:col-span-1 rounded-2xl p-4 text-left flex items-center gap-3" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: off ? 0.5 : 1 }}>
+            <MessageCircle size={22} className="shrink-0" />
+            <span><span className="block text-[15px] font-bold">Message us</span><span className="block text-[12px] opacity-80">Problems, payments, questions</span></span>
+          </button>
+          {SUPPORT.whatsapp ? (
+            <a href={`https://wa.me/${SUPPORT.whatsapp}?text=${encodeURIComponent(`Hello Xorla Support, I'm from ${businessName || 'my business'}. `)}`} target="_blank" rel="noopener noreferrer" className="col-span-2 sm:col-span-1 rounded-2xl p-4 flex items-center gap-3" style={{ background: 'rgba(37,211,102,0.12)', border: '1px solid rgba(37,211,102,0.3)' }}>
+              <Phone size={20} style={{ color: '#25D366' }} className="shrink-0" />
+              <span><span className="block text-[15px] font-bold">Chat on WhatsApp</span><span className="block text-[12px]" style={{ color: C.inkDim }}>Xorla's official line</span></span>
+            </a>
+          ) : (
+            <button onClick={() => setView('updates')} className="col-span-2 sm:col-span-1 rounded-2xl p-4 text-left flex items-center gap-3 relative" style={card}>
+              <Gift size={20} style={{ color: C.sage }} className="shrink-0" />
+              <span><span className="block text-[15px] font-bold">What's new</span><span className="block text-[12px]" style={{ color: C.inkDim }}>The latest in Xorla</span></span>
+              {unreadUpdates > 0 && <span className="absolute top-3 right-3 min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: C.copper, color: C.bg }}>{unreadUpdates}</span>}
+            </button>
+          )}
+        </div>
+        {SUPPORT.whatsapp && (
+          <button onClick={() => setView('updates')} className="w-full rounded-2xl px-4 py-3.5 mb-5 flex items-center gap-3 text-left" style={card}>
+            <Gift size={18} style={{ color: C.sage }} className="shrink-0" /><span className="flex-1 text-[14px] font-semibold">What's new in Xorla</span>
+            {unreadUpdates > 0 && chip('copper', `${unreadUpdates} new`)}<ChevronRight size={16} style={{ color: C.inkFaint }} />
+          </button>
+        )}
+        {recent.length > 0 && (
+          <div className="mb-5">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-2 px-1" style={{ color: C.inkFaint }}>Your conversations</div>
+            <div className="rounded-2xl overflow-hidden" style={card}>
+              {recent.map((t, i) => (
+                <button key={t.id} onClick={() => { setTicketId(t.id); setThread(null); setView('thread'); }} className="w-full flex items-center gap-3 px-4 py-3 text-left" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                  <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative" style={{ background: C.surfaceRaised }}>
+                    {(() => { const I = (SUPPORT_TOPICS.find((x) => x.id === t.topic) || SUPPORT_TOPICS[2]).Icon; return <I size={16} style={{ color: C.inkDim }} />; })()}
+                    {t.user_unread > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: C.copper, border: `2px solid ${C.surface}` }} />}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13.5px] font-semibold truncate" style={{ color: C.ink }}>{t.subject}</span>
+                    <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{supportRef(t.ref)} · {supportWhen(t.last_message_at)}</span>
+                  </span>
+                  {t.user_unread > 0 ? chip('copper', 'New reply') : chip(SUPPORT_STATUS[t.status].tone, SUPPORT_STATUS[t.status].label)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-2 px-1" style={{ color: C.inkFaint }}>Quick answers</div>
+        <div className="relative mb-2.5">
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
+          <input value={guideQ} onChange={(e) => setGuideQ(e.target.value)} placeholder="Search, e.g. receipt, staff, stock" className="w-full rounded-xl pl-10 pr-3 py-3 text-[13.5px] outline-none" style={field} />
+        </div>
+        <div className="rounded-2xl overflow-hidden" style={card}>
+          {(() => {
+            const list = guides.filter((g) => !q || (g.q + ' ' + g.a.join(' ')).toLowerCase().includes(q));
+            if (!list.length) return <div className="px-4 py-4 text-[12.5px]" style={{ color: C.inkFaint }}>No guide for that yet. <button onClick={() => { setDraft((d) => ({ ...d, topic: 'question', subject: guideQ.slice(0, 80) })); setView('new'); }} className="font-semibold underline" style={{ color: C.copper }}>Ask us instead</button></div>;
+            return list.map((g, i) => (
+              <div key={g.id} style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                <button onClick={() => setOpenGuide(openGuide === g.id ? null : g.id)} aria-expanded={openGuide === g.id} className="w-full flex items-center gap-3 px-4 py-3.5 text-left">
+                  <BookOpen size={15} style={{ color: openGuide === g.id ? C.copper : C.inkFaint }} className="shrink-0" />
+                  <span className="flex-1 text-[13.5px] font-medium">{g.q}</span>
+                  <ChevronRight size={15} style={{ color: C.inkFaint, transform: openGuide === g.id ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+                </button>
+                {openGuide === g.id && (
+                  <div className="px-4 pb-4 pl-11 space-y-2 text-[13px] leading-relaxed" style={{ color: C.inkDim }}>
+                    {g.a.map((p, j) => <p key={j}>{p}</p>)}
+                    <button onClick={() => { setDraft((d) => ({ ...d, topic: 'question', subject: g.q.slice(0, 100) })); setView('new'); }} className="text-[12.5px] font-semibold" style={{ color: C.copper }}>Still stuck? Message us</button>
+                  </div>
+                )}
+              </div>
+            ));
+          })()}
+        </div>
+        <div className="text-center text-[11.5px] mt-5" style={{ color: C.inkFaint }}>Xorla is made by PointBlank Softworks Ltd, Nigeria.</div>
+      </>
+    );
+  } else if (view === 'new') {
+    const d = draft;
+    body = (
+      <>
+        <div className="flex items-start gap-3 mb-4">{back()}<div className="flex-1 pt-0.5"><div className="text-[19px] font-semibold cx-display">Message Xorla</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>Tell us what's happening. We reply here and on your phone.</div></div>{closeBtn}</div>
+        <div className="text-[12.5px] font-semibold mb-2">What is it about?</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+          {SUPPORT_TOPICS.map((t) => (
+            <button key={t.id} onClick={() => setDraft({ ...d, topic: t.id, error: '' })} className="rounded-xl px-3 py-3 text-left flex items-center gap-2" style={d.topic === t.id ? { background: C.copperSoft, border: `1.5px solid ${C.copper}` } : { background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <t.Icon size={15} style={{ color: d.topic === t.id ? C.copper : C.inkFaint }} className="shrink-0" /><span className="text-[12.5px] font-semibold leading-tight">{t.label}</span>
+            </button>
+          ))}
+        </div>
+        <input value={d.subject} maxLength={120} onChange={(e) => setDraft({ ...d, subject: e.target.value })} placeholder={d.topic === 'billing' ? 'e.g. I paid but my plan still says Free' : d.topic === 'idea' ? 'e.g. Let me print receipts on a POS printer' : 'Short title, e.g. Receipt not sending'} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none mb-2.5" style={field} />
+        <textarea value={d.body} rows={5} maxLength={4000} onChange={(e) => setDraft({ ...d, body: e.target.value })} placeholder={d.topic === 'problem' ? 'What were you trying to do, and what happened instead? Anything on the screen helps.' : 'Tell us more…'} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none resize-y" style={{ ...field, minHeight: 130 }} />
+        <div className="flex items-center gap-3 mt-2.5">
+          {d.preview ? (
+            <div className="relative"><img src={d.preview} alt="" className="w-16 h-16 rounded-xl object-cover" /><button onClick={() => setDraft({ ...d, file: null, preview: '' })} aria-label="Remove screenshot" className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: C.rust, color: '#fff' }}><X size={13} /></button></div>
+          ) : (
+            <label className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-[12.5px] font-semibold cursor-pointer whitespace-nowrap shrink-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>
+              <Paperclip size={14} /> Add a screenshot<input type="file" accept="image/*" className="hidden" onChange={pickFile(setDraft)} />
+            </label>
+          )}
+          <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Optional, but it helps us fix things faster.</span>
+        </div>
+        <div className="flex items-start gap-2 mt-4 text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}><ShieldCheck size={14} className="shrink-0 mt-0.5" style={{ color: C.sage }} />We'll see your business name, plan and the kind of phone you're using, so you don't have to explain. Xorla will never ask for your password or PIN.</div>
+        {d.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{d.error}</div>}
+        <button onClick={sendNew} disabled={d.busy} className="w-full mt-4 h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: d.busy ? 0.6 : 1 }}>{d.busy ? <><Loader2 size={17} className="animate-spin" /> Sending…</> : <><SendHorizontal size={17} /> Send message</>}</button>
+        <div className="mt-3">{hoursPill}</div>
+      </>
+    );
+  } else if (view === 'thread') {
+    const msgs = thread?.id === ticketId ? thread.messages : null;
+    const t = ticket;
+    body = (
+      <div className="flex flex-col h-full">
+        <div className="flex items-start gap-3 mb-3 shrink-0">
+          {back()}
+          <div className="flex-1 min-w-0 pt-0.5">
+            <div className="text-[16px] font-semibold cx-display truncate">{t?.subject || 'Conversation'}</div>
+            {t && <div className="flex items-center gap-2 mt-1 text-[11.5px]" style={{ color: C.inkFaint }}>{supportRef(t.ref)} · {(SUPPORT_TOPICS.find((x) => x.id === t.topic) || {}).short} {chip(SUPPORT_STATUS[t.status].tone, SUPPORT_STATUS[t.status].label)}</div>}
+          </div>
+          {closeBtn}
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 space-y-3 pb-2">
+          {!msgs ? <div className="flex justify-center py-10" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /></div> : msgs.map((m, i) => {
+            const mine = !m.from_agent;
+            return (
+              <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'} gap-2`}>
+                {!mine && <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-5" style={{ background: '#0F2C27', border: `1px solid ${C.line}` }}><XorlaMark size={18} /></span>}
+                <div className="max-w-[82%]">
+                  <div className={`text-[11px] mb-1 ${mine ? 'text-right' : ''}`} style={{ color: C.inkFaint }}>{mine ? 'You' : <><strong style={{ color: C.sage }}>{m.author_name}</strong> · Xorla Support</>} · {supportWhen(m.created_at)}</div>
+                  <div className="rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words" style={mine ? { background: C.copperSoft, border: '1px solid rgba(255,176,32,0.22)', borderTopRightRadius: 6 } : { background: C.surfaceRaised, border: `1px solid ${C.line}`, borderTopLeftRadius: 6 }}>
+                    {m.body}
+                    {m.attachment && <SupportImage path={m.attachment} token={token} />}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {msgs && msgs.length > 0 && msgs.every((m) => !m.from_agent) && (
+            <div className="rounded-2xl px-4 py-3 text-[12.5px] leading-relaxed flex gap-2.5" style={{ background: C.sageSoft, color: C.ink }}>
+              <Check size={16} style={{ color: C.sage }} className="shrink-0 mt-0.5" /><span><strong>We've got your message{t ? ` (${supportRef(t.ref)})` : ''}.</strong> {hours.open ? 'Someone from the team will reply here soon.' : hours.text.replace("We're away right now. Send your message and we'll", "We'll")} You'll get a notification when we do.</span>
+            </div>
+          )}
+          {t?.status === 'solved' && (
+            <div className="rounded-2xl px-4 py-3.5 text-center" style={card}>
+              <div className="text-[13px] font-semibold">This conversation is marked solved</div>
+              {t.rating ? <div className="text-[12px] mt-1" style={{ color: C.inkFaint }}>Thanks for telling us how we did.</div> : (
+                <div className="mt-2.5 flex items-center justify-center gap-2">
+                  <span className="text-[12px] mr-1" style={{ color: C.inkDim }}>Did we help?</span>
+                  <button onClick={() => resolve(1)} aria-label="Yes, helpful" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: C.sageSoft, color: C.sage }}><ThumbsUp size={16} /></button>
+                  <button onClick={() => resolve(-1)} aria-label="Not helpful" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: C.rustSoft, color: C.rust }}><ThumbsDown size={16} /></button>
+                </div>
+              )}
+              <div className="text-[11.5px] mt-2" style={{ color: C.inkFaint }}>Still need help? Just reply below to reopen it.</div>
+            </div>
+          )}
+          <div ref={endRef} />
+        </div>
+        <div className="shrink-0 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
+          {reply.preview && <div className="relative inline-block mb-2"><img src={reply.preview} alt="" className="w-14 h-14 rounded-xl object-cover" /><button onClick={() => setReply({ ...reply, file: null, preview: '' })} aria-label="Remove screenshot" className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: C.rust, color: '#fff' }}><X size={13} /></button></div>}
+          {reply.error && <div className="mb-2 rounded-xl px-3 py-2 text-[12px]" style={{ background: C.rustSoft, color: C.rust }}>{reply.error}</div>}
+          <div className="flex items-end gap-2">
+            <label className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 cursor-pointer" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }} aria-label="Attach a screenshot"><Paperclip size={16} /><input type="file" accept="image/*" className="hidden" onChange={pickFile(setReply)} /></label>
+            <textarea value={reply.body} onChange={(e) => setReply({ ...reply, body: e.target.value })} rows={1} placeholder="Write a reply…" className="flex-1 rounded-xl px-3.5 py-3 text-[14px] outline-none resize-none" style={{ ...field, maxHeight: 140 }} onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`; }} />
+            <button onClick={sendReply} disabled={reply.busy || (!reply.body.trim() && !reply.file)} aria-label="Send" className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper, color: C.bg, opacity: reply.busy || (!reply.body.trim() && !reply.file) ? 0.45 : 1 }}>{reply.busy ? <Loader2 size={17} className="animate-spin" /> : <SendHorizontal size={17} />}</button>
+          </div>
+          {t && t.status !== 'solved' && <button onClick={() => resolve(null)} className="mt-2 text-[12px] font-medium" style={{ color: C.inkFaint }}>Sorted? Mark as solved</button>}
+        </div>
+      </div>
+    );
+  } else {
+    const list = updates?.updates || [];
+    const kindChip = { new: ['New', 'sage'], improved: ['Improved', 'copper'], fixed: ['Fixed', 'dim'], tip: ['Tip', 'copper'] };
+    body = (
+      <>
+        <div className="flex items-start gap-3 mb-4">{back()}<div className="flex-1 pt-0.5"><div className="text-[19px] font-semibold cx-display">What's new</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>New features, improvements and fixes in Xorla.</div></div>{closeBtn}</div>
+        {!updates ? <div className="flex justify-center py-10" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /></div>
+          : !list.length ? <div className="rounded-2xl px-4 py-8 text-center text-[13px]" style={{ ...card, color: C.inkFaint }}>Nothing new yet. Updates will show here.</div>
+          : (
+            <div className="relative pl-5">
+              <div className="absolute left-[7px] top-2 bottom-2 w-px" style={{ background: C.line }} />
+              {list.map((u) => {
+                const fresh = !updates.seen_at || u.published_at > updates.seen_at;
+                return (
+                  <div key={u.id} className="relative mb-4">
+                    <span className="absolute -left-5 top-4 w-[15px] h-[15px] rounded-full" style={{ background: fresh ? C.copper : C.surfaceRaised, border: `3px solid ${C.surface}` }} />
+                    <div className="rounded-2xl p-4" style={fresh ? { ...card, border: '1px solid rgba(255,176,32,0.3)' } : card}>
+                      <div className="flex items-center gap-2 mb-1.5">{chip(kindChip[u.kind][1], kindChip[u.kind][0])}<span className="text-[11.5px]" style={{ color: C.inkFaint }}>{new Date(u.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+                      <div className="text-[15px] font-semibold">{u.title}</div>
+                      {u.body && <div className="text-[13px] leading-relaxed mt-1 whitespace-pre-wrap" style={{ color: C.inkDim }}>{u.body}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+      </>
+    );
+  }
+  return (
+    <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.82)' }} onClick={onClose}>
+      <div role="dialog" aria-label="Help and support" className={`w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl p-4 sm:p-6 xorla-fade-up ${view === 'thread' ? 'h-[92vh] sm:h-[86vh] flex flex-col' : 'max-h-[94vh] overflow-y-auto'}`} style={{ background: C.surface, border: `1px solid ${C.line}`, paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
+        {body}
+      </div>
     </div>
   );
 }
