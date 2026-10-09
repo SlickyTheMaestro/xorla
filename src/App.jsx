@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, History, FileSpreadsheet, Undo2, Upload } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, FileSpreadsheet, Undo2, Upload } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -18,7 +18,7 @@ const SESSION_KEY = 'xorla:session';
 
 function friendlyAuthError(raw) {
   const msg = (raw || '').toLowerCase();
-  if (msg.includes('password') && (msg.includes('6 char') || msg.includes('at least'))) return 'Your password needs to be at least 6 characters long.';
+  if (msg.includes('password') && (msg.includes('6 char') || msg.includes('at least'))) return `Your password needs to be at least ${PASSWORD_MIN_LENGTH} characters long.`;
   if (msg.includes('invalid login credentials')) return "That email or password doesn't match our records. Check both and try again.";
   if (msg.includes('user already registered') || msg.includes('already exists')) return 'An account with this email already exists — try logging in instead.';
   if (msg.includes('email') && msg.includes('invalid')) return 'That email address doesn\'t look right — double check it.';
@@ -914,10 +914,43 @@ function PendingJoinScreen({ info, onCheck, onLogout }) {
     </div>
   );
 }
+// Password box with a show/hide eye, so people can check what they typed
+function PasswordInput({ value, onChange, placeholder = 'Password', style, autoComplete = 'current-password', autoFocus }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input type={show ? 'text' : 'password'} placeholder={placeholder} value={value} onChange={onChange} autoComplete={autoComplete} autoFocus={autoFocus} autoCapitalize="none" autoCorrect="off" spellCheck={false}
+        className="w-full rounded-xl pl-3.5 pr-11 py-3 text-[13.5px] outline-none" style={style} />
+      <button type="button" onClick={() => setShow((v) => !v)} aria-label={show ? 'Hide password' : 'Show password'} aria-pressed={show}
+        className="absolute right-1 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-lg" style={{ color: show ? C.sage : C.inkFaint }}>
+        {show ? <EyeOff size={17} /> : <Eye size={17} />}
+      </button>
+    </div>
+  );
+}
+// Live checks under a new password: long enough, and both boxes match
+function PasswordChecks({ password, confirm }) {
+  if (!password) return null;
+  const long = isPasswordValid(password);
+  const typedConfirm = confirm.length > 0;
+  const match = typedConfirm && confirm === password;
+  const row = (ok, text, bad) => (
+    <div className="flex items-center gap-1.5 text-[11.5px]" style={{ color: ok ? C.sage : bad ? '#E2A090' : C.inkFaint }}>
+      <span className="w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0" style={{ background: ok ? C.sageSoft : 'transparent', border: ok ? 'none' : `1px solid ${bad ? '#E2A090' : C.line}` }}>{ok && <Check size={9} strokeWidth={3} />}</span>{text}
+    </div>
+  );
+  return (
+    <div className="space-y-1 pl-0.5 pt-0.5">
+      {row(long, `At least ${PASSWORD_MIN_LENGTH} characters`)}
+      {typedConfirm && row(match, match ? 'Passwords match' : "Passwords don't match yet", !match)}
+    </div>
+  );
+}
+
 function AuthScreen({ onDone }) {
   const [step, setStep] = useState('role'); // role | owner | staff | code | forgot
   const [mode, setMode] = useState('login'); // login | signup
-  const [form, setForm] = useState({ business: '', email: '', password: '', code: '', name: '' });
+  const [form, setForm] = useState({ business: '', email: '', password: '', confirm: '', code: '', name: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [newBusinessCode, setNewBusinessCode] = useState('');
@@ -1037,6 +1070,7 @@ function AuthScreen({ onDone }) {
         if (mode === 'signup') {
           const pwErr = passwordError(form.password);
           if (pwErr) throw new Error(pwErr);
+          if (form.confirm !== form.password) throw new Error("The two passwords don't match. Type the same password in both boxes.");
         }
         let auth;
         if (mode === 'login') {
@@ -1063,14 +1097,11 @@ function AuthScreen({ onDone }) {
             </>
           )}
           <input type="email" placeholder="Email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
-          <input type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
-          {mode === 'signup' && form.password.length > 0 && (
-            <div className="text-[11px] pl-0.5" style={{ color: isPasswordValid(form.password) ? C.sage : C.inkFaint }}>
-              {isPasswordValid(form.password) ? '✓ ' : ''}At least 6 characters
-            </div>
-          )}
+          <PasswordInput placeholder={mode === 'signup' ? 'Create a password' : 'Password'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} style={field} />
+          {mode === 'signup' && <PasswordInput placeholder="Type the password again" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} autoComplete="new-password" style={field} />}
+          {mode === 'signup' && <PasswordChecks password={form.password} confirm={form.confirm} />}
         </div>
-        <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.code || !form.name))} onClick={submitStaff} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
+        <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.code || !form.name || !form.confirm))} onClick={submitStaff} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
           {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Join business'}
         </button>
         <div className="text-center text-[12.5px]" style={{ color: C.inkFaint }}>
@@ -1093,6 +1124,7 @@ function AuthScreen({ onDone }) {
       if (mode === 'signup') {
         const pwErr = passwordError(form.password);
         if (pwErr) throw new Error(pwErr);
+        if (form.confirm !== form.password) throw new Error("The two passwords don't match. Type the same password in both boxes.");
       }
       let auth;
       if (mode === 'login') {
@@ -1122,14 +1154,11 @@ function AuthScreen({ onDone }) {
           <input type="text" placeholder="Business name" value={form.business} onChange={(e) => setForm({ ...form, business: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
         )}
         <input type="email" placeholder="Email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
-        <input type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
-        {mode === 'signup' && form.password.length > 0 && (
-          <div className="text-[11px] pl-0.5" style={{ color: isPasswordValid(form.password) ? C.sage : C.inkFaint }}>
-            {isPasswordValid(form.password) ? '✓ ' : ''}At least 6 characters
-          </div>
-        )}
+        <PasswordInput placeholder={mode === 'signup' ? 'Create a password' : 'Password'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} style={field} />
+        {mode === 'signup' && <PasswordInput placeholder="Type the password again" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} autoComplete="new-password" style={field} />}
+        {mode === 'signup' && <PasswordChecks password={form.password} confirm={form.confirm} />}
       </div>
-      <button disabled={loading || !form.email || !form.password || (mode === 'signup' && !form.business)} onClick={submitOwner} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
+      <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.business || !form.confirm))} onClick={submitOwner} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
         {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}
       </button>
       {mode === 'signup' && <div className="text-center text-[11.5px] leading-relaxed -mt-2 mb-4" style={{ color: C.inkFaint }}>By creating an account you agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: C.inkDim }}>Terms of service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: C.inkDim }}>Privacy policy</a>.</div>}
@@ -1156,7 +1185,7 @@ function ResetPasswordScreen({ accessToken, onDone }) {
 
   const submit = async () => {
     setError('');
-    if (password.length < 6) { setError('Password should be at least 6 characters.'); return; }
+    if (passwordError(password)) { setError(passwordError(password)); return; }
     if (password !== confirm) { setError("Passwords don't match."); return; }
     setLoading(true);
     try {
@@ -1186,8 +1215,9 @@ function ResetPasswordScreen({ accessToken, onDone }) {
               <div className="text-[12.5px] mb-5" style={{ color: C.inkFaint }}>Choose something you'll remember.</div>
               {error && <div className="text-[12px] rounded-lg px-3 py-2 mb-3" style={{ background: 'rgba(226,98,75,0.12)', color: '#E2A090' }}>{error}</div>}
               <div className="space-y-2.5 mb-4">
-                <input type="password" placeholder="New password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
-                <input type="password" placeholder="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
+                <PasswordInput placeholder="New password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" autoFocus style={field} />
+                <PasswordInput placeholder="Type it again" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" style={field} />
+                <PasswordChecks password={password} confirm={confirm} />
               </div>
               <button disabled={loading || !password || !confirm} onClick={submit} className="w-full rounded-xl py-3 text-[13.5px] font-semibold transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
                 {loading ? 'Saving…' : 'Set new password'}
