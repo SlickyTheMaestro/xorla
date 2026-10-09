@@ -10348,9 +10348,9 @@ function AdminDashboard() {
     return shell(
       <div className="max-w-md mx-auto py-8">
         <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.sageSoft }}><ShieldCheck size={22} style={{ color: C.sage }} /></div>
-        <h1 className="text-[22px] font-bold mb-2">{setup ? 'Protect the founder dashboard' : 'Enter your code'}</h1>
+        <h1 className="text-[22px] font-bold mb-2">{setup ? (role === 'agent' ? 'Protect the support inbox' : 'Protect the founder dashboard') : 'Enter your code'}</h1>
         <p className="text-[13.5px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{setup
-          ? 'This page shows every business on Xorla, so it needs a second step after your password: a 6-digit code from an authenticator app on your phone. Set it up once.'
+          ? (role === 'agent' ? "Support messages include customers' names, phone numbers and business details, so this page needs a second step after your password: a 6-digit code from an authenticator app on your phone. Even if someone learns your password, they can't get in without your phone. You set it up once." : 'This page shows every business on Xorla, so it needs a second step after your password: a 6-digit code from an authenticator app on your phone. Set it up once.')
           : 'Open your authenticator app and type the 6-digit code for Xorla.'}</p>
         {setup && (
           <div className="space-y-3 mb-5 text-[13.5px]" style={{ color: C.inkDim }}>
