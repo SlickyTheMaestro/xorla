@@ -9884,13 +9884,29 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
   };
   useEffect(() => { if (openId) { setThread(null); setReply(''); loadThread(openId); } }, [openId]);
   useEffect(() => { setTimeout(() => endRef.current?.scrollIntoView({ block: 'end' }), 50); }, [thread?.messages?.length]);
-  const send = async (next) => {
+  // Replies are guarded: if someone else has this conversation, you must choose to take it over,
+  // and if a new message arrived while you typed, nothing is sent until you've read it.
+  const send = async (next, takeOver = false) => {
     if (!reply.trim() || busy) return;
+    const tk = thread?.ticket;
+    if (!takeOver && tk?.assigned_to && !tk.mine) {
+      if (!(await brandConfirm(`${tk.assigned_name || 'Someone else'} is handling this conversation. If you send this, it becomes yours and they'll see you took over.`, { title: 'Take over this conversation?', confirm: 'Take over and send' }))) return;
+      takeOver = true;
+    }
     setBusy(true);
-    try { await call('support_reply', { p_ticket: openId, p_body: reply.trim(), p_status: next }); setReply(''); await loadThread(openId); }
-    catch (e) { brandAlert(e.message); }
+    const lastSeen = thread?.messages?.length ? thread.messages[thread.messages.length - 1].id : null;
+    try {
+      await call('support_reply', { p_ticket: openId, p_body: reply.trim(), p_status: next, p_last_seen: lastSeen, p_take_over: takeOver });
+      setReply(''); await loadThread(openId);
+    } catch (e) {
+      const msg = String(e.message || '');
+      if (msg.startsWith('CHANGED:')) { await loadThread(openId, true); brandAlert(msg.slice(8), { title: 'New message in this conversation' }); }
+      else if (msg.startsWith('TAKEN:')) { await loadThread(openId, true); setBusy(false); return send(next, false); }
+      else brandAlert(msg);
+    }
     setBusy(false);
   };
+  const assign = async (action) => { try { await call('support_assign', { p_ticket: openId, p_action: action }); await loadThread(openId); } catch (e) { brandAlert(e.message); } };
   const setTicketStatus = async (next) => { try { await call('support_set_status', { p_ticket: openId, p_status: next }); await loadThread(openId); } catch (e) { brandAlert(e.message); } };
   const counts = data?.counts || {};
   const tickets = data?.tickets || [];
@@ -9901,9 +9917,9 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
 
   const listPane = (
     <div className={`${openId ? 'hidden lg:flex' : 'flex'} flex-col min-h-0 lg:w-[380px] lg:shrink-0`}>
-      <div className="flex gap-1 p-1 rounded-xl mb-2.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-        {[['open', 'Needs reply', counts.open], ['waiting', 'Waiting', counts.waiting], ['solved', 'Solved', counts.solved], ['all', 'All']].map(([k, l, n]) => (
-          <button key={k} onClick={() => setStatus(k)} className="flex-1 py-2 rounded-lg text-[12px] font-semibold" style={status === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{n ? ` ${n}` : ''}</button>
+      <div className="flex gap-1 p-1 rounded-xl mb-2.5 overflow-x-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        {[['open', 'Needs reply', counts.open], ['mine', 'Mine', counts.mine], ['unassigned', 'Unassigned', counts.unassigned], ['waiting', 'Waiting', counts.waiting], ['solved', 'Solved'], ['all', 'All']].map(([k, l, n]) => (
+          <button key={k} onClick={() => setStatus(k)} className="shrink-0 px-3 py-2 rounded-lg text-[12px] font-semibold whitespace-nowrap" style={status === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{n ? ` ${n}` : ''}</button>
         ))}
       </div>
       <div className="relative mb-2.5">
@@ -9930,6 +9946,8 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
                     <AdminChip tone="dim">#{x.ref}</AdminChip><AdminChip tone={x.topic === 'billing' || x.topic === 'complaint' ? 'copper' : 'dim'}>{T2.short}</AdminChip>
                     {x.plan && <AdminChip tone={(PLAN_CHIP[x.plan] || PLAN_CHIP.free)[1]}>{(PLAN_CHIP[x.plan] || PLAN_CHIP.free)[0]}</AdminChip>}
                     {x.rating === 1 && <ThumbsUp size={12} style={{ color: C.sage }} />}{x.rating === -1 && <ThumbsDown size={12} style={{ color: C.rust }} />}
+                    {x.status !== 'solved' && (x.mine ? <AdminChip tone="sage">You</AdminChip> : x.assigned_name ? <AdminChip tone="dim">{x.assigned_name.split(' ')[0]}</AdminChip> : <AdminChip tone="copper">Unassigned</AdminChip>)}
+                    {x.viewing_name && <span className="inline-flex items-center gap-1 text-[10.5px]" style={{ color: C.inkFaint }}><Eye size={11} />{x.viewing_name.split(' ')[0]}</span>}
                   </span>
                 </span>
               </button>
@@ -9955,6 +9973,18 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
               <option value="open">Needs reply</option><option value="waiting">Waiting on customer</option><option value="solved">Solved</option>
             </BrandSelect>
           </div>
+          {(() => {
+            const viewer = t.other_viewer || null;   // another team member who has this open right now
+            const bar = (tone, Icon, text, action) => { const c = tone === 'sage' ? [C.sageSoft, C.sage] : tone === 'copper' ? [C.copperSoft, C.copper] : [C.surfaceRaised, C.inkDim]; return (
+              <div className="mt-3 rounded-xl px-3.5 py-2.5 flex items-center gap-2.5 text-[12.5px] shrink-0" style={{ background: c[0] }}>
+                <Icon size={15} style={{ color: c[1] }} className="shrink-0" /><span className="flex-1 min-w-0" style={{ color: C.ink }}>{text}</span>{action}
+              </div>
+            ); };
+            if (t.status === 'solved' && !t.assigned_to) return null;
+            if (t.mine) return bar('sage', Check, <><strong>You're handling this.</strong> The customer gets replies from you{viewer ? <span style={{ color: C.inkDim }}> · {viewer.split(' ')[0]} is looking at it too</span> : null}.</>, <button onClick={() => assign('release')} className="shrink-0 text-[12px] font-semibold" style={{ color: C.inkDim }}>Hand back</button>);
+            if (t.assigned_to) return bar('dim', Users, <><strong>{t.assigned_name || 'Someone'} is handling this{viewer && viewer === t.assigned_name ? ' and has it open now' : ''}.</strong> Only reply if you're taking it over.</>, <button onClick={() => assign('take')} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-semibold" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}>Take over</button>);
+            return bar('copper', Info, <><strong>Nobody has taken this yet.</strong>{viewer ? ` ${viewer.split(' ')[0]} is looking at it now.` : ' Reply or take it so others know it\'s yours.'}</>, <button onClick={() => assign('take')} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>Take it</button>);
+          })()}
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_230px] gap-4 flex-1 min-h-0 pt-3 [&>*]:min-w-0">
             <div className="flex flex-col min-h-0">
               <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
@@ -9976,7 +10006,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
                 </div>
                 <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={4} placeholder={`Reply as ${first || 'you'} from Xorla Support…`} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink, minHeight: 96 }} />
                 <div className="flex flex-wrap gap-2 mt-2">
-                  <button onClick={() => send('waiting')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, opacity: !reply.trim() || busy ? 0.5 : 1 }}><SendHorizontal size={15} /> Send</button>
+                  <button onClick={() => send('waiting')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, opacity: !reply.trim() || busy ? 0.5 : 1 }}><SendHorizontal size={15} /> {t.assigned_to && !t.mine ? 'Take over and send' : 'Send'}</button>
                   <button onClick={() => send('solved')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageSoft, color: C.sage, opacity: !reply.trim() || busy ? 0.5 : 1 }}><Check size={15} /> Send and mark solved</button>
                 </div>
                 <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>They get a notification on their phone. Never ask for passwords, PINs or card details.</div>
@@ -10124,8 +10154,8 @@ function SupportTeamAdmin({ call }) {
             : team.map((a) => (
               <div key={a.id} className="rounded-xl px-3.5 py-3 flex items-center gap-3" style={{ background: C.surfaceRaised }}>
                 <span className="w-9 h-9 rounded-full flex items-center justify-center text-[14px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>{(a.name[0] || '?').toUpperCase()}</span>
-                <div className="flex-1 min-w-0"><div className="text-[13.5px] font-semibold truncate">{a.name}</div><div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{a.email}</div><div className="text-[11.5px]" style={{ color: a.joined ? C.sage : C.copper }}>{a.joined ? `${a.replies_30d} repl${Number(a.replies_30d) === 1 ? 'y' : 'ies'} in 30 days` : 'Hasn\'t logged in yet'}</div></div>
-                <button onClick={async () => { if (await brandConfirm(`${a.name} will stop seeing support messages straight away.`, { title: 'Remove from support team?', confirm: 'Remove', danger: true })) { try { await call('support_remove_agent', { p_id: a.id }); load(); } catch (e) { brandAlert(e.message); } } }} className="text-[12px] font-semibold" style={{ color: C.rust }}>Remove</button>
+                <div className="flex-1 min-w-0"><div className="text-[13.5px] font-semibold truncate">{a.name}</div><div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{a.email}</div><div className="text-[11.5px]" style={{ color: a.joined ? C.sage : C.copper }}>{a.joined ? `${a.replies_30d} repl${Number(a.replies_30d) === 1 ? 'y' : 'ies'} in 30 days${Number(a.handling) ? ` · handling ${a.handling}` : ''}` : 'Hasn\'t logged in yet'}</div></div>
+                <button onClick={async () => { if (await brandConfirm(`${a.name} loses access straight away.${Number(a.handling) ? ` The ${a.handling} open conversation${a.handling > 1 ? 's' : ''} they're handling go${a.handling > 1 ? '' : 'es'} back to Unassigned for the team.` : ''} Their past replies stay in each conversation, signed with their name.`, { title: 'Remove from support team?', confirm: 'Remove', danger: true })) { try { const n = await call('support_remove_agent', { p_id: a.id }); load(); if (Number(n)) brandAlert(`${n} conversation${n > 1 ? 's are' : ' is'} now in Unassigned. Open the Support tab to pick ${n > 1 ? 'them' : 'it'} up.`, { title: `${a.name} removed`, tone: 'info' }); } catch (e) { brandAlert(e.message); } } }} className="shrink-0 text-[12px] font-semibold" style={{ color: C.rust }}>Remove</button>
               </div>
             ))}
         </div>
