@@ -10262,6 +10262,15 @@ function AdminDashboard() {
     catch (e) { setDetail(null); brandAlert(e.message); }
   };
 
+  // Log out of this page (and of Xorla on this browser, which shares the same login)
+  const logOut = async () => {
+    if (!(await brandConfirm(role === 'agent' ? 'You will need your password and authenticator code to come back in.' : 'You will need your password and authenticator code to open the dashboard again. This also logs you out of Xorla on this browser.', { title: 'Log out?', confirm: 'Log out' }))) return;
+    try { if (tokenRef.current) await sbAuthReq('/logout', tokenRef.current, 'POST'); } catch (e) { /* the login is cleared below either way */ }
+    await saveSession(null); tokenRef.current = null;
+    setOv(null); setList([]); setDetail(null); setSupportCounts(null); setRole('founder'); setAgentName(''); setSection('overview');
+    setLogin({ email: '', password: '', confirm: '', create: false, busy: false, error: '' });
+    setState({ phase: 'login', error: '' });
+  };
   const shell = (body) => (
     <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
       <header className="sticky top-0 z-20" style={{ background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${C.line}` }}>
@@ -10274,10 +10283,15 @@ function AdminDashboard() {
               ))}
             </nav>
           )}
-          {state.phase === 'ready' && (
-            <button onClick={loadAll} className="flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>
-              Refresh{updated ? <span style={{ color: C.inkFaint }}> · {updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span> : null}
-            </button>
+          {['ready', 'denied', 'mfa-setup', 'mfa-code', 'error'].includes(state.phase) && (
+            <div className="flex items-center gap-2">
+              {state.phase === 'ready' && (
+                <button onClick={loadAll} aria-label="Refresh" className="flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>
+                  <span className="hidden sm:inline">Refresh</span><span className="sm:hidden">↻</span>{updated ? <span className="hidden sm:inline" style={{ color: C.inkFaint }}> · {updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span> : null}
+                </button>
+              )}
+              <button onClick={logOut} className="flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}><LogOut size={14} /> Log out</button>
+            </div>
           )}
         </div>
       </header>
@@ -10429,107 +10443,212 @@ function AdminDashboard() {
   const nudge = (b, text) => b.owner_phone && `https://wa.me/${toWhatsAppNumber(b.owner_phone)}?text=${encodeURIComponent(text || `Hi ${(b.owner_name || '').split(' ')[0] || 'there'}, this is Ikenna from Xorla. How is ${b.name} finding it so far? Anything I can help you set up?`)}`;
   const actionName = { extend_trial: 'Extended trial', storefront_off: 'Turned storefront off', storefront_on: 'Turned storefront on' };
 
+  const HEADF = "'Plus Jakarta Sans', 'Inter', sans-serif";
+  const glass = { background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012))', border: `1px solid ${C.line}` };
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
+  const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' });
+  const activation = act.cohort ? Math.round((act.activated / act.cohort) * 100) : null;
+  const payRate = Number(ov.businesses) ? Math.round((Number(ov.paying) / Number(ov.businesses)) * 100) : 0;
+  const early = Number(ov.early_taken || 0);
+  const signupTotal = signups.reduce((a, d) => a + Number(d.count || 0), 0);
+  const TYPE_COLORS = [C.sage, C.copper, '#7FB3FF', '#C792EA', '#F78C6C', '#89DDFF', '#FFCB6B', '#A3BE8C', '#E2A090', '#8A9A96'];
+  const attention = [
+    supportCounts?.open ? { Icon: Headphones, tone: 'copper', title: `${n(supportCounts.open)} support message${supportCounts.open > 1 ? 's' : ''} waiting`, sub: 'Billing and complaints first', go: () => setSection('support') } : null,
+    Number(ov.renewals_at_risk) ? { Icon: AlertCircle, tone: 'rust', title: `${n(ov.renewals_at_risk)} renewal${ov.renewals_at_risk > 1 ? 's' : ''} at risk`, sub: 'Paying, auto-renew off, ending this week', go: () => document.getElementById('xa-risk')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) } : null,
+    Number(ov.trials_ending_7d) ? { Icon: Clock, tone: 'copper', title: `${n(ov.trials_ending_7d)} trial${ov.trials_ending_7d > 1 ? 's' : ''} ending this week`, sub: 'A friendly message now helps them stay', go: () => { setFilter('ending'); document.getElementById('xa-biz')?.scrollIntoView({ behavior: 'smooth' }); } } : null,
+  ].filter(Boolean);
+  const toneOf = (t) => (t === 'rust' ? [C.rustSoft, C.rust, 'rgba(226,98,75,0.3)'] : t === 'sage' ? [C.sageSoft, C.sage, 'rgba(31,217,196,0.25)'] : [C.copperSoft, C.copper, 'rgba(255,176,32,0.3)']);
+  const stat = (Icon, label, value, sub, tone, extra) => {
+    const [bg, fg] = toneOf(tone);
+    return (
+      <div className="rounded-[20px] p-4 lg:p-5 relative overflow-hidden" style={glass}>
+        <div className="flex items-center gap-2.5 mb-3"><span className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: bg, color: fg }}><Icon size={15} /></span><span className="text-[12.5px] font-medium leading-tight" style={{ color: C.inkDim }}>{label}</span></div>
+        <div className="text-[26px] lg:text-[28px] font-extrabold tabular-nums leading-none" style={{ fontFamily: HEADF, letterSpacing: '-0.02em' }}>{value}</div>
+        {sub && <div className="text-[12px] mt-2 leading-snug" style={{ color: C.inkFaint }}>{sub}</div>}
+        {extra}
+      </div>
+    );
+  };
+  const meter = (pct, color) => <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, Math.min(100, pct))}%`, background: color }} /></div>;
+  const sectionTitle = (Icon, title, right, id) => (
+    <div id={id} className="flex items-center justify-between gap-3 mb-4"><div className="flex items-center gap-2.5"><Icon size={16} style={{ color: C.inkFaint }} /><span className="text-[15px] font-semibold" style={{ fontFamily: HEADF }}>{title}</span></div>{right && <span className="text-[12px]" style={{ color: C.inkFaint }}>{right}</span>}</div>
+  );
+
   return shell(
     <>
-      <div className="mb-5">
-        <h1 className="text-[24px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>How Xorla is doing</h1>
-        <div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>Every customer business, live from the database. Your own test business is left out.</div>
-      </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {tile('Businesses', n(ov.businesses), `+${n(ov.new_7d)} this week · +${n(ov.new_30d)} in 30 days`)}
-        {tile('Paying', n(ov.paying), `${n(ov.paying_pro)} Pro · ${n(ov.paying_business)} Business`, C.sage)}
-        {tile('Monthly recurring revenue', fmt(ov.mrr), `${fmt(ov.revenue_30d)} collected in 30 days`, C.copper)}
-        {tile('Active this week', n(ov.active_7d), 'businesses that recorded a sale')}
-        {tile('On free trial', n(ov.trials), ov.trials_ending_7d ? `${n(ov.trials_ending_7d)} ending this week` : 'none ending this week')}
-        {tile('Got started', act.cohort ? `${Math.round((act.activated / act.cohort) * 100)}%` : '–', act.cohort ? `${n(act.activated)} of ${n(act.cohort)} recorded a sale in week one` : 'shows once businesses are a week old')}
-        {tile('Early supporters', `${n(ov.early_taken)} of 100`, `${n(Math.max(0, 100 - ov.early_taken))} places left`)}
-        {tile('Renewals at risk', n(ov.renewals_at_risk), 'paying, auto-renew off, ending this week', ov.renewals_at_risk ? C.rust : undefined)}
-        {tile('Sales recorded', n(ov.sales_30d), `${fmt(ov.gmv_30d)} in the last 30 days`)}
-        {tile('Storefronts live', n(ov.storefronts), `${n(ov.orders_30d)} orders and requests in 30 days`)}
-        {tile('Oga questions', n(ov.ai_month), 'this month (each one costs you)')}
-        {tile('WhatsApp messages', n(ov.wa_month), 'sent this month')}
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
+        <div>
+          <div className="text-[13px]" style={{ color: C.inkFaint }}>{today}</div>
+          <h1 className="text-[28px] lg:text-[34px] font-extrabold leading-tight" style={{ fontFamily: HEADF, letterSpacing: '-0.03em' }}>{greet}. Here's Xorla today.</h1>
+        </div>
+        <div className="text-[12px] flex items-center gap-1.5" style={{ color: C.inkFaint }}><span className="w-2 h-2 rounded-full" style={{ background: C.sage, boxShadow: `0 0 0 3px ${C.sageSoft}` }} />Live from the database · your own test business left out</div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-3 mt-3">
-        <div className="lg:col-span-2">{panel('New businesses per day', 'Last 30 days', (
-          <div style={{ height: 240 }} role="img" aria-label={`New businesses per day over the last 30 days, ${n(ov.new_30d)} in total`}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={signups} margin={{ top: 6, right: 4, bottom: 0, left: 0 }} barCategoryGap={3}>
-                <CartesianGrid vertical={false} stroke={C.line} />
-                <XAxis dataKey="label" tick={{ fill: C.inkFaint, fontSize: 10.5 }} tickLine={false} axisLine={{ stroke: C.line }} interval={6} />
-                <YAxis allowDecimals={false} tick={{ fill: C.inkFaint, fontSize: 10.5 }} tickLine={false} axisLine={false} width={24} />
-                <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 12, color: C.ink }} labelStyle={{ color: C.inkDim }} formatter={(v) => [v, 'New businesses']} />
-                <Bar dataKey="count" fill={C.sage} radius={[4, 4, 0, 0]} maxBarSize={18} />
-              </BarChart>
-            </ResponsiveContainer>
+      {/* The headline: money and businesses */}
+      <div className="relative overflow-hidden rounded-[28px] p-6 lg:p-8 mb-4" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 50%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)', boxShadow: '0 30px 60px -30px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08)' }}>
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(115deg, transparent 38%, rgba(255,176,32,0.08) 50%, transparent 62%)' }} />
+        <div className="absolute -right-10 -bottom-14 opacity-[0.07] pointer-events-none"><XorlaMark size={260} /></div>
+        <div className="relative grid lg:grid-cols-[1.25fr_1fr] gap-7 lg:gap-10 items-end">
+          <div>
+            <div className="text-[13px] font-medium" style={{ color: C.inkDim }}>Monthly recurring revenue</div>
+            <div className="text-[44px] lg:text-[58px] font-extrabold tabular-nums leading-[1.05] mt-1" style={{ fontFamily: HEADF, letterSpacing: '-0.035em', color: '#FFD27A' }}>{fmt(ov.mrr)}</div>
+            <div className="text-[13.5px] mt-2" style={{ color: C.inkDim }}><span className="font-semibold" style={{ color: C.ink }}>{fmt(ov.revenue_30d)}</span> collected in the last 30 days</div>
+            <div className="mt-5 max-w-sm">
+              <div className="flex justify-between text-[12px] mb-1.5"><span style={{ color: C.inkDim }}>Early supporters</span><span className="tabular-nums" style={{ color: C.ink }}>{n(early)} of 100 <span style={{ color: C.inkFaint }}>· {n(Math.max(0, 100 - early))} left</span></span></div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(1.5, early)}%`, background: `linear-gradient(90deg, ${C.sage}, ${C.copper})` }} /></div>
+            </div>
           </div>
-        ))}</div>
-        {panel('What kinds of business', null, types.length ? (
-          <div className="space-y-2.5">
-            {types.map(([t, v]) => (
-              <div key={t}>
-                <div className="flex justify-between text-[12.5px] mb-1"><span style={{ color: C.inkDim }}>{typeName[t] || t}</span><span className="cx-mono font-semibold">{v}</span></div>
-                <div className="h-1.5 rounded-full" style={{ background: C.surfaceRaised }}><div className="h-1.5 rounded-full" style={{ width: `${(v / maxType) * 100}%`, background: C.sage }} /></div>
+          <div className="grid grid-cols-3 gap-2.5">
+            {[['Businesses', n(ov.businesses), `+${n(ov.new_7d)} this week`], ['Paying', n(ov.paying), `${payRate}% of all`], ['Active', n(ov.active_7d), 'sold this week']].map(([l, v, sub]) => (
+              <div key={l} className="rounded-2xl p-3.5" style={{ background: 'rgba(0,0,0,0.18)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <div className="text-[11.5px]" style={{ color: C.inkFaint }}>{l}</div>
+                <div className="text-[24px] lg:text-[28px] font-extrabold tabular-nums leading-tight mt-0.5" style={{ fontFamily: HEADF, letterSpacing: '-0.02em' }}>{v}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: C.sage }}>{sub}</div>
               </div>
             ))}
           </div>
-        ) : empty('No businesses yet.'))}
+        </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-3 mt-3">
-        {panel('Renewals at risk', 'Ending soon, auto-renew off', (ov.at_risk || []).length ? (
-          <div className="space-y-2">{ov.at_risk.map((r) => (
-            <div key={r.id} className="flex items-center justify-between gap-2 text-[12.5px]">
-              <span className="min-w-0 truncate">{r.name}<span style={{ color: C.inkFaint }}> · ends {short(r.current_period_end)}</span></span>
-              {r.owner_phone && <a href={nudge(r, `Hi, this is Ikenna from Xorla. Your ${r.plan === 'business' ? 'Business' : 'Pro'} plan for ${r.name} ends on ${short(r.current_period_end)}. Would you like help renewing, or is there anything we could do better?`)} target="_blank" rel="noopener noreferrer" className="shrink-0 font-medium" style={{ color: C.copper }}>WhatsApp</a>}
-            </div>))}</div>
-        ) : empty('None this week.'))}
-        {panel('Latest payments', null, (ov.recent_payments || []).length ? (
-          <div className="space-y-2">{ov.recent_payments.map((p, i) => (
-            <div key={i} className="flex items-center justify-between gap-2 text-[12.5px]">
-              <span className="min-w-0 truncate">{p.business}<span style={{ color: C.inkFaint }}> · {p.plan === 'business' ? 'Business' : 'Pro'}, {p.billing_interval} · {short(p.paid_at)}</span></span>
-              <span className="shrink-0 cx-mono font-semibold" style={{ color: C.sage }}>{fmt(p.amount)}</span>
-            </div>))}</div>
-        ) : empty('No payments yet.'))}
-        {panel('Your recent actions', null, (ov.log || []).length ? (
-          <div className="space-y-2">{ov.log.map((l, i) => (
-            <div key={i} className="text-[12.5px]"><span>{actionName[l.action] || l.action}</span>{l.detail ? <span style={{ color: C.inkFaint }}> ({l.detail})</span> : null}<span style={{ color: C.inkDim }}> · {l.business || 'a business'}</span><div className="text-[11px]" style={{ color: C.inkFaint }}>{new Date(l.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}{l.admin ? ` · ${l.admin}` : ''}</div></div>))}</div>
-        ) : empty('Nothing yet. Trial extensions and storefront changes are recorded here.'))}
+      {/* What needs you today */}
+      {attention.length > 0 ? (
+        <div className={`grid gap-2.5 mb-4 ${attention.length === 2 ? 'md:grid-cols-2' : attention.length > 2 ? 'md:grid-cols-3' : ''}`}>
+          {attention.map((a) => { const [bg, fg, bd] = toneOf(a.tone); return (
+            <button key={a.title} onClick={a.go} className="rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left" style={{ background: bg, border: `1px solid ${bd}` }}>
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(0,0,0,0.2)', color: fg }}><a.Icon size={17} /></span>
+              <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">{a.title}</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{a.sub}</span></span>
+              <ChevronRight size={16} style={{ color: fg }} className="shrink-0" />
+            </button>
+          ); })}
+        </div>
+      ) : (
+        <div className="rounded-2xl px-4 py-3 mb-4 flex items-center gap-3 text-[13px]" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.22)' }}><Check size={16} style={{ color: C.sage }} /><span>Nothing needs you right now. No waiting support messages, renewals at risk or trials ending this week.</span></div>
+      )}
+
+      {/* The numbers */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        {stat(Sparkles, 'On free trial', n(ov.trials), ov.trials_ending_7d ? `${n(ov.trials_ending_7d)} ending this week` : 'None ending this week', 'sage')}
+        {stat(TrendingUp, 'Got started in week one', activation === null ? '–' : `${activation}%`, act.cohort ? `${n(act.activated)} of ${n(act.cohort)} recorded a sale` : 'Shows once businesses are a week old', 'sage', activation !== null && meter(activation, C.sage))}
+        {stat(Receipt, 'Sales recorded', n(ov.sales_30d), `${fmt(ov.gmv_30d)} through Xorla in 30 days`, 'copper')}
+        {stat(Store, 'Storefronts live', n(ov.storefronts), `${n(ov.orders_30d)} orders and requests in 30 days`, 'copper')}
+        {stat(Lightbulb, 'Oga questions', n(ov.ai_month), 'This month · each one costs you', 'copper')}
+        {stat(Send, 'WhatsApp messages', n(ov.wa_month), 'Sent this month', 'sage')}
+        {stat(ShieldCheck, 'Renewals at risk', n(ov.renewals_at_risk), 'Paying, auto-renew off, ending this week', Number(ov.renewals_at_risk) ? 'rust' : 'sage')}
+        {stat(Users, 'Plans', `${n(ov.paying_pro)} · ${n(ov.paying_business)}`, 'Pro · Business', 'sage')}
       </div>
 
-      <div className="mt-6 rounded-2xl" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-        <div className="p-4 flex flex-col lg:flex-row lg:items-center gap-3" style={{ borderBottom: `1px solid ${C.line}` }}>
-          <div className="text-[14px] font-semibold flex-1">Businesses</div>
-          <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: C.surfaceRaised }}>
+      <div className="grid lg:grid-cols-[1.6fr_1fr] gap-3 mb-4">
+        <div className="rounded-[22px] p-5" style={glass}>
+          {sectionTitle(TrendingUp, 'New businesses', `${n(signupTotal)} in the last 30 days`)}
+          <div style={{ height: 230 }} role="img" aria-label={`New businesses per day over the last 30 days, ${n(ov.new_30d)} in total`}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={signups} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
+                <defs><linearGradient id="xaSign" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.sage} stopOpacity={0.4} /><stop offset="100%" stopColor={C.sage} stopOpacity={0} /></linearGradient></defs>
+                <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="label" tick={{ fill: C.inkFaint, fontSize: 11 }} tickLine={false} axisLine={false} interval={6} />
+                <YAxis allowDecimals={false} tick={{ fill: C.inkFaint, fontSize: 11 }} tickLine={false} axisLine={false} width={26} />
+                <Tooltip contentStyle={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, borderRadius: 12, fontSize: 12, color: C.ink }} labelStyle={{ color: C.inkDim }} formatter={(v) => [v, 'New businesses']} />
+                <Area type="monotone" dataKey="count" stroke={C.sage} strokeWidth={2.2} fill="url(#xaSign)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="rounded-[22px] p-5" style={glass}>
+          {sectionTitle(Shapes, 'Kinds of business', `${n(ov.businesses)} total`)}
+          {types.length ? (
+            <>
+              <div className="flex h-3 rounded-full overflow-hidden mb-4" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                {types.map(([t, v], i) => <div key={t} style={{ width: `${(v / Math.max(1, types.reduce((a, [, x]) => a + x, 0))) * 100}%`, background: TYPE_COLORS[i % TYPE_COLORS.length] }} />)}
+              </div>
+              <div className="space-y-2.5">
+                {types.map(([t, v], i) => (
+                  <div key={t} className="flex items-center gap-2.5 text-[13px]">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: TYPE_COLORS[i % TYPE_COLORS.length] }} />
+                    <span className="flex-1 min-w-0 truncate" style={{ color: C.inkDim }}>{typeName[t] || t}</span>
+                    <span className="tabular-nums font-semibold">{v}</span>
+                    <span className="w-10 text-right tabular-nums text-[11.5px]" style={{ color: C.inkFaint }}>{Math.round((v / Math.max(1, types.reduce((a, [, x]) => a + x, 0))) * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : empty('No businesses yet.')}
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-3">
+        <div className="rounded-[22px] p-5" style={glass}>
+          {sectionTitle(AlertCircle, 'Renewals at risk', null, 'xa-risk')}
+          {(ov.at_risk || []).length ? (
+            <div className="space-y-2">{ov.at_risk.map((r) => (
+              <div key={r.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                <span className="w-8 h-8 rounded-lg flex items-center justify-center text-[13px] font-bold shrink-0" style={{ background: C.rustSoft, color: C.rust }}>{(r.name || '?')[0].toUpperCase()}</span>
+                <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold truncate">{r.name}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{r.plan === 'business' ? 'Business' : 'Pro'} · ends {short(r.current_period_end)}</span></span>
+                {r.owner_phone && <a href={nudge(r, `Hi, this is Ikenna from Xorla. Your ${r.plan === 'business' ? 'Business' : 'Pro'} plan for ${r.name} ends on ${short(r.current_period_end)}. Would you like help renewing, or is there anything we could do better?`)} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copperSoft, color: C.copper }}>Message</a>}
+              </div>))}</div>
+          ) : <div className="flex items-center gap-2 text-[12.5px] py-1" style={{ color: C.inkFaint }}><Check size={14} style={{ color: C.sage }} /> None this week.</div>}
+        </div>
+        <div className="rounded-[22px] p-5" style={glass}>
+          {sectionTitle(Wallet, 'Latest payments')}
+          {(ov.recent_payments || []).length ? (
+            <div className="space-y-2">{ov.recent_payments.map((p, i) => (
+              <div key={i} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.sageSoft, color: C.sage }}><ArrowDownRight size={15} /></span>
+                <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold truncate">{p.business}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{p.plan === 'business' ? 'Business' : 'Pro'}, {p.billing_interval} · {short(p.paid_at)}</span></span>
+                <span className="shrink-0 tabular-nums text-[13.5px] font-bold" style={{ color: C.sage }}>{fmt(p.amount)}</span>
+              </div>))}</div>
+          ) : <div className="text-[12.5px] py-1" style={{ color: C.inkFaint }}>No payments yet. They appear here the moment one comes in.</div>}
+        </div>
+        <div className="rounded-[22px] p-5" style={glass}>
+          {sectionTitle(History, 'Your recent actions')}
+          {(ov.log || []).length ? (
+            <div className="relative pl-4 space-y-3">
+              <div className="absolute left-[3px] top-1.5 bottom-1.5 w-px" style={{ background: C.line }} />
+              {ov.log.map((l, i) => (
+                <div key={i} className="relative text-[12.5px]">
+                  <span className="absolute -left-4 top-1.5 w-[7px] h-[7px] rounded-full" style={{ background: C.copper }} />
+                  <span className="font-medium">{actionName[l.action] || l.action}</span>{l.detail ? <span style={{ color: C.inkFaint }}> ({l.detail})</span> : null}<span style={{ color: C.inkDim }}> · {l.business || 'a business'}</span>
+                  <div className="text-[11px]" style={{ color: C.inkFaint }}>{new Date(l.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}{l.admin ? ` · ${l.admin}` : ''}</div>
+                </div>))}
+            </div>
+          ) : <div className="text-[12.5px] py-1" style={{ color: C.inkFaint }}>Nothing yet. Trial extensions and storefront changes are recorded here.</div>}
+        </div>
+      </div>
+
+      <div id="xa-biz" className="mt-6 rounded-[22px] overflow-hidden" style={glass}>
+        <div className="p-4 lg:p-5 flex flex-col lg:flex-row lg:items-center gap-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+          <div className="flex items-center gap-2.5 flex-1"><Building2 size={16} style={{ color: C.inkFaint }} /><span className="text-[15px] font-semibold" style={{ fontFamily: HEADF }}>Businesses</span></div>
+          <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: 'rgba(0,0,0,0.2)', border: `1px solid ${C.line}` }}>
             {[['all', 'All'], ['paying', 'Paying'], ['trial', 'On trial'], ['ending', 'Trial ending'], ['free', 'Free']].map(([k, l]) => (
               <button key={k} onClick={() => setFilter(k)} className="shrink-0 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={filter === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
             ))}
           </div>
           <div className="relative lg:w-64">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
-            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, email or phone" className="w-full rounded-xl pl-9 pr-3 py-2 text-[13px] outline-none" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }} />
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, email or phone" className="w-full rounded-xl pl-9 pr-3 py-2.5 text-[13px] outline-none" style={{ background: 'rgba(0,0,0,0.2)', border: `1px solid ${C.line}`, color: C.ink }} />
           </div>
         </div>
-        {loadingList && !list.length ? <div className="p-6 text-center text-[13px]" style={{ color: C.inkFaint }}>Loading…</div>
-          : !list.length ? <div className="p-6 text-center text-[13px]" style={{ color: C.inkFaint }}>No businesses match.</div> : (
+        {loadingList && !list.length ? <div className="p-8 flex justify-center" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /></div>
+          : !list.length ? <div className="p-8 text-center text-[13px]" style={{ color: C.inkFaint }}>No businesses match.</div> : (
           <div>
             {list.map((b, i) => {
               const [pl, pbg, pfg, psub] = planOf(b);
               return (
-                <div key={b.id} className="px-4 py-3.5 grid gap-2 lg:grid-cols-[1.4fr_1.3fr_0.8fr_0.9fr_150px] lg:items-center" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: loadingList ? 0.6 : 1 }}>
-                  <button onClick={() => openDetail(b)} className="min-w-0 text-left">
-                    <div className="text-[13.5px] font-semibold truncate underline-offset-2 hover:underline">{b.name}</div>
-                    <div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{typeName[b.business_type === 'services' && b.service_kind ? b.service_kind : b.business_type || 'not set'] || b.business_type} · joined {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                <div key={b.id} className="px-4 lg:px-5 py-3.5 grid gap-2.5 lg:grid-cols-[1.5fr_1.3fr_0.9fr_0.9fr_170px] lg:items-center" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: loadingList ? 0.6 : 1 }}>
+                  <button onClick={() => openDetail(b)} className="min-w-0 text-left flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-xl flex items-center justify-center text-[14px] font-extrabold shrink-0" style={{ fontFamily: HEADF, background: 'linear-gradient(140deg, #FFC85A, #FFB020)', color: C.bg }}>{(b.name || '?').trim()[0].toUpperCase()}</span>
+                    <span className="min-w-0"><span className="block text-[13.5px] font-semibold truncate underline-offset-2 hover:underline">{b.name}</span>
+                    <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{typeName[b.business_type === 'services' && b.service_kind ? b.service_kind : b.business_type || 'not set'] || b.business_type} · joined {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span></span>
                   </button>
-                  <div className="min-w-0 text-[12.5px]">
+                  <div className="min-w-0 text-[12.5px] lg:pl-0 pl-12">
                     <div className="truncate">{b.owner_name || 'Owner'}</div>
                     <div className="truncate text-[11.5px]" style={{ color: C.inkFaint }}>{b.owner_email || ''}{b.owner_phone ? ` · ${formatPhoneDisplay(b.owner_phone)}` : ''}</div>
                   </div>
-                  <div><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: pbg, color: pfg }}>{pl}</span>{psub && <span className="text-[11px] ml-1.5" style={{ color: C.inkFaint }}>{psub}</span>}</div>
-                  <div className="text-[12px]" style={{ color: C.inkDim }}>{n(b.sales_30d)} sales in 30 days<div className="text-[11px]" style={{ color: C.inkFaint }}>Last seen {ago(b.last_seen_at)}</div></div>
-                  <div className="flex items-center gap-3 lg:justify-end">
-                    {nudge(b) && <a href={nudge(b)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-medium" style={{ color: C.copper }}>WhatsApp</a>}
-                    <button onClick={() => openDetail(b)} className="text-[12px] font-medium" style={{ color: C.sage }}>Details</button>
+                  <div className="pl-12 lg:pl-0"><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: pbg, color: pfg }}>{pl}</span>{psub && <span className="text-[11px] ml-1.5" style={{ color: C.inkFaint }}>{psub}</span>}</div>
+                  <div className="text-[12px] pl-12 lg:pl-0" style={{ color: C.inkDim }}><span className="tabular-nums">{n(b.sales_30d)}</span> sales in 30 days<div className="text-[11px]" style={{ color: C.inkFaint }}>Last seen {ago(b.last_seen_at)}</div></div>
+                  <div className="flex items-center gap-2 lg:justify-end pl-12 lg:pl-0">
+                    {nudge(b) && <a href={nudge(b)} target="_blank" rel="noopener noreferrer" className="px-2.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copperSoft, color: C.copper }}>WhatsApp</a>}
+                    <button onClick={() => openDetail(b)} className="px-2.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sageSoft, color: C.sage }}>Details</button>
                   </div>
                 </div>
               );
