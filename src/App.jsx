@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, FileSpreadsheet, Undo2, Upload } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -4891,8 +4891,8 @@ function XorlaApp() {
       </button>
     );
     return (
-      <button onClick={() => setHelpOpen({})} aria-label={`Help and support${supportUnread ? `, ${supportUnread} new repl${supportUnread > 1 ? 'ies' : 'y'}` : ''}`} className="relative flex items-center justify-center shrink-0" style={{ color: C.inkDim }}>
-        <LifeBuoy size={variant === 'staff' ? 17 : 18} />
+      <button onClick={() => setHelpOpen({})} aria-label={`Help and support${supportUnread ? `, ${supportUnread} new repl${supportUnread > 1 ? 'ies' : 'y'}` : ''}`} className="relative flex items-center gap-1.5 shrink-0 pl-2 pr-2.5 h-8 rounded-full text-[12.5px] font-semibold" style={{ color: dot ? C.copper : C.inkDim, background: dot ? C.copperSoft : C.surfaceRaised, border: `1px solid ${dot ? 'rgba(255,176,32,0.3)' : C.line}` }}>
+        <LifeBuoy size={15} /> Help
         {dot && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full" style={{ background: C.copper, border: `2px solid ${C.bg}` }} />}
       </button>
     );
@@ -5489,7 +5489,7 @@ function XorlaApp() {
                 <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
               </div>
               <div className="flex items-center gap-3">
-                <button onClick={() => setHelpOpen({})} className="relative flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LifeBuoy size={14} /> Help{(supportUnread > 0 || newsUnread > 0) && <span className="absolute top-0.5 left-5 w-2 h-2 rounded-full" style={{ background: C.copper }} />}</button>
+                {renderHelpButton()}
                 <button onClick={logout} className="flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LogOut size={13} /> Log out</button>
               </div>
             </div>
