@@ -6461,9 +6461,11 @@ function XorlaApp() {
     if (setup.paused) {
       const pos = Math.max(1, realSteps.indexOf(setupIds[setup.step]) + 1);
       return (
-        <button onClick={() => { if (tab === 'settings') setTab('overview'); setSetup({ ...setup, paused: false }); }} className="fixed z-[60] left-1/2 -translate-x-1/2 bottom-[150px] lg:bottom-6 flex items-center gap-2 pl-4 pr-5 py-3 rounded-full whitespace-nowrap text-[13px] font-semibold xorla-fade-up" style={{ background: C.ink, color: C.bg, boxShadow: '0 12px 30px rgba(0,0,0,0.45)' }}>
-          <ChevronLeft size={16} /> Back to setup, step {pos} of {realSteps.length}
-        </button>
+        <div className="fixed z-[60] inset-x-0 bottom-[150px] lg:bottom-6 flex justify-center px-4 pointer-events-none">
+          <button onClick={() => { if (tab === 'settings') setTab('overview'); setSetup({ ...setup, paused: false }); }} className="pointer-events-auto max-w-full flex items-center gap-2 pl-4 pr-5 py-3 rounded-full whitespace-nowrap text-[13px] font-semibold xorla-fade-up" style={{ background: C.ink, color: C.bg, boxShadow: '0 12px 30px rgba(0,0,0,0.45)' }}>
+            <ChevronLeft size={16} className="shrink-0" /> <span className="truncate">Back to setup, step {pos} of {realSteps.length}</span>
+          </button>
+        </div>
       );
     }
     const f = setup.f || setupDefaults();
@@ -6586,7 +6588,7 @@ function XorlaApp() {
       branches: [`How many ${L.many} do you have?`, `Each ${L.one} keeps its own sales, stock and staff, and you see them all together.`],
       hours: ["When are you open?", 'Customers can only book times inside these hours. Each service uses its own length.'],
       deposits: ['Deposits and cancellations', `A deposit holds a booking firmly, so unpaid holds can go to walk-in ${serviceKind === 'rentals' ? 'customers' : 'guests'}.`],
-      list: [serviceKind === 'accommodation' ? 'Add your room types' : `What do you ${T2.tracksStock && f.type !== 'services' ? 'sell' : 'offer'}?`, `Add it once. After that, recording a ${T2.sale} takes one tap, and customers can ${actWord} online.`],
+      list: [serviceKind === 'accommodation' ? 'Add your room types' : `What do you ${T2.tracksStock && f.type !== 'services' ? 'sell' : 'offer'}?`, serviceKind === 'accommodation' ? 'Add each room type once with its price per night and how many you have. Guests can then book online, and checking them in takes one tap.' : `Add it once. After that, recording a ${T2.sale} takes one tap, and customers can ${actWord} online.`],
       storefront: ['Your online storefront', `A free page with your own link. Customers see your ${T2.catalog.toLowerCase()} and ${actWord} without calling you.`],
       team: ['Bring in your staff', 'Optional. Staff record sales on their own phones. You see everything; they only see what they need.'],
       done: [readyItems.every((x) => x.done || x.optional) ? `${nameFor} is ready` : `${nameFor} is ready to start`, readyItems.every((x) => x.done || x.optional) ? 'Everything customers and staff need is in place.' : 'Anything left is on your checklist on the Overview screen, so you can finish it whenever suits you.'],
