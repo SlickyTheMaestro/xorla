@@ -124,6 +124,31 @@ const C = {
 };
 const shadow = '0 1px 1px rgba(0,0,0,0.25), 0 12px 28px -16px rgba(0,0,0,0.65)';
 
+// A panel that slides up over the screen (same look as Send stock). Tapping outside closes it
+// unless the form inside has something worth keeping (closeOnBackdrop=false).
+function Sheet({ title, onClose, children, closeOnBackdrop = true, busy = false }) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => { if (e.key === 'Escape' && !busy) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
+  }, [busy, onClose]);
+  return createPortal(
+    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)', fontFamily: "'Inter', sans-serif", color: C.ink }} onClick={() => closeOnBackdrop && !busy && onClose()}>
+      <div role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}`, paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
+        <div className="sm:hidden mx-auto -mt-1.5 mb-3 w-10 h-1 rounded-full" style={{ background: C.lineStrong }} />
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="min-w-0">{typeof title === 'string' ? <div className="text-[16px] font-semibold cx-display">{title}</div> : title}</div>
+          <button onClick={() => !busy && onClose()} aria-label="Close" className="p-1 -m-1 shrink-0" style={{ color: C.inkFaint }}><X size={18} /></button>
+        </div>
+        {children}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 const TONES = [
   { id: 'friendly', label: 'Friendly', desc: 'Warm and friendly, like a normal polite reminder between people who know each other.' },
   { id: 'calm', label: 'Calm', desc: 'Calm, gentle, patient, and reassuring, even if the payment is very overdue. Never sounds annoyed.' },
@@ -1562,6 +1587,7 @@ function XorlaApp() {
   const [savingProduct, setSavingProduct] = useState(false);
   const [restockingId, setRestockingId] = useState(null);
   const [editingProductId, setEditingProductId] = useState(null);
+  const closeProductForm = () => { setShowProductForm(false); setEditingProductId(null); };
   const [restockAmount, setRestockAmount] = useState('');
   const [restockShopId, setRestockShopId] = useState(null);
   const [restockCost, setRestockCost] = useState('');
@@ -8267,7 +8293,7 @@ function XorlaApp() {
             <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{T.intro}</div>
             {renderStockCenter()}
 
-            {!showProductForm ? (
+            {(
               T.saleHint ? (
                 <div className="grid grid-cols-2 gap-2 mb-6">
                   <button onClick={() => openCatalogForm('room')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.copper, color: C.bg }}>
@@ -8281,16 +8307,13 @@ function XorlaApp() {
               ) : (
               <button onClick={() => { setEditingProductId(null); setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
               )
-            ) : null}
-            {!showProductForm && !T.saleHint && isOwnerRole && (
+            )}
+            {!T.saleHint && isOwnerRole && (
               <button onClick={openImport} className="w-full -mt-4 mb-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list instead</button>
             )}
-            {!showProductForm ? null : (
-              <div className="rounded-2xl p-5 mb-6 space-y-4" style={card}>
-                <div className="flex items-center justify-between">
-                  <div className="text-[15px] font-semibold cx-display">{productForm.mode === 'extra' ? (editingProductId ? 'Edit extra' : 'New extra') : productForm.mode === 'room' ? (editingProductId ? `Edit ${roomWord}` : `New ${roomWord}`) : editingProductId ? (formIsService ? 'Edit service' : 'Edit product') : (formIsService ? 'New service' : 'New product')}</div>
-                  <button onClick={() => { setShowProductForm(false); setEditingProductId(null); }} aria-label="Close" style={{ color: C.inkFaint }}><X size={17} /></button>
-                </div>
+            {showProductForm && (
+              <Sheet title={productForm.mode === 'extra' ? (editingProductId ? 'Edit extra' : 'New extra') : productForm.mode === 'room' ? (editingProductId ? `Edit ${roomWord}` : `New ${roomWord}`) : editingProductId ? (formIsService ? 'Edit service' : 'Edit product') : (formIsService ? 'New service' : 'New product')} onClose={closeProductForm} closeOnBackdrop={false} busy={savingProduct}>
+              <div className="space-y-4">
 
                 {settings.businessType === 'both' && (
                   <div>
@@ -8398,6 +8421,7 @@ function XorlaApp() {
                 )}
                 <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : editingProductId ? 'Save changes' : formIsService ? 'Save service' : 'Save product'}</button>
               </div>
+              </Sheet>
             )}
 
             <div className="text-[13px] font-semibold cx-display mb-2.5" style={{ color: C.inkDim }}>Your {T.catalog.toLowerCase()}</div>
@@ -8418,7 +8442,8 @@ function XorlaApp() {
                 const isOut = p.stockQuantity === 0;
                 const isRestocking = restockingId === p.id;
                 return (
-                  <div key={p.id} className="rounded-2xl p-3.5 mb-2.5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012))', border: `1px solid ${isOut || isLow ? 'rgba(226,98,75,0.28)' : C.line}` }}>
+                  <div key={p.id} className="relative rounded-2xl p-4 mb-4 overflow-hidden" style={{ background: 'linear-gradient(180deg, #143630, #102C27)', border: `1px solid ${isOut || isLow ? 'rgba(226,98,75,0.38)' : C.lineStrong}`, boxShadow: '0 1px 0 rgba(255,255,255,0.05) inset, 0 10px 24px -14px rgba(0,0,0,0.75)' }}>
+                    <span aria-hidden className="absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full" style={{ background: isOut || isLow ? C.rust : kindOf(p, settings.businessType) === 'service' ? C.copper : C.sage, opacity: 0.85 }} />
                     <div className="flex items-start gap-3">
                       {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-14 h-14 rounded-xl object-cover shrink-0" style={{ background: '#fff' }} /> : <div className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Package size={18} style={{ color: C.inkFaint }} /></div>}
                       <div className="flex-1 min-w-0">
@@ -8456,7 +8481,7 @@ function XorlaApp() {
                       {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }, C.sage)}
                         {isOwnerRole && hasManyLocations && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
-                        {pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); })}
+                        {pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
                         {isOwnerRole && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
                         <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>
                       </>); })()}
@@ -8481,59 +8506,61 @@ function XorlaApp() {
                         </div>
                       </div>
                     )}
-                    {isRestocking && viewAllShops && hasManyLocations && (
-                      <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-                        <span className="text-[11.5px]" style={{ color: C.inkDim }}>Into:</span>
-                        {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
-                          <button key={s.id} onClick={() => setRestockShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={(restockShopId || mainShopId) === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)}</button>
-                        ))}
-                      </div>
-                    )}
                     {isRestocking && (() => {
                       const qty = Number(restockAmount);
                       const uc = Number(parseNumInput(restockCost));
                       const avg = restockCost !== '' && uc > 0 && qty > 0 ? newAverageCost(p.id, qty, uc) : null;
+                      const closeRestock = () => { setRestockingId(null); setRestockAmount(''); setRestockCost(''); };
                       return (
-                        <div className="rounded-xl p-3 mt-2.5 space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                          <div className="flex items-center justify-between">
-                            <span className="text-[12px] font-semibold">{p.stockQuantity === null ? 'Start tracking stock' : 'Restock'}</span>
-                            <button onClick={() => { setRestockingId(null); setRestockAmount(''); setRestockCost(''); }} aria-label="Close" className="p-1 -m-1 rounded-md" style={{ color: C.inkFaint }}><X size={16} /></button>
+                        <Sheet onClose={closeRestock} title={<><div className="text-[16px] font-semibold cx-display">{p.stockQuantity === null ? 'Start tracking stock' : 'Restock'}</div><div className="text-[12.5px] mt-0.5 truncate" style={{ color: C.inkDim }}>{p.name}{p.stockQuantity !== null ? ` · ${Number(p.stockQuantity).toLocaleString('en-NG')} in stock now` : ''}</div></>}>
+                          <div className="space-y-3.5">
+                            {viewAllShops && hasManyLocations && (
+                              <div>
+                                <div className="text-[11px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>Into</div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
+                                    <button key={s.id} onClick={() => setRestockShopId(s.id)} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={(restockShopId || mainShopId) === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="grid grid-cols-2 gap-2.5">
+                              <label className="min-w-0"><span className="block text-[11px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>{p.stockQuantity === null ? 'How many now' : 'Units received'}</span>
+                                <input type="number" min="0" inputMode="numeric" autoFocus placeholder="0" value={restockAmount} onChange={(e) => setRestockAmount(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleRestock(p); }} className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none cx-mono" style={field} /></label>
+                              <label className="min-w-0"><span className="block text-[11px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>Cost each <span className="normal-case tracking-normal">(optional)</span></span>
+                                <input type="text" inputMode="decimal" placeholder={fmt(p.costPrice)} value={formatNumInput(restockCost)} onChange={(e) => setRestockCost(parseNumInput(e.target.value))} className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none cx-mono" style={field} /></label>
+                            </div>
+                            <div className="text-[11.5px] leading-relaxed" style={{ color: avg !== null && avg !== Number(p.costPrice) ? C.sage : C.inkFaint }}>
+                              {avg !== null && avg !== Number(p.costPrice)
+                                ? costExplainer(p.id, qty, uc, avg)
+                                : 'Paid a different price this time? Add the cost per unit. It only affects your profit figures — your selling price stays yours to set.'}
+                            </div>
+                            <button onClick={() => handleRestock(p)} disabled={!(qty >= 0) || restockAmount === ''} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: restockAmount === '' ? 0.45 : 1 }}>{p.stockQuantity === null ? 'Start tracking' : qty > 0 ? `Add ${qty.toLocaleString('en-NG')} to stock` : 'Save'}</button>
                           </div>
-                          <div className="flex gap-2">
-                            <input type="number" min="0" autoFocus placeholder={p.stockQuantity === null ? 'Starting stock count' : 'Units received'} value={restockAmount} onChange={(e) => setRestockAmount(e.target.value)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
-                            <input type="text" inputMode="decimal" aria-label="Cost per unit this time (optional)" placeholder={`Cost each (${fmt(p.costPrice)})`} value={formatNumInput(restockCost)} onChange={(e) => setRestockCost(parseNumInput(e.target.value))} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
-                            <button onClick={() => handleRestock(p)} className="px-4 rounded-lg text-[12px] font-semibold shrink-0" style={{ background: C.sage, color: C.bg }}>Save</button>
-                          </div>
-                          <div className="text-[11px] leading-relaxed" style={{ color: avg !== null && avg !== Number(p.costPrice) ? C.sage : C.inkFaint }}>
-                            {avg !== null && avg !== Number(p.costPrice)
-                              ? costExplainer(p.id, qty, uc, avg)
-                              : 'Paid a different price this time? Add the cost per unit. It only affects your profit figures — your selling price stays yours to set.'}
-                          </div>
-                        </div>
+                        </Sheet>
                       );
                     })()}
                     {correctingId === p.id && (() => {
                       const cShop = activeShopId || (locations.some((s) => s.id === correctShopId) ? correctShopId : mainShopId);
+                      const closeFix = () => { setCorrectingId(null); setCorrectQty(''); };
                       return (
-                        <div className="rounded-xl p-3 mt-2.5 space-y-2.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                          <div className="flex items-center justify-between">
-                            <span className="text-[12px] font-semibold">Correct the count</span>
-                            <button onClick={() => { setCorrectingId(null); setCorrectQty(''); }} aria-label="Close" className="p-1 -m-1 rounded-md" style={{ color: C.inkFaint }}><X size={16} /></button>
-                          </div>
-                          {viewAllShops && hasManyLocations && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
-                                <button key={s.id} onClick={() => setCorrectShopId(s.id)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={cShop === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)} ({stockAt(p, s.id)})</button>
-                              ))}
+                        <Sheet onClose={closeFix} title={<><div className="text-[16px] font-semibold cx-display">Correct the count</div><div className="text-[12.5px] mt-0.5 truncate" style={{ color: C.inkDim }}>{p.name}</div></>}>
+                          <div className="space-y-3.5">
+                            {viewAllShops && hasManyLocations && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
+                                  <button key={s.id} onClick={() => setCorrectShopId(s.id)} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={cShop === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)} ({stockAt(p, s.id)})</button>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex items-center gap-3 rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                              <span className="flex-1 min-w-0 text-[13px]" style={{ color: C.inkDim }}>Xorla says <strong className="cx-mono" style={{ color: C.ink }}>{stockAt(p, cShop)}</strong> at {shopNameOf(cShop)}. Real count:</span>
+                              <input type="number" min="0" inputMode="numeric" autoFocus placeholder={String(stockAt(p, cShop))} value={correctQty} onChange={(e) => setCorrectQty(e.target.value)} className="w-24 rounded-lg px-2 py-2.5 text-[15px] text-center outline-none cx-mono" style={field} />
                             </div>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <span className="flex-1 text-[12px]" style={{ color: C.inkDim }}>Real count at {shopNameOf(cShop)}</span>
-                            <input type="number" min="0" autoFocus placeholder={String(stockAt(p, cShop))} value={correctQty} onChange={(e) => setCorrectQty(e.target.value)} className="w-20 rounded-lg px-2 py-2 text-sm text-center outline-none cx-mono" style={field} />
-                            <button onClick={() => handleCorrectCount(p)} disabled={correctQty === ''} className="px-4 py-2 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: correctQty === '' ? 0.4 : 1 }}>Save</button>
+                            <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>For fixing a typing mistake, or after counting what's really on the shelf. It's saved as a correction, so your stock history stays honest.</div>
+                            <button onClick={() => handleCorrectCount(p)} disabled={correctQty === ''} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: correctQty === '' ? 0.45 : 1 }}>Save count</button>
                           </div>
-                          <div className="text-[11px] leading-relaxed" style={{ color: C.inkFaint }}>For fixing a typing mistake, or after counting what's really on the shelf. It's saved as a correction, so your stock history stays honest.</div>
-                        </div>
+                        </Sheet>
                       );
                     })()}
                   </div>
