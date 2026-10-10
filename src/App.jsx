@@ -1834,14 +1834,35 @@ function XorlaApp() {
     sbRpc('support_unread', token, {}).then((n) => setSupportUnread(Number(n) || 0)).catch(() => {});
     sbRpc('my_updates', token, {}).then((r) => r && setXorlaNews(r)).catch(() => {});
   }, []);
+  // Checked often, and instantly when a notification arrives or the app comes back to the screen —
+  // installed apps on Android don't always report "came back", so several signals are used.
   useEffect(() => {
     if (!session?.access_token) return undefined;
-    loadXorlaNews(session.access_token);
-    const t = setInterval(() => { if (document.visibilityState === 'visible') loadXorlaNews(session.access_token); }, 120000);
-    const onVisible = () => { if (document.visibilityState === 'visible') loadXorlaNews(session.access_token); };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
+    const tok = session.access_token;
+    loadXorlaNews(tok);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') loadXorlaNews(tok); }, 20000);
+    const again = () => { if (document.visibilityState === 'visible') loadXorlaNews(tok); };
+    const onMsg = (e) => { if (e.data?.type === 'xorla-push') { loadXorlaNews(tok); loadBusinessData(tok); } };
+    document.addEventListener('visibilitychange', again);
+    window.addEventListener('focus', again);
+    window.addEventListener('pageshow', again);
+    window.addEventListener('online', again);
+    navigator.serviceWorker?.addEventListener('message', onMsg);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', again); window.removeEventListener('focus', again); window.removeEventListener('pageshow', again); window.removeEventListener('online', again); navigator.serviceWorker?.removeEventListener('message', onMsg); };
   }, [session?.access_token]);
+  // A new reply while the app is open: a toast on whatever screen they're on
+  const [supportToast, setSupportToast] = useState(false);
+  const prevUnreadRef = useRef(null);
+  useEffect(() => {
+    if (prevUnreadRef.current !== null && supportUnread > prevUnreadRef.current && !helpOpen) {
+      setSupportToast(true);
+      const t = setTimeout(() => setSupportToast(false), 9000);
+      prevUnreadRef.current = supportUnread;
+      return () => clearTimeout(t);
+    }
+    prevUnreadRef.current = supportUnread;
+    return undefined;
+  }, [supportUnread]);
   // Work out whether this phone can get notifications, and whether it already does
   useEffect(() => {
     if (!session) return;
@@ -4984,6 +5005,15 @@ function XorlaApp() {
       </div>
     );
   };
+  const renderSupportToast = () => supportToast && !helpOpen && createPortal(
+    <div className="fixed left-0 right-0 z-[95] flex justify-center px-3 pointer-events-none" style={{ top: 'max(12px, env(safe-area-inset-top))' }}>
+      <button onClick={() => { setSupportToast(false); setHelpOpen({}); }} className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 text-left xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(255,176,32,0.45)', boxShadow: '0 18px 40px -12px rgba(0,0,0,0.7)' }}>
+        <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: '#0B211D' }}><XorlaMark size={22} /></span>
+        <span className="flex-1 min-w-0"><span className="block text-[14px] font-semibold">Xorla Support replied</span><span className="block text-[12px]" style={{ color: C.inkDim }}>Tap to read it</span></span>
+        <span className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: C.copper, color: C.bg }}>Open</span>
+      </button>
+    </div>, document.body
+  );
   const renderHelp = () => helpOpen && session && (
     <HelpCenter key={helpOpen.ticket || helpOpen.view || 'home'} token={session.access_token} userId={session.user_id} isOwner={isOwnerRole} T={T} L={L}
       apptMode={apptMode} stays={hasBookables || ['accommodation', 'rentals'].includes(serviceKind)} tracksStock={!!T.tracksStock} businessName={settings.businessName}
@@ -5611,7 +5641,7 @@ function XorlaApp() {
             <div className="text-[20px] font-bold cx-display">{settings.activeStaff}</div>
           </div>
           {renderXorlaNotices()}
-          {renderHelp()}
+          {renderHelp()}{renderSupportToast()}
 
           {hasBookables && <div className="rounded-2xl p-4 mb-5" style={card}>{renderBookingDesk()}</div>}
           {apptMode && (() => {
@@ -7417,7 +7447,7 @@ function XorlaApp() {
         {renderReadyCheck()}
         {renderSetup()}
         {renderPastImport()}
-        {renderHelp()}
+        {renderHelp()}{renderSupportToast()}
       </div>
     );
   }
@@ -8793,7 +8823,7 @@ function XorlaApp() {
       {renderImportPanel()}
       {renderListTool()}
       {renderPastImport()}
-      {renderHelp()}
+      {renderHelp()}{renderSupportToast()}
       {renderFulfilPanel()}
       {renderApptPanel()}
       {renderNotifPanel()}
