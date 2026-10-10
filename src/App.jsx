@@ -1975,12 +1975,12 @@ function XorlaApp() {
   const [shopBusy, setShopBusy] = useState(false);
   const addShop = async () => {
     const name = newShopName.trim(); if (!name || shopBusy) return;
-    if (planKnown && liveLocations.length >= planCaps.locations) { openLocationLimit(); return; }
+    if (planKnown && liveLocations.length >= planCaps.locations) { openLocationLimit(null, { name, kind: newShopKind }); return; }
     setShopBusy(true);
     try {
       const rows = await sbRest('shops', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name, ...(newShopKind === 'warehouse' ? { kind: 'warehouse' } : {}) } });
       setShops((prev) => [...prev, rows[0]]); setNewShopName('');
-    } catch (e) { if (isLocationLimitError(e)) openLocationLimit(); else brandAlert(e.message); } finally { setShopBusy(false); }
+    } catch (e) { if (isLocationLimitError(e)) openLocationLimit(null, { name, kind: newShopKind }); else brandAlert(e.message); } finally { setShopBusy(false); }
   };
   const saveShop = async (shop) => {
     const edit = shopEdits[shop.id]; if (!edit) return;
@@ -2033,9 +2033,9 @@ function XorlaApp() {
   };
   // Every way of hitting the location limit lands here: buy an extra location now, or see the plans
   const isLocationLimitError = (e) => /plan includes \d+ location|more locations|location limit|extra locations/i.test(String(e?.message || ''));
-  const openLocationLimit = (reopening = null) => {
+  const openLocationLimit = (reopening = null, adding = null) => {
     const paidBusiness = planKnown && effPlan === 'business' && !onTrial && subscription?.status === 'active';
-    if (paidBusiness) { setAddLoc({ count: 1, quote: null, busy: false, error: '', reopening }); return; }
+    if (paidBusiness) { setAddLoc({ count: 1, quote: null, busy: false, error: '', reopening, adding }); return; }
     if (planKnown && effPlan === 'business' && onTrial) {
       setLimitPrompt({ title: `Your trial includes ${planCaps.locations} locations`, body: `To open more ${L.many} now, choose the Business plan with extra locations (₦3,500 a month each). Everything you set up during the trial carries over.`, cta: 'Choose Business with more locations' });
       return;
@@ -2791,7 +2791,10 @@ function XorlaApp() {
       setBillingBusy('verify'); setBillingNote(null);
       callBilling('verify', { reference: ref })
         .then((r) => {
-          if (r.ok && r.added_shops) setBillingNote({ ok: true, text: `Payment received, thank you! ${r.added_shops} more location${r.added_shops > 1 ? 's are' : ' is'} now on your plan. Open it in Settings → ${L.Many}.` });
+          if (r.ok && r.added_shops) {
+            setBillingNote({ ok: true, text: `Payment received, thank you! ${r.added_shops} more location${r.added_shops > 1 ? 's are' : ' is'} now on your plan.` });
+            return loadBusinessData(session.access_token).then(() => finishPendingLocation(r.added_shops));
+          }
           else if (r.ok) setBillingNote({ ok: true, text: `Payment received — thank you! You're on ${PLAN_INFO[r.plan]?.name || 'your new plan'}${r.until ? ` until ${fmtDate(r.until)}` : ''}.` });
           else setBillingNote({ ok: false, text: r.status === 'abandoned' ? 'The payment was not completed. Nothing was charged.' : 'We could not confirm the payment yet. If money left your account, it will show here within a few minutes.' });
           return loadBusinessData(session.access_token);
@@ -2800,6 +2803,32 @@ function XorlaApp() {
         .finally(() => setBillingBusy(null));
     }
   }, [settings.loggedIn, settings.role, pendingPlanOpen, billingReturnRef]);
+  // After paying for an extra location: open the branch they were adding (or reopen the one they chose)
+  const finishPendingLocation = async (added) => {
+    let p = null;
+    try { p = JSON.parse(localStorage.getItem('xorla:pending-location') || 'null'); localStorage.removeItem('xorla:pending-location'); } catch (e) {}
+    const opened = (nm) => { setBillingNote({ ok: true, text: `Payment received, thank you! ${nm} is open and ready to use.` }); setDraft((d) => ({ ...d })); setSettingsPage('shops'); };
+    if (!p || p.biz !== settings.businessId || Date.now() - p.at > 6 * 3600000) { setBillingNote({ ok: true, text: `Payment received, thank you! ${added} more location${added > 1 ? 's are' : ' is'} now on your plan. Add it in Settings → ${L.Many}.` }); return; }
+    try {
+      if (p.reopen) {
+        await sbRest(`shops?id=eq.${p.reopen}`, { method: 'PATCH', accessToken: session.access_token, body: { archived: false } });
+        setShops((prev) => prev.map((x) => (x.id === p.reopen ? { ...x, archived: false } : x)));
+        opened(locName(locationsAll.find((x) => x.id === p.reopen)) || 'Your location');
+      } else if (p.add?.name) {
+        const rows = await sbRest('shops', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: p.add.name, ...(p.add.kind === 'warehouse' ? { kind: 'warehouse' } : {}) } });
+        setShops((prev) => [...prev, rows[0]]);
+        opened(p.add.name);
+      } else setBillingNote({ ok: true, text: `Payment received, thank you! ${added} more location${added > 1 ? 's are' : ' is'} now on your plan. Add it in Settings → ${L.Many}.` });
+    } catch (e) { setBillingNote({ ok: false, text: `Your payment went through and the extra location is on your plan, but we couldn't open it automatically (${e.message}). Open it in Settings → ${L.Many}.` }); }
+  };
+  // Safety net: if they paid but didn't come straight back (e.g. paid by transfer), finish it the next time Xorla opens
+  useEffect(() => {
+    if (!planKnown || !isOwnerRole || !session) return;
+    let p = null; try { p = JSON.parse(localStorage.getItem('xorla:pending-location') || 'null'); } catch (e) {}
+    if (!p || p.biz !== settings.businessId) return;
+    if (Date.now() - p.at > 6 * 3600000) { try { localStorage.removeItem('xorla:pending-location'); } catch (e) {} return; }
+    if (liveLocations.length < planCaps.locations && billingReturnRef === null && !billingBusy) finishPendingLocation(planCaps.locations - liveLocations.length);
+  }, [planKnown, planCaps.locations]);
   // Fresh usage and early-supporter places whenever the plan page opens
   useEffect(() => {
     if (settingsPage !== 'plan' || !session) return;
@@ -5347,7 +5376,12 @@ function XorlaApp() {
     const per = yearly ? 'year' : 'month';
     const pay = async () => {
       setAddLoc({ ...a, busy: true, error: '' });
-      try { const r = await callBilling('add_locations', { count: a.count }); window.location.href = r.url; }
+      try {
+        const r = await callBilling('add_locations', { count: a.count });
+        // Remember what they were doing, so the location opens by itself once the payment is confirmed
+        try { localStorage.setItem('xorla:pending-location', JSON.stringify({ biz: settings.businessId, at: Date.now(), reopen: a.reopening?.id || null, add: a.adding || null })); } catch (e) {}
+        window.location.href = r.url;
+      }
       catch (e) { setAddLoc((x) => x && { ...x, busy: false, error: e.message }); }
     };
     return (
@@ -5356,7 +5390,7 @@ function XorlaApp() {
           <div className="flex items-start gap-3 mb-4">
             <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft, color: C.copper }}><Store size={20} /></div>
             <div className="flex-1 min-w-0">
-              <div className="text-[18px] font-bold cx-display leading-tight">{a.reopening ? `Reopen ${locName(a.reopening)}` : `Add ${a.count > 1 ? 'locations' : 'a location'} to your plan`}</div>
+              <div className="text-[18px] font-bold cx-display leading-tight">{a.reopening ? `Reopen ${locName(a.reopening)}` : a.adding?.name ? `Open ${a.adding.name}` : `Add ${a.count > 1 ? 'locations' : 'a location'} to your plan`}</div>
               <div className="text-[12.5px] mt-1" style={{ color: C.inkDim }}>Your Business plan has {planCaps.locations} locations ({3} included{extraNow ? ` + ${extraNow} extra` : ''}), and all are in use.</div>
             </div>
             <button onClick={close} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
@@ -5381,7 +5415,7 @@ function XorlaApp() {
           </div>
           {a.error && <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
           <button onClick={pay} disabled={!q || a.busy} className="w-full h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: !q || a.busy ? 0.55 : 1 }}>{a.busy ? <><Loader2 size={17} className="animate-spin" /> Opening payment…</> : q ? `Pay ${fmt(q.amount)} and add` : 'Add locations'}</button>
-          <div className="text-[11.5px] text-center mt-2.5" style={{ color: C.inkFaint }}>Card, bank transfer or USSD, through Paystack. Your renewal date doesn't change.</div>
+          <div className="text-[11.5px] text-center mt-2.5" style={{ color: C.inkFaint }}>Card, bank transfer or USSD, through Paystack. Your renewal date doesn't change.{a.reopening || a.adding?.name ? ` ${a.reopening ? locName(a.reopening) : a.adding.name} opens by itself once the payment is confirmed.` : ''}</div>
           <button onClick={() => { setAddLoc(null); openPlanPage(); }} className="w-full mt-3 py-2 text-[12.5px] font-medium" style={{ color: C.copper }}>See my plan instead</button>
         </div>
       </div>
@@ -9945,7 +9979,11 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
     catch (e) { setErr(/support_inbox|schema cache/i.test(e.message) ? 'Run support.sql in Supabase to switch on the support inbox.' : e.message); }
   }, [call, status, search]);
   useEffect(() => { const t = setTimeout(load, search ? 300 : 0); return () => clearTimeout(t); }, [status, search]);
-  useEffect(() => { const t = setInterval(() => { if (document.visibilityState === 'visible') { load(); if (openId) loadThread(openId, true); } }, 20000); return () => clearInterval(t); }, [load, openId]);
+  // The list refreshes every 20 seconds; an open conversation every 5, so new messages and "typing…" show quickly
+  useEffect(() => { const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 20000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { if (!openId) return undefined; const t = setInterval(() => { if (document.visibilityState === 'visible') loadThread(openId, true); }, 5000); return () => clearInterval(t); }, [openId]);
+  const typedAtRef = useRef(0);
+  const noteTyping = () => { if (openId && Date.now() - typedAtRef.current > 3000) { typedAtRef.current = Date.now(); call('support_typing', { p_ticket: openId }).catch(() => {}); } };
   const loadThread = async (id, quiet) => {
     try { const th = await call('support_thread', { p_ticket: id }); setThread(th); if (!quiet) load(); }
     catch (e) { if (!quiet) brandAlert(e.message); }
@@ -10066,13 +10104,14 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
                     </div>
                   </div>
                 ))}
+                {t.customer_typing && <TypingBubble avatar={false} name={(t.user_name || 'Customer').split(' ')[0]} />}
                 <div ref={endRef} />
               </div>
               <div className="shrink-0 pt-3 mt-2" style={{ borderTop: `1px solid ${C.line}` }}>
                 <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1">
                   {SUPPORT_REPLIES.map(([l, text]) => <button key={l} onClick={() => setReply((r) => (r ? `${r}\n\n${text}` : `Hi ${(t.user_name || '').split(' ')[0] || 'there'}, ${/^I\b/.test(text) ? text : text.charAt(0).toLowerCase() + text.slice(1)}`))} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>{l}</button>)}
                 </div>
-                <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={4} placeholder={`Reply as ${first || 'you'} from Xorla Support…`} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink, minHeight: 96 }} />
+                <textarea value={reply} onChange={(e) => { setReply(e.target.value); noteTyping(); }} rows={4} placeholder={`Reply as ${first || 'you'} from Xorla Support…`} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink, minHeight: 96 }} />
                 <div className="flex flex-wrap gap-2 mt-2">
                   <button onClick={() => send('waiting')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, opacity: !reply.trim() || busy ? 0.5 : 1 }}><SendHorizontal size={15} /> {t.assigned_to && !t.mine ? 'Take over and send' : 'Send'}</button>
                   <button onClick={() => send('solved')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageSoft, color: C.sage, opacity: !reply.trim() || busy ? 0.5 : 1 }}><Check size={15} /> Send and mark solved</button>
@@ -11014,6 +11053,31 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
   );
 }
 
+// Branded scrollbars everywhere (thin, Xorla teal on dark) and the "typing…" dots
+if (typeof document !== 'undefined' && !document.getElementById('xorla-global-style')) {
+  const st = document.createElement('style'); st.id = 'xorla-global-style';
+  st.textContent = `
+    * { scrollbar-width: thin; scrollbar-color: rgba(31,217,196,0.45) transparent; }
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgba(31,217,196,0.55), rgba(255,176,32,0.5)); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
+    *::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #1FD9C4, #FFB020); background-clip: padding-box; }
+    .xorla-dots span { display: inline-block; width: 6px; height: 6px; margin: 0 2px; border-radius: 99px; background: currentColor; animation: xorla-dot 1.2s infinite ease-in-out; }
+    .xorla-dots span:nth-child(2) { animation-delay: .15s } .xorla-dots span:nth-child(3) { animation-delay: .3s }
+    @keyframes xorla-dot { 0%, 60%, 100% { opacity: .25; transform: translateY(0) } 30% { opacity: 1; transform: translateY(-3px) } }
+  `;
+  document.head.appendChild(st);
+}
+const TypingBubble = ({ name, mine, avatar = true }) => (
+  <div className={`flex ${mine ? 'justify-end' : 'justify-start'} gap-2 items-end`}>
+    {!mine && avatar && <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: '#0F2C27', border: `1px solid ${C.line}` }}><XorlaMark size={18} /></span>}
+    <div>
+      <div className="text-[11px] mb-1" style={{ color: C.inkFaint }}>{name ? <><strong style={{ color: C.sage }}>{name}</strong> is typing</> : 'Typing'}</div>
+      <div className="rounded-2xl px-4 py-3 xorla-dots" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.sage, borderTopLeftRadius: mine ? 16 : 6 }}><span /><span /><span /></div>
+    </div>
+  </div>
+);
+
 // ---------- Help & support: talk to Xorla, see what's new, read how-to guides ----------
 // Fill in when ready. The WhatsApp button appears once a number is set (international format, e.g. '2348031234567').
 const SUPPORT = { whatsapp: '', email: '', hoursText: 'Monday to Saturday, 9am to 6pm', openDays: [1, 2, 3, 4, 5, 6], openHour: 9, closeHour: 18 };
@@ -11134,13 +11198,32 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
       sbRpc('support_seen', token, { p_ticket: id }).then(() => loadTickets()).catch(() => {});
     } catch (e) { setThread({ id, messages: [], error: e.message }); }
   }, [token, loadTickets]);
+  // Live while open: every few seconds, check whether support is typing or a new message arrived
+  const [agentTyping, setAgentTyping] = useState(null);
+  const lastAtRef = useRef(null);
   useEffect(() => {
     if (view !== 'thread' || !ticketId) return undefined;
-    loadThread(ticketId);
-    const t = setInterval(() => { if (document.visibilityState === 'visible') loadThread(ticketId); }, 12000);
-    return () => clearInterval(t);
+    loadThread(ticketId); lastAtRef.current = null; setAgentTyping(null);
+    const tick = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const live = await sbRpc('support_live', token, { p_ticket: ticketId });
+        if (!live) return;
+        setAgentTyping(live.typing || null);
+        if (lastAtRef.current && live.last_message_at !== lastAtRef.current) loadThread(ticketId);
+        lastAtRef.current = live.last_message_at;
+      } catch (e) { /* older database: fall back to the slower refresh below */ }
+    };
+    const fast = setInterval(tick, 4000);
+    const slow = setInterval(() => { if (document.visibilityState === 'visible') loadThread(ticketId); }, 30000);
+    tick();
+    return () => { clearInterval(fast); clearInterval(slow); };
   }, [view, ticketId]);
-  useEffect(() => { if (view === 'thread') setTimeout(() => endRef.current?.scrollIntoView({ block: 'end' }), 60); }, [thread?.messages?.length, view]);
+  const typedAtRef = useRef(0);
+  const noteTyping = () => { if (Date.now() - typedAtRef.current > 4000 && ticketId) { typedAtRef.current = Date.now(); sbRpc('support_typing', token, { p_ticket: ticketId }).catch(() => {}); } };
+  // While Help is open the page behind it stays still, so scrolling only moves Help
+  useEffect(() => { const prev = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = prev; }; }, []);
+  useEffect(() => { if (view === 'thread') setTimeout(() => endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }), 60); }, [thread?.messages?.length, view, !!agentTyping]);
   useEffect(() => {
     if (view === 'updates' && updates?.updates?.length) { sbRpc('mark_updates_seen', token, {}).then(() => onUpdatesSeen?.()).catch(() => {}); }
   }, [view, updates]);
@@ -11218,6 +11301,40 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
           </div>
         </div>
         {off && <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12.5px]" style={{ background: C.copperSoft, color: C.ink }}>Messaging Xorla isn't switched on yet. {SUPPORT.whatsapp ? 'Chat with us on WhatsApp for now.' : 'Please check back soon.'}</div>}
+        {recent.length > 0 && (() => {
+          const unreadN = recent.reduce((x, t) => x + Number(t.user_unread || 0), 0);
+          const openN = (tickets || []).filter((t) => t.status !== 'solved').length;
+          return (
+            <div className="mb-5 rounded-[22px] overflow-hidden" style={{ background: unreadN ? 'linear-gradient(160deg, rgba(255,176,32,0.14), rgba(31,217,196,0.06) 60%)' : 'linear-gradient(160deg, rgba(31,217,196,0.10), rgba(255,255,255,0.02) 60%)', border: `1.5px solid ${unreadN ? 'rgba(255,176,32,0.45)' : 'rgba(31,217,196,0.3)'}`, boxShadow: unreadN ? '0 10px 30px -14px rgba(255,176,32,0.45)' : 'none' }}>
+              <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+                <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: unreadN ? C.copper : C.sage, color: C.bg }}><MessageCircle size={19} /></span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[16px] font-bold cx-display">Your conversations</span>
+                  <span className="block text-[12px]" style={{ color: unreadN ? C.copper : C.inkDim }}>{unreadN ? `${unreadN} new repl${unreadN > 1 ? 'ies' : 'y'} from Xorla Support` : openN ? `${openN} open · we'll notify you when we reply` : 'All sorted'}</span>
+                </span>
+              </div>
+              <div className="px-2 pb-2 space-y-1.5">
+                {recent.map((t) => {
+                  const fresh = t.user_unread > 0;
+                  return (
+                    <button key={t.id} onClick={() => { setTicketId(t.id); setThread(null); setView('thread'); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left" style={{ background: fresh ? 'rgba(255,176,32,0.12)' : 'rgba(0,0,0,0.18)', border: `1px solid ${fresh ? 'rgba(255,176,32,0.35)' : 'rgba(255,255,255,0.05)'}` }}>
+                      <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative" style={{ background: C.surfaceRaised }}>
+                        {(() => { const I = (SUPPORT_TOPICS.find((x) => x.id === t.topic) || SUPPORT_TOPICS[2]).Icon; return <I size={16} style={{ color: fresh ? C.copper : C.inkDim }} />; })()}
+                        {fresh && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: C.copper, border: `2px solid ${C.surface}` }} />}
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[14px] truncate" style={{ color: C.ink, fontWeight: fresh ? 700 : 600 }}>{t.subject}</span>
+                        <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{supportRef(t.ref)} · {supportWhen(t.last_message_at)}</span>
+                      </span>
+                      {fresh ? chip('copper', 'New reply') : chip(SUPPORT_STATUS[t.status].tone, SUPPORT_STATUS[t.status].label)}
+                      <ChevronRight size={15} style={{ color: C.inkFaint }} className="shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         <div className="grid grid-cols-2 gap-2.5 mb-5">
           <button onClick={() => { setDraft((d) => ({ ...d, error: '' })); setView('new'); }} disabled={off} className="col-span-2 sm:col-span-1 rounded-2xl p-4 text-left flex items-center gap-3" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: off ? 0.5 : 1 }}>
             <MessageCircle size={22} className="shrink-0" />
@@ -11241,26 +11358,6 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
             <Gift size={18} style={{ color: C.sage }} className="shrink-0" /><span className="flex-1 text-[14px] font-semibold">What's new in Xorla</span>
             {unreadUpdates > 0 && chip('copper', `${unreadUpdates} new`)}<ChevronRight size={16} style={{ color: C.inkFaint }} />
           </button>
-        )}
-        {recent.length > 0 && (
-          <div className="mb-5">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-2 px-1" style={{ color: C.inkFaint }}>Your conversations</div>
-            <div className="rounded-2xl overflow-hidden" style={card}>
-              {recent.map((t, i) => (
-                <button key={t.id} onClick={() => { setTicketId(t.id); setThread(null); setView('thread'); }} className="w-full flex items-center gap-3 px-4 py-3 text-left" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
-                  <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative" style={{ background: C.surfaceRaised }}>
-                    {(() => { const I = (SUPPORT_TOPICS.find((x) => x.id === t.topic) || SUPPORT_TOPICS[2]).Icon; return <I size={16} style={{ color: C.inkDim }} />; })()}
-                    {t.user_unread > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: C.copper, border: `2px solid ${C.surface}` }} />}
-                  </span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-[13.5px] font-semibold truncate" style={{ color: C.ink }}>{t.subject}</span>
-                    <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{supportRef(t.ref)} · {supportWhen(t.last_message_at)}</span>
-                  </span>
-                  {t.user_unread > 0 ? chip('copper', 'New reply') : chip(SUPPORT_STATUS[t.status].tone, SUPPORT_STATUS[t.status].label)}
-                </button>
-              ))}
-            </div>
-          </div>
         )}
         <div className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-2 px-1" style={{ color: C.inkFaint }}>Quick answers</div>
         <div className="relative mb-2.5">
@@ -11335,7 +11432,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
           </div>
           {closeBtn}
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 space-y-3 pb-2">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1 space-y-3 pb-2">
           {!msgs ? <div className="flex justify-center py-10" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /></div> : msgs.map((m, i) => {
             const mine = !m.from_agent;
             return (
@@ -11356,6 +11453,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
               <Check size={16} style={{ color: C.sage }} className="shrink-0 mt-0.5" /><span><strong>We've got your message{t ? ` (${supportRef(t.ref)})` : ''}.</strong> {hours.open ? 'Someone from the team will reply here soon.' : hours.text.replace("We're away right now. Send your message and we'll", "We'll")} You'll get a notification when we do.</span>
             </div>
           )}
+          {agentTyping && <TypingBubble name={agentTyping} />}
           {t?.status === 'solved' && (
             <div className="rounded-2xl px-4 py-3.5 text-center" style={card}>
               <div className="text-[13px] font-semibold">This conversation is marked solved</div>
@@ -11376,7 +11474,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
           {reply.error && <div className="mb-2 rounded-xl px-3 py-2 text-[12px]" style={{ background: C.rustSoft, color: C.rust }}>{reply.error}</div>}
           <div className="flex items-end gap-2">
             <label className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 cursor-pointer" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }} aria-label="Attach a screenshot"><Paperclip size={16} /><input type="file" accept="image/*" className="hidden" onChange={pickFile(setReply)} /></label>
-            <textarea value={reply.body} onChange={(e) => setReply({ ...reply, body: e.target.value })} rows={1} placeholder="Write a reply…" className="flex-1 rounded-xl px-3.5 py-3 text-[14px] outline-none resize-none" style={{ ...field, maxHeight: 140 }} onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`; }} />
+            <textarea value={reply.body} onChange={(e) => { setReply({ ...reply, body: e.target.value }); noteTyping(); }} rows={1} placeholder="Write a reply…" className="flex-1 rounded-xl px-3.5 py-3 text-[14px] outline-none resize-none" style={{ ...field, maxHeight: 140 }} onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`; }} />
             <button onClick={sendReply} disabled={reply.busy || (!reply.body.trim() && !reply.file)} aria-label="Send" className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper, color: C.bg, opacity: reply.busy || (!reply.body.trim() && !reply.file) ? 0.45 : 1 }}>{reply.busy ? <Loader2 size={17} className="animate-spin" /> : <SendHorizontal size={17} />}</button>
           </div>
           {t && t.status !== 'solved' && <button onClick={() => resolve(null)} className="mt-2 text-[12px] font-medium" style={{ color: C.inkFaint }}>Sorted? Mark as solved</button>}
@@ -11413,8 +11511,8 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
     );
   }
   return (
-    <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.82)' }} onClick={onClose}>
-      <div role="dialog" aria-label="Help and support" className={`w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl p-4 sm:p-6 xorla-fade-up ${view === 'thread' ? 'h-[92vh] sm:h-[86vh] flex flex-col' : 'max-h-[94vh] overflow-y-auto'}`} style={{ background: C.surface, border: `1px solid ${C.line}`, paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[90] flex sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.82)' }} onClick={onClose}>
+      <div role="dialog" aria-label="Help and support" className={`w-full h-full sm:max-w-2xl sm:rounded-3xl px-4 sm:p-6 xorla-fade-up overscroll-contain ${view === 'thread' ? 'sm:h-[86vh] flex flex-col' : 'sm:h-auto sm:max-h-[90vh] overflow-y-auto'}`} style={{ background: C.surface, border: `1px solid ${C.line}`, paddingTop: 'max(16px, env(safe-area-inset-top))', paddingBottom: 'max(16px, env(safe-area-inset-bottom))', WebkitOverflowScrolling: 'touch' }} onClick={(e) => e.stopPropagation()}>
         {body}
       </div>
     </div>
