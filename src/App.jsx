@@ -8380,43 +8380,48 @@ function XorlaApp() {
                 const isOut = p.stockQuantity === 0;
                 const isRestocking = restockingId === p.id;
                 return (
-                  <div key={p.id} className="py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.bg }}><Package size={16} style={{ color: C.inkFaint }} /></div>}
-                        <div className="min-w-0">
-                          <div className="text-[13.5px] font-medium truncate">{p.name}{p.category && <span className="ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{p.category}</span>}</div>
-                          <div className="text-[11px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkFaint }}>
-                            {kindOf(p, settings.businessType) === 'service' ? <span>{priceLabel(p)}{p.duration ? ` · ${p.duration}` : ''}{settings.businessType === 'both' ? ' · Service' : ''}</span> : <span>Cost {fmt(p.costPrice)} · Sells {fmt(p.sellingPrice)}{shops.length > 1 && hasShopPrices(p) ? (viewAllShops ? ' · varies by shop' : '') : ''}</span>}
-                            {T.tracksStock && kindOf(p, settings.businessType) === 'product' && p.stockQuantity !== null && (
-                              <span className="px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold" style={isOut ? { background: 'rgba(226,98,75,0.15)', color: C.rust } : isLow ? { background: 'rgba(226,98,75,0.12)', color: C.rust } : { background: C.sageSoft, color: C.sage }}>
-                                {isOut ? 'Out of stock' : `${p.stockQuantity} in stock`}
-                              </span>
-                            )}
-                          </div>
-                          {viewAllShops && hasManyLocations && p.stockQuantity !== null && (
-                            <div className="mt-1.5 space-y-0.5 max-w-[260px]">
-                              {locations.map((s) => {
-                                const q = stockAt(p, s.id);
-                                const low = q <= p.lowStockThreshold;
-                                return (
-                                  <div key={s.id} className="flex items-center justify-between gap-3 text-[11px]">
-                                    <span className="truncate" style={{ color: C.inkFaint }}>{locName(s)}</span>
-                                    <span className="cx-mono font-semibold shrink-0" style={{ color: low ? C.rust : C.inkDim }}>{q}{low ? ' · low' : ''}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
+                  <div key={p.id} className="rounded-2xl p-3.5 mb-2.5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012))', border: `1px solid ${isOut || isLow ? 'rgba(226,98,75,0.28)' : C.line}` }}>
+                    <div className="flex items-start gap-3">
+                      {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-14 h-14 rounded-xl object-cover shrink-0" style={{ background: '#fff' }} /> : <div className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Package size={18} style={{ color: C.inkFaint }} /></div>}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-[14.5px] font-semibold leading-snug min-w-0" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{p.name}</div>
+                          {T.tracksStock && kindOf(p, settings.businessType) === 'product' && p.stockQuantity !== null && (
+                            <span className="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap" style={isOut ? { background: 'rgba(226,98,75,0.16)', color: C.rust } : isLow ? { background: 'rgba(226,98,75,0.12)', color: C.rust } : { background: C.sageSoft, color: C.sage }}>
+                              {isOut ? 'Out of stock' : `${Number(p.stockQuantity).toLocaleString('en-NG')} in stock`}
+                            </span>
                           )}
                         </div>
+                        <div className="text-[12px] mt-1 flex items-center gap-x-1.5 gap-y-1 flex-wrap" style={{ color: C.inkFaint }}>
+                          {kindOf(p, settings.businessType) === 'service'
+                            ? <span>{priceLabel(p)}{p.duration ? ` · ${p.duration}` : ''}{settings.businessType === 'both' ? ' · Service' : ''}</span>
+                            : <><span>Sells <strong className="font-semibold" style={{ color: C.ink }}>{fmt(p.sellingPrice)}</strong></span><span>·</span><span>Cost {fmt(p.costPrice)}</span>{Number(p.sellingPrice) > 0 && Number(p.costPrice) > 0 && <span className="px-1.5 rounded-md text-[10.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage }}>{Math.round(((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100)}% margin</span>}{shops.length > 1 && hasShopPrices(p) && viewAllShops ? <span>· varies by {L.one}</span> : null}</>}
+                          {p.category && <span className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{p.category}</span>}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2.5 shrink-0">
-                        <button onClick={() => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] font-medium" style={{ color: C.copper }}>Edit</button>
-                        {isOwnerRole && p.stockQuantity !== null && !isPausedLocation(activeShopId) && <button onClick={() => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); }} className="text-[11px] font-medium" style={{ color: C.inkDim }}>Fix count</button>}
-                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && <button onClick={() => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }} className="text-[11px] font-medium" style={{ color: C.sage }}>{p.stockQuantity === null ? 'Track stock' : 'Restock'}</button>}
-                        {isOwnerRole && hasManyLocations && multiLocationOn && p.stockQuantity !== null && <button onClick={() => openSend({ productId: p.id, from: activeShopId || '' })} className="text-[11px] font-medium" style={{ color: C.copper }}>Send</button>}
-                        <button onClick={() => removeProduct(p.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
+                    </div>
+                    {viewAllShops && hasManyLocations && p.stockQuantity !== null && (
+                      <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {locations.map((sh) => {
+                          const q = stockAt(p, sh.id);
+                          const low = q <= p.lowStockThreshold;
+                          return (
+                            <div key={sh.id} className="rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2 min-w-0" style={{ background: low ? 'rgba(226,98,75,0.08)' : 'rgba(0,0,0,0.18)', border: `1px solid ${low ? 'rgba(226,98,75,0.22)' : 'rgba(255,255,255,0.04)'}` }}>
+                              <span className="text-[11.5px] truncate min-w-0" style={{ color: C.inkDim }}>{locName(sh)}</span>
+                              <span className="cx-mono text-[12px] font-semibold shrink-0" style={{ color: low ? C.rust : C.ink }}>{Number(q).toLocaleString('en-NG')}</span>
+                            </div>
+                          );
+                        })}
                       </div>
+                    )}
+                    <div className="mt-3 pt-3 flex items-center gap-1.5 flex-wrap" style={{ borderTop: `1px solid ${C.line}` }}>
+                      {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
+                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }, C.sage)}
+                        {isOwnerRole && hasManyLocations && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
+                        {pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); })}
+                        {isOwnerRole && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
+                        <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>
+                      </>); })()}
                     </div>
                     {transferringId === p.id && (
                       <div className="rounded-xl p-3 mt-2.5 space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
