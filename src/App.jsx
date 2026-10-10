@@ -4501,6 +4501,13 @@ function XorlaApp() {
   const billExtras = productsAll.filter((p) => !isBookable(p));
   const chargesOf = (b) => roomCharges.filter((c) => c.booking_id === b.id);
   const extrasTotalOf = (b) => chargesOf(b).reduce((a, c) => a + Number(c.amount), 0);
+  // Money paid beyond the stay is the guest's credit: extras come out of it, the rest is given back at check-out
+  const creditLeftOf = (b) => (b.status === 'checked_in' ? Math.max(0, (Number(b.amount_paid) || 0) - Number(b.total) - extrasTotalOf(b)) : 0);
+  const payDuringStay = (b) => {
+    const amt = Number(parseNumInput(chargeForm.pay)) || 0;
+    if (amt <= 0) { setBookingError('Enter the amount received.'); return; }
+    runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: b.id, p_action: 'pay', p_amount: amt }), () => setChargeForm((f) => ({ ...f, pay: '' })));
+  };
   const canRemoveCharge = (c) => isOwnerRole || (c.added_by === session?.user_id && Date.now() - new Date(c.created_at).getTime() < 30 * 60000);
   const openBill = (b) => {
     setBookingError('');
@@ -4570,7 +4577,7 @@ function XorlaApp() {
     const extras = chargesOf(booking);
     const grand = Number(booking.total) + extras.reduce((a, c) => a + Number(c.amount), 0);
     const paidAll = Math.min(grand, (Number(booking.amount_paid) || 0) + adding);
-    runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: actForm.roomId || null }),
+    runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: actForm.roomId || null }),
       () => {
         setBookingAct(null);
         if (action === 'decline' || action === 'cancel') {
@@ -4595,7 +4602,8 @@ function XorlaApp() {
   const renderBookingRow = (b, actions) => {
     const paid = Number(b.amount_paid) || 0;
     const due = Number(b.total) + (b.status === 'checked_in' ? extrasTotalOf(b) : 0);
-    const [label, bg, fg] = b.deposit_status === 'refund_due' ? ['Cancelled', C.rustSoft, C.rust] : b.status === 'cancelled' || b.status === 'no_show' ? [b.status === 'no_show' ? 'No-show' : 'Cancelled', C.surface, C.inkFaint] : paid <= 0 ? ['Unpaid', C.rustSoft, C.rust] : paid < due ? [`${fmt(paid)} paid`, C.copperSoft, C.copper] : ['Paid', C.sageSoft, C.sage];
+    const credit = creditLeftOf(b);
+    const [label, bg, fg] = b.deposit_status === 'refund_due' ? ['Cancelled', C.rustSoft, C.rust] : b.status === 'cancelled' || b.status === 'no_show' ? [b.status === 'no_show' ? 'No-show' : 'Cancelled', C.surface, C.inkFaint] : paid <= 0 ? ['Unpaid', C.rustSoft, C.rust] : paid < due ? [`${fmt(paid)} paid`, C.copperSoft, C.copper] : credit > 0 ? [`${fmt(credit)} credit`, C.sageSoft, C.sage] : ['Paid', C.sageSoft, C.sage];
     const live = !['cancelled', 'no_show'].includes(b.status) && b.deposit_status !== 'refund_due';
     const accent = b.status === 'requested' ? C.copper : b.deposit_status === 'refund_due' ? C.rust : b.status === 'checked_in' ? (b.check_out <= bkToday ? C.copper : C.sage) : C.inkFaint;
     const initials = String(b.customer_name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
@@ -4646,6 +4654,9 @@ function XorlaApp() {
             <div className="text-[12px] font-semibold" style={{ color: C.sage }}>Deposit received: <span className="cx-mono">{fmt(b.deposit_paid)}</span></div>
           )}
           {holdH !== null && <div className="text-[11.5px] flex items-center gap-1.5" style={{ color: holdH <= 3 ? C.rust : C.inkFaint }}><Clock size={12} /> Dates held for {holdH < 1 ? 'less than an hour' : `${holdH} more hour${holdH !== 1 ? 's' : ''}`}, then released</div>}
+          {credit > 0 && <div className="text-[12px] font-semibold" style={{ color: C.sage }}>Credit left: <span className="cx-mono">{fmt(credit)}</span> <span className="font-normal" style={{ color: C.inkFaint }}>· paid ahead, extras come out of it</span></div>}
+          {Number(b.change_given) > 0 && <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Change given back at check-out: <span className="cx-mono">{fmt(b.change_given)}</span></div>}
+          {Number(b.change_kept) > 0 && <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Balance of <span className="cx-mono">{fmt(b.change_kept)}</span> kept at the guest's request</div>}
           {b.status === 'checked_in' && chargesOf(b).length > 0 && (
             <div className="text-[12px] font-semibold" style={{ color: C.copper }}>Extras on bill: <span className="cx-mono">{fmt(extrasTotalOf(b))}</span> <span className="font-normal" style={{ color: C.inkFaint }}>({chargesOf(b).length} item{chargesOf(b).length !== 1 ? 's' : ''})</span></div>
           )}
@@ -4972,20 +4983,40 @@ function XorlaApp() {
           {(action === 'check_in' || action === 'check_out') && (
             <>
               <input type="text" inputMode="decimal" placeholder="Payment received now (₦)" value={formatNumInput(actForm.amount)} onChange={(e) => setActForm({ ...actForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-              <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
-                {action === 'check_out' && extrasTotal > 0 ? (
-                  <>
-                    <div className="flex justify-between"><span style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Rental' : 'Stay'}</span><span className="cx-mono">{fmt(b.total)}</span></div>
-                    <div className="flex justify-between"><span style={{ color: C.inkDim }}>Extras ({charges.length})</span><span className="cx-mono">{fmt(extrasTotal)}</span></div>
-                    <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(Number(b.total) + extrasTotal)}</span></div>
-                  </>
-                ) : <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(b.total)}</span></div>}
-                <div className="flex justify-between"><span style={{ color: C.inkDim }}>Paid so far</span><span className="cx-mono">{fmt(paidSoFar + adding)}</span></div>
-                <div className="flex justify-between font-semibold"><span>Balance</span><span className="cx-mono" style={{ color: balance > 0 ? C.rust : C.sage }}>{fmt(balance)}</span></div>
-                <div className="text-[11.5px] pt-1" style={{ color: C.inkFaint }}>{action === 'check_in'
-                  ? (balance > 0 ? `Checking in records the stay as a sale today. The ${fmt(balance)} still owed becomes an invoice you can follow up.` : 'Checking in records the stay as a sale today, fully paid.')
-                  : `${extrasTotal > 0 ? 'Payment covers the stay first, then the extras, which are recorded as sales on one receipt. ' : ''}${balance > 0 ? `The ${fmt(balance)} still owed goes on the guest's invoice for follow-up.` : 'Fully paid. Nothing else to collect.'}`}</div>
-              </div>
+              {(() => {
+                const grand = Number(b.total) + (action === 'check_out' ? extrasTotal : 0);
+                const paidAll = paidSoFar + adding;
+                const owe = Math.max(0, grand - paidAll);
+                const extra = Math.max(0, paidAll - grand);
+                return (
+                  <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
+                    {action === 'check_out' && extrasTotal > 0 ? (
+                      <>
+                        <div className="flex justify-between"><span style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Rental' : 'Stay'}</span><span className="cx-mono">{fmt(b.total)}</span></div>
+                        <div className="flex justify-between"><span style={{ color: C.inkDim }}>Extras ({charges.length})</span><span className="cx-mono">{fmt(extrasTotal)}</span></div>
+                        <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(grand)}</span></div>
+                      </>
+                    ) : <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(grand)}</span></div>}
+                    <div className="flex justify-between"><span style={{ color: C.inkDim }}>Paid{adding > 0 ? ' (with today)' : ' so far'}</span><span className="cx-mono">{fmt(paidAll)}</span></div>
+                    {extra > 0
+                      ? <div className="flex justify-between font-semibold"><span>{action === 'check_in' ? "Guest's credit" : 'Change to give back'}</span><span className="cx-mono" style={{ color: C.sage }}>{fmt(extra)}</span></div>
+                      : <div className="flex justify-between font-semibold"><span>Balance</span><span className="cx-mono" style={{ color: owe > 0 ? C.rust : C.sage }}>{fmt(owe)}</span></div>}
+                    <div className="text-[11.5px] pt-1 leading-relaxed" style={{ color: C.inkFaint }}>{action === 'check_in'
+                      ? (extra > 0 ? `The stay is recorded as a ${fmt(b.total)} sale. The extra ${fmt(extra)} is held as the guest's credit, not a sale: extras on their bill come out of it, and whatever is left is given back at check-out.` : owe > 0 ? `Checking in records the stay as a sale today. The ${fmt(owe)} still owed becomes an invoice you can follow up.` : 'Checking in records the stay as a sale today, fully paid.')
+                      : extra > 0 ? `Everything is paid${extrasTotal > 0 ? ', extras included' : ''}. ${fmt(extra)} is left over from what the guest paid.`
+                      : `${extrasTotal > 0 ? 'Payment covers the stay first, then the extras, which are recorded as sales on one receipt. ' : ''}${owe > 0 ? `The ${fmt(owe)} still owed goes on the guest's invoice for follow-up.` : 'Fully paid. Nothing else to collect.'}`}</div>
+                    {action === 'check_out' && extra > 0 && (
+                      <div className="grid grid-cols-2 gap-2 pt-2">
+                        {[[false, 'Give it back', `Hand ${fmt(extra)} back`], [true, 'Guest says keep it', 'Recorded as income']].map(([v, l, d]) => (
+                          <button key={l} type="button" onClick={() => setActForm({ ...actForm, keep: v })} className="rounded-xl px-3 py-2.5 text-left" style={{ background: !!actForm.keep === v ? C.copperSoft : C.surface, border: `1.5px solid ${!!actForm.keep === v ? C.copper : C.line}` }}>
+                            <span className="block text-[12.5px] font-semibold" style={{ color: C.ink }}>{l}</span><span className="block text-[11px]" style={{ color: C.inkFaint }}>{d}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </>
           )}
           {action === 'bill' && (() => {
@@ -4995,7 +5026,8 @@ function XorlaApp() {
             const linePrice = f.custom ? (Number(parseNumInput(f.price)) || 0) : (picked ? priceAt(picked, b.shop_id) : 0);
             const tracked = picked && picked.trackStock && kindOf(picked, settings.businessType) === 'product';
             const left = tracked ? stockAt(picked, b.shop_id) : null;
-            const stayOwed = Math.max(0, Number(b.total) - paidSoFar);
+            const toPay = Math.max(0, Number(b.total) + extrasTotal - paidSoFar);
+            const creditLeft = Math.max(0, paidSoFar - Number(b.total) - extrasTotal);
             return (
               <>
                 <div className="rounded-2xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
@@ -5061,7 +5093,14 @@ function XorlaApp() {
                   <div className="flex justify-between"><span style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Rental' : 'Stay'}</span><span className="cx-mono">{fmt(b.total)}</span></div>
                   <div className="flex justify-between"><span style={{ color: C.inkDim }}>Extras</span><span className="cx-mono">{fmt(extrasTotal)}</span></div>
                   <div className="flex justify-between"><span style={{ color: C.inkDim }}>Paid so far</span><span className="cx-mono">{fmt(paidSoFar)}</span></div>
-                  <div className="flex justify-between font-semibold pt-1"><span>To pay at check-out</span><span className="cx-mono" style={{ color: stayOwed + extrasTotal > 0 ? C.rust : C.sage }}>{fmt(stayOwed + extrasTotal)}</span></div>
+                  {creditLeft > 0
+                    ? <div className="flex justify-between font-semibold pt-1"><span>Credit left</span><span className="cx-mono" style={{ color: C.sage }}>{fmt(creditLeft)}</span></div>
+                    : <div className="flex justify-between font-semibold pt-1"><span>To pay at check-out</span><span className="cx-mono" style={{ color: toPay > 0 ? C.rust : C.sage }}>{fmt(toPay)}</span></div>}
+                  {creditLeft > 0 && <div className="text-[11px] pt-0.5" style={{ color: C.inkFaint }}>The guest paid ahead. Extras come out of this; what's left is given back at check-out.</div>}
+                  <div className="flex gap-2 pt-2.5">
+                    <input type="text" inputMode="decimal" placeholder="Guest paid now? (₦)" value={formatNumInput(chargeForm.pay || '')} onChange={(e) => setChargeForm({ ...chargeForm, pay: parseNumInput(e.target.value) })} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                    <button type="button" onClick={() => payDuringStay(b)} disabled={bookingBusy || !Number(parseNumInput(chargeForm.pay || ''))} className="shrink-0 px-3.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: bookingBusy || !Number(parseNumInput(chargeForm.pay || '')) ? 0.45 : 1 }}>Save payment</button>
+                  </div>
                 </div>
               </>
             );
@@ -7316,7 +7355,7 @@ function XorlaApp() {
                 ['Expenses', 'what you spent, by category', expensesAll, fresh('expenses', 'spent_at.desc', fromSbExpense, (rows) => downloadCsv(`${nm}-expenses-${day}.csv`, [['Date', (r) => r.dateKey], ['Item', (r) => r.item], ['Category', (r) => r.category], ['Amount', (r) => r.amount], ['Recorded by', (r) => r.loggedBy], [L.One, (r) => where(r.shopId)]], rows))],
                 ['Invoices', 'customers, amounts and payments', invoicesAll, fresh('invoices', 'created_at.desc', fromSbInvoice, (rows) => downloadCsv(`${nm}-invoices-${day}.csv`, [['Invoice', (r) => r.invoiceNo], ['Customer', (r) => r.clientName], ['Phone', (r) => r.phone], ['Amount', (r) => r.amount], ['Paid', (r) => r.paidAmount], ['Balance', (r) => Math.max(0, Number(r.amount) - Number(r.paidAmount || 0))], ['Due date', (r) => r.dueDate], [L.One, (r) => where(r.shopId)]], rows))],
                 [T.catalog, 'names, prices and stock', productsAll, () => downloadCsv(`${nm}-catalog-${day}.csv`, [['Name', (r) => r.name], ['Type', (r) => kindOf(r, settings.businessType)], ['Category', (r) => r.category], ['Price', (r) => r.sellingPrice], ['Cost', (r) => r.costPrice], ['Stock', (r) => (r.trackStock ? locations.reduce((a, l) => a + stockAt(r, l.id), 0) : '')], ['Takes', (r) => r.duration]], productsAll)],
-                ...(bookingsAll.length ? [['Bookings', 'guests, dates, deposits and payments', bookingsAll, () => downloadCsv(`${nm}-bookings-${day}.csv`, [['Guest', (r) => r.customer_name], ['Phone', (r) => r.customer_phone], ['Room', (r) => r.item_name], ['Room number', (r) => r.room_label], ['Check in', (r) => r.check_in], ['Check out', (r) => r.check_out], ['Total', (r) => r.total], ['Paid', (r) => r.amount_paid], ['Deposit', (r) => r.deposit_paid], ['Status', (r) => r.status], [L.One, (r) => where(r.shop_id)]], bookingsAll)]] : []),
+                ...(bookingsAll.length ? [['Bookings', 'guests, dates, deposits and payments', bookingsAll, () => downloadCsv(`${nm}-bookings-${day}.csv`, [['Guest', (r) => r.customer_name], ['Phone', (r) => r.customer_phone], ['Room', (r) => r.item_name], ['Room number', (r) => r.room_label], ['Check in', (r) => r.check_in], ['Check out', (r) => r.check_out], ['Total', (r) => r.total], ['Paid', (r) => r.amount_paid], ['Change given back', (r) => r.change_given || 0], ['Deposit', (r) => r.deposit_paid], ['Status', (r) => r.status], [L.One, (r) => where(r.shop_id)]], bookingsAll)]] : []),
                 ...(ordersAll.length ? [[apptMode ? 'Requests & appointments' : 'Storefront orders', 'from your storefront and your team', ordersAll, () => downloadCsv(`${nm}-${apptMode ? 'appointments' : 'orders'}-${day}.csv`, [['Received', (r) => (r.createdAt || '').slice(0, 10)], ['Customer', (r) => r.customerName], ['Phone', (r) => r.customerPhone], ['Items', (r) => r.items.map((it) => `${it.description} x${it.quantity}`).join('; ')], ['Total', (r) => r.total], ['Time', (r) => r.preferredTime], ['Status', (r) => (r.status === 'pending' && r.acceptedAt ? 'confirmed' : r.status)]], ordersAll)]] : []),
               ];
               return (
