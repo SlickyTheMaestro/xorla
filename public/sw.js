@@ -10,6 +10,9 @@ self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { title: 'Xorla', body: event.data ? event.data.text() : '' }; }
   const title = data.title || 'Xorla';
+  // If Xorla is open, tell it straight away so it can update (new support reply, new order…) without a refresh
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then((wins) => wins.forEach((w) => w.postMessage({ type: 'xorla-push', url: data.url || '/', tag: data.tag || '' }))).catch(() => {}));
   // Mark the app icon; Xorla sets the exact count (or clears it) when it's opened
   try { if (self.navigator && self.navigator.setAppBadge) self.navigator.setAppBadge().catch(() => {}); } catch (e) {}
   event.waitUntil(self.registration.showNotification(title, {
