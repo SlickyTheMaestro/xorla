@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -1596,6 +1596,7 @@ function XorlaApp() {
   const [helpOpen, setHelpOpen] = useState(null);          // { ticket, view } while Help & support is open
   const [supportUnread, setSupportUnread] = useState(0);   // replies from Xorla Support not read yet
   const [xorlaNews, setXorlaNews] = useState(null);         // What's new + announcements from Xorla
+  const [spotlight, setSpotlight] = useState(null);         // the pop-up for a new announcement or update
   const [hiddenNotices, setHiddenNotices] = useState(() => { try { return JSON.parse(localStorage.getItem('xorla:hidden-notices') || '[]'); } catch (e) { return []; } });
   const [subscription, setSubscription] = useState(null);
   const [payments, setPayments] = useState([]);
@@ -1897,6 +1898,25 @@ function XorlaApp() {
     prevUnreadRef.current = supportUnread;
     return undefined;
   }, [supportUnread]);
+  // Pop-up (like a bank app's offer screen) for a new announcement, or a new feature, once per person
+  const spotKey = session ? `xorla:spotlit:${session.user_id}` : null;
+  useEffect(() => {
+    if (!xorlaNews || spotlight || locked || helpOpen || tourStep !== null || showLangIntro || !settings.loggedIn) return undefined;
+    let spotlit = []; try { spotlit = JSON.parse(localStorage.getItem(spotKey) || '[]'); } catch (e) {}
+    const ann = (xorlaNews.announcements || []).find((a) => !a.seen && !hiddenNotices.includes(a.id) && !spotlit.includes(a.id));
+    const latest = (xorlaNews.updates || [])[0];
+    const upd = !ann && latest && (!xorlaNews.seen_at || latest.published_at > xorlaNews.seen_at) && !spotlit.includes(`u-${latest.id}`) && !hiddenNotices.includes(`u-${latest.id}`)
+      && Date.now() - new Date(latest.published_at).getTime() < 14 * 86400000 ? latest : null;
+    if (!ann && !upd) return undefined;
+    const t = setTimeout(() => setSpotlight(ann ? { kind: 'ann', item: ann } : { kind: 'update', item: upd }), 900);
+    return () => clearTimeout(t);
+  }, [xorlaNews, locked, helpOpen, tourStep, showLangIntro, settings.loggedIn]);
+  useEffect(() => {
+    if (!spotlight || !session) return;
+    const id = spotlight.kind === 'ann' ? spotlight.item.id : `u-${spotlight.item.id}`;
+    try { const l = JSON.parse(localStorage.getItem(spotKey) || '[]'); localStorage.setItem(spotKey, JSON.stringify([...l, id].slice(-60))); } catch (e) {}
+    if (spotlight.kind === 'ann') sbRpc('mark_announcement_seen', session.access_token, { p_id: spotlight.item.id }).catch(() => {});
+  }, [spotlight]);
   // Work out whether this phone can get notifications, and whether it already does
   useEffect(() => {
     if (!session) return;
@@ -5083,7 +5103,6 @@ function XorlaApp() {
     const latest = (xorlaNews?.updates || [])[0];
     const showNew = latest && newsUnread > 0 && !hiddenNotices.includes(`u-${latest.id}`) && Date.now() - new Date(latest.published_at).getTime() < 21 * 86400000;
     if (!supportUnread && !anns.length && !showNew) return null;
-    const tones = { info: [C.sageSoft, 'rgba(31,217,196,0.28)', C.sage, Megaphone], warning: [C.copperSoft, 'rgba(255,176,32,0.32)', C.copper, AlertCircle], success: [C.sageSoft, 'rgba(31,217,196,0.28)', C.sage, Check] };
     return (
       <div className="space-y-2 mb-4">
         {supportUnread > 0 && (
@@ -5093,11 +5112,15 @@ function XorlaApp() {
             <ChevronRight size={16} style={{ color: C.copper }} />
           </button>
         )}
-        {anns.map((a) => { const [bg, bd, fg, Ic] = tones[a.tone] || tones.info; return (
-          <div key={a.id} className="rounded-2xl px-4 py-3 flex items-start gap-3" style={{ background: bg, border: `1px solid ${bd}` }}>
-            <Ic size={16} style={{ color: fg }} className="shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0 text-[13px] leading-relaxed"><strong className="font-semibold" style={{ color: fg }}>From Xorla: </strong>{a.message}</div>
-            <button onClick={() => hideNotice(a.id)} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={15} /></button>
+        {anns.map((a) => { const st = SPOT_TONES[a.tone] || SPOT_TONES.info; const Ic = st.Icon; return (
+          <div key={a.id} className="relative rounded-2xl pl-3.5 pr-3 py-3 flex items-start gap-3 overflow-hidden" style={{ background: `radial-gradient(90% 140% at 100% 0%, ${st.glow.replace(/0\.\d+\)$/, '0.22)')}, transparent 60%), linear-gradient(135deg, ${st.from}, ${st.to})`, border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 12px 28px -16px rgba(0,0,0,0.8)' }}>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}><Ic size={18} style={{ color: '#fff' }} /></span>
+            <button onClick={() => setSpotlight({ kind: 'ann', item: a })} className="flex-1 min-w-0 text-left">
+              <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase" style={{ color: 'rgba(255,255,255,0.7)' }}>{st.eyebrow}</span>
+              <span className="block text-[14px] font-semibold leading-snug" style={{ color: '#fff' }}>{a.title || a.message}</span>
+              {a.title && <span className="block text-[12.5px] leading-snug mt-0.5" style={{ color: 'rgba(255,255,255,0.78)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{a.message}</span>}
+            </button>
+            <button onClick={() => hideNotice(a.id)} aria-label="Dismiss" className="shrink-0 p-1 -m-1" style={{ color: 'rgba(255,255,255,0.6)' }}><X size={15} /></button>
           </div>
         ); })}
         {showNew && (
@@ -5110,6 +5133,20 @@ function XorlaApp() {
       </div>
     );
   };
+  const closeSpotlight = (go) => {
+    const sp = spotlight; setSpotlight(null);
+    if (!sp) return;
+    hideNotice(sp.kind === 'ann' ? sp.item.id : `u-${sp.item.id}`);
+    if (sp.kind === 'ann') setXorlaNews((x) => x && { ...x, announcements: (x.announcements || []).map((a) => (a.id === sp.item.id ? { ...a, seen: true } : a)) });
+    if (!go) return;
+    if (go === 'plan') setPendingPlanOpen(true);
+    else if (go === 'updates') setHelpOpen({ view: 'updates' });
+    else if (go === 'support') setHelpOpen({});
+    else if (['sales', 'products', 'settings'].includes(go)) { setSettingsPage(null); setTab(go); }
+  };
+  const renderSpotlight = () => spotlight && createPortal(
+    <XorlaSpotlight spot={spotlight} canPlan={isOwnerRole} onClose={closeSpotlight} />, document.body
+  );
   const renderSupportToast = () => supportToast && !helpOpen && createPortal(
     <div className="fixed left-0 right-0 z-[95] flex justify-center px-3 pointer-events-none" style={{ top: 'max(12px, env(safe-area-inset-top))' }}>
       <button onClick={() => { setSupportToast(false); setHelpOpen({}); }} className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 text-left xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(255,176,32,0.45)', boxShadow: '0 18px 40px -12px rgba(0,0,0,0.7)' }}>
@@ -5782,7 +5819,7 @@ function XorlaApp() {
             <div className="text-[20px] font-bold cx-display">{settings.activeStaff}</div>
           </div>
           {renderXorlaNotices()}
-          {renderHelp()}{renderSupportToast()}
+          {renderHelp()}{renderSupportToast()}{renderSpotlight()}
 
           {hasBookables && <div className="rounded-2xl p-4 mb-5" style={card}>{renderBookingDesk()}</div>}
           {apptMode && (() => {
@@ -7116,6 +7153,13 @@ function XorlaApp() {
             {settingsPage === 'shops' && (
               <div className="space-y-4">
                 <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Running more than one location? Add each {L.one} here. Everything you record is kept per {L.one}, and the switcher at the top lets you see one {L.one} or all of them together.</div>
+                {closedLocations.length > 0 && (
+                  <div className="flex items-center gap-2 px-1 -mb-2">
+                    <span className="w-2 h-2 rounded-full" style={{ background: C.sage, boxShadow: `0 0 0 3px ${C.sageSoft}` }} />
+                    <span className="text-[13px] font-semibold">Open {locations.some((x) => x.kind === 'warehouse') ? 'locations' : L.many}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>{locations.length}</span>
+                  </div>
+                )}
                 <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                   {locations.map((s, i) => {
                     const isWarehouse = s.kind === 'warehouse';
@@ -7144,15 +7188,24 @@ function XorlaApp() {
                   })}
                 </div>
                 {closedLocations.length > 0 && (
-                  <div>
-                    <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Closed locations</div>
-                    <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
-                      {closedLocations.map((s, i) => (
-                        <div key={s.id} className="flex items-center justify-between px-4 py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
-                          <span className="text-[13px] min-w-0 truncate" style={{ color: C.inkDim }}>{locName(s)}<span className="text-[11px]" style={{ color: C.inkFaint }}> · history kept</span></span>
-                          <span className="flex items-center gap-4 shrink-0">
-                            <button onClick={() => deleteClosedLocation(s)} className="text-[12px] font-medium" style={{ color: C.rust }}>Delete</button>
-                            <button onClick={() => reopenLocation(s)} className="text-[12px] font-medium" style={{ color: C.sage }}>Reopen</button>
+                  <div className="rounded-[20px] p-3.5 pt-3" style={{ background: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.22) 0 10px, rgba(0,0,0,0.12) 10px 20px)', border: '1.5px dashed rgba(226,98,75,0.35)' }}>
+                    <div className="flex items-center gap-2 px-1 mb-1">
+                      <span className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.rustSoft }}><Lock size={13} style={{ color: C.rust }} /></span>
+                      <span className="text-[13px] font-semibold" style={{ color: C.ink }}>Closed {closedLocations.some((x) => x.kind === 'warehouse') ? 'locations' : L.many}</span>
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold" style={{ background: C.rustSoft, color: C.rust }}>{closedLocations.length}</span>
+                    </div>
+                    <div className="text-[11.5px] leading-relaxed px-1 mb-3" style={{ color: C.inkFaint }}>Not open for sales and not counted on your plan. Their past records stay in your reports.</div>
+                    <div className="space-y-2">
+                      {closedLocations.map((s) => (
+                        <div key={s.id} className="rounded-2xl px-3.5 py-3 flex items-center gap-3" style={{ background: 'rgba(10,31,28,0.85)', border: `1px solid ${C.line}` }}>
+                          <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.03)', border: `1px dashed ${C.lineStrong}` }}>{s.kind === 'warehouse' ? <Warehouse size={16} style={{ color: C.inkFaint }} /> : <Store size={16} style={{ color: C.inkFaint }} />}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[13.5px] font-semibold leading-snug" style={{ color: C.inkDim, overflowWrap: 'anywhere' }}>{locName(s)}</span>
+                            <span className="flex items-center gap-1.5 mt-1 text-[11px]" style={{ color: C.inkFaint }}><span className="px-1.5 py-px rounded text-[9.5px] font-bold tracking-wide" style={{ background: C.rustSoft, color: C.rust }}>CLOSED</span>{s.kind === 'warehouse' ? 'Warehouse' : L.One}</span>
+                          </span>
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            <button onClick={() => deleteClosedLocation(s)} aria-label={`Delete ${locName(s)}`} className="h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.rust, border: '1px solid rgba(226,98,75,0.3)' }}><Trash2 size={14} /></button>
+                            <button onClick={() => reopenLocation(s)} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color: C.sage, background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>Reopen</button>
                           </span>
                         </div>
                       ))}
@@ -7607,7 +7660,7 @@ function XorlaApp() {
         {renderReadyCheck()}
         {renderSetup()}
         {renderPastImport()}
-        {renderHelp()}{renderSupportToast()}
+        {renderHelp()}{renderSupportToast()}{renderSpotlight()}
       </div>
     );
   }
@@ -8989,7 +9042,7 @@ function XorlaApp() {
       {renderImportPanel()}
       {renderListTool()}
       {renderPastImport()}
-      {renderHelp()}{renderSupportToast()}
+      {renderHelp()}{renderSupportToast()}{renderSpotlight()}
       {renderFulfilPanel()}
       {renderApptPanel()}
       {renderNotifPanel()}
@@ -10186,7 +10239,20 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
     catch (e) { if (!quiet) brandAlert(e.message); }
   };
   useEffect(() => { if (openId) { setThread(null); setReply(''); loadThread(openId); } }, [openId]);
-  useEffect(() => { setTimeout(() => endRef.current?.scrollIntoView({ block: 'end' }), 50); }, [thread?.messages?.length]);
+  // Stay at the latest message (and "typing…") unless the rep has scrolled up to read; then offer a jump button
+  const listRef = useRef(null);
+  const nearBottomRef = useRef(true);
+  const [newBelow, setNewBelow] = useState(false);
+  const toBottom = (smooth) => { const el = listRef.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); setNewBelow(false); };
+  const onListScroll = () => { const el = listRef.current; if (!el) return; nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140; if (nearBottomRef.current) setNewBelow(false); };
+  const lastOpenRef = useRef(null);
+  useEffect(() => {
+    if (!thread) return;
+    const first = lastOpenRef.current !== openId; lastOpenRef.current = openId;
+    if (first || nearBottomRef.current) setTimeout(() => toBottom(!first), 30); else setNewBelow(true);
+  }, [thread?.messages?.length, openId, !!thread]);
+  useEffect(() => { if (thread?.ticket?.customer_typing && nearBottomRef.current) setTimeout(() => toBottom(true), 30); }, [thread?.ticket?.customer_typing]);
+  const growBox = (el) => { if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(180, Math.max(52, el.scrollHeight))}px`; };
   // Replies are guarded: if someone else has this conversation, you must choose to take it over,
   // and if a new message arrived while you typed, nothing is sent until you've read it.
   const send = async (next, takeOver = false) => {
@@ -10200,7 +10266,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
     const lastSeen = thread?.messages?.length ? thread.messages[thread.messages.length - 1].id : null;
     try {
       await call('support_reply', { p_ticket: openId, p_body: reply.trim(), p_status: next, p_last_seen: lastSeen, p_take_over: takeOver });
-      setReply(''); await loadThread(openId);
+      setReply(''); nearBottomRef.current = true; await loadThread(openId);
     } catch (e) {
       const msg = String(e.message || '');
       if (msg.startsWith('CHANGED:')) { await loadThread(openId, true); brandAlert(msg.slice(8), { title: 'New message in this conversation' }); }
@@ -10260,7 +10326,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
     </div>
   );
   const threadPane = openId && (
-    <div className="flex-1 min-w-0 flex flex-col rounded-2xl p-4 lg:p-5 lg:h-[calc(100vh-170px)]" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+    <div className="fixed inset-0 z-[70] lg:static lg:z-auto flex-1 min-w-0 flex flex-col lg:rounded-2xl p-3.5 lg:p-5 h-[100dvh] lg:h-[calc(100dvh-190px)] lg:min-h-[520px]" style={{ background: C.surface, border: `1px solid ${C.line}`, paddingTop: 'max(14px, env(safe-area-inset-top))', paddingBottom: 'max(14px, env(safe-area-inset-bottom))' }}>
       {!thread ? <div className="flex justify-center py-16" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /></div> : (
         <>
           <div className="flex items-start gap-3 shrink-0 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
@@ -10272,7 +10338,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
                 <AdminChip tone={t.status === 'open' ? 'copper' : t.status === 'waiting' ? 'sage' : 'dim'}>{t.status === 'open' ? 'Needs reply' : t.status === 'waiting' ? 'Waiting on customer' : 'Solved'}</AdminChip>
               </div>
             </div>
-            <BrandSelect value={t.status} onChange={(e) => setTicketStatus(e.target.value)} aria-label="Status" className="w-[150px] shrink-0">
+            <BrandSelect value={t.status} onChange={(e) => setTicketStatus(e.target.value)} aria-label="Status" className="w-[124px] lg:w-[150px] shrink-0">
               <option value="open">Needs reply</option><option value="waiting">Waiting on customer</option><option value="solved">Solved</option>
             </BrandSelect>
           </div>
@@ -10288,9 +10354,9 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
             if (t.assigned_to) return bar('dim', Users, <><strong>{t.assigned_name || 'Someone'} is handling this{viewer && viewer === t.assigned_name ? ' and has it open now' : ''}.</strong> Only reply if you're taking it over.</>, <button onClick={() => assign('take')} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-semibold" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}>Take over</button>);
             return bar('copper', Info, <><strong>Nobody has taken this yet.</strong>{viewer ? ` ${viewer.split(' ')[0]} is looking at it now.` : ' Reply or take it so others know it\'s yours.'}</>, <button onClick={() => assign('take')} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>Take it</button>);
           })()}
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_230px] gap-4 flex-1 min-h-0 pt-3 [&>*]:min-w-0">
-            <div className="flex flex-col min-h-0">
-              <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
+          <div className="grid grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_230px] gap-4 flex-1 min-h-0 pt-3 [&>*]:min-w-0">
+            <div className="flex flex-col min-h-0 relative">
+              <div ref={listRef} onScroll={onListScroll} className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 pb-2">
                 {thread.messages.map((m) => (
                   <div key={m.id} className={`flex ${m.from_agent ? 'justify-end' : 'justify-start'}`}>
                     <div className="max-w-[85%]">
@@ -10304,16 +10370,23 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
                 {t.customer_typing && <TypingBubble avatar={false} name={(t.user_name || 'Customer').split(' ')[0]} />}
                 <div ref={endRef} />
               </div>
-              <div className="shrink-0 pt-3 mt-2" style={{ borderTop: `1px solid ${C.line}` }}>
+              {newBelow && <button onClick={() => toBottom(true)} className="absolute left-1/2 -translate-x-1/2 bottom-[150px] z-10 px-3.5 py-2 rounded-full text-[12px] font-bold flex items-center gap-1.5 xorla-fade-up" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -8px rgba(0,0,0,0.6)' }}>New message <ChevronRight size={14} className="rotate-90" /></button>}
+              <div className="shrink-0 pt-2" style={{ borderTop: `1px solid ${C.line}` }}>
+                <div className="h-6 flex items-center text-[11.5px]" aria-live="polite" style={{ color: C.inkFaint }}>
+                  {t.customer_typing
+                    ? <button onClick={() => toBottom(true)} className="inline-flex items-center gap-2" style={{ color: C.sage }}><span className="xorla-dots scale-75 -mx-1"><span /><span /><span /></span><span><strong>{(t.user_name || 'Customer').split(' ')[0]}</strong> is typing…</span></button>
+                    : t.other_viewer ? <span className="inline-flex items-center gap-1.5"><Eye size={12} />{t.other_viewer.split(' ')[0]} is looking at this too</span>
+                    : <span>{t.status === 'solved' ? 'Solved. A reply reopens it.' : 'Seen by you'}</span>}
+                </div>
                 <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1">
                   {SUPPORT_REPLIES.map(([l, text]) => <button key={l} onClick={() => setReply((r) => (r ? `${r}\n\n${text}` : `Hi ${(t.user_name || '').split(' ')[0] || 'there'}, ${/^I\b/.test(text) ? text : text.charAt(0).toLowerCase() + text.slice(1)}`))} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>{l}</button>)}
                 </div>
-                <textarea value={reply} onChange={(e) => { setReply(e.target.value); noteTyping(); }} rows={4} placeholder={`Reply as ${first || 'you'} from Xorla Support…`} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink, minHeight: 96 }} />
+                <textarea ref={(el) => { if (el && !reply) el.style.height = ''; }} value={reply} onChange={(e) => { setReply(e.target.value); noteTyping(); growBox(e.target); }} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send('waiting'); } }} rows={2} placeholder={`Reply as ${first || 'you'} from Xorla Support…`} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-none" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink, minHeight: 52, maxHeight: 180 }} />
                 <div className="flex flex-wrap gap-2 mt-2">
-                  <button onClick={() => send('waiting')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, opacity: !reply.trim() || busy ? 0.5 : 1 }}><SendHorizontal size={15} /> {t.assigned_to && !t.mine ? 'Take over and send' : 'Send'}</button>
-                  <button onClick={() => send('solved')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageSoft, color: C.sage, opacity: !reply.trim() || busy ? 0.5 : 1 }}><Check size={15} /> Send and mark solved</button>
+                  <button onClick={() => send('waiting')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-10 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, opacity: !reply.trim() || busy ? 0.5 : 1 }}><SendHorizontal size={15} /> {t.assigned_to && !t.mine ? 'Take over and send' : 'Send'}</button>
+                  <button onClick={() => send('solved')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-10 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageSoft, color: C.sage, opacity: !reply.trim() || busy ? 0.5 : 1 }}><Check size={15} /> Send and mark solved</button>
                 </div>
-                <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>They get a notification on their phone. Never ask for passwords, PINs or card details.</div>
+                <div className="text-[10.5px] mt-1.5 truncate" style={{ color: C.inkFaint }}>They get a phone notification · Never ask for passwords, PINs or card details<span className="hidden lg:inline"> · Ctrl+Enter sends</span></div>
               </div>
             </div>
             <div className="hidden lg:block overflow-y-auto space-y-3 text-[12.5px]">
@@ -10358,74 +10431,207 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
   );
 }
 
+// The pop-up card itself. Also used as the live preview on the founder's publishing page.
+const SPOT_TONES = {
+  info: { from: '#0E5A50', to: '#0A2A26', glow: 'rgba(31,217,196,0.55)', accent: C.sage, Icon: Megaphone, eyebrow: 'From Xorla' },
+  warning: { from: '#8A4B06', to: '#2A1A08', glow: 'rgba(255,176,32,0.6)', accent: C.copper, Icon: AlertCircle, eyebrow: 'Important' },
+  success: { from: '#0B6B4F', to: '#0A2A22', glow: 'rgba(52,230,160,0.55)', accent: '#34E6A0', Icon: Sparkles, eyebrow: 'Good news' },
+  update: { from: '#7A4A0C', to: '#0F2B26', glow: 'rgba(255,176,32,0.5)', accent: C.copper, Icon: Gift, eyebrow: 'New in Xorla' },
+};
+const SPOT_CTA = { plan: 'See plans', updates: "See what's new", support: 'Message support', sales: 'Go to sales', products: 'Go to products', settings: 'Open settings' };
+const UPDATE_KIND = { new: 'New', improved: 'Improved', fixed: 'Fixed', tip: 'Tip' };
+function XorlaSpotlight({ spot, canPlan = true, onClose, preview = false }) {
+  const isAnn = spot.kind === 'ann';
+  const it = spot.item || {};
+  const tone = SPOT_TONES[isAnn ? (it.tone || 'info') : 'update'] || SPOT_TONES.info;
+  const cta = isAnn ? (it.cta && it.cta !== 'none' && (it.cta !== 'plan' || canPlan) ? it.cta : null) : 'updates';
+  const title = isAnn ? (it.title || (it.tone === 'warning' ? 'Please note' : it.tone === 'success' ? 'Good news' : 'A message from Xorla')) : it.title;
+  const body = isAnn ? it.message : it.body;
+  const Ic = tone.Icon;
+  const card = (
+    <div className="w-full max-w-[360px] rounded-[28px] overflow-hidden xorla-spot-in" style={{ background: C.surface, border: `1px solid ${C.lineStrong}`, boxShadow: `0 30px 80px -20px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.03), 0 0 60px -20px ${tone.glow}` }} onClick={(e) => e.stopPropagation()}>
+      <div className="relative h-[168px] overflow-hidden" style={{ background: `radial-gradient(120% 90% at 85% 0%, ${tone.glow} 0%, transparent 55%), linear-gradient(160deg, ${tone.from}, ${tone.to})` }}>
+        <div className="absolute -left-10 -bottom-16 w-48 h-48 rounded-full" style={{ border: '1px solid rgba(255,255,255,0.10)' }} />
+        <div className="absolute -left-2 -bottom-8 w-32 h-32 rounded-full" style={{ border: '1px solid rgba(255,255,255,0.08)' }} />
+        <div className="absolute right-6 top-7 w-2 h-2 rounded-full" style={{ background: 'rgba(255,255,255,0.5)' }} />
+        <div className="absolute right-14 top-16 w-1.5 h-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.35)' }} />
+        <div className="absolute left-5 top-5 flex items-center gap-2">
+          <span className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.28)' }}><XorlaMark size={16} /></span>
+          <span className="text-[11px] font-bold tracking-[0.14em] uppercase" style={{ color: 'rgba(255,255,255,0.85)' }}>{tone.eyebrow}</span>
+        </div>
+        <div className="absolute left-1/2 top-[58%] -translate-x-1/2 -translate-y-1/2 w-[76px] h-[76px] rounded-[24px] flex items-center justify-center xorla-spot-float" style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.22)', boxShadow: '0 14px 30px -10px rgba(0,0,0,0.6)' }}>
+          <Ic size={34} style={{ color: '#fff' }} strokeWidth={2.2} />
+        </div>
+        {!isAnn && it.kind && <span className="absolute right-4 top-4 px-2.5 py-1 rounded-full text-[11px] font-bold" style={{ background: C.copper, color: C.bg }}>{UPDATE_KIND[it.kind] || 'New'}</span>}
+      </div>
+      <div className="px-6 pt-5 pb-6 text-center">
+        <div className="text-[20px] font-bold leading-tight cx-display" style={{ color: C.ink, overflowWrap: 'anywhere' }}>{title || 'Your headline'}</div>
+        <div className="mt-2.5 text-[14px] leading-relaxed whitespace-pre-wrap" style={{ color: C.inkDim, display: '-webkit-box', WebkitLineClamp: 6, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{body || 'Your message shows here.'}</div>
+        {cta ? (
+          <>
+            <button onClick={() => onClose(cta)} className="mt-5 w-full h-12 rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -10px rgba(255,176,32,0.7)' }}>{SPOT_CTA[cta] || 'Open'} <ArrowRight size={16} /></button>
+            <button onClick={() => onClose(null)} className="mt-2 w-full h-10 text-[13.5px] font-semibold" style={{ color: C.inkDim }}>Not now</button>
+          </>
+        ) : (
+          <button onClick={() => onClose(null)} className="mt-5 w-full h-12 rounded-2xl text-[15px] font-bold" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -10px rgba(255,176,32,0.7)' }}>Got it</button>
+        )}
+      </div>
+    </div>
+  );
+  if (preview) return card;
+  return (
+    <div className="fixed inset-0 z-[96] flex flex-col items-center justify-center px-5" style={{ background: 'rgba(2,8,7,0.78)', backdropFilter: 'blur(6px)', fontFamily: "'Inter', system-ui, sans-serif", color: C.ink }} onClick={() => onClose(null)} role="dialog" aria-modal="true" aria-label={title}>
+      <style>{`@keyframes xorlaSpotIn{from{opacity:0;transform:translateY(18px) scale(.94)}to{opacity:1;transform:none}}@keyframes xorlaSpotFloat{0%,100%{transform:translate(-50%,-50%)}50%{transform:translate(-50%,-56%)}}.xorla-spot-in{animation:xorlaSpotIn .38s cubic-bezier(.2,.9,.3,1.2) both}.xorla-spot-float{animation:xorlaSpotFloat 3.2s ease-in-out infinite}@media (prefers-reduced-motion: reduce){.xorla-spot-in,.xorla-spot-float{animation:none}}`}</style>
+      {card}
+      <button onClick={() => onClose(null)} aria-label="Close" className="mt-5 w-11 h-11 rounded-full flex items-center justify-center xorla-spot-in" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff' }}><X size={20} /></button>
+    </div>
+  );
+}
+
+const AUD_LABEL = { all: 'Everyone', owners: 'Business owners', products: 'Shops (sell products)', services: 'Service businesses', free: 'Free plan', trial: 'On trial', paying: 'Paying customers' };
 function SupportPublishing({ call }) {
   const [data, setData] = useState(null);
   const [up, setUp] = useState({ title: '', body: '', kind: 'new', audience: 'all', busy: false });
-  const [an, setAn] = useState({ message: '', tone: 'info', audience: 'all', days: '7', busy: false });
+  const [an, setAn] = useState({ title: '', message: '', tone: 'info', cta: 'none', audience: 'all', days: '7', busy: false });
+  const [reach, setReach] = useState({});
+  const [previewOf, setPreviewOf] = useState('ann');
   const load = useCallback(async () => { try { setData(await call('admin_updates')); } catch (e) { setData({ error: e.message, updates: [], announcements: [] }); } }, [call]);
   useEffect(() => { load(); }, []);
+  // How many people the chosen audience reaches right now
+  const countReach = useCallback(async (aud) => {
+    if (reach[aud]) return;
+    try { const r = await call('audience_reach', { p_audience: aud }); setReach((x) => ({ ...x, [aud]: r })); } catch (e) { setReach((x) => ({ ...x, [aud]: { error: true } })); }
+  }, [call, reach]);
+  useEffect(() => { countReach(an.audience); }, [an.audience]);
+  useEffect(() => { countReach(up.audience); }, [up.audience]);
+  const reachLine = (aud) => {
+    const r = reach[aud];
+    if (!r) return <span style={{ color: C.inkFaint }}>Counting who this reaches…</span>;
+    if (r.error) return <span style={{ color: C.inkFaint }}>Run support.sql again to see who this reaches.</span>;
+    return <span><strong style={{ color: C.ink }}>{Number(r.people).toLocaleString('en-NG')} {r.people === 1 ? 'person' : 'people'}</strong> in {Number(r.businesses).toLocaleString('en-NG')} {r.businesses === 1 ? 'business' : 'businesses'} right now</span>;
+  };
   const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
   const postUpdate = async () => {
     if (up.title.trim().length < 3) { brandAlert('Add a title.'); return; }
-    if (!(await brandConfirm(`"${up.title.trim()}" will appear in What's new for ${up.audience === 'all' ? 'everyone' : up.audience === 'owners' ? 'business owners' : up.audience === 'products' ? 'businesses that sell products' : 'service businesses'}.`, { title: 'Publish this update?', confirm: 'Publish' }))) return;
+    const r = reach[up.audience];
+    if (!(await brandConfirm(`"${up.title.trim()}" goes to ${AUD_LABEL[up.audience].toLowerCase()}${r && !r.error ? ` (${r.people} ${r.people === 1 ? 'person' : 'people'})` : ''}. It pops up once when they next open Xorla and stays in Help → What's new.`, { title: 'Publish this update?', confirm: 'Publish' }))) return;
     setUp({ ...up, busy: true });
-    try { await call('post_update', { p_title: up.title, p_body: up.body, p_kind: up.kind, p_audience: up.audience }); setUp({ title: '', body: '', kind: 'new', audience: 'all', busy: false }); load(); }
+    try { await call('post_update', { p_title: up.title, p_body: up.body, p_kind: up.kind, p_audience: up.audience }); setUp({ title: '', body: '', kind: 'new', audience: up.audience, busy: false }); load(); brandAlert(`It's live. ${AUD_LABEL[up.audience]} will see it the next time they open Xorla.`, { title: 'Update published' }); }
     catch (e) { setUp((x) => ({ ...x, busy: false })); brandAlert(e.message); }
   };
   const postAnn = async () => {
     if (an.message.trim().length < 5) { brandAlert('Write the announcement first.'); return; }
-    if (!(await brandConfirm(`This shows at the top of Xorla for ${an.audience === 'all' ? 'everyone' : an.audience} for ${an.days} day${an.days === '1' ? '' : 's'}.`, { title: 'Send this announcement?', confirm: 'Send' }))) return;
+    const r = reach[an.audience];
+    if (!(await brandConfirm(`This pops up for ${AUD_LABEL[an.audience].toLowerCase()}${r && !r.error ? ` (${r.people} ${r.people === 1 ? 'person' : 'people'})` : ''} the next time they open Xorla, and stays on their home screen for ${an.days === '1' ? '1 day' : an.days === '7' ? '1 week' : an.days === '30' ? '1 month' : `${an.days} days`}.`, { title: 'Send this announcement?', confirm: 'Send' }))) return;
     setAn({ ...an, busy: true });
-    try { await call('post_announcement', { p_message: an.message, p_tone: an.tone, p_audience: an.audience, p_days: Number(an.days) }); setAn({ message: '', tone: 'info', audience: 'all', days: '7', busy: false }); load(); }
-    catch (e) { setAn((x) => ({ ...x, busy: false })); brandAlert(e.message); }
+    try {
+      const res = await call('post_announcement', { p_message: an.message, p_tone: an.tone, p_audience: an.audience, p_days: Number(an.days), p_title: an.title, p_cta: an.cta });
+      setAn({ title: '', message: '', tone: 'info', cta: 'none', audience: an.audience, days: '7', busy: false }); load();
+      const n = res && typeof res === 'object' ? Number(res.reach) : null;
+      brandAlert(n !== null && !Number.isNaN(n) ? `${n.toLocaleString('en-NG')} ${n === 1 ? 'person' : 'people'} will see it as a pop-up the next time they open Xorla. Watch "Seen by" below.` : 'It will pop up the next time they open Xorla.', { title: 'Announcement is live' });
+    } catch (e) { setAn((x) => ({ ...x, busy: false })); brandAlert(/function|schema cache|p_title/i.test(e.message) ? 'Run the latest support.sql in Supabase first, then try again.' : e.message); }
   };
   const box = { background: C.surface, border: `1px solid ${C.line}` };
+  const lbl = (t) => <div className="text-[12px] font-semibold mb-1.5 mt-3" style={{ color: C.inkFaint }}>{t}</div>;
   const seg = (value, options, onPick) => (
     <div className="flex flex-wrap gap-1.5">{options.map(([k, l]) => <button key={k} onClick={() => onPick(k)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={value === k ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}</div>
   );
+  const seenBar = (seen, of) => {
+    const pct = of ? Math.min(100, Math.round((Number(seen) / Number(of)) * 100)) : 0;
+    return (
+      <div className="mt-2">
+        <div className="flex items-center justify-between text-[11.5px]" style={{ color: C.inkDim }}><span className="inline-flex items-center gap-1"><Eye size={12} /> Seen by <strong style={{ color: C.ink }}>{Number(seen || 0).toLocaleString('en-NG')}</strong> of {Number(of || 0).toLocaleString('en-NG')}</span><span>{pct}%</span></div>
+        <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${C.sage}, ${C.copper})` }} /></div>
+      </div>
+    );
+  };
+  const reachBox = (aud) => (
+    <div className="mt-3 rounded-xl px-3.5 py-2.5 flex items-center gap-2.5 text-[12.5px]" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.22)', color: C.inkDim }}>
+      <Users size={15} style={{ color: C.sage }} className="shrink-0" /><span className="min-w-0">Reaches {reachLine(aud)}</span>
+    </div>
+  );
+  const preview = (
+    <div className="rounded-2xl p-4 lg:p-5 lg:sticky lg:top-4 self-start" style={{ background: 'radial-gradient(120% 80% at 50% 0%, rgba(31,217,196,0.08), transparent 60%), #071815', border: `1px solid ${C.line}` }}>
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="text-[15px] font-semibold flex items-center gap-2"><Smartphone size={16} style={{ color: C.copper }} /> What they'll see</div>
+        <div className="flex gap-1 p-1 rounded-lg" style={{ background: C.surface }}>
+          {[['ann', 'Announcement'], ['update', "What's new"]].map(([k, l]) => <button key={k} onClick={() => setPreviewOf(k)} className="px-2.5 py-1 rounded-md text-[11.5px] font-semibold" style={previewOf === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+        </div>
+      </div>
+      <div className="text-[12px] mb-4" style={{ color: C.inkDim }}>A pop-up over their home screen the next time they open Xorla, shown once to each person. Changes as you type.</div>
+      <div className="flex justify-center py-5 px-3 rounded-2xl" style={{ background: 'rgba(2,8,7,0.7)' }}>
+        <XorlaSpotlight preview spot={previewOf === 'ann' ? { kind: 'ann', item: { title: an.title, message: an.message, tone: an.tone, cta: an.cta } } : { kind: 'update', item: { title: up.title || 'Your feature title', body: up.body, kind: up.kind } }} onClose={() => {}} />
+      </div>
+    </div>
+  );
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 [&>*]:min-w-0">
-      <div className="rounded-2xl p-4 lg:p-5" style={box}>
-        <div className="flex items-center gap-2 mb-1"><Gift size={17} style={{ color: C.sage }} /><div className="text-[15px] font-semibold">What's new</div></div>
-        <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>Tell businesses about new features and fixes. It appears in Help → What's new, with a short note on their home screen.</div>
-        <input value={up.title} maxLength={120} onChange={(e) => setUp({ ...up, title: e.target.value })} placeholder="Title, e.g. Bring in your past sales" className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none mb-2" style={field} />
-        <textarea value={up.body} rows={4} maxLength={2000} onChange={(e) => setUp({ ...up, body: e.target.value })} placeholder="A few plain sentences: what it does and where to find it." className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y mb-3" style={field} />
-        <div className="text-[12px] font-semibold mb-1.5" style={{ color: C.inkFaint }}>Type</div>
-        {seg(up.kind, [['new', 'New'], ['improved', 'Improved'], ['fixed', 'Fixed'], ['tip', 'Tip']], (k) => setUp({ ...up, kind: k }))}
-        <div className="text-[12px] font-semibold mb-1.5 mt-3" style={{ color: C.inkFaint }}>Who sees it</div>
-        {seg(up.audience, [['all', 'Everyone'], ['owners', 'Owners only'], ['products', 'Shops'], ['services', 'Service businesses']], (k) => setUp({ ...up, audience: k }))}
-        <button onClick={postUpdate} disabled={up.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: up.busy ? 0.6 : 1 }}>{up.busy ? 'Publishing…' : 'Publish update'}</button>
-        <div className="mt-5 space-y-2">
-          {(data?.updates || []).map((u) => (
-            <div key={u.id} className="rounded-xl px-3.5 py-3 flex items-start gap-3" style={{ background: C.surfaceRaised }}>
-              <div className="flex-1 min-w-0"><div className="text-[13px] font-semibold">{u.title}</div><div className="text-[11.5px]" style={{ color: C.inkFaint }}>{u.kind} · {u.audience} · {new Date(u.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div></div>
-              <button onClick={async () => { if (await brandConfirm(`Remove "${u.title}" from What's new?`, { title: 'Remove update?', confirm: 'Remove', danger: true })) { try { await call('delete_update', { p_id: u.id }); load(); } catch (e) { brandAlert(e.message); } } }} aria-label="Remove" style={{ color: C.inkFaint }}><Trash2 size={15} /></button>
-            </div>
-          ))}
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_400px] gap-4 [&>*]:min-w-0">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-4 [&>*]:min-w-0 self-start">
+        <div className="rounded-2xl p-4 lg:p-5" style={box} onFocusCapture={() => setPreviewOf('ann')}>
+          <div className="flex items-center gap-2 mb-1"><Megaphone size={17} style={{ color: C.copper }} /><div className="text-[15px] font-semibold">Announcement</div></div>
+          <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>For offers, planned maintenance or holidays. It pops up once, then stays as a banner on their home screen until they dismiss it.</div>
+          <input value={an.title} maxLength={70} onChange={(e) => setAn({ ...an, title: e.target.value })} placeholder="Headline (optional), e.g. Sallah offer" className="w-full rounded-xl px-3.5 py-3 text-[14px] font-semibold outline-none mb-2" style={field} />
+          <textarea value={an.message} rows={3} maxLength={280} onChange={(e) => setAn({ ...an, message: e.target.value })} placeholder="e.g. Pay for a year this week and get 2 months free." className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y mb-1" style={field} />
+          <div className="text-right text-[11px]" style={{ color: C.inkFaint }}>{an.message.length}/280</div>
+          {lbl('Style')}
+          {seg(an.tone, [['info', 'Information'], ['warning', 'Important'], ['success', 'Good news']], (k) => setAn({ ...an, tone: k }))}
+          {lbl('Button')}
+          {seg(an.cta, [['none', 'Just "Got it"'], ['plan', 'See plans'], ['updates', "What's new"], ['support', 'Message support'], ['sales', 'Sales'], ['products', 'Products']], (k) => setAn({ ...an, cta: k }))}
+          {an.cta === 'plan' && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Only owners see the plans button; staff just get "Got it".</div>}
+          {lbl('Who sees it')}
+          {seg(an.audience, [['all', 'Everyone'], ['owners', 'Owners'], ['free', 'Free plan'], ['trial', 'On trial'], ['paying', 'Paying']], (k) => setAn({ ...an, audience: k }))}
+          {reachBox(an.audience)}
+          {lbl('Show for')}
+          {seg(an.days, [['1', '1 day'], ['3', '3 days'], ['7', '1 week'], ['30', '1 month']], (k) => setAn({ ...an, days: k }))}
+          <button onClick={postAnn} disabled={an.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: an.busy ? 0.6 : 1 }}>{an.busy ? 'Sending…' : 'Send announcement'}</button>
+          <div className="mt-5 space-y-2">
+            {(data?.announcements || []).map((a) => (
+              <div key={a.id} className="rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, opacity: a.live ? 1 : 0.6 }}>
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    {a.title && <div className="text-[13px] font-semibold">{a.title}</div>}
+                    <div className="text-[12.5px]" style={{ color: a.title ? C.inkDim : C.ink }}>{a.message}</div>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      <AdminChip tone={a.live ? 'sage' : 'dim'}>{a.live ? `Live until ${new Date(a.ends_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Ended'}</AdminChip>
+                      <AdminChip tone="dim">{AUD_LABEL[a.audience] || a.audience}</AdminChip>
+                      {a.cta && a.cta !== 'none' && <AdminChip tone="copper">{SPOT_CTA[a.cta]}</AdminChip>}
+                    </div>
+                  </div>
+                  {a.live && <button onClick={async () => { if (await brandConfirm('It stops showing straight away for everyone.', { title: 'End this announcement?', confirm: 'End now', danger: true })) { try { await call('end_announcement', { p_id: a.id }); load(); } catch (e) { brandAlert(e.message); } } }} className="shrink-0 text-[12px] font-semibold" style={{ color: C.rust }}>End now</button>}
+                </div>
+                {a.reach !== undefined && seenBar(a.seen, a.reach)}
+              </div>
+            ))}
+          </div>
+          {data?.error && <div className="mt-3 text-[12.5px]" style={{ color: C.rust }}>{/admin_updates|schema cache/i.test(data.error) ? 'Run support.sql in Supabase first.' : data.error}</div>}
+        </div>
+        <div className="rounded-2xl p-4 lg:p-5" style={box} onFocusCapture={() => setPreviewOf('update')}>
+          <div className="flex items-center gap-2 mb-1"><Gift size={17} style={{ color: C.sage }} /><div className="text-[15px] font-semibold">What's new</div></div>
+          <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>Tell businesses about new features and fixes. It pops up once, and stays in Help → What's new.</div>
+          <input value={up.title} maxLength={120} onChange={(e) => setUp({ ...up, title: e.target.value })} placeholder="Title, e.g. Bring in your past sales" className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none mb-2" style={field} />
+          <textarea value={up.body} rows={4} maxLength={2000} onChange={(e) => setUp({ ...up, body: e.target.value })} placeholder="A few plain sentences: what it does and where to find it." className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y" style={field} />
+          {lbl('Type')}
+          {seg(up.kind, [['new', 'New'], ['improved', 'Improved'], ['fixed', 'Fixed'], ['tip', 'Tip']], (k) => { setUp({ ...up, kind: k }); setPreviewOf('update'); })}
+          {lbl('Who sees it')}
+          {seg(up.audience, [['all', 'Everyone'], ['owners', 'Owners only'], ['products', 'Shops'], ['services', 'Service businesses']], (k) => { setUp({ ...up, audience: k }); setPreviewOf('update'); })}
+          {reachBox(up.audience)}
+          <button onClick={postUpdate} disabled={up.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: up.busy ? 0.6 : 1 }}>{up.busy ? 'Publishing…' : 'Publish update'}</button>
+          <div className="mt-5 space-y-2">
+            {(data?.updates || []).map((u) => (
+              <div key={u.id} className="rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised }}>
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0"><div className="text-[13px] font-semibold">{u.title}</div>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5"><AdminChip tone="copper">{UPDATE_KIND[u.kind] || u.kind}</AdminChip><AdminChip tone="dim">{AUD_LABEL[u.audience] || u.audience}</AdminChip><span className="text-[11px]" style={{ color: C.inkFaint }}>{new Date(u.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span></div>
+                  </div>
+                  <button onClick={async () => { if (await brandConfirm(`Remove "${u.title}" from What's new?`, { title: 'Remove update?', confirm: 'Remove', danger: true })) { try { await call('delete_update', { p_id: u.id }); load(); } catch (e) { brandAlert(e.message); } } }} aria-label="Remove" style={{ color: C.inkFaint }}><Trash2 size={15} /></button>
+                </div>
+                {u.reach !== undefined && seenBar(u.seen, u.reach)}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-      <div className="rounded-2xl p-4 lg:p-5" style={box}>
-        <div className="flex items-center gap-2 mb-1"><Megaphone size={17} style={{ color: C.copper }} /><div className="text-[15px] font-semibold">Announcement banner</div></div>
-        <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>A short notice at the top of the home screen, for planned maintenance, holidays or offers. People can dismiss it.</div>
-        <textarea value={an.message} rows={3} maxLength={280} onChange={(e) => setAn({ ...an, message: e.target.value })} placeholder="e.g. Xorla will be down for 10 minutes on Sunday at 11pm for an upgrade." className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y mb-1" style={field} />
-        <div className="text-right text-[11px] mb-2" style={{ color: C.inkFaint }}>{an.message.length}/280</div>
-        <div className="text-[12px] font-semibold mb-1.5" style={{ color: C.inkFaint }}>Style</div>
-        {seg(an.tone, [['info', 'Information'], ['warning', 'Important'], ['success', 'Good news']], (k) => setAn({ ...an, tone: k }))}
-        <div className="text-[12px] font-semibold mb-1.5 mt-3" style={{ color: C.inkFaint }}>Who sees it</div>
-        {seg(an.audience, [['all', 'Everyone'], ['owners', 'Owners'], ['free', 'Free plan'], ['trial', 'On trial'], ['paying', 'Paying']], (k) => setAn({ ...an, audience: k }))}
-        <div className="text-[12px] font-semibold mb-1.5 mt-3" style={{ color: C.inkFaint }}>Show for</div>
-        {seg(an.days, [['1', '1 day'], ['3', '3 days'], ['7', '1 week'], ['30', '1 month']], (k) => setAn({ ...an, days: k }))}
-        <button onClick={postAnn} disabled={an.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: an.busy ? 0.6 : 1 }}>{an.busy ? 'Sending…' : 'Send announcement'}</button>
-        <div className="mt-5 space-y-2">
-          {(data?.announcements || []).map((a) => (
-            <div key={a.id} className="rounded-xl px-3.5 py-3 flex items-start gap-3" style={{ background: C.surfaceRaised, opacity: a.live ? 1 : 0.55 }}>
-              <div className="flex-1 min-w-0"><div className="text-[13px]">{a.message}</div><div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{a.live ? `Live until ${new Date(a.ends_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Ended'} · {a.audience}</div></div>
-              {a.live && <button onClick={async () => { try { await call('end_announcement', { p_id: a.id }); load(); } catch (e) { brandAlert(e.message); } }} className="shrink-0 text-[12px] font-semibold" style={{ color: C.rust }}>End now</button>}
-            </div>
-          ))}
-        </div>
-        {data?.error && <div className="mt-3 text-[12.5px]" style={{ color: C.rust }}>{/admin_updates|schema cache/i.test(data.error) ? 'Run support.sql in Supabase first.' : data.error}</div>}
-      </div>
+      {preview}
     </div>
   );
 }
