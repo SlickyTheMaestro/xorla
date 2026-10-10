@@ -2031,6 +2031,13 @@ function XorlaApp() {
       setShops((prev) => prev.map((s) => (s.id === loc.id ? { ...s, archived: false } : s)));
     } catch (e) { if (isLocationLimitError(e)) openLocationLimit(loc); else brandAlert(e.message); }
   };
+  // Talks to the billing backend. Defined early: the after-payment check runs even while the PIN lock screen is showing.
+  const callBilling = async (action, extra = {}) => {
+    const res = await fetch(`${SB_URL}/functions/v1/billing`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ action, ...extra }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || 'Payments are not available right now. Please try again.');
+    return data;
+  };
   // Every way of hitting the location limit lands here: buy an extra location now, or see the plans
   const isLocationLimitError = (e) => /plan includes \d+ location|more locations|location limit|extra locations/i.test(String(e?.message || ''));
   const openLocationLimit = (reopening = null, adding = null) => {
@@ -5109,12 +5116,6 @@ function XorlaApp() {
   };
 
   // ---------- Billing actions ----------
-  const callBilling = async (action, extra = {}) => {
-    const res = await fetch(`${SB_URL}/functions/v1/billing`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ action, ...extra }) });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.error) throw new Error(data.error || 'Payments are not available right now. Please try again.');
-    return data;
-  };
   const startCheckout = async (plan) => {
     setBillingBusy(plan); setBillingNote(null);
     try {
