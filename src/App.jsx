@@ -1807,7 +1807,14 @@ function XorlaApp() {
   const checkPush = () => {
     if (!('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window)) return;
     if (Notification.permission === 'denied') { setPushState('denied'); return; }
-    navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()).then((sub) => setPushState(sub ? 'on' : 'off')).catch(() => setPushState('off'));
+    navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()).then((sub) => {
+      setPushState(sub ? 'on' : 'off');
+      // Re-register this phone under the account that's logged in now (so a previous account on this phone stops receiving)
+      if (sub && session?.access_token && Notification.permission === 'granted') {
+        const j = sub.toJSON();
+        if (j.endpoint && j.keys) sbRpc('save_push_subscription', session.access_token, { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth }).catch(() => {});
+      }
+    }).catch(() => setPushState('off'));
   };
   // Open the screen a notification points to: on first load (?tab=...) and when a notification is tapped while Xorla is open
   useEffect(() => {
@@ -1981,6 +1988,14 @@ function XorlaApp() {
   }, [fetchProfileAndBusiness, applySession]);
 
   const logout = useCallback(async () => {
+    // This phone should stop getting this business's notifications the moment it logs out
+    if (session) {
+      try {
+        const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+        const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
+        if (sub) await sbRpc('delete_push_subscription', session.access_token, { p_endpoint: sub.endpoint });
+      } catch (e) { /* logging out still continues */ }
+    }
     if (session) { try { await fetch(`${SB_URL}/auth/v1/logout`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}` } }); } catch (e) {} }
     await clearSession();
     setSession(null);
@@ -2067,8 +2082,8 @@ function XorlaApp() {
   const offerFewerLocations = async (openAfter) => {
     if (!(planKnown && effPlan === 'business' && !onTrial && subscription?.status === 'active')) return;
     const extra = Number(subscription.extra_shops || 0);
-    const renewNow = subscription.renew_extra_shops ?? extra;
     const needed = Math.max(0, openAfter - 3);
+    const renewNow = subscription.renew_extra_shops ?? needed;   // without a choice, renewal already drops closed locations
     if (renewNow <= needed) return;
     const yearly = subscription.billing_interval === 'yearly';
     const save = (renewNow - needed) * PLAN_PRICES.extraShop[yearly ? 'yearly' : 'monthly'];
@@ -2923,7 +2938,8 @@ function XorlaApp() {
   // Fresh usage and early-supporter places whenever the plan page opens
   useEffect(() => {
     if (settingsPage !== 'plan' || !session) return;
-    setPlanExtra(Math.max(0, liveLocations.length - 3, effPlan === 'business' ? Number(subscription?.renew_extra_shops ?? subscription?.extra_shops ?? 0) : 0));
+    // Renewing pays for the locations open now (or the number the owner chose), not for ones that were closed or deleted
+    setPlanExtra(Math.max(0, liveLocations.length - 3, effPlan === 'business' && subscription?.renew_extra_shops != null ? Number(subscription.renew_extra_shops) : 0));
     sbRpc('my_usage', session.access_token, {}).then(setUsage).catch(() => {});
     if (!document.getElementById('xorla-jakarta')) {
       const link = document.createElement('link');
@@ -5156,6 +5172,12 @@ function XorlaApp() {
     } catch (e) { setPushNote({ ok: false, text: e.message }); }
     finally { setPushBusy(false); }
   };
+  const testPushClosed = async () => {
+    setPushBusy(true); setPushNote(null);
+    try { await callPush('test_closed'); setPushNote({ ok: true, text: 'Now close Xorla completely (swipe it away). A notification should arrive in about 15 seconds.' }); }
+    catch (e) { setPushNote({ ok: false, text: e.message }); }
+    finally { setPushBusy(false); }
+  };
   const testPush = async () => {
     setPushBusy(true); setPushNote(null);
     try { await callPush('test'); setPushNote({ ok: true, text: 'Test sent — check your notifications.' }); }
@@ -5323,8 +5345,8 @@ function XorlaApp() {
           )}
           {effPlan === 'business' && !onTrial && s.status === 'active' && (() => {
             const extra = Number(s.extra_shops || 0);
-            const next = s.renew_extra_shops ?? extra;
             const minNext = Math.max(0, liveLocations.length - 3);
+            const next = s.renew_extra_shops ?? Math.min(extra, minNext);   // by default, renewal pays only for what's open
             const yearly = s.billing_interval === 'yearly';
             const setNext = async (v) => {
               try { await sbRpc('set_renewal_locations', session.access_token, { p_extra: v }); await loadBusinessData(session.access_token); }
@@ -5335,7 +5357,7 @@ function XorlaApp() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-[13px] font-semibold">Locations: {liveLocations.length} open of {3 + extra}</div>
-                    <div className="text-[11.5px] leading-snug" style={{ color: next < extra ? C.copper : C.inkFaint }}>{next < extra ? `Renews with ${3 + next} on ${fmtDate(s.current_period_end)}, ${fmt(planPrice('business', yearly ? 'yearly' : 'monthly', next, earlyActive))} a ${yearly ? 'year' : 'month'}` : `Renews with all ${3 + extra}. ${extra > minNext ? 'Tap − to renew with fewer.' : 'Close one to pay for fewer.'}`}</div>
+                    <div className="text-[11.5px] leading-snug" style={{ color: next < extra ? C.copper : C.inkFaint }}>{next < extra ? `Renews with ${3 + next} on ${fmtDate(s.current_period_end)}, ${fmt(planPrice('business', yearly ? 'yearly' : 'monthly', next, earlyActive))} a ${yearly ? 'year' : 'month'}` : `Renews with all ${3 + extra}. Close a location to pay for fewer.`}</div>
                   </div>
                   {extra > minNext && (
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -7369,7 +7391,22 @@ function XorlaApp() {
                   <div className="text-[14.5px] font-semibold mb-1">Notifications on this {DEVICE_WORD}</div>
                   <div className="text-[12px] leading-relaxed mb-4" style={{ color: C.inkFaint }}>Only the things worth interrupting you for. Each phone or computer is turned on separately — this only turns them on for the {DEVICE_WORD} you're using now.</div>
                   {renderPushControl(false)}
+                  {pushState === 'on' && (
+                    <button onClick={testPushClosed} disabled={pushBusy} className="w-full mt-3 rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink }}>Test with Xorla closed</button>
+                  )}
                 </div>
+                {pushState === 'on' && /Android/i.test(navigator.userAgent || '') && (
+                  <div className="rounded-2xl p-4" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
+                    <div className="text-[13px] font-semibold mb-1.5">Nothing arrives when Xorla is closed?</div>
+                    <div className="text-[12px] leading-relaxed mb-2" style={{ color: C.inkDim }}>Many Android phones (Tecno, Infinix, itel, Xiaomi, Oppo, Samsung) stop Chrome in the background to save battery, which also stops notifications. Fix it once:</div>
+                    <ol className="text-[12px] leading-relaxed space-y-1" style={{ color: C.inkDim }}>
+                      <li><strong style={{ color: C.ink }}>1.</strong> Phone <strong style={{ color: C.ink }}>Settings → Apps → Chrome → Battery</strong>: choose <strong style={{ color: C.ink }}>Unrestricted</strong> (or "No restrictions" / allow background activity)</li>
+                      <li><strong style={{ color: C.ink }}>2.</strong> If your phone has <strong style={{ color: C.ink }}>Auto-start</strong> or <strong style={{ color: C.ink }}>App launch</strong> settings (in Phone Master or Security), allow Chrome</li>
+                      <li><strong style={{ color: C.ink }}>3.</strong> Make sure Chrome's notifications are on in <strong style={{ color: C.ink }}>Settings → Apps → Chrome → Notifications</strong></li>
+                      <li><strong style={{ color: C.ink }}>4.</strong> Tap "Test with Xorla closed" above to check</li>
+                    </ol>
+                  </div>
+                )}
                 <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                   <div className="text-[12px] font-semibold uppercase tracking-wide mb-2.5" style={{ color: C.inkFaint }}>What you'll get</div>
                   <div className="space-y-2 text-[12.5px]" style={{ color: C.inkDim }}>
@@ -7377,6 +7414,7 @@ function XorlaApp() {
                       ['New storefront orders', 'the moment they come in'],
                       ['Stock requests', `when a ${L.one} asks for more`],
                       ['Overdue invoices', 'one summary each morning, not a buzz for each'],
+                      ['Replies from Xorla Support', 'when we answer your message'],
                     ] : [
                       ['Stock on its way', `when stock is sent to your ${L.one}`],
                       ['Your stock requests', 'when they are approved or declined'],
