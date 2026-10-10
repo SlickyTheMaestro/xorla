@@ -1381,7 +1381,7 @@ function XorlaApp() {
   const isOwnerRole = settings.role === 'owner';
   // Locations are shops (they sell) or warehouses (storage only). Sales, staff, and the storefront only ever see shops.
   const liveLocations = locationsAll.filter((s) => !s.archived);
-  const closedLocations = locationsAll.filter((s) => s.archived);
+  const closedLocations = locationsAll.filter((s) => s.archived && !s.deleted_at);
   const shops = liveLocations.filter((s) => (s.kind || 'shop') !== 'warehouse');
   const warehouses = liveLocations.filter((s) => s.kind === 'warehouse');
   const locations = [...shops, ...warehouses];
@@ -1719,7 +1719,8 @@ function XorlaApp() {
         sbRestAll('product_shops', { accessToken, query: '?select=*&order=product_id.asc,shop_id.asc' }).catch(() => []),
         sbRest('stock_transfers', { accessToken, query: '?select=*&order=created_at.desc&limit=300' }).catch(() => []),
         sbRest('stock_requests', { accessToken, query: '?select=*&order=created_at.desc&limit=100' }).catch(() => []),
-        sbRest('subscriptions', { accessToken, query: '?select=business_id,plan,billing_interval,extra_shops,status,trial_ends_at,current_period_end,early_supporter,early_supporter_until,auto_renew,card_last4,card_brand' }).catch(() => null),
+        sbRest('subscriptions', { accessToken, query: '?select=business_id,plan,billing_interval,extra_shops,renew_extra_shops,status,trial_ends_at,current_period_end,early_supporter,early_supporter_until,auto_renew,card_last4,card_brand' })
+          .catch(() => sbRest('subscriptions', { accessToken, query: '?select=business_id,plan,billing_interval,extra_shops,status,trial_ends_at,current_period_end,early_supporter,early_supporter_until,auto_renew,card_last4,card_brand' })).catch(() => null),
         sbRest('payments', { accessToken, query: '?select=*&order=paid_at.desc&limit=12' }).catch(() => []),
         sbRest('bookings', { accessToken, query: `?select=*&check_out=gte.${new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10)}&order=check_in.asc&limit=600` }).catch(() => []),
         sbRest('rooms', { accessToken, query: '?select=*&active=eq.true&order=label.asc' }).catch(() => []),
@@ -2028,6 +2029,7 @@ function XorlaApp() {
       setShops((prev) => prev.map((s) => (s.id === loc.id ? { ...s, archived: true } : s)));
       setStaffShops((prev) => prev.filter((ss) => ss.shop_id !== loc.id));
       if (currentShopId === loc.id) setCurrentShopId('all');
+      offerFewerLocations(liveLocations.filter((x) => x.id !== loc.id).length);
     } catch (e) { brandAlert(e.message); }
   };
   // A location that has never recorded anything (e.g. made by mistake) can be deleted outright
@@ -2045,6 +2047,35 @@ function XorlaApp() {
       if (currentShopId === loc.id) setCurrentShopId('all');
     } catch (e) { brandAlert(e.message); }
   };
+  // Delete a closed location for good. If it was ever used, its records stay in totals and reports under its name.
+  const deleteClosedLocation = async (loc) => {
+    const used = !locationUnused(loc.id);
+    if (!(await brandConfirm(used
+      ? `Delete ${locName(loc)} for good? It disappears from your list and can't be reopened. Its past sales and records stay in your totals and reports under its name.`
+      : `Delete ${locName(loc)} for good? It was never used, so nothing recorded is lost.`, { title: 'Delete this location?', confirm: 'Delete', danger: true }))) return;
+    try {
+      const r = await sbRpc('delete_closed_location', session.access_token, { p_shop: loc.id });
+      if (r === 'removed') setShops((prev) => prev.filter((x) => x.id !== loc.id));
+      else setShops((prev) => prev.map((x) => (x.id === loc.id ? { ...x, deleted_at: new Date().toISOString() } : x)));
+      setStaffShops((prev) => prev.filter((ss) => ss.shop_id !== loc.id));
+    } catch (e) {
+      if (/delete_closed_location|schema cache/i.test(e.message) && locationUnused(loc.id)) { await deleteLocation(loc); return; }
+      brandAlert(e.message);
+    }
+  };
+  // After closing a location on a paid Business plan: offer to renew with fewer (saving money from the next renewal)
+  const offerFewerLocations = async (openAfter) => {
+    if (!(planKnown && effPlan === 'business' && !onTrial && subscription?.status === 'active')) return;
+    const extra = Number(subscription.extra_shops || 0);
+    const renewNow = subscription.renew_extra_shops ?? extra;
+    const needed = Math.max(0, openAfter - 3);
+    if (renewNow <= needed) return;
+    const yearly = subscription.billing_interval === 'yearly';
+    const save = (renewNow - needed) * PLAN_PRICES.extraShop[yearly ? 'yearly' : 'monthly'];
+    if (!(await brandConfirm(`You now use ${openAfter} of your ${3 + extra} locations. Renew with ${3 + needed} on ${fmtDate(subscription.current_period_end)} and pay ${fmt(save)} less a ${yearly ? 'year' : 'month'}? Your current locations stay available until then.`, { title: 'Pay for fewer locations?', confirm: `Renew with ${3 + needed}` }))) return;
+    try { await sbRpc('set_renewal_locations', session.access_token, { p_extra: needed }); await loadBusinessData(session.access_token); brandAlert(`From ${fmtDate(subscription.current_period_end)} your plan renews with ${3 + needed} locations.`, { title: 'Done', tone: 'info' }); }
+    catch (e) { brandAlert(e.message); }
+  };
   const reopenLocation = async (loc) => {
     if (planKnown && liveLocations.length >= planCaps.locations) { openLocationLimit(loc); return; }
     try {
@@ -2059,6 +2090,10 @@ function XorlaApp() {
     if (!res.ok || data.error) throw new Error(data.error || 'Payments are not available right now. Please try again.');
     return data;
   };
+  // Bank transfers and USSD often don't bring the owner back to Xorla. We remember the payment and confirm it
+  // ourselves whenever Xorla is open, so the plan (or new location) is ready without them doing anything.
+  const rememberPayment = (reference) => { if (!reference) return; try { localStorage.setItem('xorla:pending-payment', JSON.stringify({ ref: reference, at: Date.now(), biz: settings.businessId })); } catch (e) {} };
+  const forgetPayment = () => { try { localStorage.removeItem('xorla:pending-payment'); } catch (e) {} };
   // Every way of hitting the location limit lands here: buy an extra location now, or see the plans
   const isLocationLimitError = (e) => /plan includes \d+ location|more locations|location limit|extra locations/i.test(String(e?.message || ''));
   const openLocationLimit = (reopening = null, adding = null) => {
@@ -2815,6 +2850,7 @@ function XorlaApp() {
     setPendingPlanOpen(false);
     if (billingReturnRef !== null) {
       const ref = billingReturnRef; setBillingReturnRef(null);
+      forgetPayment();
       if (!ref) return;
       setBillingBusy('verify'); setBillingNote(null);
       callBilling('verify', { reference: ref })
@@ -2849,6 +2885,33 @@ function XorlaApp() {
       } else setBillingNote({ ok: true, text: `Payment received, thank you! ${added} more location${added > 1 ? 's are' : ' is'} now on your plan. Add it in Settings → ${L.Many}.` });
     } catch (e) { setBillingNote({ ok: false, text: `Your payment went through and the extra location is on your plan, but we couldn't open it automatically (${e.message}). Open it in Settings → ${L.Many}.` }); }
   };
+  const checkingPaymentRef = useRef(false);
+  useEffect(() => {
+    if (!settings.loggedIn || settings.role !== 'owner' || !session) return undefined;
+    const check = async () => {
+      if (checkingPaymentRef.current || document.visibilityState !== 'visible') return;
+      let p = null; try { p = JSON.parse(localStorage.getItem('xorla:pending-payment') || 'null'); } catch (e) {}
+      if (!p || p.biz !== settings.businessId) return;
+      if (Date.now() - p.at > 24 * 3600000) { forgetPayment(); return; }
+      checkingPaymentRef.current = true;
+      try {
+        const r = await callBilling('verify', { reference: p.ref });
+        if (r.ok) {
+          forgetPayment();
+          await loadBusinessData(session.access_token);
+          if (r.added_shops) await finishPendingLocation(r.added_shops);
+          else setBillingNote({ ok: true, text: `Payment received — thank you! You're on ${PLAN_INFO[r.plan]?.name || 'your new plan'}${r.until ? ` until ${fmtDate(r.until)}` : ''}.` });
+          brandAlert(r.added_shops ? `Your extra location${r.added_shops > 1 ? 's are' : ' is'} ready.` : `You're on ${PLAN_INFO[r.plan]?.name || 'your new plan'} now.`, { title: 'Payment received', tone: 'info' });
+        } else if (r.status === 'abandoned' && Date.now() - p.at > 2 * 3600000) forgetPayment();
+      } catch (e) { /* try again later */ }
+      checkingPaymentRef.current = false;
+    };
+    check();
+    const t = setInterval(check, 30000);
+    const again = () => check();
+    document.addEventListener('visibilitychange', again); window.addEventListener('focus', again); window.addEventListener('pageshow', again);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', again); window.removeEventListener('focus', again); window.removeEventListener('pageshow', again); };
+  }, [settings.loggedIn, settings.role, session?.access_token]);
   // Safety net: if they paid but didn't come straight back (e.g. paid by transfer), finish it the next time Xorla opens
   useEffect(() => {
     if (!planKnown || !isOwnerRole || !session) return;
@@ -2860,7 +2923,7 @@ function XorlaApp() {
   // Fresh usage and early-supporter places whenever the plan page opens
   useEffect(() => {
     if (settingsPage !== 'plan' || !session) return;
-    setPlanExtra(Math.max(0, liveLocations.length - 3, effPlan === 'business' ? Number(subscription?.extra_shops || 0) : 0));
+    setPlanExtra(Math.max(0, liveLocations.length - 3, effPlan === 'business' ? Number(subscription?.renew_extra_shops ?? subscription?.extra_shops ?? 0) : 0));
     sbRpc('my_usage', session.access_token, {}).then(setUsage).catch(() => {});
     if (!document.getElementById('xorla-jakarta')) {
       const link = document.createElement('link');
@@ -5150,6 +5213,7 @@ function XorlaApp() {
     setBillingBusy(plan); setBillingNote(null);
     try {
       const r = await callBilling('checkout', { plan, interval: planInterval, extraShops: plan === 'business' ? planExtra : 0, autoRenew: payMode === 'auto' });
+      rememberPayment(r.reference);
       window.location.href = r.url;   // Paystack's secure payment page; it brings them back here afterwards
     } catch (e) { setBillingNote({ ok: false, text: e.message }); setBillingBusy(null); }
   };
@@ -5257,6 +5321,34 @@ function XorlaApp() {
               <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(234,245,242,0.08)' }}><div className="h-full rounded-full" style={{ width: `${leftPct}%`, background: planDaysLeft <= 3 ? C.copper : C.sage }} /></div>
             </div>
           )}
+          {effPlan === 'business' && !onTrial && s.status === 'active' && (() => {
+            const extra = Number(s.extra_shops || 0);
+            const next = s.renew_extra_shops ?? extra;
+            const minNext = Math.max(0, liveLocations.length - 3);
+            const yearly = s.billing_interval === 'yearly';
+            const setNext = async (v) => {
+              try { await sbRpc('set_renewal_locations', session.access_token, { p_extra: v }); await loadBusinessData(session.access_token); }
+              catch (e) { brandAlert(/set_renewal_locations|schema cache/i.test(e.message) ? 'This needs a quick update on our side. Please try again later.' : e.message); }
+            };
+            return (
+              <div className="relative mt-4 pt-3.5" style={{ borderTop: '1px solid rgba(234,245,242,0.1)' }}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold">Locations: {liveLocations.length} open of {3 + extra}</div>
+                    <div className="text-[11.5px] leading-snug" style={{ color: next < extra ? C.copper : C.inkFaint }}>{next < extra ? `Renews with ${3 + next} on ${fmtDate(s.current_period_end)}, ${fmt(planPrice('business', yearly ? 'yearly' : 'monthly', next, earlyActive))} a ${yearly ? 'year' : 'month'}` : `Renews with all ${3 + extra}. ${extra > minNext ? 'Tap − to renew with fewer.' : 'Close one to pay for fewer.'}`}</div>
+                  </div>
+                  {extra > minNext && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button onClick={() => setNext(Math.max(minNext, next - 1))} disabled={next <= minNext} aria-label="Renew with one fewer location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: '1px solid rgba(234,245,242,0.18)', opacity: next <= minNext ? 0.35 : 1 }}>−</button>
+                      <span className="w-6 text-center text-[14px] font-bold tabular-nums">{3 + next}</span>
+                      <button onClick={() => setNext(Math.min(extra, next + 1))} disabled={next >= extra} aria-label="Renew with one more location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: '1px solid rgba(234,245,242,0.18)', opacity: next >= extra ? 0.35 : 1 }}>+</button>
+                    </div>
+                  )}
+                </div>
+                <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>You keep every paid location until {fmtDate(s.current_period_end)}. Changes apply from your next renewal; there are no part refunds.</div>
+              </div>
+            );
+          })()}
           {(earlyActive || (effPlan !== 'free' && s.auto_renew)) && (
             <div className="relative flex items-center justify-between gap-3 mt-4 pt-3.5" style={{ borderTop: '1px solid rgba(234,245,242,0.1)' }}>
               <span className="text-[12.5px]" style={{ color: earlyActive ? C.copper : C.inkDim }}>{earlyActive ? `Early-supporter price until ${fmtDate(s.early_supporter_until)}` : 'Auto-renew is on'}</span>
@@ -5409,6 +5501,7 @@ function XorlaApp() {
       setAddLoc({ ...a, busy: true, error: '' });
       try {
         const r = await callBilling('add_locations', { count: a.count });
+        rememberPayment(r.reference);
         // Remember what they were doing, so the location opens by itself once the payment is confirmed
         try { localStorage.setItem('xorla:pending-location', JSON.stringify({ biz: settings.businessId, at: Date.now(), reopen: a.reopening?.id || null, add: a.adding || null })); } catch (e) {}
         window.location.href = r.url;
@@ -7008,8 +7101,11 @@ function XorlaApp() {
                     <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                       {closedLocations.map((s, i) => (
                         <div key={s.id} className="flex items-center justify-between px-4 py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
-                          <span className="text-[13px]" style={{ color: C.inkDim }}>{locName(s)}<span className="text-[11px]" style={{ color: C.inkFaint }}> · history kept</span></span>
-                          <button onClick={() => reopenLocation(s)} className="text-[12px] font-medium" style={{ color: C.sage }}>Reopen</button>
+                          <span className="text-[13px] min-w-0 truncate" style={{ color: C.inkDim }}>{locName(s)}<span className="text-[11px]" style={{ color: C.inkFaint }}> · history kept</span></span>
+                          <span className="flex items-center gap-4 shrink-0">
+                            <button onClick={() => deleteClosedLocation(s)} className="text-[12px] font-medium" style={{ color: C.rust }}>Delete</button>
+                            <button onClick={() => reopenLocation(s)} className="text-[12px] font-medium" style={{ color: C.sage }}>Reopen</button>
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -10329,8 +10425,13 @@ function AdminDashboard() {
   const [supportCounts, setSupportCounts] = useState(null);
   const [login, setLogin] = useState({ email: '', password: '', confirm: '', create: false, busy: false, error: '' });
   const tokenRef = useRef(null);
+  // The browser tab says who this page is for
   useEffect(() => {
-    document.title = 'Xorla · Founder dashboard';
+    document.title = state.phase === 'ready' || state.phase === 'mfa-code' || state.phase === 'mfa-setup'
+      ? (role === 'agent' ? 'Xorla · Support inbox' : 'Xorla · Founder dashboard') : 'Xorla · Team';
+  }, [role, state.phase]);
+  useEffect(() => {
+    document.title = 'Xorla · Team';
     const m = document.createElement('meta'); m.name = 'robots'; m.content = 'noindex, nofollow'; document.head.appendChild(m);
     return () => m.remove();
   }, []);
