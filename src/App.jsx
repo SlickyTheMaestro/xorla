@@ -4803,10 +4803,10 @@ function XorlaApp() {
     const totalRooms = roomsHere.length || bookables.reduce((a, p) => a + capacityOf(p, deskShopId), 0);
     const jump = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     const tiles = [
-      ['bk-requests', 'Requests', bookingRequests.length, C.copper, Bell],
-      ['bk-arriving', 'Arriving', arrivals.length, C.sage, ArrowDownRight],
-      [stayingNow.length ? 'bk-staying' : 'bk-leaving', 'In house', staying.length, C.ink, BedDouble],
-      ['bk-leaving', 'Leaving', leavingToday.length, C.copper, ArrowUpRight],
+      ['requests', 'bk-requests', 'Requests', bookingRequests.length, C.copper, Bell],
+      ['arriving', 'bk-arriving', 'Arriving', arrivals.length, C.sage, ArrowDownRight],
+      ['inhouse', stayingNow.length ? 'bk-staying' : 'bk-leaving', 'In house', staying.length, C.ink, BedDouble],
+      ['leaving', 'bk-leaving', 'Leaving', leavingToday.length, C.copper, ArrowUpRight],
     ];
     const quietDay = !arrivals.length && !stayingNow.length && !leavingToday.length;
     const word = serviceKind === 'rentals' ? 'items' : 'rooms';
@@ -4841,8 +4841,8 @@ function XorlaApp() {
             <span className="text-[12px]" style={{ color: C.inkDim }}><strong className="cx-mono" style={{ color: freeRoomsNow > 0 ? C.sage : C.rust }}>{freeRoomsNow}</strong> of {totalRooms} {word} free</span>
           </div>
           <div className="grid grid-cols-4 gap-1.5">
-            {tiles.map(([id, l, n, col, Ic]) => (
-              <button key={id} onClick={() => n && jump(id)} className="rounded-xl py-2.5 px-1 flex flex-col items-center gap-0.5" style={{ background: n ? 'rgba(0,0,0,0.25)' : 'transparent', border: `1px solid ${n ? C.line : 'transparent'}` }}>
+            {tiles.map(([key, id, l, n, col, Ic]) => (
+              <button key={key} onClick={() => n && jump(id)} className="rounded-xl py-2.5 px-1 flex flex-col items-center gap-0.5" style={{ background: n ? 'rgba(0,0,0,0.25)' : 'transparent', border: `1px solid ${n ? C.line : 'transparent'}` }}>
                 <Ic size={14} style={{ color: n ? col : C.inkFaint }} />
                 <span className="text-[19px] font-bold cx-mono leading-none mt-1" style={{ color: n ? (col === C.ink ? C.ink : col) : C.inkFaint }}>{n}</span>
                 <span className="text-[10.5px] font-medium" style={{ color: n ? C.inkDim : C.inkFaint }}>{l}</span>
