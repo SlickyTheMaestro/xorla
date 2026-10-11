@@ -194,7 +194,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson'];
 const SETTINGS_DESCRIPTIONS = {
   plan: 'What your plan includes, and renewing it.',
   notifications: 'Alerts on this device for new orders, requests and staff.',
@@ -1981,6 +1981,10 @@ function XorlaApp() {
       depositPercent: business.deposit_percent ?? 50,
       depositCapNights: business.deposit_cap_nights ?? 1,
       cancelWindowHours: business.cancel_window_hours ?? 24,
+      bankName: business.bank_name || '',
+      bankAccountNumber: business.bank_account_number || '',
+      bankAccountName: business.bank_account_name || '',
+      depositPayNote: business.deposit_pay_note || '',
       apptEnabled: business.appt_enabled !== false,
       openTime: String(business.open_time || '08:00').slice(0, 5),
       closeTime: String(business.close_time || '18:00').slice(0, 5),
@@ -2706,6 +2710,10 @@ function XorlaApp() {
       if ('depositPercent' in patch) bizPatch.deposit_percent = Number(patch.depositPercent);
       if ('depositCapNights' in patch) bizPatch.deposit_cap_nights = Number(patch.depositCapNights);
       if ('cancelWindowHours' in patch) bizPatch.cancel_window_hours = Number(patch.cancelWindowHours);
+      if ('bankName' in patch) bizPatch.bank_name = String(patch.bankName || '').trim().slice(0, 60) || null;
+      if ('bankAccountNumber' in patch) bizPatch.bank_account_number = String(patch.bankAccountNumber || '').replace(/[^0-9]/g, '').slice(0, 20) || null;
+      if ('bankAccountName' in patch) bizPatch.bank_account_name = String(patch.bankAccountName || '').trim().slice(0, 80) || null;
+      if ('depositPayNote' in patch) bizPatch.deposit_pay_note = String(patch.depositPayNote || '').trim().slice(0, 200) || null;
       if ('apptEnabled' in patch) bizPatch.appt_enabled = !!patch.apptEnabled;
       if ('openTime' in patch) bizPatch.open_time = patch.openTime;
       if ('closeTime' in patch) bizPatch.close_time = patch.closeTime;
@@ -4580,6 +4588,7 @@ function XorlaApp() {
     runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: actForm.roomId || null }),
       () => {
         setBookingAct(null);
+        if (action === 'deposit') { const msg = confirmedMessage(booking, adding); offerWhatsApp(booking.customer_phone, msg, 'Deposit recorded', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); }
         if (action === 'decline' || action === 'cancel') {
           const held = Number(booking.deposit_paid) || 0;
           const stay = `${booking.item_name} for ${dayLabel(booking.check_in)} to ${dayLabel(booking.check_out)}`;
@@ -4597,7 +4606,29 @@ function XorlaApp() {
         }));
       });
   };
-  const quickConfirm = (b) => runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: b.id, p_action: 'confirm' }));
+  // The guest's private page: see the booking, pay the deposit, or cancel
+  const guestLinkOf = (b) => (b.manage_token ? `${window.location.origin}/booking/${b.manage_token}` : '');
+  const confirmedMessage = (b, deposit) => {
+    const first = String(b.customer_name || '').split(' ')[0] || 'there';
+    const nights = `${b.nights} ${unitWord(b)}${b.nights !== 1 ? 's' : ''}`;
+    const owing = depositPct > 0 ? Math.max(0, depositDueOf(b) - (Number(b.deposit_paid) || 0) - (deposit || 0)) : 0;
+    const bank = settings.bankAccountNumber ? `${settings.bankName ? `${settings.bankName}, ` : ''}${settings.bankAccountNumber}${settings.bankAccountName ? ` (${settings.bankAccountName})` : ''}` : '';
+    const lines = [
+      `Hi ${first}, your booking at ${settings.businessName} is confirmed${deposit ? ` and we've received your ${fmt(deposit)} deposit` : ''}.`,
+      `${b.item_name}${b.units > 1 ? ` × ${b.units}` : ''}, ${dayLabel(b.check_in)} to ${dayLabel(b.check_out)} (${nights}). Total ${fmt(b.total)}.`,
+      owing > 0 ? `To secure it, please send the ${fmt(owing)} deposit${bank ? ` to ${bank}` : ''}.` : '',
+      guestLinkOf(b) ? `See or manage your booking here: ${guestLinkOf(b)}` : '',
+    ].filter(Boolean);
+    return lines.join('\n\n');
+  };
+  const quickConfirm = (b) => runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: b.id, p_action: 'confirm' }),
+    () => { const msg = confirmedMessage(b, 0); offerWhatsApp(b.customer_phone, msg, 'Booking confirmed', `Let ${b.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); });
+  const shareGuestLink = async (b) => {
+    const link = guestLinkOf(b); if (!link) return;
+    const msg = `Hi ${String(b.customer_name || '').split(' ')[0] || 'there'}, here is your booking at ${settings.businessName}. You can see it, pay the deposit or cancel here: ${link}`;
+    if (b.customer_phone) { offerWhatsApp(b.customer_phone, msg, 'Send the booking link', `Send ${b.customer_name} their booking page on WhatsApp? They'll see:\n\n"${msg}"`); return; }
+    try { await navigator.clipboard.writeText(link); brandAlert('Booking link copied. Paste it to the guest.', { title: 'Link copied' }); } catch (e) { brandAlert(link, { title: 'Booking link' }); }
+  };
 
   const renderBookingRow = (b, actions) => {
     const paid = Number(b.amount_paid) || 0;
@@ -4637,6 +4668,7 @@ function XorlaApp() {
                 <a href={`https://wa.me/${toWhatsAppNumber(b.customer_phone)}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${b.customer_name}`} title="WhatsApp" className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={15} /></a>
                 <a href={`tel:${String(b.customer_phone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${b.customer_name}`} title="Call" className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Phone size={14} /></a>
               </span>}
+              {b.manage_token && ['requested', 'confirmed'].includes(b.status) && <button type="button" onClick={() => shareGuestLink(b)} aria-label={`Send ${b.customer_name} their booking link`} title="Booking link" className={`${b.customer_phone ? '' : 'ml-auto '}w-8 h-8 shrink-0 rounded-lg flex items-center justify-center`} style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Link2 size={14} /></button>}
             </div>
           </div>
         </div>
@@ -4652,6 +4684,9 @@ function XorlaApp() {
           )}
           {(b.status === 'requested' || b.status === 'confirmed') && Number(b.deposit_paid) > 0 && depositOwing(b) <= 0 && (
             <div className="text-[12px] font-semibold" style={{ color: C.sage }}>Deposit received: <span className="cx-mono">{fmt(b.deposit_paid)}</span></div>
+          )}
+          {b.guest_paid_said_at && (b.status === 'requested' || b.status === 'confirmed') && depositOwing(b) > 0 && (
+            <div className="text-[12px] font-semibold flex items-center gap-1.5 rounded-lg px-2.5 py-1.5" style={{ background: C.copperSoft, color: C.copper }}><Wallet size={13} className="shrink-0" /> Guest says the deposit is sent ({new Date(b.guest_paid_said_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}). Check your account.</div>
           )}
           {holdH !== null && <div className="text-[11.5px] flex items-center gap-1.5" style={{ color: holdH <= 3 ? C.rust : C.inkFaint }}><Clock size={12} /> Dates held for {holdH < 1 ? 'less than an hour' : `${holdH} more hour${holdH !== 1 ? 's' : ''}`}, then released</div>}
           {credit > 0 && <div className="text-[12px] font-semibold" style={{ color: C.sage }}>Credit left: <span className="cx-mono">{fmt(credit)}</span> <span className="font-normal" style={{ color: C.inkFaint }}>· paid ahead, extras come out of it</span></div>}
@@ -7491,6 +7526,21 @@ function XorlaApp() {
                     </div>
                   )}
 
+                  {pct > 0 && (
+                    <div className="rounded-[20px] p-4 space-y-2.5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                      <div>
+                        <div className="text-[14.5px] font-semibold">How guests pay the deposit</div>
+                        <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>Shown to guests on your storefront and on their booking page, so they can transfer it straight away.</div>
+                      </div>
+                      <input type="text" placeholder="Bank, e.g. GTBank" value={draft.bankName || ''} onChange={(e) => setDraft({ ...draft, bankName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                      <input type="text" inputMode="numeric" placeholder="Account number" value={draft.bankAccountNumber || ''} onChange={(e) => setDraft({ ...draft, bankAccountNumber: e.target.value.replace(/[^0-9]/g, '').slice(0, 10) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                      <input type="text" placeholder="Account name" value={draft.bankAccountName || ''} onChange={(e) => setDraft({ ...draft, bankAccountName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                      <input type="text" placeholder="Note for guests (optional), e.g. Use your name as the reference" value={draft.depositPayNote || ''} onChange={(e) => setDraft({ ...draft, depositPayNote: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                      {draft.bankAccountNumber && String(draft.bankAccountNumber).length !== 10 && <div className="text-[11.5px]" style={{ color: C.rust }}>Nigerian account numbers have 10 digits.</div>}
+                      {!draft.bankAccountNumber && <div className="text-[11.5px]" style={{ color: C.copper }}>Without these, guests are asked to message you for payment details.</div>}
+                    </div>
+                  )}
+
                   <div className="rounded-2xl p-4 space-y-2.5 text-[12.5px] leading-relaxed" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.inkDim }}>
                     <div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>What happens when plans change</div>
                     <div><strong style={{ color: C.sage }}>Cancels {hrs}+ hours before check-in:</strong> the deposit is owed back. Xorla lists it under "Refunds to send" until your team marks it refunded.</div>
@@ -9258,6 +9308,7 @@ function Storefront({ businessCode }) {
   const [bookBusy, setBookBusy] = useState(false);
   const [bookError, setBookError] = useState('');
   const [bookingSent, setBookingSent] = useState(null);
+  const [bookTerms, setBookTerms] = useState(null);   // deposit rule, cancellation window and how to pay
   const [dateNudge, setDateNudge] = useState(false);
   const datesValid = !!stayIn && !!stayOut && stayOut > stayIn;
   useEffect(() => {
@@ -9310,6 +9361,7 @@ function Storefront({ businessCode }) {
         setBusiness(store);
         document.title = store.name;
         setStoreProducts((store.products || []).map(fromSbProduct).filter((p) => store.business_type !== 'products' || !isBookable(p)));
+        if (store.business_type !== 'products') sbRpc('storefront_booking_terms', SB_KEY, { p_business_code: businessCode }).then((t) => setBookTerms(t || null)).catch(() => {});
       } catch (e) { if (!business) setLoadError(true); }
       setLoading(false);
       setSwitchingShop(false);
@@ -9547,13 +9599,17 @@ function Storefront({ businessCode }) {
     if (bookPhone.replace(/[^0-9]/g, '').length < 10) { setBookError('Please enter your phone number, so they can confirm your booking.'); return; }
     setBookBusy(true); setBookError('');
     try {
-      await sbRpc('place_booking', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_product_id: bookItem.id, p_check_in: stayIn, p_check_out: stayOut, p_units: bookUnits, p_name: bookName.trim(), p_phone: bookPhone.trim(), p_note: bookNote.trim() });
+      const args = { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_product_id: bookItem.id, p_check_in: stayIn, p_check_out: stayOut, p_units: bookUnits, p_name: bookName.trim(), p_phone: bookPhone.trim(), p_note: bookNote.trim() };
+      let placed = null;
+      try { placed = await sbRpc('place_booking_v2', SB_KEY, args); }
+      catch (e) { if (/place_booking_v2|schema cache|function/i.test(e.message || '')) await sbRpc('place_booking', SB_KEY, args); else throw e; }
       const total = bookItem.sellingPrice * stayNights * bookUnits;
       const nightsText = `${stayNights} ${unitWordOf(bookItem)}${stayNights !== 1 ? 's' : ''}`;
       if (business.owner_phone) {
         const msg = `New booking request from ${bookName.trim()}${bookPhone ? ` (${bookPhone.trim()})` : ''}:\n\n${bookItem.name}${bookUnits > 1 ? ` × ${bookUnits}` : ''}\n${prettyDay(stayIn)} to ${prettyDay(stayOut)} (${nightsText})\nTotal: ${fmt(total)}${bookNote.trim() ? `\nNote: ${bookNote.trim()}` : ''}\n\nThe dates are held for 24 hours. Confirm it in Xorla.`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
       }
+      if (placed?.token) { window.location.href = `/booking/${placed.token}?new=1`; return; }
       setBookingSent({ item: bookItem.name, units: bookUnits, dates: `${prettyDay(stayIn)} to ${prettyDay(stayOut)}`, nights: nightsText, total, phone: bookPhone.trim() });
       setBookItem(null); setBookName(''); setBookPhone(''); setBookNote('');
     } catch (e) { setBookError(e.message); }
@@ -9591,7 +9647,24 @@ function Storefront({ businessCode }) {
             <span className="text-[14px]" style={{ color: S.muted }}>{fmt(bookItem.sellingPrice)} × {stayNights}{bookUnits > 1 ? ` × ${bookUnits}` : ''}</span>
             <span className="text-[20px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(bookItem.sellingPrice * stayNights * bookUnits)}</span>
           </div>
-          <div className="text-[12.5px] mb-4" style={{ color: S.muted }}>No payment now. Your dates are held for 24 hours while {business.name} confirms.</div>
+          {(() => {
+            const total = bookItem.sellingPrice * stayNights * bookUnits;
+            const pct = Number(bookTerms?.deposit_percent ?? 0), cap = Number(bookTerms?.deposit_cap_nights ?? 0);
+            const dep = pct > 0 ? Math.round(cap > 0 ? Math.min(total * pct / 100, bookItem.sellingPrice * bookUnits * cap) : total * pct / 100) : 0;
+            const hrs = Number(bookTerms?.cancel_window_hours ?? 24);
+            return (
+              <div className="rounded-2xl px-4 py-3.5 mb-4 space-y-2 text-[13px]" style={{ background: S.tile }}>
+                {bookTerms && dep > 0 ? (
+                  <>
+                    <div className="flex items-baseline justify-between gap-3"><span className="font-semibold">Deposit to secure it</span><span className="text-[16px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(dep)}</span></div>
+                    <div className="flex items-baseline justify-between gap-3" style={{ color: S.muted }}><span>Pay at check-in</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(total - dep)}</span></div>
+                    <div className="pt-1 leading-relaxed" style={{ color: S.muted }}>Nothing to pay right now. Send the request first; your dates are held for 24 hours, and the next page shows how to pay the deposit.</div>
+                  </>
+                ) : <div className="leading-relaxed" style={{ color: S.muted }}>No payment now. Your dates are held for 24 hours while {business.name} confirms.</div>}
+                {bookTerms && <div className="flex items-start gap-2 pt-1 leading-relaxed"><ShieldCheck size={15} className="shrink-0 mt-0.5" style={{ color: '#0E7A5F' }} /><span>Free cancellation until {hrs} hours before check-in (2pm).{dep > 0 ? ' After that, the deposit is not refunded.' : ''}</span></div>}
+              </div>
+            );
+          })()}
           {bookError && <div className="text-[13px] rounded-xl px-4 py-3 mb-3" style={{ background: '#FDECEA', color: '#B42318' }}>{bookError}</div>}
           <button onClick={submitBooking} disabled={bookBusy} className={`w-full py-3.5 rounded-xl text-[15px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: bookBusy ? 0.6 : 1 }}>{bookBusy ? 'Sending…' : 'Request booking'}</button>
         </div>
@@ -13005,12 +13078,148 @@ function BrandDialogHost() {
   );
 }
 
+// ---------- The guest's own booking page (/booking/…): see it, pay the deposit, or cancel ----------
+function GuestBooking({ token }) {
+  const [bk, setBk] = useState(undefined);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState('');
+  const isNew = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('new') === '1';
+  const load = useCallback(async () => { try { setBk(await sbRpc('guest_booking', SB_KEY, { p_token: token })); } catch (e) { setBk(null); } }, [token]);
+  useEffect(() => {
+    load();
+    if (!document.getElementById('xorla-jakarta')) {
+      const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+      document.head.appendChild(link);
+    }
+  }, [load]);
+  useEffect(() => { if (bk?.business) document.title = `${bk.business} · Your booking`; }, [bk]);
+  const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
+  const btn = 'w-full py-3.5 rounded-xl text-[15px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black';
+  if (bk === undefined) return <div className="flex items-center justify-center" style={page}><Loader2 className="animate-spin" size={22} style={{ color: S.muted }} /></div>;
+  if (!bk) return (
+    <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
+      <div className="text-[20px] font-bold mb-2">This link isn't working</div>
+      <div className="text-[14px] max-w-sm" style={{ color: S.muted }}>Check the link you were sent, or contact the business directly.</div>
+    </div>
+  );
+  const day = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const when = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Lagos' });
+  const word = bk.price_unit === 'day' ? 'day' : 'night';
+  const wa = bk.phone ? `https://wa.me/${toWhatsAppNumber(bk.phone)}` : null;
+  const link = typeof window !== 'undefined' ? `${window.location.origin}/booking/${token}` : '';
+  const owing = Math.max(0, Number(bk.deposit_due) - Number(bk.deposit_paid));
+  const early = bk.free_cancel_until && Date.now() < new Date(bk.free_cancel_until).getTime();
+  const copy = async (text, what) => { try { await navigator.clipboard.writeText(text); setCopied(what); setTimeout(() => setCopied(''), 2000); } catch (e) { brandAlert(text, { theme: 'light', title: 'Copy this' }); } };
+  const act = async (action) => {
+    if (action === 'cancel') {
+      const msg = Number(bk.deposit_paid) > 0
+        ? (early ? `${bk.business} will owe you your ${fmt(bk.deposit_paid)} deposit back.` : `It's less than ${bk.cancel_window_hours} hours before check-in, so the ${fmt(bk.deposit_paid)} deposit won't be refunded.`)
+        : `${bk.business} will be told straight away, and the dates will be released.`;
+      if (!(await brandConfirm(msg, { title: 'Cancel this booking?', confirm: 'Yes, cancel it', cancel: 'Keep my booking', danger: true, theme: 'light' }))) return;
+    }
+    setBusy(true);
+    try { await sbRpc('guest_booking_action', SB_KEY, { p_token: token, p_action: action }); await load(); }
+    catch (e) { brandAlert(e.message, { theme: 'light', title: 'Please try again' }); load(); }
+    setBusy(false);
+  };
+  const states = {
+    requested: ['#FFF4D6', '#8A5A00', 'Waiting for confirmation', `${bk.business} has your request. Your dates are held until ${bk.hold_until ? when(bk.hold_until) : 'they reply'}.`],
+    confirmed: ['#DFF6EE', '#0E7A5F', 'Confirmed', owing > 0 ? `Your booking is confirmed. Send the deposit to secure it.` : `You're all set. See you on ${day(bk.check_in)}.`],
+    checked_in: ['#DFF6EE', '#0E7A5F', 'Checked in', `Enjoy your stay at ${bk.business}.`],
+    checked_out: ['#F1F2EF', '#3F4440', 'Completed', `Thanks for staying at ${bk.business}.`],
+    cancelled: ['#FDECEA', '#B42318', 'Cancelled', bk.deposit_status === 'refund_due' ? `${bk.business} owes you ${fmt(bk.refund_amount)} back. They'll send it to you.` : bk.deposit_status === 'refunded' ? `Your ${fmt(bk.refund_amount)} deposit has been refunded.` : bk.deposit_status === 'kept' ? 'The deposit was kept, as the cancellation was late.' : 'This booking has been cancelled.'],
+    declined: ['#FDECEA', '#B42318', 'Not available', `${bk.business} couldn't take this booking${bk.cancel_reason ? `: ${bk.cancel_reason}` : ''}. Try other dates on their page.`],
+    expired: ['#F1F2EF', '#3F4440', 'Request expired', `${bk.business} didn't confirm in time, so the dates were released. You can book again.`],
+    no_show: ['#F1F2EF', '#3F4440', 'Missed', 'This booking was marked as not arrived.'],
+  };
+  const [stBg, stFg, stTitle, stBody] = states[bk.status] || states.requested;
+  const row = (l, v, strong) => <div className="flex items-baseline justify-between gap-4 py-1.5"><span style={{ color: S.muted }}>{l}</span><span className={strong ? 'font-bold' : 'font-medium'} style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{v}</span></div>;
+  return (
+    <div style={page}>
+      <div className="max-w-md mx-auto px-5 pt-8 pb-12">
+        <div className="text-[13px] font-semibold uppercase tracking-wide mb-1" style={{ color: S.muted }}>Your booking</div>
+        <div className="text-[26px] font-bold leading-tight mb-5">{bk.business}</div>
+
+        {isNew && ['requested', 'confirmed'].includes(bk.status) && (
+          <div className="rounded-2xl p-4 mb-4" style={{ background: S.ink, color: '#fff' }}>
+            <div className="flex items-center gap-2 text-[15px] font-bold"><Check size={18} /> Request sent</div>
+            <div className="text-[13.5px] mt-1 leading-relaxed" style={{ color: 'rgba(255,255,255,0.78)' }}>Keep this page: it's your booking. Come back any time to check it, pay the deposit or cancel.</div>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button onClick={() => copy(link, 'link')} className="py-2.5 rounded-xl text-[13.5px] font-semibold" style={{ background: 'rgba(255,255,255,0.14)' }}>{copied === 'link' ? 'Copied' : 'Copy link'}</button>
+              <a href={`https://wa.me/?text=${encodeURIComponent(`My booking at ${bk.business}: ${link}`)}`} target="_blank" rel="noopener noreferrer" className="py-2.5 rounded-xl text-[13.5px] font-semibold text-center" style={{ background: '#fff', color: S.ink }}>Save on WhatsApp</a>
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-2xl p-4 mb-4" style={{ background: stBg }}>
+          <div className="text-[15px] font-bold" style={{ color: stFg }}>{stTitle}</div>
+          <div className="text-[13.5px] mt-1 leading-relaxed" style={{ color: S.ink }}>{stBody}</div>
+        </div>
+
+        <div className="rounded-2xl p-4 mb-4 text-[14px]" style={{ background: S.tile }}>
+          <div className="text-[17px] font-bold mb-1">{bk.item}{bk.units > 1 ? ` × ${bk.units}` : ''}</div>
+          {row('Check-in', `${day(bk.check_in)}, from 2pm`)}
+          {row('Check-out', day(bk.check_out))}
+          {row(`${word[0].toUpperCase()}${word.slice(1)}s`, bk.nights)}
+          {row('Guest', bk.customer_name)}
+          <div className="my-1.5" style={{ borderTop: `1px solid ${S.line}` }} />
+          {row('Total', fmt(bk.total), true)}
+          {Number(bk.amount_paid) > 0 && row('Paid so far', fmt(bk.amount_paid))}
+          {bk.address && <div className="text-[12.5px] mt-2 flex items-start gap-1.5" style={{ color: S.muted }}><MapPin size={14} className="shrink-0 mt-0.5" /> {bk.address}</div>}
+        </div>
+
+        {bk.pay && owing > 0 && (
+          <div className="rounded-2xl p-4 mb-4" style={{ border: `1.5px solid ${S.ink}` }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[15px] font-bold">Deposit to secure it</span>
+              <span className="text-[20px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(owing)}</span>
+            </div>
+            {bk.pay.account_number ? (
+              <>
+                <div className="text-[13px] mt-1 mb-3" style={{ color: S.muted }}>Send it by bank transfer to:</div>
+                <div className="rounded-xl p-3.5 space-y-1" style={{ background: S.tile }}>
+                  {bk.pay.bank_name && <div className="text-[13px]" style={{ color: S.muted }}>{bk.pay.bank_name}</div>}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[22px] font-bold tracking-wider" style={{ fontVariantNumeric: 'tabular-nums' }}>{bk.pay.account_number}</span>
+                    <button onClick={() => copy(bk.pay.account_number, 'acct')} className="shrink-0 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold flex items-center gap-1.5" style={{ background: '#fff', border: `1px solid ${S.line}` }}><Copy size={13} /> {copied === 'acct' ? 'Copied' : 'Copy'}</button>
+                  </div>
+                  {bk.pay.account_name && <div className="text-[13.5px] font-semibold">{bk.pay.account_name}</div>}
+                </div>
+                <div className="text-[12.5px] mt-2.5 leading-relaxed" style={{ color: S.muted }}>{bk.pay.note || `Use your name (${bk.customer_name}) as the reference.`}</div>
+              </>
+            ) : <div className="text-[13px] mt-1.5 leading-relaxed" style={{ color: S.muted }}>Message {bk.business} for their payment details.</div>}
+            {bk.guest_paid_said_at
+              ? <div className="mt-3 rounded-xl px-3.5 py-3 text-[13px] leading-relaxed" style={{ background: '#DFF6EE', color: '#0E7A5F' }}><strong>Thanks!</strong> You told {bk.business} you sent it ({when(bk.guest_paid_said_at)}). They'll confirm once it arrives.</div>
+              : <button onClick={() => act('paid')} disabled={busy} className={`${btn} mt-3`} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.6 : 1 }}>{busy ? 'Sending…' : "I've sent the deposit"}</button>}
+          </div>
+        )}
+
+        {['requested', 'confirmed'].includes(bk.status) && (
+          <div className="flex items-start gap-2.5 text-[13px] leading-relaxed mb-5 px-1" style={{ color: S.muted }}>
+            <ShieldCheck size={16} className="shrink-0 mt-0.5" style={{ color: '#0E7A5F' }} />
+            <span>{early ? <>Free cancellation until <strong style={{ color: S.ink }}>{when(bk.free_cancel_until)}</strong>.{Number(bk.deposit_due) > 0 ? ' After that, the deposit is not refunded.' : ''}</> : Number(bk.deposit_paid) > 0 ? 'The free cancellation time has passed, so the deposit would not be refunded.' : 'You can still cancel if your plans change.'}</span>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+          {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className={btn} style={{ border: `1.5px solid ${S.ink}`, textAlign: 'center' }}>Message {bk.business}</a>}
+          {bk.can_cancel && <button onClick={() => act('cancel')} disabled={busy} className="py-3 text-[14px] font-semibold" style={{ color: '#B42318' }}>Cancel booking</button>}
+          {bk.business_code && ['declined', 'expired', 'cancelled', 'checked_out'].includes(bk.status) && <a href={`/store/${bk.business_code}`} className={btn} style={{ background: S.ink, color: '#fff', textAlign: 'center' }}>Book again</a>}
+        </div>
+        <div className="text-center text-[11.5px] mt-10" style={{ color: S.soldOut }}>Bookings by Xorla</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Root() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
   const clean = path.replace(/\/+$/, '');
   const offerMatch = path.match(/^\/appt\/([a-f0-9]{20,64})/);
-  const page = offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
+  const guestMatch = path.match(/^\/booking\/([a-f0-9]{20,64})/);
+  const page = offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : guestMatch ? <GuestBooking token={guestMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
     : clean === '/pricing' ? <PricingPage />
     : clean === '/privacy' ? <LegalPage kind="privacy" />
     : clean === '/terms' ? <LegalPage kind="terms" />
