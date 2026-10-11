@@ -4625,7 +4625,10 @@ function XorlaApp() {
     () => { const msg = confirmedMessage(b, 0); offerWhatsApp(b.customer_phone, msg, 'Booking confirmed', `Let ${b.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); });
   const shareGuestLink = async (b) => {
     const link = guestLinkOf(b); if (!link) return;
-    const msg = `Hi ${String(b.customer_name || '').split(' ')[0] || 'there'}, here is your booking at ${settings.businessName}. You can see it, pay the deposit or cancel here: ${link}`;
+    const first = String(b.customer_name || '').split(' ')[0] || 'there';
+    const msg = b.deposit_status === 'refund_due'
+      ? `Hi ${first}, we're sending back your ${fmt(b.refund_amount)} deposit from ${settings.businessName}. Please add the account to send it to here: ${link}`
+      : `Hi ${first}, here is your booking at ${settings.businessName}. You can see it, pay the deposit or cancel here: ${link}`;
     if (b.customer_phone) { offerWhatsApp(b.customer_phone, msg, 'Send the booking link', `Send ${b.customer_name} their booking page on WhatsApp? They'll see:\n\n"${msg}"`); return; }
     try { await navigator.clipboard.writeText(link); brandAlert('Booking link copied. Paste it to the guest.', { title: 'Link copied' }); } catch (e) { brandAlert(link, { title: 'Booking link' }); }
   };
@@ -4698,6 +4701,12 @@ function XorlaApp() {
           {b.deposit_status === 'refund_due' && (
             <div className="text-[12px] font-semibold" style={{ color: C.rust }}>Refund to send: <span className="cx-mono">{fmt(b.refund_amount)}</span>{b.cancel_reason ? <span className="font-normal" style={{ color: C.inkFaint }}> · {b.cancel_reason}</span> : null}</div>
           )}
+          {b.deposit_status === 'refund_due' && (b.refund_account_number
+            ? <div className="rounded-lg px-2.5 py-2 flex items-center gap-2" style={{ background: 'rgba(0,0,0,0.22)' }}>
+                <span className="flex-1 min-w-0 text-[12px]" style={{ color: C.inkDim }}>Send to <strong style={{ color: C.ink }}>{b.refund_bank_name}</strong> · <strong className="cx-mono" style={{ color: C.ink }}>{b.refund_account_number}</strong> · {b.refund_account_name}</span>
+                <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(b.refund_account_number); brandAlert('Account number copied.', { title: 'Copied' }); } catch (e) {} }} aria-label="Copy account number" className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}><Copy size={13} /></button>
+              </div>
+            : <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the guest's account details.{b.manage_token ? <> <button type="button" onClick={() => shareGuestLink(b)} className="font-semibold" style={{ color: C.copper }}>Ask them</button></> : null}</div>)}
           {b.deposit_status === 'refunded' && (
             <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Refunded {fmt(b.refund_amount)}{b.refunded_by_name ? ` by ${b.refunded_by_name}` : ''}</div>
           )}
@@ -9605,7 +9614,7 @@ function Storefront({ businessCode }) {
       catch (e) { if (/place_booking_v2|schema cache|function/i.test(e.message || '')) await sbRpc('place_booking', SB_KEY, args); else throw e; }
       const total = bookItem.sellingPrice * stayNights * bookUnits;
       const nightsText = `${stayNights} ${unitWordOf(bookItem)}${stayNights !== 1 ? 's' : ''}`;
-      if (business.owner_phone) {
+      if (business.owner_phone && !placed?.token) {
         const msg = `New booking request from ${bookName.trim()}${bookPhone ? ` (${bookPhone.trim()})` : ''}:\n\n${bookItem.name}${bookUnits > 1 ? ` × ${bookUnits}` : ''}\n${prettyDay(stayIn)} to ${prettyDay(stayOut)} (${nightsText})\nTotal: ${fmt(total)}${bookNote.trim() ? `\nNote: ${bookNote.trim()}` : ''}\n\nThe dates are held for 24 hours. Confirm it in Xorla.`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
       }
@@ -13083,6 +13092,7 @@ function GuestBooking({ token }) {
   const [bk, setBk] = useState(undefined);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState('');
+  const [rf, setRf] = useState({ bank: '', number: '', name: '', editing: false });
   const isNew = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('new') === '1';
   const load = useCallback(async () => { try { setBk(await sbRpc('guest_booking', SB_KEY, { p_token: token })); } catch (e) { setBk(null); } }, [token]);
   useEffect(() => {
@@ -13106,8 +13116,15 @@ function GuestBooking({ token }) {
   const day = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
   const when = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Lagos' });
   const word = bk.price_unit === 'day' ? 'day' : 'night';
-  const wa = bk.phone ? `https://wa.me/${toWhatsAppNumber(bk.phone)}` : null;
   const link = typeof window !== 'undefined' ? `${window.location.origin}/booking/${token}` : '';
+  const waText = isNew && ['requested', 'confirmed'].includes(bk.status) ? `Hello ${bk.business}, I just sent a booking request: ${bk.item}${bk.units > 1 ? ` × ${bk.units}` : ''}, ${day(bk.check_in)} to ${day(bk.check_out)}. My name is ${bk.customer_name}. My booking: ${link}` : '';
+  const wa = bk.phone ? `https://wa.me/${toWhatsAppNumber(bk.phone)}${waText ? `?text=${encodeURIComponent(waText)}` : ''}` : null;
+  const saveRefund = async () => {
+    setBusy(true);
+    try { await sbRpc('guest_refund_details', SB_KEY, { p_token: token, p_bank: rf.bank, p_number: rf.number, p_name: rf.name }); setRf({ bank: '', number: '', name: '', editing: false }); await load(); }
+    catch (e) { brandAlert(e.message, { theme: 'light', title: 'Please check the details' }); }
+    setBusy(false);
+  };
   const owing = Math.max(0, Number(bk.deposit_due) - Number(bk.deposit_paid));
   const early = bk.free_cancel_until && Date.now() < new Date(bk.free_cancel_until).getTime();
   const copy = async (text, what) => { try { await navigator.clipboard.writeText(text); setCopied(what); setTimeout(() => setCopied(''), 2000); } catch (e) { brandAlert(text, { theme: 'light', title: 'Copy this' }); } };
@@ -13128,7 +13145,7 @@ function GuestBooking({ token }) {
     confirmed: ['#DFF6EE', '#0E7A5F', 'Confirmed', owing > 0 ? `Your booking is confirmed. Send the deposit to secure it.` : `You're all set. See you on ${day(bk.check_in)}.`],
     checked_in: ['#DFF6EE', '#0E7A5F', 'Checked in', `Enjoy your stay at ${bk.business}.`],
     checked_out: ['#F1F2EF', '#3F4440', 'Completed', `Thanks for staying at ${bk.business}.`],
-    cancelled: ['#FDECEA', '#B42318', 'Cancelled', bk.deposit_status === 'refund_due' ? `${bk.business} owes you ${fmt(bk.refund_amount)} back. They'll send it to you.` : bk.deposit_status === 'refunded' ? `Your ${fmt(bk.refund_amount)} deposit has been refunded.` : bk.deposit_status === 'kept' ? 'The deposit was kept, as the cancellation was late.' : 'This booking has been cancelled.'],
+    cancelled: ['#FDECEA', '#B42318', 'Cancelled', bk.deposit_status === 'refund_due' ? (bk.refund_to ? `${bk.business} will send your ${fmt(bk.refund_amount)} refund to the account below.` : `You'll get your ${fmt(bk.refund_amount)} deposit back. Tell ${bk.business} where to send it below.`) : bk.deposit_status === 'refunded' ? `Your ${fmt(bk.refund_amount)} deposit has been refunded.` : bk.deposit_status === 'kept' ? 'The deposit was kept, as the cancellation was late.' : 'This booking has been cancelled.'],
     declined: ['#FDECEA', '#B42318', 'Not available', `${bk.business} couldn't take this booking${bk.cancel_reason ? `: ${bk.cancel_reason}` : ''}. Try other dates on their page.`],
     expired: ['#F1F2EF', '#3F4440', 'Request expired', `${bk.business} didn't confirm in time, so the dates were released. You can book again.`],
     no_show: ['#F1F2EF', '#3F4440', 'Missed', 'This booking was marked as not arrived.'],
@@ -13192,6 +13209,36 @@ function GuestBooking({ token }) {
             {bk.guest_paid_said_at
               ? <div className="mt-3 rounded-xl px-3.5 py-3 text-[13px] leading-relaxed" style={{ background: '#DFF6EE', color: '#0E7A5F' }}><strong>Thanks!</strong> You told {bk.business} you sent it ({when(bk.guest_paid_said_at)}). They'll confirm once it arrives.</div>
               : <button onClick={() => act('paid')} disabled={busy} className={`${btn} mt-3`} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.6 : 1 }}>{busy ? 'Sending…' : "I've sent the deposit"}</button>}
+          </div>
+        )}
+
+        {bk.deposit_status === 'refund_due' && (
+          <div className="rounded-2xl p-4 mb-4" style={{ border: `1.5px solid ${S.ink}` }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[15px] font-bold">Your refund</span>
+              <span className="text-[20px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(bk.refund_amount)}</span>
+            </div>
+            {bk.refund_to && !rf.editing ? (
+              <>
+                <div className="text-[13px] mt-1 mb-2.5" style={{ color: S.muted }}>{bk.business} will send it to:</div>
+                <div className="rounded-xl p-3.5" style={{ background: S.tile }}>
+                  <div className="text-[13px]" style={{ color: S.muted }}>{bk.refund_to.bank_name}</div>
+                  <div className="text-[19px] font-bold tracking-wider" style={{ fontVariantNumeric: 'tabular-nums' }}>{bk.refund_to.account_number}</div>
+                  <div className="text-[13.5px] font-semibold">{bk.refund_to.account_name}</div>
+                </div>
+                <button onClick={() => setRf({ bank: bk.refund_to.bank_name || '', number: bk.refund_to.account_number || '', name: bk.refund_to.account_name || '', editing: true })} className="mt-2 text-[13px] font-semibold" style={{ color: S.ink }}>Change account</button>
+              </>
+            ) : (
+              <>
+                <div className="text-[13px] mt-1 mb-3 leading-relaxed" style={{ color: S.muted }}>Where should {bk.business} send it? Use an account in your own name.</div>
+                <div className="space-y-2">
+                  <input value={rf.bank} onChange={(e) => setRf({ ...rf, bank: e.target.value })} placeholder="Bank, e.g. GTBank, Opay, Moniepoint" className="w-full rounded-xl px-4 py-3 text-[15px] outline-none" style={{ background: S.tile, color: S.ink }} />
+                  <input value={rf.number} inputMode="numeric" onChange={(e) => setRf({ ...rf, number: e.target.value.replace(/[^0-9]/g, '').slice(0, 10) })} placeholder="Account number (10 digits)" className="w-full rounded-xl px-4 py-3 text-[15px] outline-none tracking-wider" style={{ background: S.tile, color: S.ink, fontVariantNumeric: 'tabular-nums' }} />
+                  <input value={rf.name} onChange={(e) => setRf({ ...rf, name: e.target.value })} placeholder="Name on the account" className="w-full rounded-xl px-4 py-3 text-[15px] outline-none" style={{ background: S.tile, color: S.ink }} />
+                </div>
+                <button onClick={saveRefund} disabled={busy || rf.number.length !== 10 || !rf.bank.trim() || rf.name.trim().length < 3} className={`${btn} mt-3`} style={{ background: S.ink, color: '#fff', opacity: busy || rf.number.length !== 10 || !rf.bank.trim() || rf.name.trim().length < 3 ? 0.4 : 1 }}>{busy ? 'Sending…' : `Send to ${bk.business}`}</button>
+              </>
+            )}
           </div>
         )}
 
