@@ -301,8 +301,9 @@ const SETTINGS_DESCRIPTIONS = {
   export: 'Bring in your sales from before Xorla, or download everything as spreadsheets.',
   hours: 'When customers can book, and who serves them.',
   promote: 'A poster for your shop, pictures for WhatsApp Status, and discount codes.',
+  payments: 'Let customers pay you online by card, transfer or USSD, straight into your bank.',
 };
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business' };
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business', payments: 'Online payments' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -723,8 +724,18 @@ function fromSbExpense(row) {
 function fromSbProduct(row) {
   return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
+// What a storefront order comes to: items less any discount, plus delivery once the business has added it,
+// and how much of it the customer has already paid online (less anything owed back to them)
+function orderMoney(order) {
+  const gross = (order.items || []).reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
+  const off = Math.min(gross, Number(order.discountAmount) || 0);
+  const delivery = Math.max(0, Number(order.deliveryFee) || 0);
+  const total = gross - off + delivery;
+  const paidOnline = Math.max(0, (Number(order.amountPaid) || 0) - (['refund_due', 'refunded'].includes(order.payStatus) ? Number(order.refundAmount) || 0 : 0));
+  return { gross, off, delivery, total, paidOnline };
+}
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0 };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '' };
 }
 
 function staticMessage(inv, settings) {
@@ -2575,18 +2586,16 @@ function XorlaApp() {
   const fulfillOrder = (order) => setFulfil({ order, mode: 'full', paid: '' });
   const confirmFulfil = async () => {
     const { order, mode } = fulfil; if (fulfil.busy) return;
-    const gross = order.items.reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
-    const off = Math.min(gross, Number(order.discountAmount) || 0);
-    const total = gross - off;
+    const { gross, off, delivery, total, paidOnline } = orderMoney(order);
     // A discount is shared across the items by value, so each line's profit stays true
     const shares = order.items.map((it) => (gross > 0 ? Math.round((Number(it.quantity) * Number(it.unitPrice)) * off / gross) : 0));
     if (shares.length) shares[shares.length - 1] += off - shares.reduce((a, x) => a + x, 0);
-    const paid = mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
+    const paid = paidOnline > 0 ? Math.min(total, paidOnline) : mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
     const owed = total - paid;
     const shopId = order.shopId || mainShopId;
     setFulfil({ ...fulfil, busy: true, error: '' });
     try {
-      const basketId = order.items.length > 1 && typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : null;
+      const basketId = order.items.length + (delivery > 0 ? 1 : 0) > 1 && typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : null;
       const newSales = [];
       for (const [idx, item] of order.items.entries()) {
         const base = productsAll.find((p) => p.id === item.productId);
@@ -2597,9 +2606,14 @@ function XorlaApp() {
           try { await changeStock(base.id, shopId, -item.quantity, 'order'); } catch (e) { console.error('Stock update failed:', e); }
         }
       }
+      // Delivery is the business's income too: its own line on the same receipt
+      if (delivery > 0) {
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: `Delivery (${order.customerName})`, amount: delivery, cost: 0, owed: order.items.length ? 0 : owed, quantity: 1, ...(basketId ? { basket_id: basketId } : {}) } });
+        newSales.push(rows[0]);
+      }
       if (owed > 0) {
         const due = new Date(); due.setDate(due.getDate() + 7);
-        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: order.customerName || 'Customer', invoice_no: `ORD-${String(order.id).slice(-5)}`, amount: total, paid_amount: paid, due_date: due.toISOString().slice(0, 10), phone: order.customerPhone, items: [...order.items.map((it) => ({ description: it.description, quantity: Number(it.quantity), unitPrice: Number(it.unitPrice) })), ...(off ? [{ description: `Discount (${order.discountCode})`, quantity: 1, unitPrice: -off }] : [])] } });
+        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: order.customerName || 'Customer', invoice_no: `ORD-${String(order.id).slice(-5)}`, amount: total, paid_amount: paid, due_date: due.toISOString().slice(0, 10), phone: order.customerPhone, items: [...order.items.map((it) => ({ description: it.description, quantity: Number(it.quantity), unitPrice: Number(it.unitPrice) })), ...(off ? [{ description: `Discount (${order.discountCode})`, quantity: 1, unitPrice: -off }] : []), ...(delivery ? [{ description: 'Delivery', quantity: 1, unitPrice: delivery }] : [])] } });
         setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
       }
       setSales((prev) => [...newSales.map(fromSbSale), ...prev]);
@@ -2607,16 +2621,14 @@ function XorlaApp() {
       else await sbRpc('set_order_status', session.access_token, { p_order: order.id, p_status: 'fulfilled' });
       setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: 'fulfilled' } : o));
       setFulfil(null);
-      setReceipt(makeReceipt({ id: basketId || newSales[0]?.id, items: [...order.items.map((it) => ({ name: Number(it.quantity) > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: Number(it.quantity) * Number(it.unitPrice) })), ...(off ? [{ name: `Discount (${order.discountCode})`, amount: -off }] : [])], total, owed, customerName: order.customerName, customerPhone: order.customerPhone, shopId }));
+      setReceipt(makeReceipt({ id: basketId || newSales[0]?.id, items: [...order.items.map((it) => ({ name: Number(it.quantity) > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: Number(it.quantity) * Number(it.unitPrice) })), ...(off ? [{ name: `Discount (${order.discountCode})`, amount: -off }] : []), ...(delivery ? [{ name: 'Delivery', amount: delivery }] : [])], total, owed, customerName: order.customerName, customerPhone: order.customerPhone, shopId }));
     } catch (e) { setFulfil((f) => f && { ...f, busy: false, error: e.message }); }
   };
   const renderFulfilPanel = () => {
     if (!fulfil) return null;
     const { order, mode } = fulfil;
-    const gross = order.items.reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
-    const off = Math.min(gross, Number(order.discountAmount) || 0);
-    const total = gross - off;
-    const paid = mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
+    const { off, delivery, total, paidOnline } = orderMoney(order);
+    const paid = paidOnline > 0 ? Math.min(total, paidOnline) : mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
     const close = () => { if (!fulfil.busy) setFulfil(null); };
     return (
       <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
@@ -2633,13 +2645,21 @@ function XorlaApp() {
               </div>
             ))}
             {off > 0 && <div className="flex items-center justify-between gap-3 px-3 py-2.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}`, color: C.sage }}><span>Discount ({order.discountCode})</span><span className="cx-mono font-semibold">{fmt(-off)}</span></div>}
+            {delivery > 0 && <div className="flex items-center justify-between gap-3 px-3 py-2.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}` }}><span>Delivery</span><span className="cx-mono font-semibold">{fmt(delivery)}</span></div>}
             <div className="flex items-center justify-between px-3 py-2.5 text-[13.5px] font-semibold" style={{ borderTop: `1px solid ${C.line}`, background: C.surfaceRaised }}><span>Total</span><span className="cx-mono">{fmt(total)}</span></div>
           </div>
+          {paidOnline > 0 ? (
+            <div className="rounded-xl px-3.5 py-3 mb-3 flex items-center gap-2.5 text-[13px]" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>
+              <Check size={16} style={{ color: C.sage }} className="shrink-0" />
+              <span><strong>Paid online: {fmt(Math.min(total, paidOnline))}</strong>{paidOnline < total ? <span style={{ color: C.inkDim }}> · {fmt(total - paidOnline)} still to collect</span> : <span style={{ color: C.inkDim }}> · nothing left to collect</span>}</span>
+            </div>
+          ) : (<>
           <div className="text-[12.5px] font-semibold mb-2">Has the customer paid?</div>
           <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
             {[['full', 'Paid in full'], ['part', 'Part, or not yet']].map(([k, l]) => <button key={k} onClick={() => setFulfil({ ...fulfil, mode: k })} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={mode === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
           </div>
-          {mode === 'part' && <input type="text" inputMode="decimal" autoFocus placeholder="Amount paid so far (₦), 0 if nothing yet" value={formatNumInput(fulfil.paid)} onChange={(e) => setFulfil({ ...fulfil, paid: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-3" style={field} />}
+          </>)}
+          {paidOnline <= 0 && mode === 'part' && <input type="text" inputMode="decimal" autoFocus placeholder="Amount paid so far (₦), 0 if nothing yet" value={formatNumInput(fulfil.paid)} onChange={(e) => setFulfil({ ...fulfil, paid: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-3" style={field} />}
           <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>
             {T.tracksStock ? 'This is recorded as one sale on one receipt, with stock taken off automatically. ' : `This is recorded as a ${T.sale} on one receipt. `}
             {total - paid > 0 ? `The ${fmt(total - paid)} still owed becomes an invoice for ${order.customerName}, so you can follow it up.` : ''}
@@ -2651,8 +2671,79 @@ function XorlaApp() {
     );
   };
   const cancelOrder = async (id) => {
+    const ord = ordersAll.find((o) => o.id === id);
+    const paidNow = ord ? orderMoney(ord).paidOnline : 0;
+    if (ord && ord.payStatus === 'paid' && paidNow > 0 && !(await brandConfirm(`${ord.customerName} has paid ${fmt(paidNow)} online. If you cancel, you'll need to send it back to them. Their order page will ask where to send it.`, { title: 'Cancel a paid order?', confirm: 'Cancel and refund', cancel: 'Keep the order', danger: true }))) return;
     try { if (isOwnerRole) await sbRest(`orders?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'cancelled' } }); else await sbRpc('set_order_status', session.access_token, { p_order: id, p_status: 'cancelled' }); setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: 'cancelled' } : o)); }
     catch (e) { brandAlert(e.message); }
+  };
+  // Online payment for storefront orders: the business confirms the order (adding delivery if any), then the customer pays on their order page
+  const [payAsk, setPayAsk] = useState(null); // { order, fee, busy, error }
+  const orderLinkOf = (o) => (o.payToken ? `${window.location.origin}/order/${o.payToken}` : '');
+  const refreshOrder = async (id) => {
+    try { const rows = await sbRest('orders', { accessToken: session.access_token, query: `?id=eq.${id}&select=*` }); if (rows[0]) { const fresh = fromSbOrder(rows[0]); setOrders((prev) => prev.map((o) => (o.id === id ? fresh : o))); return fresh; } } catch (e) {}
+    return null;
+  };
+  const payMessage = (o, amount, delivery) => {
+    const first = String(o.customerName || '').split(' ')[0] || 'there';
+    return `Hi ${first}, ${settings.businessName} has confirmed your order. The total is ${fmt(amount)}${delivery > 0 ? ` (including ${fmt(delivery)} delivery)` : ''}. You can pay securely here with card, transfer or USSD: ${orderLinkOf(o)}`;
+  };
+  const sendPayLink = (o) => {
+    const amount = o.payAmount ?? orderMoney(o).total;
+    const msg = payMessage(o, amount, o.deliveryFee);
+    if (o.customerPhone) window.open(`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(msg)}`, '_blank');
+    else copyText(`paylink-${o.id}`, orderLinkOf(o)).then(() => brandAlert("There's no phone number on this order, so the payment link was copied. Send it to the customer any way you like.", { title: 'Link copied' }));
+  };
+  const confirmPayAsk = async () => {
+    if (!payAsk || payAsk.busy) return;
+    const fee = Math.max(0, Number(parseNumInput(payAsk.fee)) || 0);
+    setPayAsk({ ...payAsk, busy: true, error: '' });
+    try {
+      await sbRpc('request_order_payment', session.access_token, { p_order: payAsk.order.id, p_delivery_fee: fee });
+      const fresh = (await refreshOrder(payAsk.order.id)) || payAsk.order;
+      setPayAsk(null);
+      const amount = fresh.payAmount ?? orderMoney(fresh).total;
+      if (fresh.customerPhone) offerWhatsApp(fresh.customerPhone, payMessage(fresh, amount, fresh.deliveryFee), 'Payment link ready', `Send ${String(fresh.customerName).split(' ')[0]} the payment link on WhatsApp? They'll see:\n\n"${payMessage(fresh, amount, fresh.deliveryFee)}"`);
+      else { await copyText(`paylink-${fresh.id}`, orderLinkOf(fresh)); brandAlert("There's no phone number on this order, so the payment link was copied. Send it to the customer any way you like.", { title: 'Link copied' }); }
+    } catch (e) { setPayAsk((p) => p && { ...p, busy: false, error: e.message }); }
+  };
+  const markOrderRefunded = async (o) => {
+    if (!(await brandConfirm(`Only do this after you've sent ${fmt(o.refundAmount)} back to ${o.customerName}${o.refundNumber ? ` (${o.refundBank} ${o.refundNumber})` : ''}.`, { title: 'Mark refund as sent?', confirm: 'Yes, I sent it' }))) return;
+    try {
+      await sbRpc('mark_order_refunded', session.access_token, { p_order: o.id });
+      await refreshOrder(o.id);
+      const first = String(o.customerName || '').split(' ')[0] || 'there';
+      offerWhatsApp(o.customerPhone, `Hi ${first}, ${settings.businessName} has sent your ${fmt(o.refundAmount)} refund${o.refundNumber ? ` to your ${o.refundBank} account ending ${String(o.refundNumber).slice(-4)}` : ''}. Sorry we couldn't complete your order this time.`, 'Refund recorded', `Let ${o.customerName} know on WhatsApp?`);
+    } catch (e) { brandAlert(e.message); }
+  };
+  const renderPayAskPanel = () => {
+    if (!payAsk) return null;
+    const o = payAsk.order;
+    const { gross, off } = orderMoney({ ...o, deliveryFee: 0 });
+    const fee = Math.max(0, Number(parseNumInput(payAsk.fee)) || 0);
+    const total = gross - off + fee;
+    return (
+      <Sheet onClose={() => setPayAsk(null)} busy={payAsk.busy} title={<><div className="text-[16px] font-semibold cx-display">Ask {String(o.customerName).split(' ')[0]} to pay online</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>Check you have everything first. They pay on their order page.</div></>}>
+        <div className="rounded-xl overflow-hidden mb-3" style={{ border: `1px solid ${C.line}` }}>
+          {o.items.map((it, i) => (
+            <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 text-[13px]" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+              <span className="min-w-0 truncate">{it.description}<span style={{ color: C.inkFaint }}> ×{it.quantity}</span></span>
+              <span className="cx-mono font-semibold shrink-0">{fmt(Number(it.quantity) * Number(it.unitPrice))}</span>
+            </div>
+          ))}
+          {off > 0 && <div className="flex items-center justify-between gap-3 px-3 py-2.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}`, color: C.sage }}><span>Discount ({o.discountCode})</span><span className="cx-mono font-semibold">{fmt(-off)}</span></div>}
+        </div>
+        <label className="block text-[12.5px] font-semibold mb-1.5">Delivery fee <span className="font-normal" style={{ color: C.inkFaint }}>(leave empty for pickup)</span></label>
+        <input type="text" inputMode="decimal" placeholder="₦0" value={formatNumInput(payAsk.fee)} onChange={(e) => setPayAsk({ ...payAsk, fee: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-3" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
+        <div className="rounded-xl px-3.5 py-3 flex items-center justify-between mb-2" style={{ background: C.surfaceRaised }}>
+          <span className="text-[13px] font-semibold">They'll pay</span>
+          <span className="cx-mono text-[18px] font-bold" style={{ color: C.sage }}>{fmt(total)}</span>
+        </div>
+        <div className="text-[11.5px] leading-relaxed mb-1" style={{ color: C.inkFaint }}>The full {fmt(total)} goes to your bank ({settings.payout?.bank || 'your connected account'}). The customer pays a small service fee on top.{o.customerPhone ? ' Next, you can send them the link on WhatsApp.' : ''}</div>
+        {payAsk.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{payAsk.error}</div>}
+        <button onClick={confirmPayAsk} disabled={payAsk.busy || total < 100} className="w-full mt-3 rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg, opacity: payAsk.busy || total < 100 ? 0.6 : 1 }}>{payAsk.busy ? <><Loader2 size={15} className="animate-spin" /> Saving…</> : `Confirm order and ask for ${fmt(total)}`}</button>
+      </Sheet>
+    );
   };
   const removeOrder = async (id) => {
     if (!(await brandConfirm("Remove this order record? This can't be undone.", { confirm: 'Remove', danger: true }))) return;
@@ -3989,13 +4080,16 @@ function XorlaApp() {
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                     <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
+                      o.status === 'pending' && o.payStatus === 'paid' ? { background: C.sageSoft, color: C.sage } :
+                      o.status === 'pending' && o.payStatus === 'requested' ? { background: C.copperSoft, color: C.copper } :
+                      o.payStatus === 'refund_due' ? { background: C.rustSoft, color: C.rust } :
                       o.status === 'pending' && o.awaitingCustomer ? { background: C.surfaceRaised, color: C.inkDim } :
                       o.status === 'pending' && o.acceptedAt ? { background: C.sageSoft, color: C.sage } :
                       o.status === 'pending' && o.startAt && apptPassed(o) ? { background: C.surfaceRaised, color: C.inkFaint } :
                       o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
                       o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
                       { background: 'rgba(226,98,75,0.12)', color: C.rust }
-                    }>{o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.noShow ? "Didn't come" : o.startAt && !o.acceptedAt ? 'Declined' : 'Cancelled'}</span>
+                    }>{o.status === 'pending' && o.payStatus === 'paid' ? 'Paid online' : o.status === 'pending' && o.payStatus === 'requested' ? 'Awaiting payment' : o.payStatus === 'refund_due' ? 'Refund to send' : o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.noShow ? "Didn't come" : o.startAt && !o.acceptedAt ? 'Declined' : 'Cancelled'}</span>
                   </div>
                   <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
                     {o.items.map((it, i) => (
@@ -4010,7 +4104,47 @@ function XorlaApp() {
                         <span className="cx-mono">{fmt(-o.discountAmount)}</span>
                       </div>
                     )}
+                    {o.deliveryFee > 0 && (
+                      <div className="flex items-center justify-between text-[12.5px]">
+                        <span style={{ color: C.inkDim }}>Delivery</span>
+                        <span className="cx-mono">{fmt(o.deliveryFee)}</span>
+                      </div>
+                    )}
                   </div>
+                  {o.payStatus && (() => {
+                    const paidNet = orderMoney(o).paidOnline;
+                    const t = (x) => new Date(x).toLocaleString('en-GB', { ...LAGOS_TIME, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+                    if (o.payStatus === 'requested') return (
+                      <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
+                        <div className="flex items-center gap-2 font-semibold" style={{ color: C.copper }}><Clock size={14} /> Waiting for {String(o.customerName).split(' ')[0]} to pay {fmt(o.payAmount)} online</div>
+                        <div className="mt-0.5" style={{ color: C.inkDim }}>Confirmed{o.payRequestedBy ? ` by ${o.payRequestedBy}` : ''}{o.payRequestedAt ? `, ${t(o.payRequestedAt)}` : ''}. You'll get a notification when it's paid.</div>
+                      </div>
+                    );
+                    if (o.payStatus === 'paid') return (
+                      <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>
+                        <div className="flex items-center gap-2 font-semibold" style={{ color: C.sage }}><Check size={14} /> Paid {fmt(paidNet)} online{o.paidOnlineAt ? `, ${t(o.paidOnlineAt)}` : ''}</div>
+                        <div className="mt-0.5" style={{ color: C.inkDim }}>{paidNet < orderMoney(o).total ? `${fmt(orderMoney(o).total - paidNet)} still to collect. ` : ''}Paystack sends it to your bank. Get the order ready, then tap {T.tracksStock ? 'Fulfill' : 'Mark done'}.</div>
+                      </div>
+                    );
+                    if (o.payStatus === 'refund_due') return (
+                      <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.3)' }}>
+                        <div className="flex items-center justify-between gap-2"><span className="font-semibold" style={{ color: C.rust }}>Refund to send: {fmt(o.refundAmount)}</span><span style={{ color: C.inkFaint }}>paid online</span></div>
+                        {o.refundNumber ? (
+                          <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg px-2.5 py-2" style={{ background: 'rgba(0,0,0,0.2)' }}>
+                            <span className="min-w-0"><span className="block" style={{ color: C.inkDim }}>{o.refundBank}{o.refundName ? ` · ${o.refundName}` : ''}</span><span className="block cx-mono text-[14px] font-bold tracking-wider">{o.refundNumber}</span></span>
+                            <button onClick={() => copyText(`refacct-${o.id}`, o.refundNumber)} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold flex items-center gap-1" style={{ background: C.surfaceRaised, color: C.ink }}><Copy size={12} />{copiedKey === `refacct-${o.id}` ? 'Copied' : 'Copy'}</button>
+                          </div>
+                        ) : <div className="mt-0.5" style={{ color: C.inkDim }}>Waiting for {String(o.customerName).split(' ')[0]} to add their account on their order page.{o.customerPhone ? ' ' : ''}{o.customerPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${String(o.customerName).split(' ')[0]}, we owe you ${fmt(o.refundAmount)} back for your order. Please add the account to send it to here: ${orderLinkOf(o)}`)}`} target="_blank" rel="noopener noreferrer" className="font-semibold" style={{ color: C.copper }}>Ask on WhatsApp</a>}</div>}
+                        <button onClick={() => markOrderRefunded(o)} className="mt-2 w-full h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark refunded</button>
+                      </div>
+                    );
+                    if (o.payStatus === 'refunded') return (
+                      <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px] flex items-center gap-2" style={{ background: C.surfaceRaised, color: C.inkDim }}>
+                        <Undo2 size={14} style={{ color: C.sage }} /> Refunded {fmt(o.refundAmount)}{o.refundedAt ? ` on ${new Date(o.refundedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}{o.refundedByName ? ` by ${o.refundedByName}` : ''}
+                      </div>
+                    );
+                    return null;
+                  })()}
                   {o.startAt && (() => {
                     const clash = o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer ? apptClashes(o) : [];
                     const offerOpen = o.awaitingCustomer && o.holdUntil && new Date(o.holdUntil) > new Date();
@@ -4081,6 +4215,12 @@ function XorlaApp() {
                       primary = { label: 'Mark done', onClick: () => fulfillOrder(o) };
                     } else if (pending) {
                       sec.push({ label: 'Cancel', tone: 'danger', onClick: () => cancelOrder(o.id) });
+                      if (o.payStatus === 'requested') {
+                        sec.push({ label: 'Send link', tone: 'accent', onClick: () => sendPayLink(o) });
+                        sec.push({ label: 'Change', title: 'Change the delivery fee', onClick: () => setPayAsk({ order: o, fee: o.deliveryFee ? String(o.deliveryFee) : '', busy: false, error: '' }) });
+                      } else if (!o.payStatus && settings.payout && o.payToken) {
+                        sec.push({ label: 'Ask to pay online', tone: 'accent', onClick: () => setPayAsk({ order: o, fee: '', busy: false, error: '' }) });
+                      }
                       primary = { label: T.tracksStock ? 'Fulfill' : 'Mark done', onClick: () => fulfillOrder(o) };
                     }
                     const secBtn = (b, i) => {
@@ -4096,8 +4236,8 @@ function XorlaApp() {
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-[12px]" style={{ color: C.inkFaint }}>Total</span>
                           <div className="flex items-center gap-3">
-                            {!pending && isOwnerRole && <button onClick={() => removeOrder(o.id)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Remove</button>}
-                            <span className="cx-mono text-[15px] font-bold">{fmt(o.total)}</span>
+                            {!pending && isOwnerRole && o.payStatus !== 'refund_due' && <button onClick={() => removeOrder(o.id)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Remove</button>}
+                            <span className="cx-mono text-[15px] font-bold">{fmt(o.total + (o.deliveryFee || 0))}</span>
                           </div>
                         </div>
                         {note && <div className="mt-2 text-[12px]" style={{ color: C.inkFaint }}>{note}</div>}
@@ -6116,7 +6256,7 @@ function XorlaApp() {
         {renderReceiptModal()}
         {renderStockPanel()}
         {renderBookingPanels()}
-        {renderFulfilPanel()}
+        {renderFulfilPanel()}{renderPayAskPanel()}
         {renderApptPanel()}
         <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-6 lg:pt-8 pb-10">
 
@@ -7204,6 +7344,7 @@ function XorlaApp() {
                   { id: 'promote', Icon: Megaphone, label: 'Promote your business', value: (() => { const n = discountCodes.filter((d) => codeStateOf(d).tone === 'on').length; return n ? `${n} code${n > 1 ? 's' : ''} live` : 'Poster, Status, codes'; })(), valueColor: discountCodes.some((d) => codeStateOf(d).tone === 'on') ? C.sage : undefined },
                   { id: 'shops', Icon: Store, label: L.Many, value: `${shops.length} ${shops.length !== 1 ? L.many : L.one}` },
                   { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
+                  ...(isOwnerRole ? [{ id: 'payments', Icon: CreditCard, label: 'Online payments', value: settings.payout ? 'On' : 'Off', valueColor: settings.payout ? C.sage : undefined }] : []),
                   ...(isOwnerRole ? [{ id: 'export', Icon: FileSpreadsheet, label: 'Your records', value: 'Bring in, download' }] : []),
                   { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
@@ -7641,6 +7782,19 @@ function XorlaApp() {
                 </div>
               );
             })()}
+            {settingsPage === 'payments' && (
+              <div className="space-y-4">
+                <PayoutSetup forOrders={!hasBookables} payout={settings.payout} callBilling={callBilling} onSaved={(payout) => setSettings((prev) => ({ ...prev, payout }))} />
+                <div className="rounded-[20px] p-4 space-y-3 text-[12.5px] leading-relaxed" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}`, color: C.inkDim }}>
+                  <div className="text-[14px] font-semibold" style={{ color: C.ink }}>How it works</div>
+                  <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>1</span><span>A customer sends {/^[aeiou]/.test(T.order) ? 'an' : 'a'} {T.order} from your storefront. Nothing is paid yet.</span></div>
+                  <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>2</span><span>You check you have it, add a delivery fee if you deliver, and tap <strong style={{ color: C.ink }}>Ask to pay online</strong>. Xorla gives you a WhatsApp message with their payment link.</span></div>
+                  <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>3</span><span>They pay by card, transfer or USSD. You get a notification, and Paystack sends the full amount to your bank the next working day.</span></div>
+                  {hasBookables && <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>+</span><span>Guests can also pay booking deposits online. Set the deposit in Deposits & cancellations.</span></div>}
+                  <div className="pt-1" style={{ color: C.inkFaint }}>Customers pay a small service fee on top, so you receive the full price. Customers who prefer cash or transfer can still pay you directly.</div>
+                </div>
+              </div>
+            )}
             {settingsPage === 'deposits' && (() => {
               const pct = Number(draft.depositPercent ?? 50), cap = Number(draft.depositCapNights ?? 1), hrs = Number(draft.cancelWindowHours ?? 24);
               const depFor = (nights) => { const total = 50000 * nights; const raw = total * pct / 100; return Math.round(cap > 0 ? Math.min(raw, 50000 * cap) : raw); };
@@ -8675,6 +8829,13 @@ function XorlaApp() {
               ? `Requests from your storefront land here with the time the customer picked. Only free times can be picked, and you can't accept two that clash. Marking one done records it as a ${T.sale}.`
               : T.tracksStock ? 'Orders placed through your storefront land here. Fulfilling one logs it as a real sale and updates your stock automatically.' : 'Service requests from your storefront land here, with the customer\'s preferred time. Marking one done logs it as a job.'}</div>
             {renderApptTop()}
+            {isOwnerRole && !settings.payout && orders.some((o) => o.status === 'pending' && !o.startAt) && (
+              <button type="button" onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('payments'); setTab('settings'); }} className="w-full mb-3 rounded-2xl px-4 py-3 flex items-center gap-3 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><CreditCard size={17} style={{ color: C.bg }} /></span>
+                <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">Let customers pay online</span><span className="block text-[12px] leading-snug" style={{ color: C.inkDim }}>Confirm {/^[aeiou]/.test(T.order) ? 'an' : 'a'} {T.order}, and they pay by card, transfer or USSD. The money goes to your bank.</span></span>
+                <ChevronRight size={17} style={{ color: C.sage }} className="shrink-0" />
+              </button>
+            )}
             {orders.length === 0 && (
               <div className="text-center text-[13px] py-10 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>
                 {settings.storefrontEnabled ? 'No orders yet — share your storefront link to start getting them.' : 'Turn on your storefront in Settings to start receiving orders here.'}
@@ -9397,7 +9558,7 @@ function XorlaApp() {
       {renderListTool()}
       {renderPastImport()}
       {renderHelp()}{renderSupportToast()}{renderSpotlight()}
-      {renderFulfilPanel()}
+      {renderFulfilPanel()}{renderPayAskPanel()}
       {renderApptPanel()}
       {renderNotifPanel()}
       {renderLimitPrompt()}{renderAddLocations()}
@@ -9555,7 +9716,7 @@ function Storefront({ businessCode }) {
         setBusiness(store);
         document.title = store.name;
         setStoreProducts((store.products || []).map(fromSbProduct).filter((p) => store.business_type !== 'products' || !isBookable(p)));
-        if (store.business_type !== 'products') sbRpc('storefront_booking_terms', SB_KEY, { p_business_code: businessCode }).then((t) => setBookTerms(t || null)).catch(() => {});
+        sbRpc('storefront_booking_terms', SB_KEY, { p_business_code: businessCode }).then((t) => setBookTerms(t || null)).catch(() => {});
       } catch (e) { if (!business) setLoadError(true); }
       setLoading(false);
       setSwitchingShop(false);
@@ -9668,7 +9829,12 @@ function Storefront({ businessCode }) {
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      await sbRpc('place_order', SB_KEY, { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}) });
+      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}) };
+      // Orders get the customer's own page (track it, pay online once confirmed). Appointments keep their own flow.
+      let placed = null;
+      try { placed = await sbRpc('place_order_v2', SB_KEY, orderArgs); }
+      catch (e) { if (/place_order_v2|does not exist|schema cache/i.test(e.message || '')) await sbRpc('place_order', SB_KEY, orderArgs); else throw e; }
+      if (placed?.token && !(usesSlots && apptSlot)) { window.location.href = `/order/${placed.token}?new=1`; return; }
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
@@ -10023,7 +10189,7 @@ function Storefront({ businessCode }) {
           <textarea id="sf-note" rows={2} maxLength={300} value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder={examplesFor(business.business_type === 'products' ? null : business.service_kind).note.replace((apptCal?.people || []).length ? /, preferred stylist$/ : /^$/, '')} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 resize-none ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
         </>
       )}
-      <div className="text-[12px] mb-5" style={{ color: S.muted }}>{usesSlots && apptSlot ? `No payment now. Your time is held while ${business.name} confirms it.` : `No payment now. ${business.name} will contact you to confirm${cartHasService ? ' the time' : ''} and arrange payment.`}</div>
+      <div className="text-[12px] mb-5" style={{ color: S.muted }}>{usesSlots && apptSlot ? `No payment now. Your time is held while ${business.name} confirms it.` : bookTerms?.online_pay ? `No payment now. ${business.name} will confirm${cartHasService ? ' the time' : ' what you ordered'}, then you can pay online by card, transfer or USSD, or pay them directly.` : `No payment now. ${business.name} will contact you to confirm${cartHasService ? ' the time' : ''} and arrange payment.`}</div>
       <div className="sticky bottom-0 -mx-5 px-5 lg:-mx-6 lg:px-6 pt-3 pb-5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 22%)' }}>
   {(() => { const needSlot = usesSlots && apptCal.days.some((d) => d.slots.length) && !apptSlot; const needPhone = usesSlots && apptSlot && customerPhone.replace(/[^0-9]/g, '').length < 10; const off = submitting || !customerName.trim() || cartList.length === 0 || needSlot || needPhone; return (
   <button onClick={submitOrder} disabled={off} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: off ? 0.4 : 1 }}>{submitting ? 'Sending…' : needSlot && customerName.trim() ? 'Pick a time to continue' : needPhone ? 'Add your phone number to continue' : `${W.send} · ${fmt(payable)}`}</button>); })()}
@@ -13285,7 +13451,7 @@ function BrandDialogHost() {
 }
 
 // ---------- Online deposits: the business's own bank account, where Paystack pays deposits ----------
-function PayoutSetup({ payout, callBilling, onSaved }) {
+function PayoutSetup({ payout, callBilling, onSaved, forOrders = false }) {
   const [editing, setEditing] = useState(!payout);
   const [banks, setBanks] = useState(null);
   const [f, setF] = useState({ code: '', number: '', name: '', busy: false, error: '' });
@@ -13315,8 +13481,8 @@ function PayoutSetup({ payout, callBilling, onSaved }) {
       <div className="flex items-start gap-3">
         <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><CreditCard size={18} style={{ color: C.sage }} /></span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2"><span className="text-[14.5px] font-semibold">Get deposits paid online</span>{payout && <span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>ON</span>}</div>
-          <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>Guests pay by card, transfer or USSD, and the booking confirms itself. Paystack sends the full deposit to your bank the next working day. Guests pay a small service fee on top.</div>
+          <div className="flex items-center gap-2"><span className="text-[14.5px] font-semibold">{forOrders ? 'Get paid online' : 'Get deposits paid online'}</span>{payout && <span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>ON</span>}</div>
+          <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>{forOrders ? 'Customers pay for their orders by card, transfer or USSD. Paystack sends the full amount to your bank the next working day. Customers pay a small service fee on top.' : 'Guests pay by card, transfer or USSD, and the booking confirms itself. Store orders can be paid online too. Paystack sends the money to your bank the next working day. Customers pay a small service fee on top.'}</div>
         </div>
       </div>
       {payout && !editing && (
@@ -13358,7 +13524,7 @@ function PayoutSetup({ payout, callBilling, onSaved }) {
           {f.error && <div className="text-[12px]" style={{ color: C.rust }}>{f.error}</div>}
           <div className="flex gap-2 pt-1">
             {payout && <button type="button" onClick={() => setEditing(false)} className="px-4 h-11 rounded-xl text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Cancel</button>}
-            <button type="button" onClick={connect} disabled={!f.name || f.busy} className="flex-1 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: !f.name || f.busy ? 0.45 : 1 }}>{f.busy && f.name ? 'Connecting…' : payout ? 'Save new account' : 'Turn on online deposits'}</button>
+            <button type="button" onClick={connect} disabled={!f.name || f.busy} className="flex-1 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: !f.name || f.busy ? 0.45 : 1 }}>{f.busy && f.name ? 'Connecting…' : payout ? 'Save new account' : forOrders ? 'Turn on online payments' : 'Turn on online deposits'}</button>
           </div>
           <div className="text-[11px] leading-relaxed" style={{ color: C.inkFaint }}>The name must match your business or your own name. Xorla never holds your money: Paystack pays it straight to this account.</div>
         </div>
@@ -13594,13 +13760,206 @@ function GuestBooking({ token }) {
   );
 }
 
+// ---------- The customer's own order page (/order/…): track it, and pay online once the business confirms ----------
+function CustomerOrder({ token }) {
+  const [od, setOd] = useState(undefined);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState('');
+  const [quote, setQuote] = useState(null);           // { amount, fee_total, total } once there's something to pay online
+  const [payNote, setPayNote] = useState('');
+  const [rf, setRf] = useState({ bank: '', number: '', name: '', editing: false });
+  const billing = async (action, extra = {}) => {
+    const res = await fetch(`${SB_URL}/functions/v1/billing`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }, body: JSON.stringify({ action, token, ...extra }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || 'Payments are not available right now. Please try again.');
+    return data;
+  };
+  const isNew = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('new') === '1';
+  const load = useCallback(async () => {
+    let o = null;
+    try { o = await sbRpc('customer_order', SB_KEY, { p_token: token }); setOd(o); } catch (e) { setOd((prev) => (prev === undefined ? null : prev)); return; }
+    if (o && o.status === 'pending' && o.pay_status === 'requested' && o.online) {
+      try { setQuote(await billing('order_quote')); } catch (e) { setQuote(null); }
+    } else setQuote(null);
+  }, [token]);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const ref = q.get('reference') || q.get('trxref');
+    if (q.get('paid') !== '1' || !ref) return;
+    setPayNote('checking');
+    billing('order_verify', { reference: ref })
+      .then((r) => { setPayNote(r && r.ok !== false ? (r.refund_due ? 'refund' : 'paid') : 'pending'); load(); })
+      .catch(() => { setPayNote('pending'); load(); })
+      .finally(() => { try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {} });
+  }, []);
+  useEffect(() => {
+    load();
+    if (!document.getElementById('xorla-jakarta')) {
+      const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
+      document.head.appendChild(link);
+    }
+  }, [load]);
+  // While waiting on the business, keep the page fresh so "Pay now" appears as soon as they confirm
+  const waiting = od && od.status === 'pending' && od.pay_status !== 'paid';
+  useEffect(() => {
+    if (!waiting) return undefined;
+    const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 20000);
+    return () => clearInterval(t);
+  }, [waiting, load]);
+  useEffect(() => { if (od?.business) document.title = `${od.business} · Your ${od.business_type === 'services' ? 'request' : 'order'}`; }, [od]);
+  const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
+  const btn = 'w-full py-3.5 rounded-xl text-[15px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black';
+  if (od === undefined) return <div className="flex items-center justify-center" style={page}><Loader2 className="animate-spin" size={22} style={{ color: S.muted }} /></div>;
+  if (!od) return (
+    <div className="flex flex-col items-center justify-center px-6 text-center" style={page}>
+      <div className="text-[20px] font-bold mb-2">This link isn't working</div>
+      <div className="text-[14px] max-w-sm" style={{ color: S.muted }}>Check the link you were sent, or contact the business directly.</div>
+    </div>
+  );
+  const noun = od.business_type === 'services' ? 'request' : 'order';
+  const Noun = noun[0].toUpperCase() + noun.slice(1);
+  const link = typeof window !== 'undefined' ? `${window.location.origin}/order/${token}` : '';
+  const items = Array.isArray(od.items) ? od.items : [];
+  const itemsTotal = items.reduce((a, it) => a + Number(it.quantity) * Number(it.unitPrice), 0);
+  const discount = Number(od.discount_amount) || 0;
+  const delivery = Number(od.delivery_fee) || 0;
+  const total = Number(od.pay_amount ?? (Number(od.total) + delivery));
+  const first = String(od.customer_name || '').split(' ')[0];
+  const when = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Lagos' });
+  const tellText = `Hello ${od.business}, I just sent ${noun === 'order' ? 'an order' : 'a request'} on your page: ${items.map((it) => `${it.description}${Number(it.quantity) > 1 ? ` x${it.quantity}` : ''}`).join(', ')}. My name is ${od.customer_name}. My ${noun}: ${link}`;
+  const wa = od.phone ? `https://wa.me/${toWhatsAppNumber(od.phone)}${isNew && od.status === 'pending' ? `?text=${encodeURIComponent(tellText)}` : ''}` : null;
+  const copy = async (text, what) => { try { await navigator.clipboard.writeText(text); setCopied(what); setTimeout(() => setCopied(''), 2000); } catch (e) { brandAlert(text, { theme: 'light', title: 'Copy this' }); } };
+  const payOnline = async () => {
+    setBusy(true);
+    try { const r = await billing('order_init'); window.location.href = r.url; }
+    catch (e) { brandAlert(e.message, { theme: 'light', title: 'Payment could not start' }); setBusy(false); load(); }
+  };
+  const saveRefund = async () => {
+    setBusy(true);
+    try { await sbRpc('customer_order_refund_details', SB_KEY, { p_token: token, p_bank: rf.bank, p_number: rf.number, p_name: rf.name }); setRf({ bank: '', number: '', name: '', editing: false }); await load(); }
+    catch (e) { brandAlert(e.message, { theme: 'light', title: 'Please check the details' }); }
+    setBusy(false);
+  };
+  const st = od.pay_status === 'refund_due' ? ['#FDECEA', '#B42318', 'Refund on its way', od.refund_to ? `${od.business} will send your ${fmt(od.refund_amount)} back to the account below.` : `${od.business} owes you ${fmt(od.refund_amount)} back. Tell them where to send it below.`]
+    : od.pay_status === 'refunded' ? ['#F1F2EF', '#3F4440', 'Refunded', `${od.business} sent your ${fmt(od.refund_amount)} back${od.refunded_at ? ` on ${when(od.refunded_at)}` : ''}.`]
+    : od.status === 'fulfilled' ? ['#DFF6EE', '#0E7A5F', 'Completed', `Thank you for ${noun === 'order' ? 'ordering from' : 'choosing'} ${od.business}.`]
+    : od.status === 'cancelled' ? ['#FDECEA', '#B42318', 'Cancelled', `${od.business} couldn't take this ${noun}${od.cancel_reason ? `: ${od.cancel_reason}` : ''}.`]
+    : od.pay_status === 'paid' ? ['#DFF6EE', '#0E7A5F', 'Paid', `Thanks, ${first}! ${od.business} has your payment and is getting your ${noun} ready.`]
+    : od.pay_status === 'requested' ? ['#DFF6EE', '#0E7A5F', 'Confirmed: ready to pay', `${od.business} has everything for your ${noun}.${od.online ? ' Pay below to complete it.' : ''}`]
+    : od.accepted ? ['#DFF6EE', '#0E7A5F', 'Confirmed', `${od.business} has confirmed your ${noun} and will contact you about payment${noun === 'order' ? ' and pickup or delivery' : ''}.`]
+    : ['#FFF4D6', '#8A5A00', 'Waiting for confirmation', `${od.business} is checking your ${noun}.${od.online ? ` Once they confirm, you can pay here online.` : ` They'll contact you to confirm and arrange payment.`}`];
+  const row = (l, v, strong, color) => <div className="flex items-baseline justify-between gap-4 py-1.5"><span style={{ color: color || S.muted }}>{l}</span><span className={strong ? 'font-bold' : 'font-medium'} style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right', color }}>{v}</span></div>;
+  return (
+    <div style={page}>
+      <div className="max-w-md mx-auto px-5 pt-8 pb-12">
+        <div className="text-[13px] font-semibold uppercase tracking-wide mb-1" style={{ color: S.muted }}>Your {noun}</div>
+        <div className="text-[26px] font-bold leading-tight mb-5">{od.business}</div>
+
+        {isNew && od.status === 'pending' && !od.pay_status && (
+          <div className="rounded-2xl p-4 mb-4" style={{ background: S.ink, color: '#fff' }}>
+            <div className="flex items-center gap-2 text-[15px] font-bold"><Check size={18} /> {Noun} sent</div>
+            <div className="text-[13.5px] mt-1 leading-relaxed" style={{ color: 'rgba(255,255,255,0.78)' }}>Keep this page: it shows your {noun}{od.online ? ', and you pay here once it\'s confirmed' : ''}.</div>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button onClick={() => copy(link, 'link')} className="py-2.5 rounded-xl text-[13.5px] font-semibold" style={{ background: 'rgba(255,255,255,0.14)' }}>{copied === 'link' ? 'Copied' : 'Copy link'}</button>
+              <a href={`https://wa.me/?text=${encodeURIComponent(`My ${noun} from ${od.business}: ${link}`)}`} target="_blank" rel="noopener noreferrer" className="py-2.5 rounded-xl text-[13.5px] font-semibold text-center" style={{ background: '#fff', color: S.ink }}>Save on WhatsApp</a>
+            </div>
+          </div>
+        )}
+
+        {payNote && (
+          <div className="rounded-2xl p-4 mb-4 flex items-start gap-3" style={{ background: payNote === 'paid' ? '#DFF6EE' : payNote === 'refund' ? '#FDECEA' : S.tile }}>
+            {payNote === 'checking' ? <Loader2 size={18} className="animate-spin shrink-0 mt-0.5" /> : payNote === 'paid' ? <Check size={18} className="shrink-0 mt-0.5" style={{ color: '#0E7A5F' }} /> : <Clock size={18} className="shrink-0 mt-0.5" />}
+            <div className="text-[13.5px] leading-relaxed">{payNote === 'checking' ? 'Confirming your payment…' : payNote === 'paid' ? <><strong>Payment received.</strong> {od.business} has been told.</> : payNote === 'refund' ? <><strong>Payment received, but this {noun} was already closed.</strong> {od.business} owes you the money back.</> : <><strong>Payment not confirmed yet.</strong> If you paid by transfer, it can take a few minutes. This page updates once it arrives.</>}</div>
+          </div>
+        )}
+
+        <div className="rounded-2xl p-4 mb-4" style={{ background: st[0] }}>
+          <div className="text-[15px] font-bold" style={{ color: st[1] }}>{st[2]}</div>
+          <div className="text-[13.5px] mt-1 leading-relaxed" style={{ color: S.ink }}>{st[3]}</div>
+        </div>
+
+        <div className="rounded-2xl p-4 mb-4 text-[14px]" style={{ background: S.tile }}>
+          {items.map((it, i) => row(`${it.description}${Number(it.quantity) > 1 ? ` × ${it.quantity}` : ''}`, fmt(Number(it.quantity) * Number(it.unitPrice)), false, S.ink))}
+          {discount > 0 && row(`Discount${od.discount_code ? ` (${od.discount_code})` : ''}`, fmt(-discount), false, '#0E7A5F')}
+          {delivery > 0 && row('Delivery', fmt(delivery), false, S.ink)}
+          <div className="my-1.5" style={{ borderTop: `1px solid ${S.line}` }} />
+          {row('Total', fmt(od.pay_status ? total : itemsTotal - discount), true, S.ink)}
+          {od.pay_status === 'paid' && row('Paid online', fmt(od.amount_paid), false, '#0E7A5F')}
+          {od.preferred_time && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Preferred time: <strong style={{ color: S.ink }}>{od.preferred_time}</strong></div>}
+          {od.note && <div className="text-[12.5px] mt-1" style={{ color: S.muted }}>Your note: {od.note}</div>}
+          {od.address && <div className="text-[12.5px] mt-2 flex items-start gap-1.5" style={{ color: S.muted }}><MapPin size={14} className="shrink-0 mt-0.5" /> {od.address}</div>}
+        </div>
+
+        {od.status === 'pending' && od.pay_status === 'requested' && (
+          <div className="rounded-2xl p-4 mb-4" style={{ border: `1.5px solid ${S.ink}` }}>
+            {quote ? (
+              <>
+                <div className="rounded-xl p-3.5 text-[13.5px] space-y-1" style={{ background: S.tile }}>
+                  <div className="flex justify-between"><span style={{ color: S.muted }}>Your {noun}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(quote.amount)}</span></div>
+                  <div className="flex justify-between"><span style={{ color: S.muted }}>Service fee</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(quote.fee_total)}</span></div>
+                  <div className="flex justify-between font-bold pt-1" style={{ borderTop: `1px solid ${S.line}` }}><span>You pay</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(quote.total)}</span></div>
+                </div>
+                <button onClick={payOnline} disabled={busy} className={`${btn} mt-3 flex items-center justify-center gap-2`} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.6 : 1 }}>{busy ? 'Opening Paystack…' : <><Lock size={15} /> Pay {fmt(quote.total)} now</>}</button>
+                <div className="text-[12px] text-center mt-2" style={{ color: S.muted }}>Card, bank transfer or USSD · secured by Paystack</div>
+                <div className="text-[11.5px] text-center mt-1 leading-relaxed" style={{ color: S.muted }}>If {od.business} can't complete your {noun}, they refund what you paid for it. The service fee isn't refunded.</div>
+              </>
+            ) : (
+              <div className="text-[13.5px] leading-relaxed" style={{ color: S.muted }}>Online payment isn't available right now. Message {od.business} to pay them directly.</div>
+            )}
+            {quote && <div className="text-[12.5px] text-center mt-3" style={{ color: S.muted }}>Prefer to pay {od.business} directly? Message them below.</div>}
+          </div>
+        )}
+
+        {od.pay_status === 'refund_due' && (
+          <div className="rounded-2xl p-4 mb-4" style={{ border: `1.5px solid ${S.ink}` }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[15px] font-bold">Your refund</span>
+              <span className="text-[20px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(od.refund_amount)}</span>
+            </div>
+            {od.refund_to && !rf.editing ? (
+              <>
+                <div className="text-[13px] mt-1 mb-2.5" style={{ color: S.muted }}>{od.business} will send it to:</div>
+                <div className="rounded-xl p-3.5" style={{ background: S.tile }}>
+                  <div className="text-[13px]" style={{ color: S.muted }}>{od.refund_to.bank_name}</div>
+                  <div className="text-[19px] font-bold tracking-wider" style={{ fontVariantNumeric: 'tabular-nums' }}>{od.refund_to.account_number}</div>
+                  <div className="text-[13.5px] font-semibold">{od.refund_to.account_name}</div>
+                </div>
+                <button onClick={() => setRf({ bank: od.refund_to.bank_name || '', number: od.refund_to.account_number || '', name: od.refund_to.account_name || '', editing: true })} className="mt-2 text-[13px] font-semibold" style={{ color: S.ink }}>Change account</button>
+              </>
+            ) : (
+              <>
+                <div className="text-[13px] mt-1 mb-3 leading-relaxed" style={{ color: S.muted }}>Where should {od.business} send it? Use an account in your own name.</div>
+                <div className="space-y-2">
+                  <input value={rf.bank} onChange={(e) => setRf({ ...rf, bank: e.target.value })} placeholder="Bank, e.g. GTBank, Opay, Moniepoint" className="w-full rounded-xl px-4 py-3 text-[15px] outline-none" style={{ background: S.tile, color: S.ink }} />
+                  <input value={rf.number} inputMode="numeric" onChange={(e) => setRf({ ...rf, number: e.target.value.replace(/[^0-9]/g, '').slice(0, 10) })} placeholder="Account number (10 digits)" className="w-full rounded-xl px-4 py-3 text-[15px] outline-none tracking-wider" style={{ background: S.tile, color: S.ink, fontVariantNumeric: 'tabular-nums' }} />
+                  <input value={rf.name} onChange={(e) => setRf({ ...rf, name: e.target.value })} placeholder="Name on the account" className="w-full rounded-xl px-4 py-3 text-[15px] outline-none" style={{ background: S.tile, color: S.ink }} />
+                </div>
+                <button onClick={saveRefund} disabled={busy || rf.number.length !== 10 || !rf.bank.trim() || rf.name.trim().length < 3} className={`${btn} mt-3`} style={{ background: S.ink, color: '#fff', opacity: busy || rf.number.length !== 10 || !rf.bank.trim() || rf.name.trim().length < 3 ? 0.4 : 1 }}>{busy ? 'Sending…' : `Send to ${od.business}`}</button>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+          {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className={btn} style={isNew && od.status === 'pending' && !od.pay_status ? { background: '#25D366', color: '#fff', textAlign: 'center' } : { border: `1.5px solid ${S.ink}`, textAlign: 'center' }}>{isNew && od.status === 'pending' && !od.pay_status ? `Also tell ${od.business} on WhatsApp` : `Message ${od.business}`}</a>}
+          {od.business_code && ['fulfilled', 'cancelled'].includes(od.status) && <a href={`/store/${od.business_code}`} className={btn} style={{ background: S.ink, color: '#fff', textAlign: 'center' }}>{noun === 'order' ? 'Order again' : 'Book again'}</a>}
+          {od.business_code && od.status === 'pending' && <a href={`/store/${od.business_code}`} className="py-3 text-center text-[14px] font-semibold" style={{ color: S.muted }}>Back to {od.business}</a>}
+        </div>
+        <div className="text-center text-[11.5px] mt-10" style={{ color: S.soldOut }}>Orders by Xorla</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Root() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
   const clean = path.replace(/\/+$/, '');
   const offerMatch = path.match(/^\/appt\/([a-f0-9]{20,64})/);
   const guestMatch = path.match(/^\/booking\/([a-f0-9]{20,64})/);
-  const page = offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : guestMatch ? <GuestBooking token={guestMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
+  const orderMatch = path.match(/^\/order\/([a-f0-9]{20,64})/);
+  const page = offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : guestMatch ? <GuestBooking token={guestMatch[1]} /> : orderMatch ? <CustomerOrder token={orderMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
     : clean === '/pricing' ? <PricingPage />
     : clean === '/privacy' ? <LegalPage kind="privacy" />
     : clean === '/terms' ? <LegalPage kind="terms" />
