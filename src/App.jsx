@@ -5296,13 +5296,38 @@ function XorlaApp() {
           </BrandSelect>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.checkIn || 'From'}
-              <input type="date" min={bkToday} value={f.checkIn} onChange={(e) => setBookingForm({ ...f, checkIn: e.target.value, checkOut: f.checkOut <= e.target.value ? addDays(e.target.value, 1) : f.checkOut })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
+              <input type="date" min={bkToday} value={f.checkIn} onChange={(e) => { const v = e.target.value; if (!v) return; setBookingForm({ ...f, checkIn: v, checkOut: addDays(v, Math.max(1, n || 1)) }); }} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
             <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.checkOut || 'Until'}
               <input type="date" min={f.checkIn ? addDays(f.checkIn, 1) : bkToday} value={f.checkOut} onChange={(e) => setBookingForm({ ...f, checkOut: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
           </div>
+          {(() => {
+            const unitWord = p?.priceUnit === 'day' || serviceKind === 'rentals' ? 'day' : 'night';
+            const setNights = (k) => { const v = Math.max(1, Math.min(365, k)); setBookingForm({ ...f, checkOut: addDays(f.checkIn || bkToday, v) }); };
+            const stepBtn = 'w-11 h-11 rounded-xl flex items-center justify-center text-[20px] font-semibold shrink-0';
+            return (
+              <div className="rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[13px] font-semibold">How long?</span>
+                  <div className="flex items-center gap-2">
+                    <button type="button" aria-label={`One ${unitWord} less`} onClick={() => setNights(n - 1)} disabled={n <= 1} className={stepBtn} style={{ background: C.bg, border: `1px solid ${C.line}`, color: n <= 1 ? C.inkFaint : C.ink }}>−</button>
+                    <span className="min-w-[78px] text-center"><span className="block text-[20px] font-bold cx-mono leading-none">{n || 1}</span><span className="text-[11px]" style={{ color: C.inkDim }}>{unitWord}{(n || 1) !== 1 ? 's' : ''}</span></span>
+                    <button type="button" aria-label={`One more ${unitWord}`} onClick={() => setNights((n || 1) + 1)} className={stepBtn} style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }}>+</button>
+                  </div>
+                </div>
+                <div className="flex gap-1.5 mt-2.5">
+                  {(unitWord === 'day' ? [1, 2, 3, 7] : [1, 2, 3, 7, 14]).map((k) => (
+                    <button key={k} type="button" onClick={() => setNights(k)} className="flex-1 py-1.5 rounded-lg text-[12px] font-semibold" style={n === k ? { background: C.copper, color: C.bg } : { background: C.bg, color: C.inkDim, border: `1px solid ${C.line}` }}>{k === 7 ? '1 week' : k === 14 ? '2 weeks' : `${k} ${unitWord}${k !== 1 ? 's' : ''}`}</button>
+                  ))}
+                </div>
+                {f.checkOut && <div className="text-[11.5px] mt-2" style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.checkOut || 'Until'}: <strong style={{ color: C.inkDim }}>{new Date(`${f.checkOut}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}</strong></div>}
+              </div>
+            );
+          })()}
           <div className="grid grid-cols-2 gap-2">
-            <input type="number" min="1" max="20" placeholder="How many" value={f.units} onChange={(e) => setBookingForm({ ...f, units: e.target.value })} className="rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-            <input type="text" inputMode="decimal" placeholder="Paid now (₦)" value={formatNumInput(f.paid)} onChange={(e) => setBookingForm({ ...f, paid: parseNumInput(e.target.value) })} className="rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{serviceKind === 'rentals' ? 'How many' : 'Rooms'}
+              <input type="number" min="1" max="20" placeholder="1" value={f.units} onChange={(e) => setBookingForm({ ...f, units: e.target.value })} className="w-full mt-1 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} /></label>
+            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>Paid now (₦)
+              <input type="text" inputMode="decimal" placeholder="0" value={formatNumInput(f.paid)} onChange={(e) => setBookingForm({ ...f, paid: parseNumInput(e.target.value) })} className="w-full mt-1 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} /></label>
           </div>
           <input type="text" placeholder="Guest name" value={f.name} onChange={(e) => setBookingForm({ ...f, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
           <input type="tel" placeholder="Phone (optional)" value={f.phone} onChange={(e) => setBookingForm({ ...f, phone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
