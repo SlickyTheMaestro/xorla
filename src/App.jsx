@@ -4882,8 +4882,22 @@ function XorlaApp() {
             </span>
             {isOwnerRole && <span className="shrink-0 font-semibold" style={{ color: C.copper }}>Change</span>}
           </button>
+          {isOwnerRole && depositPct > 0 && !settings.payout && (
+            <button type="button" onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('deposits'); setTab('settings'); }} className="mt-2.5 w-full rounded-xl px-3.5 py-2.5 flex items-center gap-3 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>
+              <CreditCard size={16} style={{ color: C.sage }} className="shrink-0" />
+              <span className="flex-1 min-w-0 text-[12.5px] leading-snug"><strong>Let guests pay deposits online.</strong> <span style={{ color: C.inkDim }}>Bookings confirm themselves. Connect your bank in 1 minute.</span></span>
+              <ChevronRight size={15} style={{ color: C.sage }} className="shrink-0" />
+            </button>
+          )}
         </div>
 
+        {isOwnerRole && depositPct > 0 && !settings.payout && !settings.bankAccountNumber && (
+          <button type="button" onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('deposits'); setTab('settings'); }} className="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.4)' }}>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><CreditCard size={18} style={{ color: C.bg }} /></span>
+            <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">Guests can't pay your deposit yet</span><span className="block text-[12px] leading-snug" style={{ color: C.inkDim }}>Turn on online payment, or add your bank details, so guests can pay and secure their booking.</span></span>
+            <ChevronRight size={17} style={{ color: C.copper }} className="shrink-0" />
+          </button>
+        )}
         <div className="rounded-2xl p-3" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
           <div className="flex items-center justify-between px-1 mb-2.5">
             <span className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Today</span>
