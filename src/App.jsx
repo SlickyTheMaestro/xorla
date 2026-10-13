@@ -1985,6 +1985,7 @@ function XorlaApp() {
       bankAccountNumber: business.bank_account_number || '',
       bankAccountName: business.bank_account_name || '',
       depositPayNote: business.deposit_pay_note || '',
+      payout: business.paystack_subaccount ? { bank: business.payout_bank_name || '', number: business.payout_account_number || '', name: business.payout_account_name || '' } : null,
       apptEnabled: business.appt_enabled !== false,
       openTime: String(business.open_time || '08:00').slice(0, 5),
       closeTime: String(business.close_time || '18:00').slice(0, 5),
@@ -7535,10 +7536,11 @@ function XorlaApp() {
                     </div>
                   )}
 
+                  {pct > 0 && <PayoutSetup payout={settings.payout} callBilling={callBilling} onSaved={(payout) => setSettings((prev) => ({ ...prev, payout }))} />}
                   {pct > 0 && (
                     <div className="rounded-[20px] p-4 space-y-2.5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                       <div>
-                        <div className="text-[14.5px] font-semibold">How guests pay the deposit</div>
+                        <div className="text-[14.5px] font-semibold">{settings.payout ? 'Bank transfer instead (optional)' : 'How guests pay the deposit'}</div>
                         <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>Shown to guests on your storefront and on their booking page, so they can transfer it straight away.</div>
                       </div>
                       <input type="text" placeholder="Bank, e.g. GTBank" value={draft.bankName || ''} onChange={(e) => setDraft({ ...draft, bankName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -9667,7 +9669,7 @@ function Storefront({ businessCode }) {
                   <>
                     <div className="flex items-baseline justify-between gap-3"><span className="font-semibold">Deposit to secure it</span><span className="text-[16px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(dep)}</span></div>
                     <div className="flex items-baseline justify-between gap-3" style={{ color: S.muted }}><span>Pay at check-in</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(total - dep)}</span></div>
-                    <div className="pt-1 leading-relaxed" style={{ color: S.muted }}>Nothing to pay right now. Send the request first; your dates are held for 24 hours, and the next page shows how to pay the deposit.</div>
+                    <div className="pt-1 leading-relaxed" style={{ color: S.muted }}>{bookTerms.online_pay ? 'Nothing to pay right now. Send the request, then pay the deposit on the next page by card, transfer or USSD, and your booking confirms straight away.' : 'Nothing to pay right now. Send the request first; your dates are held for 24 hours, and the next page shows how to pay the deposit.'}</div>
                   </>
                 ) : <div className="leading-relaxed" style={{ color: S.muted }}>No payment now. Your dates are held for 24 hours while {business.name} confirms.</div>}
                 {bookTerms && <div className="flex items-start gap-2 pt-1 leading-relaxed"><ShieldCheck size={15} className="shrink-0 mt-0.5" style={{ color: '#0E7A5F' }} /><span>Free cancellation until {hrs} hours before check-in (2pm).{dep > 0 ? ' After that, the deposit is not refunded.' : ''}</span></div>}
@@ -10955,6 +10957,7 @@ function AdminDashboard() {
       }
       if (!access.admin) { setUpdated(new Date()); setState({ phase: 'ready', error: '' }); call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {}); return; }
       const o = await call('admin_overview');
+      try { o.deposits = await call('admin_deposit_earnings'); } catch (e) { o.deposits = null; }
       setOv(o); setUpdated(new Date()); setState({ phase: 'ready', error: '' });
       loadList(search, filter);
       call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {});
@@ -11231,6 +11234,7 @@ function AdminDashboard() {
             <div className="text-[13px] font-medium" style={{ color: C.inkDim }}>Monthly recurring revenue</div>
             <div className="text-[44px] lg:text-[58px] font-extrabold tabular-nums leading-[1.05] mt-1" style={{ fontFamily: HEADF, letterSpacing: '-0.035em', color: '#FFD27A' }}>{fmt(ov.mrr)}</div>
             <div className="text-[13.5px] mt-2" style={{ color: C.inkDim }}><span className="font-semibold" style={{ color: C.ink }}>{fmt(ov.revenue_30d)}</span> collected in the last 30 days</div>
+            {ov.deposits && <div className="text-[13px] mt-1" style={{ color: C.inkDim }}>+ <span className="font-semibold" style={{ color: C.sage }}>{fmt(ov.deposits.fees_30d)}</span> from online deposit fees <span style={{ color: C.inkFaint }}>· {n(ov.deposits.count_30d)} deposits, {n(ov.deposits.connected)} businesses taking them</span></div>}
             <div className="mt-5 max-w-sm">
               <div className="flex justify-between text-[12px] mb-1.5"><span style={{ color: C.inkDim }}>Early supporters</span><span className="tabular-nums" style={{ color: C.ink }}>{n(early)} of 100 <span style={{ color: C.inkFaint }}>· {n(Math.max(0, 100 - early))} left</span></span></div>
               <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(1.5, early)}%`, background: `linear-gradient(90deg, ${C.sage}, ${C.copper})` }} /></div>
@@ -13087,14 +13091,126 @@ function BrandDialogHost() {
   );
 }
 
+// ---------- Online deposits: the business's own bank account, where Paystack pays deposits ----------
+function PayoutSetup({ payout, callBilling, onSaved }) {
+  const [editing, setEditing] = useState(!payout);
+  const [banks, setBanks] = useState(null);
+  const [f, setF] = useState({ code: '', number: '', name: '', busy: false, error: '' });
+  useEffect(() => { setEditing(!payout); }, [!!payout]);
+  useEffect(() => {
+    if (!editing || banks) return;
+    callBilling('payout_banks').then((b) => setBanks(Array.isArray(b) ? b : [])).catch((e) => { setBanks([]); setF((x) => ({ ...x, error: e.message })); });
+  }, [editing]);
+  const bankName = (banks || []).find((b) => b.code === f.code)?.name || '';
+  const resolve = async (code, number) => {
+    if (!code || number.length !== 10) { setF((x) => ({ ...x, name: '' })); return; }
+    setF((x) => ({ ...x, busy: true, error: '', name: '' }));
+    try { const r = await callBilling('payout_resolve', { bank_code: code, account_number: number }); setF((x) => ({ ...x, busy: false, name: r.account_name })); }
+    catch (e) { setF((x) => ({ ...x, busy: false, error: e.message })); }
+  };
+  const connect = async () => {
+    setF((x) => ({ ...x, busy: true, error: '' }));
+    try {
+      const r = await callBilling('payout_connect', { bank_code: f.code, account_number: f.number, bank_name: bankName });
+      onSaved({ bank: r.bank_name || bankName, number: f.number, name: r.account_name });
+      setEditing(false); setF({ code: '', number: '', name: '', busy: false, error: '' });
+    } catch (e) { setF((x) => ({ ...x, busy: false, error: e.message })); }
+  };
+  const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
+  return (
+    <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(160deg, rgba(31,217,196,0.10), rgba(255,255,255,0.015))', border: `1px solid ${payout ? 'rgba(31,217,196,0.35)' : C.line}` }}>
+      <div className="flex items-start gap-3">
+        <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><CreditCard size={18} style={{ color: C.sage }} /></span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2"><span className="text-[14.5px] font-semibold">Get deposits paid online</span>{payout && <span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>ON</span>}</div>
+          <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>Guests pay by card, transfer or USSD, and the booking confirms itself. Paystack sends the full deposit to your bank the next working day. Guests pay a small service fee on top.</div>
+        </div>
+      </div>
+      {payout && !editing && (
+        <div className="mt-3 rounded-xl px-3.5 py-3 flex items-center gap-3" style={{ background: 'rgba(0,0,0,0.22)' }}>
+          <span className="flex-1 min-w-0 text-[12.5px]" style={{ color: C.inkDim }}>Paid into <strong style={{ color: C.ink }}>{payout.bank}</strong> · <span className="cx-mono" style={{ color: C.ink }}>{payout.number}</span><span className="block truncate">{payout.name}</span></span>
+          <button type="button" onClick={() => setEditing(true)} className="shrink-0 text-[12.5px] font-semibold" style={{ color: C.copper }}>Change</button>
+        </div>
+      )}
+      {editing && (
+        <div className="mt-3 space-y-2">
+          {f.code ? (
+            <button type="button" onClick={() => setF({ ...f, code: '', name: '', q: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm flex items-center justify-between text-left" style={field}>
+              <span className="font-medium">{bankName}</span><span className="text-[12px] font-semibold" style={{ color: C.copper }}>Change</span>
+            </button>
+          ) : (
+            <div>
+              <div className="relative">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
+                <input type="text" value={f.q || ''} onChange={(e) => setF({ ...f, q: e.target.value })} placeholder={banks === null ? 'Loading banks…' : 'Type your bank, e.g. GTBank, Opay, Moniepoint'} className="w-full rounded-xl pl-9 pr-3.5 py-2.5 text-sm outline-none" style={field} />
+              </div>
+              {(f.q || '').trim().length > 0 && (() => {
+                const norm = (x) => String(x).toLowerCase().replace(/[^a-z0-9]/g, '');
+                const alias = { gtbank: 'guaranty', gtb: 'guaranty', fcmb: 'firstcitymonument', uba: 'unitedbankforafrica', fbn: 'firstbank', firstbank: 'firstbank' };
+                const qn = norm(f.q); const qa = alias[qn] || qn;
+                const hits = (banks || []).filter((b) => norm(b.name).includes(qa) || norm(b.name).includes(qn)).slice(0, 6);
+                return (
+                  <div className="mt-1.5 rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+                    {hits.length ? hits.map((b, i) => (
+                      <button key={b.code + b.name} type="button" onClick={() => { setF({ ...f, code: b.code, q: '', name: '' }); resolve(b.code, f.number); }} className="w-full text-left px-3.5 py-2.5 text-[13px]" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', background: C.surfaceRaised }}>{b.name}</button>
+                    )) : <div className="px-3.5 py-2.5 text-[12.5px]" style={{ color: C.inkFaint, background: C.surfaceRaised }}>No bank matches that name.</div>}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+          <input type="text" inputMode="numeric" placeholder="Account number (10 digits)" value={f.number} onChange={(e) => { const n = e.target.value.replace(/[^0-9]/g, '').slice(0, 10); setF({ ...f, number: n, name: '' }); if (n.length === 10) resolve(f.code, n); }} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono tracking-wider" style={field} />
+          {f.busy && !f.name && <div className="flex items-center gap-2 text-[12px]" style={{ color: C.inkFaint }}><Loader2 size={13} className="animate-spin" /> Checking the account…</div>}
+          {f.name && <div className="rounded-xl px-3.5 py-2.5 flex items-center gap-2 text-[13px]" style={{ background: C.sageSoft, color: C.ink }}><Check size={15} style={{ color: C.sage }} /> <strong>{f.name}</strong></div>}
+          {f.error && <div className="text-[12px]" style={{ color: C.rust }}>{f.error}</div>}
+          <div className="flex gap-2 pt-1">
+            {payout && <button type="button" onClick={() => setEditing(false)} className="px-4 h-11 rounded-xl text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Cancel</button>}
+            <button type="button" onClick={connect} disabled={!f.name || f.busy} className="flex-1 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: !f.name || f.busy ? 0.45 : 1 }}>{f.busy && f.name ? 'Connecting…' : payout ? 'Save new account' : 'Turn on online deposits'}</button>
+          </div>
+          <div className="text-[11px] leading-relaxed" style={{ color: C.inkFaint }}>The name must match your business or your own name. Xorla never holds your money: Paystack pays it straight to this account.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- The guest's own booking page (/booking/…): see it, pay the deposit, or cancel ----------
 function GuestBooking({ token }) {
   const [bk, setBk] = useState(undefined);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState('');
   const [rf, setRf] = useState({ bank: '', number: '', name: '', editing: false });
+  const [online, setOnline] = useState(null);          // { deposit, xorla_fee, fee_total, total } when the business takes online payments
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [payNote, setPayNote] = useState('');          // after returning from Paystack
+  const billing = async (action, extra = {}) => {
+    const res = await fetch(`${SB_URL}/functions/v1/billing`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }, body: JSON.stringify({ action, token, ...extra }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || 'Payments are not available right now. Please try again.');
+    return data;
+  };
   const isNew = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('new') === '1';
-  const load = useCallback(async () => { try { setBk(await sbRpc('guest_booking', SB_KEY, { p_token: token })); } catch (e) { setBk(null); } }, [token]);
+  const load = useCallback(async () => {
+    let g = null;
+    try { g = await sbRpc('guest_booking', SB_KEY, { p_token: token }); setBk(g); } catch (e) { setBk(null); return; }
+    const owing = g ? Math.max(0, Number(g.deposit_due) - Number(g.deposit_paid)) : 0;
+    if (!g || owing <= 0 || !['requested', 'confirmed'].includes(g.status)) { setOnline(null); return; }
+    try {
+      const on = await sbRpc('guest_booking_online', SB_KEY, { p_token: token });
+      if (on) setOnline(await billing('deposit_quote')); else setOnline(null);
+    } catch (e) { setOnline(null); }
+  }, [token]);
+  // Back from Paystack: confirm the payment straight away (the webhook does it too)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const ref = q.get('reference') || q.get('trxref');
+    if (q.get('paid') !== '1' || !ref) return;
+    setPayNote('checking');
+    billing('deposit_verify', { reference: ref })
+      .then((r) => { setPayNote(r && r.ok !== false ? (r.refund_due ? 'refund' : 'paid') : 'pending'); load(); })
+      .catch(() => { setPayNote('pending'); load(); })
+      .finally(() => { try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {} });
+  }, []);
   useEffect(() => {
     load();
     if (!document.getElementById('xorla-jakarta')) {
@@ -13151,6 +13267,11 @@ function GuestBooking({ token }) {
     no_show: ['#F1F2EF', '#3F4440', 'Missed', 'This booking was marked as not arrived.'],
   };
   const [stBg, stFg, stTitle, stBody] = states[bk.status] || states.requested;
+  const payOnline = async () => {
+    setBusy(true);
+    try { const r = await billing('deposit_init'); window.location.href = r.url; }
+    catch (e) { brandAlert(e.message, { theme: 'light', title: 'Payment could not start' }); setBusy(false); }
+  };
   const row = (l, v, strong) => <div className="flex items-baseline justify-between gap-4 py-1.5"><span style={{ color: S.muted }}>{l}</span><span className={strong ? 'font-bold' : 'font-medium'} style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{v}</span></div>;
   return (
     <div style={page}>
@@ -13166,6 +13287,13 @@ function GuestBooking({ token }) {
               <button onClick={() => copy(link, 'link')} className="py-2.5 rounded-xl text-[13.5px] font-semibold" style={{ background: 'rgba(255,255,255,0.14)' }}>{copied === 'link' ? 'Copied' : 'Copy link'}</button>
               <a href={`https://wa.me/?text=${encodeURIComponent(`My booking at ${bk.business}: ${link}`)}`} target="_blank" rel="noopener noreferrer" className="py-2.5 rounded-xl text-[13.5px] font-semibold text-center" style={{ background: '#fff', color: S.ink }}>Save on WhatsApp</a>
             </div>
+          </div>
+        )}
+
+        {payNote && (
+          <div className="rounded-2xl p-4 mb-4 flex items-start gap-3" style={{ background: payNote === 'paid' ? '#DFF6EE' : payNote === 'refund' ? '#FDECEA' : S.tile }}>
+            {payNote === 'checking' ? <Loader2 size={18} className="animate-spin shrink-0 mt-0.5" /> : payNote === 'paid' ? <Check size={18} className="shrink-0 mt-0.5" style={{ color: '#0E7A5F' }} /> : <Clock size={18} className="shrink-0 mt-0.5" />}
+            <div className="text-[13.5px] leading-relaxed">{payNote === 'checking' ? 'Confirming your payment…' : payNote === 'paid' ? <><strong>Payment received.</strong> Your deposit is paid and the booking is confirmed. {bk.business} has been told.</> : payNote === 'refund' ? <><strong>Payment received, but these dates were no longer available.</strong> {bk.business} owes you the deposit back.</> : <><strong>Payment not confirmed yet.</strong> If you paid by transfer, it can take a few minutes. This page updates once it arrives.</>}</div>
           </div>
         )}
 
@@ -13192,9 +13320,21 @@ function GuestBooking({ token }) {
               <span className="text-[15px] font-bold">Deposit to secure it</span>
               <span className="text-[20px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(owing)}</span>
             </div>
-            {bk.pay.account_number ? (
+            {online && (
               <>
-                <div className="text-[13px] mt-1 mb-3" style={{ color: S.muted }}>Send it by bank transfer to:</div>
+                <div className="rounded-xl p-3.5 mt-3 text-[13.5px] space-y-1" style={{ background: S.tile }}>
+                  <div className="flex justify-between"><span style={{ color: S.muted }}>Deposit</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(online.deposit)}</span></div>
+                  <div className="flex justify-between"><span style={{ color: S.muted }}>Service fee</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(online.fee_total)}</span></div>
+                  <div className="flex justify-between font-bold pt-1" style={{ borderTop: `1px solid ${S.line}` }}><span>You pay</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(online.total)}</span></div>
+                </div>
+                <button onClick={payOnline} disabled={busy} className={`${btn} mt-3 flex items-center justify-center gap-2`} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.6 : 1 }}>{busy ? 'Opening Paystack…' : <><Lock size={15} /> Pay {fmt(online.total)} now</>}</button>
+                <div className="text-[12px] text-center mt-2" style={{ color: S.muted }}>Card, bank transfer or USSD · secured by Paystack · confirms instantly</div>
+                {bk.pay.account_number && !showTransfer && <button onClick={() => setShowTransfer(true)} className="w-full mt-3 text-[13px] font-semibold" style={{ color: S.ink }}>Or pay {fmt(owing)} by direct bank transfer</button>}
+              </>
+            )}
+            {online && !showTransfer ? null : bk.pay.account_number ? (
+              <>
+                <div className="text-[13px] mt-1 mb-3" style={{ color: S.muted }}>{online ? 'Or send it by bank transfer to:' : 'Send it by bank transfer to:'}</div>
                 <div className="rounded-xl p-3.5 space-y-1" style={{ background: S.tile }}>
                   {bk.pay.bank_name && <div className="text-[13px]" style={{ color: S.muted }}>{bk.pay.bank_name}</div>}
                   <div className="flex items-center justify-between gap-3">
@@ -13205,8 +13345,8 @@ function GuestBooking({ token }) {
                 </div>
                 <div className="text-[12.5px] mt-2.5 leading-relaxed" style={{ color: S.muted }}>{bk.pay.note || `Use your name (${bk.customer_name}) as the reference.`}</div>
               </>
-            ) : <div className="text-[13px] mt-1.5 leading-relaxed" style={{ color: S.muted }}>Message {bk.business} for their payment details.</div>}
-            {bk.guest_paid_said_at
+            ) : online ? null : <div className="text-[13px] mt-1.5 leading-relaxed" style={{ color: S.muted }}>Message {bk.business} for their payment details.</div>}
+            {(online && !showTransfer) ? null : bk.guest_paid_said_at
               ? <div className="mt-3 rounded-xl px-3.5 py-3 text-[13px] leading-relaxed" style={{ background: '#DFF6EE', color: '#0E7A5F' }}><strong>Thanks!</strong> You told {bk.business} you sent it ({when(bk.guest_paid_said_at)}). They'll confirm once it arrives.</div>
               : <button onClick={() => act('paid')} disabled={busy} className={`${btn} mt-3`} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.6 : 1 }}>{busy ? 'Sending…' : "I've sent the deposit"}</button>}
           </div>
