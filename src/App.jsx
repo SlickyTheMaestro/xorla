@@ -149,6 +149,95 @@ function Sheet({ title, onClose, children, closeOnBackdrop = true, busy = false 
   );
 }
 
+// Every refund the business has sent, searchable by guest name/phone and by the date it was sent.
+// Reads straight from the database, so it goes back further than the 90 days the desk keeps in view.
+function RefundHistory({ accessToken, onClose }) {
+  const PAGE = 25;
+  const [q, setQ] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(true);
+  const [more, setMore] = useState(false);
+  const [err, setErr] = useState('');
+  const [sum, setSum] = useState(null);
+  const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
+  const today = new Date().toISOString().slice(0, 10);
+  const filters = () => {
+    const parts = ['deposit_status=eq.refunded'];
+    const term = q.trim().replace(/[*,()]/g, ' ').trim();
+    if (term) {
+      const digits = term.replace(/\D/g, '');
+      parts.push(digits.length >= 4 ? `or=(customer_phone.ilike.*${digits.slice(-10)}*,refund_account_number.ilike.*${digits}*)` : `customer_name=ilike.*${encodeURIComponent(term)}*`);
+    }
+    if (from) parts.push(`refunded_at=gte.${new Date(`${from}T00:00:00+01:00`).toISOString()}`);
+    if (to) parts.push(`refunded_at=lt.${new Date(new Date(`${to}T00:00:00+01:00`).getTime() + 86400000).toISOString()}`);
+    return parts.join('&');
+  };
+  const load = async (offset = 0) => {
+    setBusy(true); setErr('');
+    try {
+      const f = filters();
+      const got = await sbRest('bookings', { accessToken, query: `?select=id,customer_name,customer_phone,item_name,check_in,refund_amount,refunded_at,refunded_by_name,refund_bank_name,refund_account_number,refund_account_name&${f}&order=refunded_at.desc.nullslast&limit=${PAGE + 1}&offset=${offset}` });
+      setMore(got.length > PAGE);
+      setRows((r) => (offset ? [...r, ...got.slice(0, PAGE)] : got.slice(0, PAGE)));
+      if (!offset) {
+        const all = await sbRest('bookings', { accessToken, query: `?select=refund_amount&${f}&limit=5000` });
+        setSum({ n: all.length, total: all.reduce((a, b) => a + Number(b.refund_amount || 0), 0) });
+      }
+    } catch (e) { setErr(e.message || 'Could not load refunds.'); }
+    setBusy(false);
+  };
+  useEffect(() => { const t = setTimeout(() => load(0), q ? 350 : 0); return () => clearTimeout(t); }, [q, from, to]); // eslint-disable-line react-hooks/exhaustive-deps
+  const quick = (days) => { const d = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10); setFrom(days === 0 ? today : d); setTo(today); };
+  const filtered = q.trim() || from || to;
+  const when = (iso) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return (
+    <Sheet onClose={onClose} title={<><div className="text-[16px] font-semibold cx-display">Refund history</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>Every refund you've marked as sent</div></>}>
+      <div className="relative mb-2">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Guest name, phone or account number" className="w-full rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none" style={field} />
+      </div>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <label className="text-[11px]" style={{ color: C.inkFaint }}>Refunded from<input type="date" value={from} max={to || today} onChange={(e) => setFrom(e.target.value)} className="mt-1 w-full rounded-xl px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
+        <label className="text-[11px]" style={{ color: C.inkFaint }}>To<input type="date" value={to} min={from || undefined} max={today} onChange={(e) => setTo(e.target.value)} className="mt-1 w-full rounded-xl px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
+      </div>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {[['Today', 0], ['7 days', 7], ['30 days', 30], ['90 days', 90]].map(([l, d]) => (
+          <button key={l} type="button" onClick={() => quick(d)} className="px-2.5 py-1 rounded-full text-[11.5px] font-medium" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>{l}</button>
+        ))}
+        {filtered && <button type="button" onClick={() => { setQ(''); setFrom(''); setTo(''); }} className="px-2.5 py-1 rounded-full text-[11.5px] font-semibold" style={{ color: C.copper }}>Clear</button>}
+      </div>
+      {sum && <div className="rounded-xl px-3.5 py-2.5 mb-3 flex items-center justify-between text-[12.5px]" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.25)' }}>
+        <span style={{ color: C.inkDim }}>{sum.n} refund{sum.n === 1 ? '' : 's'}{filtered ? ' found' : ' in all'}</span>
+        <span className="font-bold cx-mono" style={{ color: C.sage }}>{fmt(sum.total)}</span>
+      </div>}
+      {err && <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{err}</div>}
+      <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+        {rows.map((b, i) => (
+          <div key={b.id} className="px-3.5 py-3" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+            <div className="flex items-start gap-3">
+              <span className="flex-1 min-w-0">
+                <span className="block text-[13.5px] font-semibold truncate">{b.customer_name}</span>
+                <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{b.item_name}{b.check_in ? `, stay ${dayLabelShort(b.check_in)}` : ''}{b.customer_phone ? ` · ${b.customer_phone}` : ''}</span>
+              </span>
+              <span className="shrink-0 text-[14px] font-bold cx-mono" style={{ color: C.sage }}>{fmt(b.refund_amount)}</span>
+            </div>
+            <div className="mt-1.5 text-[11.5px] leading-relaxed" style={{ color: C.inkDim }}>
+              {b.refunded_at ? `Sent ${when(b.refunded_at)}` : 'Sent'}{b.refunded_by_name ? ` by ${b.refunded_by_name}` : ''}
+              {b.refund_account_number && <span className="block" style={{ color: C.inkFaint }}>To {b.refund_account_name ? `${b.refund_account_name}, ` : ''}{b.refund_bank_name} {b.refund_account_number}</span>}
+            </div>
+          </div>
+        ))}
+        {!busy && !rows.length && !err && <div className="px-4 py-8 text-center text-[12.5px]" style={{ color: C.inkFaint }}>{filtered ? 'No refunds match. Try a shorter name or a wider date range.' : 'No refunds sent yet.'}</div>}
+        {busy && <div className="px-4 py-5 flex justify-center"><Loader2 size={18} className="animate-spin" style={{ color: C.inkFaint }} /></div>}
+        {!busy && more && <button type="button" onClick={() => load(rows.length)} className="w-full py-2.5 text-[12.5px] font-semibold" style={{ color: C.copper, borderTop: `1px solid ${C.line}` }}>Show more</button>}
+      </div>
+    </Sheet>
+  );
+}
+function dayLabelShort(d) { return new Date(`${d}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); }
+
 const TONES = [
   { id: 'friendly', label: 'Friendly', desc: 'Warm and friendly, like a normal polite reminder between people who know each other.' },
   { id: 'calm', label: 'Calm', desc: 'Calm, gentle, patient, and reassuring, even if the payment is very overdue. Never sounds annoyed.' },
@@ -1348,8 +1437,9 @@ function XorlaApp() {
   const [roomsAll, setRoomsAll] = useState([]);
   const [roomSetup, setRoomSetup] = useState({});
   const [editRoomsFor, setEditRoomsFor] = useState(null);
+  const [pickedRooms, setPickedRooms] = useState([]);
   const [bookingPanel, setBookingPanel] = useState(false);
-  const [showAllRefunded, setShowAllRefunded] = useState(false);
+  const [showRefundHistory, setShowRefundHistory] = useState(false);
   const [bookingForm, setBookingForm] = useState({ productId: '', checkIn: '', checkOut: '', units: '1', name: '', phone: '', note: '', paid: '' });
   const [bookingAct, setBookingAct] = useState(null);
   const [actForm, setActForm] = useState({ room: '', amount: '', reason: '' });
@@ -4750,10 +4840,20 @@ function XorlaApp() {
     runBooking(() => sbRest('rooms', { method: 'POST', accessToken: session.access_token, body: fresh.map((label) => ({ business_id: settings.businessId, shop_id: deskShopId, product_id: productId, label })) }),
       () => setRoomSetup((s) => ({ ...s, [productId]: '' })));
   };
-  const retireRoom = async (room) => {
+  const toggleRoomPick = (room) => {
     if (occupantOf(room)) { setBookingError(`Room ${room.label} has a guest in it. Check them out first.`); return; }
-    if (!(await brandConfirm(`Take room ${room.label} out of use? Its history is kept, and you can add it back later.`, { confirm: 'Take out of use', danger: true }))) return;
-    runBooking(() => sbRest(`rooms?id=eq.${room.id}`, { method: 'PATCH', accessToken: session.access_token, body: { active: false } }));
+    setBookingError('');
+    setPickedRooms((ids) => (ids.includes(room.id) ? ids.filter((x) => x !== room.id) : [...ids, room.id]));
+  };
+  const editRoomsOf = (productId) => { setPickedRooms([]); setBookingError(''); setEditRoomsFor(productId); };
+  const retirePicked = async (rooms) => {
+    const picked = rooms.filter((r) => pickedRooms.includes(r.id) && !occupantOf(r));
+    if (!picked.length) return;
+    const names = picked.map((r) => r.label);
+    const list = names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', ');
+    if (!(await brandConfirm(`Take ${picked.length === 1 ? `room ${list}` : `these ${picked.length} rooms (${list})`} out of use? Their history is kept, and you can add them back later.`, { confirm: `Take ${picked.length} out of use`, danger: true }))) return;
+    runBooking(() => sbRest(`rooms?id=in.(${picked.map((r) => r.id).join(',')})`, { method: 'PATCH', accessToken: session.access_token, body: { active: false } }),
+      () => setPickedRooms([]));
   };
   const openWalkIn = (productId) => {
     setBookingError('');
@@ -4787,7 +4887,7 @@ function XorlaApp() {
                     {arrivingHere.length > 0 && <span style={{ color: C.copper }}> · {arrivingHere.length} arriving today</span>}
                   </div>
                 </div>
-                {isOwnerRole && rooms.length > 0 && <button onClick={() => setEditRoomsFor(editing ? null : p.id)} className="shrink-0 text-[12px] font-medium" style={{ color: editing ? C.sage : C.copper }}>{editing ? 'Done' : 'Edit rooms'}</button>}
+                {isOwnerRole && rooms.length > 0 && <button onClick={() => (editing ? (setEditRoomsFor(null), setPickedRooms([])) : editRoomsOf(p.id))} className="shrink-0 text-[12px] font-medium" style={{ color: editing ? C.sage : C.copper }}>{editing ? 'Done' : 'Edit rooms'}</button>}
               </div>
 
               {rooms.length > 0 && (
@@ -4796,13 +4896,14 @@ function XorlaApp() {
                     const guest = occupantOf(r);
                     const leaving = guest && guest.check_out <= bkToday;
                     const tone = !guest ? [C.sageSoft, C.sage, 'Free'] : leaving ? [C.copperSoft, C.copper, 'Leaving today'] : [C.rustSoft, C.rust, `Until ${dayLabel(guest.check_out)}`];
-                    const onTap = editing ? () => retireRoom(r) : guest ? () => openBill(guest) : arrivingHere.length ? () => openAct(arrivingHere[0], 'check_in', r.id) : () => openWalkIn(p.id);
+                    const picked = editing && pickedRooms.includes(r.id);
+                    const onTap = editing ? () => toggleRoomPick(r) : guest ? () => openBill(guest) : arrivingHere.length ? () => openAct(arrivingHere[0], 'check_in', r.id) : () => openWalkIn(p.id);
                     return (
-                      <button key={r.id} onClick={onTap} title={editing ? 'Take out of use' : guest ? `${guest.customer_name}'s bill` : arrivingHere.length ? `Check ${arrivingHere[0].customer_name} in here` : 'Book a walk-in'}
-                        className="rounded-xl px-2.5 py-2 text-left active:scale-[0.97] transition-transform" style={{ background: tone[0], border: `1px solid ${tone[1]}55` }}>
+                      <button key={r.id} onClick={onTap} aria-pressed={editing ? picked : undefined} title={editing ? (guest ? 'Has a guest' : picked ? 'Selected' : 'Select') : guest ? `${guest.customer_name}'s bill` : arrivingHere.length ? `Check ${arrivingHere[0].customer_name} in here` : 'Book a walk-in'}
+                        className="rounded-xl px-2.5 py-2 text-left active:scale-[0.97] transition-transform" style={{ background: picked ? C.rustSoft : tone[0], border: `1px solid ${picked ? C.rust : `${tone[1]}55`}`, boxShadow: picked ? `0 0 0 1px ${C.rust}` : 'none', opacity: editing && guest ? 0.45 : 1 }}>
                         <div className="flex items-center justify-between gap-1">
                           <span className="text-[15px] font-bold cx-mono" style={{ color: C.ink }}>{r.label}</span>
-                          {editing ? <X size={13} style={{ color: C.rust }} /> : <span className="w-2 h-2 rounded-full shrink-0" style={{ background: tone[1] }} />}
+                          {editing ? (guest ? <Lock size={12} style={{ color: C.inkFaint }} /> : <span className="w-4 h-4 rounded-md flex items-center justify-center shrink-0" style={{ background: picked ? C.rust : 'transparent', border: `1.5px solid ${picked ? C.rust : C.inkFaint}` }}>{picked && <Check size={11} strokeWidth={3} style={{ color: C.bg }} />}</span>) : <span className="w-2 h-2 rounded-full shrink-0" style={{ background: tone[1] }} />}
                         </div>
                         <div className="text-[10.5px] font-semibold truncate" style={{ color: tone[1] }}>{guest ? guest.customer_name.split(' ')[0] : tone[2]}</div>
                         {guest && extrasTotalOf(guest) > 0 && <div className="text-[10px] font-semibold truncate cx-mono" style={{ color: C.copper }}>+{fmt(extrasTotalOf(guest))}</div>}
@@ -4821,7 +4922,20 @@ function XorlaApp() {
                     <button onClick={() => addRooms(p.id)} disabled={bookingBusy} className="shrink-0 px-4 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>Add</button>
                   </div>
                   {parseRoomLabels(roomSetup[p.id]).length > 0 && <div className="text-[11.5px] mt-1.5" style={{ color: C.sage }}>Will add: {parseRoomLabels(roomSetup[p.id]).slice(0, 12).join(', ')}{parseRoomLabels(roomSetup[p.id]).length > 12 ? ` and ${parseRoomLabels(roomSetup[p.id]).length - 12} more` : ''}</div>}
-                  {editing && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Tap a room above to take it out of use, for repairs for example.</div>}
+                  {editing && (() => {
+                    const free = rooms.filter((r) => !occupantOf(r));
+                    const n = rooms.filter((r) => pickedRooms.includes(r.id)).length;
+                    const allPicked = free.length > 0 && free.every((r) => pickedRooms.includes(r.id));
+                    return (
+                      <div className="mt-3 rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${n ? 'rgba(226,98,75,0.35)' : C.line}` }}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[12px]" style={{ color: n ? C.ink : C.inkFaint }}>{n ? `${n} selected` : 'Tap rooms above to select them, e.g. ones under repair or added by mistake.'}</span>
+                          {free.length > 1 && <button type="button" onClick={() => setPickedRooms(allPicked ? [] : free.map((r) => r.id))} className="shrink-0 text-[12px] font-semibold" style={{ color: C.copper }}>{allPicked ? 'Clear' : 'Select all free'}</button>}
+                        </div>
+                        {n > 0 && <button type="button" onClick={() => retirePicked(rooms)} disabled={bookingBusy} className="mt-2.5 w-full py-2.5 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2" style={{ background: C.rust, color: '#fff', opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}Take {n} room{n === 1 ? '' : 's'} out of use</button>}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
               {!isOwnerRole && rooms.length === 0 && <div className="text-[12px]" style={{ color: C.inkFaint }}>The owner hasn't named these rooms yet.</div>}
@@ -4917,7 +5031,7 @@ function XorlaApp() {
               <button onClick={() => refundsDue.length && jump('bk-refunds')} className="rounded-xl px-3 py-2 flex items-center gap-2 text-left" style={{ background: refundsDue.length ? C.rustSoft : 'transparent', border: `1px solid ${refundsDue.length ? 'rgba(226,98,75,0.3)' : C.line}` }}>
                 <Wallet size={14} style={{ color: refundsDue.length ? C.rust : C.inkFaint }} /><span className="text-[12px] font-semibold" style={{ color: refundsDue.length ? C.ink : C.inkFaint }}>{refundsDue.length} to refund</span>
               </button>
-              <button onClick={() => refundsDone.length && jump('bk-refunded')} className="rounded-xl px-3 py-2 flex items-center gap-2 text-left" style={{ background: refundsDone.length ? C.sageSoft : 'transparent', border: `1px solid ${refundsDone.length ? 'rgba(31,217,196,0.3)' : C.line}` }}>
+              <button onClick={() => setShowRefundHistory(true)} className="rounded-xl px-3 py-2 flex items-center gap-2 text-left" style={{ background: refundsDone.length ? C.sageSoft : 'transparent', border: `1px solid ${refundsDone.length ? 'rgba(31,217,196,0.3)' : C.line}` }}>
                 <Undo2 size={14} style={{ color: refundsDone.length ? C.sage : C.inkFaint }} /><span className="text-[12px] font-semibold" style={{ color: refundsDone.length ? C.ink : C.inkFaint }}>{refundsDone.length} refunded</span>
               </button>
             </div>
@@ -4927,27 +5041,16 @@ function XorlaApp() {
 
         {refundsDue.length > 0 && section('Refunds to send', C.rust, refundsDue, '', (b) => renderBookingRow(b, [actBtn('Mark refunded', () => openAct(b, 'refunded'), true)]), 'bk-refunds', 'Guests who cancelled in time')}
         {refundsDone.length > 0 && (
-          <div id="bk-refunded" className="scroll-mt-24">
-            <div className="flex items-center gap-2 mb-2.5">
-              <span className="text-[14px] font-semibold" style={{ color: C.sage }}>Refunded</span>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold cx-mono" style={{ background: 'rgba(255,255,255,0.06)', color: C.inkDim }}>{refundsDone.length}</span>
-              <span className="ml-auto text-[11.5px]" style={{ color: C.inkFaint }}>Last 90 days · <span className="cx-mono" style={{ color: C.sage }}>{fmt(refundsDone.reduce((a, b) => a + Number(b.refund_amount || 0), 0))}</span></span>
-            </div>
-            <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(180deg, #143630, #102C27)', border: `1px solid ${C.lineStrong}` }}>
-              {(showAllRefunded ? refundsDone : refundsDone.slice(0, 3)).map((b, i) => (
-                <div key={b.id} className="px-4 py-3 flex items-center gap-3" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
-                  <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Check size={16} style={{ color: C.sage }} /></span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-[13.5px] font-semibold truncate">{b.customer_name} <span className="font-normal" style={{ color: C.inkFaint }}>· {b.item_name}, {dayLabel(b.check_in)}</span></span>
-                    <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{b.refunded_at ? `Refunded ${new Date(b.refunded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Refunded'}{b.refunded_by_name ? ` by ${b.refunded_by_name}` : ''}{b.refund_account_number ? ` · to ${b.refund_bank_name} ${b.refund_account_number}` : ''}</span>
-                  </span>
-                  <span className="shrink-0 text-[14px] font-bold cx-mono" style={{ color: C.sage }}>{fmt(b.refund_amount)}</span>
-                </div>
-              ))}
-              {refundsDone.length > 3 && <button type="button" onClick={() => setShowAllRefunded((v) => !v)} className="w-full py-2.5 text-[12.5px] font-semibold" style={{ color: C.copper, borderTop: `1px solid ${C.line}` }}>{showAllRefunded ? 'Show fewer' : `Show all ${refundsDone.length}`}</button>}
-            </div>
-          </div>
+          <button type="button" id="bk-refunded" onClick={() => setShowRefundHistory(true)} className="scroll-mt-24 w-full rounded-2xl px-4 py-3 flex items-center gap-3 text-left" style={{ background: 'linear-gradient(180deg, #143630, #102C27)', border: `1px solid ${C.lineStrong}` }}>
+            <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Undo2 size={16} style={{ color: C.sage }} /></span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[13.5px] font-semibold">Refund history</span>
+              <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{refundsDone.length} sent in 90 days · last: {refundsDone[0].customer_name}, {fmt(refundsDone[0].refund_amount)}</span>
+            </span>
+            <span className="shrink-0 flex items-center gap-1 text-[12px] font-semibold" style={{ color: C.copper }}><Search size={13} />Search</span>
+          </button>
         )}
+        {showRefundHistory && <RefundHistory accessToken={session.access_token} onClose={() => setShowRefundHistory(false)} />}
 
         {bookingRequests.length > 0 && section('Requests waiting for you', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
           ...(depositPct > 0 ? [actBtn('Deposit received', () => openAct(b, 'deposit'), true), actBtn('Confirm', () => quickConfirm(b))] : [actBtn('Confirm', () => quickConfirm(b), true)]),
