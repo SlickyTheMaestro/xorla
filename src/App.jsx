@@ -4803,7 +4803,8 @@ function XorlaApp() {
   const roomsFor = (productId, shopId) => roomsAll.filter((r) => r.product_id === productId && r.shop_id === shopId && r.active !== false)
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
   const capacityOf = (p, shopId) => roomsFor(p.id, shopId).length || p.units || 1;
-  const occupantOf = (room) => bookingsAll.find((b) => b.room_id === room.id && b.status === 'checked_in');
+  const roomIdsOf = (b) => [...new Set([...(Array.isArray(b.room_ids) ? b.room_ids : []), b.room_id].filter(Boolean))];
+  const occupantOf = (room) => bookingsAll.find((b) => b.status === 'checked_in' && roomIdsOf(b).includes(room.id));
   const freeOn = (productId, shopId, day) => {
     const p = productsAll.find((x) => x.id === productId); if (!p) return 0;
     return capacityOf(p, shopId) - bookingsAll.filter((b) => b.product_id === productId && b.shop_id === shopId && occupies(b) && b.check_in <= day && b.check_out > day).reduce((a, b) => a + b.units, 0);
@@ -4833,18 +4834,25 @@ function XorlaApp() {
     setBookingError('');
     const free = action === 'check_in' ? roomsFor(booking.product_id, booking.shop_id).filter((r) => !occupantOf(r)) : [];
     const prefill = action === 'deposit' && depositOwing(booking) > 0 ? String(depositOwing(booking)) : '';
-    setActForm({ room: booking.room_label || '', amount: prefill, reason: '', roomId: roomId || free[0]?.id || '' });
+    const need = Math.max(1, Number(booking.units) || 1);
+    const first = roomId || free[0]?.id || '';
+    const roomIds = action === 'check_in' ? [...new Set([first, ...free.map((r) => r.id)].filter(Boolean))].slice(0, need) : [];
+    setActForm({ room: booking.room_label || '', amount: prefill, reason: '', roomId: first, roomIds, addRooms: [] });
     setBookingAct({ booking, action });
   };
   const submitAct = () => {
     const { booking, action } = bookingAct;
-    if (action === 'bill') { setActForm({ room: booking.room_label || '', amount: '', reason: '', roomId: '' }); setBookingError(''); setBookingAct({ booking, action: 'check_out' }); return; }
+    if (action === 'bill') { setActForm({ room: booking.room_label || '', amount: '', reason: '', roomId: '', roomIds: [], addRooms: [] }); setBookingError(''); setBookingAct({ booking, action: 'check_out' }); return; }
     const adding = Number(parseNumInput(actForm.amount)) || 0;
     // For the guest's receipt: the stay and every extra, what's been paid and what's still owed
     const extras = chargesOf(booking);
     const grand = Number(booking.total) + extras.reduce((a, c) => a + Number(c.amount), 0);
     const paidAll = Math.min(grand, (Number(booking.amount_paid) || 0) + adding);
-    runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: actForm.roomId || null }),
+    const pickedRooms = action === 'check_in' ? (actForm.roomIds || []) : [];
+    runBooking(async () => {
+      await sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: (pickedRooms[0] || actForm.roomId) || null });
+      if (pickedRooms.length > 1) await sbRpc('assign_rooms', session.access_token, { p_booking: booking.id, p_room_ids: pickedRooms });
+    },
       () => {
         setBookingAct(null);
         if (action === 'refunded') { const first = String(booking.customer_name || '').split(' ')[0] || 'there'; const msg = `Hi ${first}, we've sent your ${fmt(booking.refund_amount)} refund from ${settings.businessName}${booking.refund_account_number ? ` to your ${booking.refund_bank_name} account ending ${String(booking.refund_account_number).slice(-4)}` : ''}. Thank you, and we hope to host you another time.`; offerWhatsApp(booking.customer_phone, msg, 'Refund recorded', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); }
@@ -4913,7 +4921,7 @@ function XorlaApp() {
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[14.5px] font-semibold leading-tight" style={{ overflowWrap: 'anywhere' }}>{b.customer_name}</span>
-                  {b.room_label && <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}>{serviceKind === 'rentals' ? '' : 'Room '}{b.room_label}</span>}
+                  {b.room_label && <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}>{serviceKind === 'rentals' ? '' : String(b.room_label).includes(',') ? 'Rooms ' : 'Room '}{b.room_label}</span>}
                 </div>
                 <div className="text-[12px] mt-0.5" style={{ color: C.inkDim }}>{b.item_name}{b.units > 1 ? ` × ${b.units}` : ''}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(b.shop_id)}` : ''}</div>
               </div>
@@ -5028,19 +5036,24 @@ function XorlaApp() {
 
   const renderRoomBoard = () => (
     <div>
-      <div className="flex items-baseline justify-between mb-2">
-        <span className="text-[14px] font-semibold">{serviceKind === 'rentals' ? 'Your items' : 'Rooms right now'}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span>
-        <span className="flex items-center gap-3 text-[11px]" style={{ color: C.inkFaint }}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-2">
+        <span className="text-[14px] font-semibold whitespace-nowrap">{serviceKind === 'rentals' ? 'Your items' : 'Rooms right now'}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span>
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] whitespace-nowrap" style={{ color: C.inkFaint }}>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.sage }} />Free</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.rust }} />Occupied</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.copper }} />Leaving today</span>
+          {arrivals.some((a) => a.shop_id === deskShopId) && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.inkDim }} />Held</span>}
         </span>
       </div>
       <div className="space-y-4">
         {bookables.map((p) => {
           const rooms = roomsFor(p.id, deskShopId);
           const arrivingHere = arrivals.filter((a) => a.product_id === p.id && a.shop_id === deskShopId);
-          const freeCount = rooms.filter((r) => !occupantOf(r)).length;
+          const freeRooms = rooms.filter((r) => !occupantOf(r));
+          // Guests arriving today (not checked in yet) hold rooms, so those aren't offered to walk-ins
+          const heldUnits = arrivingHere.reduce((a, b) => a + Math.max(1, Number(b.units) || 1), 0);
+          const heldIds = new Set(freeRooms.slice(0, heldUnits).map((r) => r.id));
+          const freeCount = freeRooms.length - heldIds.size;
           const editing = editRoomsFor === p.id;
           return (
             <div key={p.id} className="rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
@@ -5049,7 +5062,7 @@ function XorlaApp() {
                   <div className="text-[14px] font-semibold truncate">{p.name}</div>
                   <div className="text-[11.5px]" style={{ color: C.inkFaint }}>
                     {rooms.length ? `${freeCount} of ${rooms.length} free` : `${p.units || 1} in total, not named yet`}
-                    {arrivingHere.length > 0 && <span style={{ color: C.copper }}> · {arrivingHere.length} arriving today</span>}
+                    {arrivingHere.length > 0 && <span style={{ color: C.copper }}> · {heldUnits} held for {arrivingHere.length === 1 ? String(arrivingHere[0].customer_name).split(' ')[0] : `${arrivingHere.length} arrivals`} today</span>}
                   </div>
                 </div>
                 {isOwnerRole && rooms.length > 0 && <button onClick={() => (editing ? (setEditRoomsFor(null), setPickedRooms([])) : editRoomsOf(p.id))} className="shrink-0 text-[12px] font-medium" style={{ color: editing ? C.sage : C.copper }}>{editing ? 'Done' : 'Edit rooms'}</button>}
@@ -5060,7 +5073,8 @@ function XorlaApp() {
                   {rooms.map((r) => {
                     const guest = occupantOf(r);
                     const leaving = guest && guest.check_out <= bkToday;
-                    const tone = !guest ? [C.sageSoft, C.sage, 'Free'] : leaving ? [C.copperSoft, C.copper, 'Leaving today'] : [C.rustSoft, C.rust, `Until ${dayLabel(guest.check_out)}`];
+                    const held = !guest && heldIds.has(r.id);
+                    const tone = held ? ['rgba(147,176,170,0.10)', C.inkDim, 'Held'] : !guest ? [C.sageSoft, C.sage, 'Free'] : leaving ? [C.copperSoft, C.copper, 'Leaving today'] : [C.rustSoft, C.rust, `Until ${dayLabel(guest.check_out)}`];
                     const picked = editing && pickedRooms.includes(r.id);
                     const onTap = editing ? () => toggleRoomPick(r) : guest ? () => openBill(guest) : arrivingHere.length ? () => openAct(arrivingHere[0], 'check_in', r.id) : () => openWalkIn(p.id);
                     return (
@@ -5346,23 +5360,58 @@ function XorlaApp() {
       const charges = chargesOf(b), extrasTotal = extrasTotalOf(b);
       const paidSoFar = Number(b.amount_paid) || 0, adding = Number(parseNumInput(actForm.amount)) || 0;
       const balance = Math.max(0, Number(b.total) + (action === 'check_out' ? extrasTotal : 0) - paidSoFar - adding);
-      const labels = { check_in: ['Check in', 'Check in'], check_out: ['Check out', 'Check out'], decline: ['Decline request', 'Decline'], cancel: ['Cancel booking', 'Cancel booking'], deposit: ['Record a deposit', 'Save deposit'], no_show: ['Mark as no-show', 'Mark as no-show'], refunded: ['Mark refunded', `I've refunded ${fmt(b.refund_amount)}`], bill: [`${b.room_label ? `Room ${b.room_label}` : b.customer_name}'s bill`, 'Check out'] };
+      const labels = { check_in: ['Check in', 'Check in'], check_out: ['Check out', 'Check out'], decline: ['Decline request', 'Decline'], cancel: ['Cancel booking', 'Cancel booking'], deposit: ['Record a deposit', 'Save deposit'], no_show: ['Mark as no-show', 'Mark as no-show'], refunded: ['Mark refunded', `I've refunded ${fmt(b.refund_amount)}`], bill: [`${b.room_label ? `${String(b.room_label).includes(',') ? 'Rooms' : 'Room'} ${b.room_label}` : b.customer_name}'s bill`, 'Check out'] };
       const held = Number(b.deposit_paid) || 0, early = isEarlyCancel(b);
       [title, submitLabel] = labels[action]; submit = submitAct;
       body = (
         <div className="space-y-3">
           {renderBookingRow(b, null)}
+          {(action === 'check_out' || action === 'bill') && b.status === 'checked_in' && (() => {
+            const need = Math.max(1, Number(b.units) || 1);
+            const have = roomIdsOf(b);
+            const named = roomsFor(b.product_id, b.shop_id);
+            if (need <= 1 || have.length >= need || !named.length) return null;
+            const free = named.filter((r) => !occupantOf(r));
+            const adding = actForm.addRooms || [];
+            const left = need - have.length;
+            const toggle = (id) => setActForm({ ...actForm, addRooms: adding.includes(id) ? adding.filter((x) => x !== id) : adding.length >= left ? [...adding.slice(1), id] : [...adding, id] });
+            return (
+              <div className="rounded-xl p-3" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.3)' }}>
+                <div className="text-[12.5px] font-semibold" style={{ color: C.copper }}>{left} more room{left !== 1 ? 's' : ''} to give {String(b.customer_name).split(' ')[0]}</div>
+                <div className="text-[11.5px] mt-0.5 mb-2" style={{ color: C.inkDim }}>This booking is for {need} rooms{have.length ? `, and has ${b.room_label ? `room ${b.room_label}` : `${have.length}`} so far` : ''}. Pick the other{left !== 1 ? 's' : ''} so the room board shows {left !== 1 ? 'them' : 'it'} as taken.</div>
+                {free.length ? (
+                  <>
+                    <div className="flex flex-wrap gap-2">
+                      {free.map((r) => <button key={r.id} type="button" onClick={() => toggle(r.id)} className="min-w-[52px] px-3 py-1.5 rounded-xl text-[13.5px] font-bold cx-mono" style={adding.includes(r.id) ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{r.label}</button>)}
+                    </div>
+                    {adding.length > 0 && <button type="button" disabled={bookingBusy} onClick={() => runBooking(() => sbRpc('assign_rooms', session.access_token, { p_booking: b.id, p_room_ids: [...have, ...adding] }), () => setActForm((f) => ({ ...f, addRooms: [] })))} className="mt-2.5 w-full h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>Give {String(b.customer_name).split(' ')[0]} room{adding.length !== 1 ? 's' : ''} {adding.map((id) => named.find((r) => r.id === id)?.label).join(', ')}</button>}
+                  </>
+                ) : <div className="text-[12px]" style={{ color: C.inkFaint }}>No {b.item_name.toLowerCase()} is free right now.</div>}
+              </div>
+            );
+          })()}
           {action === 'check_in' && (() => {
             const named = roomsFor(b.product_id, b.shop_id);
             const free = named.filter((r) => !occupantOf(r));
             if (!named.length) return <input type="text" autoFocus placeholder={SERVICE_KINDS[serviceKind]?.what === 'item' ? 'Which one? e.g. Car 2 (optional)' : 'Room number, e.g. Room 12 (optional)'} value={actForm.room} onChange={(e) => setActForm({ ...actForm, room: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />;
             if (!free.length) return <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>Every {b.item_name} is occupied right now. Check a guest out first.</div>;
+            const need = Math.max(1, Number(b.units) || 1);
+            const picked = actForm.roomIds || [];
+            const toggle = (id) => {
+              if (need === 1) { setActForm({ ...actForm, roomId: id, roomIds: [id] }); return; }
+              const next = picked.includes(id) ? picked.filter((x) => x !== id) : picked.length >= need ? [...picked.slice(1), id] : [...picked, id];
+              setActForm({ ...actForm, roomId: next[0] || '', roomIds: next });
+            };
             return (
               <div>
-                <div className="text-[11.5px] mb-1.5" style={{ color: C.inkFaint }}>Free {b.item_name.toLowerCase()}s</div>
+                <div className="flex items-center justify-between text-[11.5px] mb-1.5">
+                  <span style={{ color: C.inkFaint }}>{need > 1 ? `Choose ${need} rooms for this booking` : `Free ${b.item_name.toLowerCase()}s`}</span>
+                  {need > 1 && <span className="font-semibold" style={{ color: picked.length === need ? C.sage : C.copper }}>{picked.length} of {need} chosen</span>}
+                </div>
+                {need > 1 && free.length < need && <div className="rounded-xl px-3 py-2 mb-2 text-[12px]" style={{ background: C.copperSoft, color: C.copper }}>Only {free.length} {b.item_name.toLowerCase()}{free.length !== 1 ? 's are' : ' is'} free right now. Check them in to these, and add the other room{need - free.length !== 1 ? 's' : ''} from their bill once {need - free.length !== 1 ? 'they are' : 'it is'} free.</div>}
                 <div className="flex flex-wrap gap-2">
                   {free.map((r) => (
-                    <button key={r.id} type="button" onClick={() => setActForm({ ...actForm, roomId: r.id })} className="min-w-[56px] px-3 py-2 rounded-xl text-[14px] font-bold cx-mono" style={actForm.roomId === r.id ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{r.label}</button>
+                    <button key={r.id} type="button" onClick={() => toggle(r.id)} className="min-w-[56px] px-3 py-2 rounded-xl text-[14px] font-bold cx-mono" style={picked.includes(r.id) ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{r.label}</button>
                   ))}
                 </div>
               </div>
