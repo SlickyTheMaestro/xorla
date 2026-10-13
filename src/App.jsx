@@ -735,7 +735,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '' };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null };
 }
 
 function staticMessage(inv, settings) {
@@ -1436,6 +1436,9 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
 
 function XorlaApp() {
   const [tab, setTab] = useState('overview');
+  // When Bookings / Orders were last looked at, so anything newer (a request, an online payment, a cancellation) shows a badge
+  const [seenAt, setSeenAt] = useState({});
+  const prevTabRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [invoicesAll, setInvoices] = useState([]);
   const [salesAll, setSales] = useState([]);
@@ -2002,6 +2005,20 @@ function XorlaApp() {
     return undefined;
   }, [supportUnread]);
   // Pop-up (like a bank app's offer screen) for a new announcement, or a new feature, once per person
+  useEffect(() => {
+    const uid = session?.user_id; if (!uid) return;
+    const key = `xorla:seen:${uid}`;
+    let stored = {};
+    try { stored = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (e) {}
+    const now = new Date().toISOString();
+    const next = { bookings: stored.bookings || now, orders: stored.orders || now };   // first time: start from now, not from every old record
+    const prev = prevTabRef.current;
+    if (['bookings', 'orders'].includes(prev) && prev !== tab) next[prev] = now;
+    if (['bookings', 'orders'].includes(tab)) next[tab] = now;
+    prevTabRef.current = tab;
+    try { localStorage.setItem(key, JSON.stringify(next)); } catch (e) {}
+    setSeenAt(next);
+  }, [tab, session?.user_id]);
   const spotKey = session ? `xorla:spotlit:${session.user_id}` : null;
   useEffect(() => {
     if (!xorlaNews || spotlight || locked || helpOpen || tourStep !== null || showLangIntro || !settings.loggedIn) return undefined;
@@ -2931,6 +2948,8 @@ function XorlaApp() {
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
   const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer).length;
+  const ordersBadge = tab === 'orders' ? 0 : new Set(orders.filter((o) => (o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer) || o.payStatus === 'refund_due'
+    || (o.createdAt && seenAt.orders && String(o.createdAt) > String(seenAt.orders)) || (o.customerEventAt && seenAt.orders && String(o.customerEventAt) > String(seenAt.orders))).map((o) => o.id)).size;
   const unpaidInvoiceCount = invoices.filter((i) => computeStatus(i) !== 'paid').length;
   const currentStaffNames = settings.staffList.map((s) => s.name);
   const sellerOptions = [...new Set([...currentStaffNames, ...sales.map((s) => s.loggedBy), ...expenses.map((e) => e.loggedBy)].filter(Boolean))]
@@ -4724,6 +4743,12 @@ function XorlaApp() {
   const holdLive = (b) => b.status === 'requested' && b.hold_until && new Date(b.hold_until).getTime() > Date.now();
   const occupies = (b) => b.status === 'confirmed' || b.status === 'checked_in' || holdLive(b);
   const bookingRequests = bookings.filter(holdLive);
+  const newerThan = (t, since) => !!t && !!since && String(t) > String(since);
+  const bookingsBadge = tab === 'bookings' ? 0 : new Set([
+    ...bookingRequests.map((b) => b.id),
+    ...bookings.filter((b) => b.deposit_status === 'refund_due').map((b) => b.id),
+    ...bookings.filter((b) => newerThan(b.created_at, seenAt.bookings) || newerThan(b.guest_event_at, seenAt.bookings)).map((b) => b.id),
+  ]).size;
   const arrivals = bookings.filter((b) => b.status === 'confirmed' && b.check_in <= bkToday);
   const staying = bookings.filter((b) => b.status === 'checked_in');
   const upcomingBookings = bookings.filter((b) => b.status === 'confirmed' && b.check_in > bkToday);
@@ -5495,7 +5520,7 @@ function XorlaApp() {
 
   const renderSalesSwitch = () => hasOrderables && (
     <div className="lg:hidden flex gap-1 p-1 mb-5 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-      {[['sales', T.salesTab, 0], ['orders', T.orders, pendingOrderCount]].map(([id, label, count]) => (
+      {[['sales', T.salesTab, 0], ['orders', T.orders, ordersBadge]].map(([id, label, count]) => (
         <button key={id} onClick={() => setTab(id)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === id ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
           {label}
           {count > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={tab === id ? { background: C.bg, color: C.copper } : { background: C.copper, color: C.bg }}>{count}</span>}
@@ -6534,7 +6559,7 @@ function XorlaApp() {
         { id: 'hours', label: 'Set your opening hours', why: 'Customers can only book times when you are open.', done: steps.includes('hours'), go: () => openSettingsPage('hours') },
       ] : []),
       ...(hasBookables || ['accommodation', 'rentals'].includes(serviceKind) && settings.businessType !== 'products' ? [
-        { id: 'deposits', label: 'Choose your deposit rule', why: 'A deposit holds a booking firmly, so unpaid holds can go to walk-ins.', done: steps.includes('deposits'), go: () => openSettingsPage('deposits') },
+        { id: 'deposits', label: 'Choose your deposit rule', why: 'A deposit holds a booking firmly, so unpaid holds can go to walk-ins.', done: steps.includes('deposits') || !!settings.payout || !!settings.bankAccountNumber, go: () => openSettingsPage('deposits') },
       ] : []),
       { id: 'address', label: 'Add your address', why: 'It goes on receipts and invoices, and in appointment reminders.', done: !!String(settings.businessAddress || '').trim(), go: () => openSettingsPage('contact') },
       { id: 'logo', label: 'Add your logo', why: 'It shows on receipts, invoices, your storefront and posters.', done: !!settings.logoUrl, go: () => openSettingsPage('branding') },
@@ -7272,6 +7297,12 @@ function XorlaApp() {
       // Only what changed is saved, so one new setting can never hold up the others
       EDITABLE_SETTINGS.forEach((k) => { if ((draft[k] ?? '') !== (settings[k] ?? '')) patch[k] = draft[k]; });
       if ('businessName' in patch) patch.businessName = (draft.businessName || '').trim() || settings.businessName;
+      // Setting these up here counts for the setup checklist, the same as doing it in guided setup
+      const touched = [];
+      if (settingsPage === 'deposits' || ['depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankAccountNumber'].some((k) => k in patch)) touched.push('deposits');
+      if (settingsPage === 'hours' || ['openDays', 'openTime', 'closeTime', 'apptCapacity'].some((k) => k in patch)) touched.push('hours');
+      const steps = settings.setupSteps || [];
+      if (touched.some((t) => !steps.includes(t))) patch.setupSteps = [...new Set([...steps, ...touched])];
       updateSettings(patch);
       setDraft((prev) => ({ ...prev, ...patch }));
       setSettingsPage(null);
@@ -8129,6 +8160,13 @@ function XorlaApp() {
                 <button onClick={saveSettingsDraft} className="px-5 h-10 rounded-xl text-[13.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>Save changes</button>
               </div>
             </div>
+          ) : ['deposits', 'hours'].includes(settingsPage) && !(settings.setupSteps || []).includes(settingsPage) && !saveNotice ? (
+            <div className="sticky bottom-0 z-20 w-full px-3 lg:px-10 pb-3 lg:pb-6 xorla-fade-up" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+              <div className="max-w-2xl mx-auto flex items-center gap-2.5 rounded-2xl pl-4 pr-2 py-2" style={{ background: 'rgba(19,50,44,0.96)', backdropFilter: 'blur(14px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 18px 40px -16px rgba(0,0,0,0.75)' }}>
+                <span className="flex-1 text-[13px] font-medium" style={{ color: C.inkDim }}>Happy with these?</span>
+                <button onClick={() => { updateSettings({ setupSteps: [...new Set([...(settings.setupSteps || []), settingsPage])] }); setSettingsPage(null); setSaveNotice('Done. Ticked off your setup list'); setTimeout(() => setSaveNotice(''), 3000); }} className="px-5 h-10 rounded-xl text-[13.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>Use these settings</button>
+              </div>
+            </div>
           ) : saveNotice ? (
             <div className="sticky bottom-0 z-20 w-full px-3 lg:px-10 pb-3 lg:pb-6 xorla-fade-up" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
               <div className="max-w-2xl mx-auto flex items-center justify-center gap-2 rounded-2xl px-4 h-12 text-[13.5px] font-semibold" style={{ background: 'rgba(14,52,46,0.96)', color: C.sage, border: '1px solid rgba(31,217,196,0.25)' }}><Check size={16} /> {saveNotice}</div>
@@ -8179,11 +8217,11 @@ function XorlaApp() {
               {id === 'products' && products.filter((p) => p.isLow).length > 0 && (
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.isLow).length}</span>
               )}
-              {id === 'bookings' && bookingRequests.length > 0 && (
-                <span title="Booking requests waiting" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{bookingRequests.length}</span>
+              {id === 'bookings' && bookingsBadge > 0 && (
+                <span title="New since you last looked" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{bookingsBadge}</span>
               )}
-              {id === 'orders' && orders.filter((o) => o.status === 'pending').length > 0 && (
-                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{orders.filter((o) => o.status === 'pending').length}</span>
+              {id === 'orders' && ordersBadge > 0 && (
+                <span title="New since you last looked" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{ordersBadge}</span>
               )}
             </button>
           ))}
@@ -9588,11 +9626,11 @@ function XorlaApp() {
           <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
             <Icon size={21} style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || (tab === 'bookings' && !hasBookables))) || (id === 'bookings' && tab === 'products')) ? C.copper : C.inkFaint }} />
             <span className="text-[10px] font-medium" style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || (tab === 'bookings' && !hasBookables))) || (id === 'bookings' && tab === 'products')) ? C.copper : C.inkFaint }}>{label}</span>
-            {id === 'bookings' && bookingRequests.length > 0 && (
-              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{bookingRequests.length}</span>
+            {id === 'bookings' && bookingsBadge > 0 && (
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{bookingsBadge > 9 ? '9+' : bookingsBadge}</span>
             )}
-            {id === 'sales' && pendingOrderCount > 0 && (
-              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{pendingOrderCount}</span>
+            {id === 'sales' && ordersBadge + (hasBookables ? 0 : bookingsBadge) > 0 && (
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{Math.min(99, ordersBadge + (hasBookables ? 0 : bookingsBadge)) > 9 ? '9+' : ordersBadge + (hasBookables ? 0 : bookingsBadge)}</span>
             )}
             {id === 'invoices' && needsAttention.length > 0 && (
               <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
