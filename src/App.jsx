@@ -11626,6 +11626,16 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
       {!r && state.loading && <div className="flex items-center gap-2 py-16 justify-center text-[13px]" style={{ color: C.inkFaint }}><Loader2 size={17} className="animate-spin" /> Working out your numbers…</div>}
       {r && (
         <div className="space-y-4 transition-opacity" style={{ opacity: state.loading ? 0.55 : 1 }}>
+          {onImportPast && !(Number(sales) > 0) && !['today', 'week'].includes(period) && (
+            <button onClick={onImportPast} className="w-full rounded-[20px] px-4 py-3.5 flex items-center gap-3.5 text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.35)' }}>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper, color: C.bg }}><History size={19} /></span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[14px] font-semibold">No sales recorded for this period</span>
+                <span className="block text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>Were you selling before Xorla? Bring in your old records from Excel to see them here.</span>
+              </span>
+              <ChevronRight size={17} style={{ color: C.copper }} className="shrink-0" />
+            </button>
+          )}
           <div className="relative overflow-hidden rounded-[26px] p-5 lg:p-7" style={{ background: net >= 0 ? 'linear-gradient(150deg, #174339 0%, #0F2C27 55%, #0B211D 100%)' : 'linear-gradient(150deg, #3A2219 0%, #24160F 60%, #1A100B 100%)', border: '1px solid rgba(255,255,255,0.09)' }}>
             <div className="absolute -right-8 -bottom-10 opacity-[0.06] pointer-events-none"><XorlaMark size={170} /></div>
             <div className="relative">
@@ -11695,7 +11705,7 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
               </div>
             )}
           </div>
-          {onImportPast && (
+          {onImportPast && Number(sales) > 0 && (
             <button onClick={onImportPast} className="w-full rounded-[20px] p-4 lg:p-5 flex items-center gap-3.5 text-left" style={card}>
               <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft, color: C.copper }}><History size={19} /></span>
               <span className="flex-1 min-w-0">
