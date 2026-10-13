@@ -1751,7 +1751,8 @@ function XorlaApp() {
         sbRest('payments', { accessToken, query: '?select=*&order=paid_at.desc&limit=12' }).catch(() => []),
         sbRest('bookings', { accessToken, query: `?select=*&check_out=gte.${new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10)}&order=check_in.asc&limit=600` }).catch(() => []),
         sbRest('rooms', { accessToken, query: '?select=*&active=eq.true&order=label.asc' }).catch(() => []),
-        sbRest('bookings', { accessToken, query: '?select=*&deposit_status=eq.refund_due&limit=200' }).catch(() => []),
+        sbRest('bookings', { accessToken, query: `?select=*&or=(deposit_status.eq.refund_due,and(deposit_status.eq.refunded,refunded_at.gte.${new Date(Date.now() - 90 * 86400000).toISOString()}))&limit=300` })
+          .catch(() => sbRest('bookings', { accessToken, query: '?select=*&deposit_status=eq.refund_due&limit=200' })).catch(() => []),
         sbRest('room_charges', { accessToken, query: '?select=*&status=eq.open&order=created_at.asc&limit=1000' }).catch(() => []),
         sbRest('appt_people', { accessToken, query: '?select=*&order=name.asc' }).catch(() => []),
         sbRest('discount_codes', { accessToken, query: '?select=*&order=created_at.desc' }).catch(() => []),
@@ -4506,6 +4507,7 @@ function XorlaApp() {
   const depositsHeld = bookings.filter((b) => (b.status === 'confirmed' || b.status === 'requested') && Number(b.deposit_paid) > 0);
   const depositsHeldTotal = depositsHeld.reduce((a, b) => a + Number(b.deposit_paid), 0);
   const refundsDue = bookings.filter((b) => b.deposit_status === 'refund_due');
+  const refundsDone = bookings.filter((b) => b.deposit_status === 'refunded').sort((x, y) => String(y.refunded_at || '').localeCompare(String(x.refunded_at || '')));
   // The guest bill: extras added to a checked-in guest's room, settled at check-out
   const billExtras = productsAll.filter((p) => !isBookable(p));
   const chargesOf = (b) => roomCharges.filter((c) => c.booking_id === b.id);
@@ -4589,6 +4591,7 @@ function XorlaApp() {
     runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: actForm.roomId || null }),
       () => {
         setBookingAct(null);
+        if (action === 'refunded') { const first = String(booking.customer_name || '').split(' ')[0] || 'there'; const msg = `Hi ${first}, we've sent your ${fmt(booking.refund_amount)} refund from ${settings.businessName}${booking.refund_account_number ? ` to your ${booking.refund_bank_name} account ending ${String(booking.refund_account_number).slice(-4)}` : ''}. Thank you, and we hope to host you another time.`; offerWhatsApp(booking.customer_phone, msg, 'Refund recorded', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); }
         if (action === 'deposit') { const msg = confirmedMessage(booking, adding); offerWhatsApp(booking.customer_phone, msg, 'Deposit recorded', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); }
         if (action === 'decline' || action === 'cancel') {
           const held = Number(booking.deposit_paid) || 0;
@@ -4898,6 +4901,28 @@ function XorlaApp() {
         {bookingError && !bookingPanel && !bookingAct && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
 
         {refundsDue.length > 0 && section('Refunds to send', C.rust, refundsDue, '', (b) => renderBookingRow(b, [actBtn('Mark refunded', () => openAct(b, 'refunded'), true)]), 'bk-refunds', 'Guests who cancelled in time')}
+        {refundsDone.length > 0 && (
+          <details className="rounded-2xl group" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            <summary className="list-none cursor-pointer px-4 py-3 flex items-center gap-2.5">
+              <Undo2 size={15} style={{ color: C.sage }} />
+              <span className="text-[13.5px] font-semibold">Refunded</span>
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold cx-mono" style={{ background: 'rgba(255,255,255,0.06)', color: C.inkDim }}>{refundsDone.length}</span>
+              <span className="ml-auto text-[11.5px]" style={{ color: C.inkFaint }}>Last 90 days · {fmt(refundsDone.reduce((a, b) => a + Number(b.refund_amount || 0), 0))}</span>
+              <ChevronRight size={15} className="transition-transform group-open:rotate-90" style={{ color: C.inkFaint }} />
+            </summary>
+            <div className="px-4 pb-3" style={{ borderTop: `1px solid ${C.line}` }}>
+              {refundsDone.map((b) => (
+                <div key={b.id} className="py-2.5 flex items-center gap-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-semibold truncate">{b.customer_name} <span className="font-normal" style={{ color: C.inkFaint }}>· {b.item_name}, {dayLabel(b.check_in)}</span></span>
+                    <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{b.refunded_at ? new Date(b.refunded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}{b.refunded_by_name ? ` · by ${b.refunded_by_name}` : ''}{b.refund_account_number ? ` · to ${b.refund_bank_name} ${b.refund_account_number}` : ''}</span>
+                  </span>
+                  <span className="shrink-0 text-[13px] font-semibold cx-mono" style={{ color: C.sage }}>{fmt(b.refund_amount)}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         {bookingRequests.length > 0 && section('Requests waiting for you', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
           ...(depositPct > 0 ? [actBtn('Deposit received', () => openAct(b, 'deposit'), true), actBtn('Confirm', () => quickConfirm(b))] : [actBtn('Confirm', () => quickConfirm(b), true)]),
@@ -5177,7 +5202,7 @@ function XorlaApp() {
           )}
           {action === 'refunded' && (
             <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed" style={{ background: C.surfaceRaised, color: C.inkDim }}>
-              Confirm you've sent <strong style={{ color: C.ink }}>{fmt(b.refund_amount)}</strong> back to {b.customer_name}{b.customer_phone ? ` (${b.customer_phone})` : ''}. Xorla records who marked it and when.
+              {b.refund_account_number ? <>Send <strong style={{ color: C.ink }}>{fmt(b.refund_amount)}</strong> by transfer to <strong style={{ color: C.ink }}>{b.refund_bank_name} · {b.refund_account_number} · {b.refund_account_name}</strong> <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(b.refund_account_number); brandAlert('Account number copied.', { title: 'Copied' }); } catch (e) {} }} className="font-semibold underline" style={{ color: C.copper }}>Copy number</button>, then confirm here. </> : <>Confirm you've sent <strong style={{ color: C.ink }}>{fmt(b.refund_amount)}</strong> back to {b.customer_name}{b.customer_phone ? ` (${b.customer_phone})` : ''}. </>}Xorla records who marked it and when.
             </div>
           )}
           {(action === 'decline' || action === 'cancel') && <input type="text" autoFocus placeholder={action === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason, e.g. Fully booked that weekend'} value={actForm.reason} onChange={(e) => setActForm({ ...actForm, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
@@ -8068,6 +8093,36 @@ function XorlaApp() {
                   <button onClick={dismissLangIntro} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
                 </div>
               )}
+              {isOwnerRole && (() => {
+                // Reports: easy to find, with a taste of what's inside
+                const since = Date.now() - 7 * 86400000;
+                const week = salesAll.filter((x) => new Date(x.soldAt || 0).getTime() >= since);
+                const wkSales = week.reduce((a, x) => a + Number(x.amount || 0), 0);
+                const wkProfit = week.reduce((a, x) => a + Number(x.amount || 0) - Number(x.cost || 0), 0);
+                const counts = {}; week.forEach((x) => { const k = String(x.item || '').replace(/\s*[×x]\d+$/, '').replace(/\s*\(.*\)$/, '').trim(); if (k) counts[k] = (counts[k] || 0) + Number(x.quantity || 1); });
+                const best = Object.entries(counts).sort((p, q) => q[1] - p[1])[0];
+                return (
+                  <button onClick={() => setTab('reports')} className="w-full text-left rounded-[22px] p-4 lg:p-5 mb-5 xorla-fade-up relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #1B4A40 0%, #12332D 55%, #2A2410 100%)', border: '1px solid rgba(255,176,32,0.35)', boxShadow: '0 16px 36px -18px rgba(0,0,0,0.8)' }}>
+                    <span aria-hidden className="absolute -right-6 -top-8 w-32 h-32 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.25), transparent 70%)' }} />
+                    <div className="relative flex items-center gap-3.5">
+                      <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})` }}><TrendingUp size={22} style={{ color: C.bg }} /></span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[16px] font-bold cx-display">Your reports</span>
+                        <span className="block text-[12.5px] leading-snug" style={{ color: C.inkDim }}>Profit, best sellers and how you're growing</span>
+                      </span>
+                      <span className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,176,32,0.15)' }}><ChevronRight size={18} style={{ color: C.copper }} /></span>
+                    </div>
+                    <div className="relative grid grid-cols-3 gap-2 mt-3.5">
+                      {[['Last 7 days', fmt(wkSales), C.ink], ['Profit on sales', fmt(wkProfit), wkProfit >= 0 ? C.sage : C.rust], ['Best seller', best ? best[0] : '—', C.copper]].map(([l, v, col]) => (
+                        <span key={l} className="rounded-xl px-2.5 py-2 min-w-0" style={{ background: 'rgba(0,0,0,0.25)' }}>
+                          <span className="block text-[10.5px]" style={{ color: C.inkFaint }}>{l}</span>
+                          <span className="block text-[13px] font-bold truncate cx-mono" style={{ color: col }}>{v}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })()}
               {viewAllShops && shops.length > 1 && (() => {
                 const rows = shops.map((s) => {
                   const list = salesAll.filter((x) => (x.shopId || mainShopId) === s.id && x.dateKey === todayKey());
@@ -13329,6 +13384,7 @@ function GuestBooking({ token }) {
                 </div>
                 <button onClick={payOnline} disabled={busy} className={`${btn} mt-3 flex items-center justify-center gap-2`} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.6 : 1 }}>{busy ? 'Opening Paystack…' : <><Lock size={15} /> Pay {fmt(online.total)} now</>}</button>
                 <div className="text-[12px] text-center mt-2" style={{ color: S.muted }}>Card, bank transfer or USSD · secured by Paystack · confirms instantly</div>
+                <div className="text-[11.5px] text-center mt-1" style={{ color: S.muted }}>If you cancel in time, your deposit is refunded. The service fee isn't.</div>
                 {bk.pay.account_number && !showTransfer && <button onClick={() => setShowTransfer(true)} className="w-full mt-3 text-[13px] font-semibold" style={{ color: S.ink }}>Or pay {fmt(owing)} by direct bank transfer</button>}
               </>
             )}
