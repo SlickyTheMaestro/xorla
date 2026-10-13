@@ -1349,6 +1349,7 @@ function XorlaApp() {
   const [roomSetup, setRoomSetup] = useState({});
   const [editRoomsFor, setEditRoomsFor] = useState(null);
   const [bookingPanel, setBookingPanel] = useState(false);
+  const [showAllRefunded, setShowAllRefunded] = useState(false);
   const [bookingForm, setBookingForm] = useState({ productId: '', checkIn: '', checkOut: '', units: '1', name: '', phone: '', note: '', paid: '' });
   const [bookingAct, setBookingAct] = useState(null);
   const [actForm, setActForm] = useState({ room: '', amount: '', reason: '' });
@@ -4897,31 +4898,41 @@ function XorlaApp() {
               </button>
             ))}
           </div>
+          {(refundsDue.length > 0 || refundsDone.length > 0) && (
+            <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+              <button onClick={() => refundsDue.length && jump('bk-refunds')} className="rounded-xl px-3 py-2 flex items-center gap-2 text-left" style={{ background: refundsDue.length ? C.rustSoft : 'transparent', border: `1px solid ${refundsDue.length ? 'rgba(226,98,75,0.3)' : C.line}` }}>
+                <Wallet size={14} style={{ color: refundsDue.length ? C.rust : C.inkFaint }} /><span className="text-[12px] font-semibold" style={{ color: refundsDue.length ? C.ink : C.inkFaint }}>{refundsDue.length} to refund</span>
+              </button>
+              <button onClick={() => refundsDone.length && jump('bk-refunded')} className="rounded-xl px-3 py-2 flex items-center gap-2 text-left" style={{ background: refundsDone.length ? C.sageSoft : 'transparent', border: `1px solid ${refundsDone.length ? 'rgba(31,217,196,0.3)' : C.line}` }}>
+                <Undo2 size={14} style={{ color: refundsDone.length ? C.sage : C.inkFaint }} /><span className="text-[12px] font-semibold" style={{ color: refundsDone.length ? C.ink : C.inkFaint }}>{refundsDone.length} refunded</span>
+              </button>
+            </div>
+          )}
         </div>
         {bookingError && !bookingPanel && !bookingAct && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
 
         {refundsDue.length > 0 && section('Refunds to send', C.rust, refundsDue, '', (b) => renderBookingRow(b, [actBtn('Mark refunded', () => openAct(b, 'refunded'), true)]), 'bk-refunds', 'Guests who cancelled in time')}
         {refundsDone.length > 0 && (
-          <details className="rounded-2xl group" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-            <summary className="list-none cursor-pointer px-4 py-3 flex items-center gap-2.5">
-              <Undo2 size={15} style={{ color: C.sage }} />
-              <span className="text-[13.5px] font-semibold">Refunded</span>
+          <div id="bk-refunded" className="scroll-mt-24">
+            <div className="flex items-center gap-2 mb-2.5">
+              <span className="text-[14px] font-semibold" style={{ color: C.sage }}>Refunded</span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-bold cx-mono" style={{ background: 'rgba(255,255,255,0.06)', color: C.inkDim }}>{refundsDone.length}</span>
-              <span className="ml-auto text-[11.5px]" style={{ color: C.inkFaint }}>Last 90 days · {fmt(refundsDone.reduce((a, b) => a + Number(b.refund_amount || 0), 0))}</span>
-              <ChevronRight size={15} className="transition-transform group-open:rotate-90" style={{ color: C.inkFaint }} />
-            </summary>
-            <div className="px-4 pb-3" style={{ borderTop: `1px solid ${C.line}` }}>
-              {refundsDone.map((b) => (
-                <div key={b.id} className="py-2.5 flex items-center gap-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+              <span className="ml-auto text-[11.5px]" style={{ color: C.inkFaint }}>Last 90 days · <span className="cx-mono" style={{ color: C.sage }}>{fmt(refundsDone.reduce((a, b) => a + Number(b.refund_amount || 0), 0))}</span></span>
+            </div>
+            <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(180deg, #143630, #102C27)', border: `1px solid ${C.lineStrong}` }}>
+              {(showAllRefunded ? refundsDone : refundsDone.slice(0, 3)).map((b, i) => (
+                <div key={b.id} className="px-4 py-3 flex items-center gap-3" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                  <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Check size={16} style={{ color: C.sage }} /></span>
                   <span className="flex-1 min-w-0">
-                    <span className="block text-[13px] font-semibold truncate">{b.customer_name} <span className="font-normal" style={{ color: C.inkFaint }}>· {b.item_name}, {dayLabel(b.check_in)}</span></span>
-                    <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{b.refunded_at ? new Date(b.refunded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}{b.refunded_by_name ? ` · by ${b.refunded_by_name}` : ''}{b.refund_account_number ? ` · to ${b.refund_bank_name} ${b.refund_account_number}` : ''}</span>
+                    <span className="block text-[13.5px] font-semibold truncate">{b.customer_name} <span className="font-normal" style={{ color: C.inkFaint }}>· {b.item_name}, {dayLabel(b.check_in)}</span></span>
+                    <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{b.refunded_at ? `Refunded ${new Date(b.refunded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Refunded'}{b.refunded_by_name ? ` by ${b.refunded_by_name}` : ''}{b.refund_account_number ? ` · to ${b.refund_bank_name} ${b.refund_account_number}` : ''}</span>
                   </span>
-                  <span className="shrink-0 text-[13px] font-semibold cx-mono" style={{ color: C.sage }}>{fmt(b.refund_amount)}</span>
+                  <span className="shrink-0 text-[14px] font-bold cx-mono" style={{ color: C.sage }}>{fmt(b.refund_amount)}</span>
                 </div>
               ))}
+              {refundsDone.length > 3 && <button type="button" onClick={() => setShowAllRefunded((v) => !v)} className="w-full py-2.5 text-[12.5px] font-semibold" style={{ color: C.copper, borderTop: `1px solid ${C.line}` }}>{showAllRefunded ? 'Show fewer' : `Show all ${refundsDone.length}`}</button>}
             </div>
-          </details>
+          </div>
         )}
 
         {bookingRequests.length > 0 && section('Requests waiting for you', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
