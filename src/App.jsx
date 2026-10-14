@@ -2621,6 +2621,54 @@ function XorlaApp() {
       setShowProductForm(false);
     } catch (e) { brandAlert(e.message); } finally { setSavingProduct(false); }
   };
+  // Managers set the price at their own location only (blank = the business's standard price)
+  const [locPrice, setLocPrice] = useState(null); // { p, shopId, value, busy, error }
+  const openLocPrice = (prod) => {
+    const shopId = activeShopId || myShops[0]?.id;
+    const had = shopRow(prod.id, shopId)?.price_override;
+    setLocPrice({ p: prod, shopId, value: had == null ? '' : String(had), busy: false, error: '' });
+  };
+  const saveLocPrice = async () => {
+    if (!locPrice || locPrice.busy) return;
+    const raw = String(locPrice.value ?? '').trim();
+    const value = raw === '' ? null : Number(parseNumInput(raw));
+    if (value !== null && (!Number.isFinite(value) || value < 0)) { setLocPrice({ ...locPrice, error: 'Enter a price, or leave it empty to use the standard price.' }); return; }
+    setLocPrice({ ...locPrice, busy: true, error: '' });
+    try {
+      await sbRest('product_shops', { method: 'POST', accessToken: session.access_token, upsert: true, body: [{ product_id: locPrice.p.id, shop_id: locPrice.shopId, price_override: value }] });
+      setProductShops((prev) => {
+        const next = [...prev];
+        const i = next.findIndex((r) => r.product_id === locPrice.p.id && r.shop_id === locPrice.shopId);
+        if (i >= 0) next[i] = { ...next[i], price_override: value }; else next.push({ product_id: locPrice.p.id, shop_id: locPrice.shopId, stock_quantity: null, price_override: value });
+        return next;
+      });
+      setLocPrice(null);
+    } catch (e) { setLocPrice((x) => x && { ...x, busy: false, error: e.message }); }
+  };
+  const renderLocPrice = () => {
+    if (!locPrice) return null;
+    const { p } = locPrice;
+    const std = Number(p.basePrice ?? p.sellingPrice) || 0;
+    const unit = p.priceUnit === 'night' ? ' a night' : p.priceUnit === 'day' ? ' a day' : p.priceUnit === 'hour' ? ' an hour' : '';
+    return (
+      <Sheet onClose={() => setLocPrice(null)} busy={locPrice.busy} title={<><div className="text-[16px] font-semibold cx-display">Price at {shopNameOf(locPrice.shopId)}</div><div className="text-[12.5px] mt-0.5 truncate" style={{ color: C.inkDim }}>{p.name}</div></>}>
+        {myShops.length > 1 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {myShops.map((sh) => { const on = sh.id === locPrice.shopId; const had = shopRow(p.id, sh.id)?.price_override; return <button key={sh.id} type="button" onClick={() => setLocPrice({ ...locPrice, shopId: sh.id, value: had == null ? '' : String(had) })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={on ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(sh)}</button>; })}
+          </div>
+        )}
+        <div className="rounded-xl px-3.5 py-3 mb-3 flex items-center justify-between text-[12.5px]" style={{ background: C.surfaceRaised }}>
+          <span style={{ color: C.inkDim }}>Standard price (set by the owner)</span>
+          <span className="cx-mono font-semibold">{fmt(std)}{unit}</span>
+        </div>
+        <label className="block text-[12.5px] font-semibold mb-1.5">Price here <span className="font-normal" style={{ color: C.inkFaint }}>(leave empty to use the standard price)</span></label>
+        <input type="text" inputMode="decimal" autoFocus placeholder={fmt(std)} value={formatNumInput(locPrice.value)} onChange={(e) => setLocPrice({ ...locPrice, value: parseNumInput(e.target.value), error: '' })} onKeyDown={(e) => e.key === 'Enter' && saveLocPrice()} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
+        <div className="text-[11.5px] mt-2 leading-relaxed" style={{ color: C.inkFaint }}>Only {shopNameOf(locPrice.shopId)} and its storefront page use this price. To rename this, change its photo or change the standard price, ask the owner.</div>
+        {locPrice.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{locPrice.error}</div>}
+        <button onClick={saveLocPrice} disabled={locPrice.busy} className="w-full mt-4 rounded-xl py-3 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: locPrice.busy ? 0.6 : 1 }}>{locPrice.busy ? 'Saving…' : 'Save price'}</button>
+      </Sheet>
+    );
+  };
   const removeProduct = async (id) => {
     const product = products.find((p) => p.id === id);
     if (!(await brandConfirm(`Remove "${product?.name || 'this product'}" from your catalog? This can't be undone.`, { confirm: 'Remove', danger: true }))) return;
@@ -4765,11 +4813,11 @@ function XorlaApp() {
   const renderExtrasEmpty = () => (
     <div className="rounded-xl p-3.5 mb-3" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
       <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
-        <strong style={{ color: C.ink }}>No extras yet.</strong> {canRun
+        <strong style={{ color: C.ink }}>No extras yet.</strong> {isOwnerRole
           ? `Add ${serviceKind === 'rentals' ? 'delivery, extra hours' : 'laundry, bar items'} and other extras once, and they'll appear here with their prices.`
           : 'Ask the owner to add extras like laundry or the bar, and they\'ll appear here with their prices.'}
       </div>
-      {canRun && <button type="button" onClick={() => openCatalogForm('extra')} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
+      {isOwnerRole && <button type="button" onClick={() => openCatalogForm('extra')} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
     </div>
   );
 
@@ -6462,7 +6510,7 @@ function XorlaApp() {
         {renderReceiptModal()}
         {renderStockPanel()}
         {renderBookingPanels()}
-        {renderFulfilPanel()}{renderPayAskPanel()}
+        {renderFulfilPanel()}{renderPayAskPanel()}{renderLocPrice()}
         {renderApptPanel()}
         <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-6 lg:pt-8 pb-10">
 
@@ -9118,10 +9166,10 @@ function XorlaApp() {
               ))}
             </div>
             {productsView === 'insights' ? renderInsights() : (<>
-            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{T.intro}</div>
+            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{isManager ? `You set prices and stock for your ${myShops.length > 1 ? L.many : L.one}. The owner adds new ${T.catalog.toLowerCase()} and sets the standard prices.` : T.intro}</div>
             {renderStockCenter()}
 
-            {(
+            {!isManager && (
               T.saleHint ? (
                 <div className="grid grid-cols-2 gap-2 mb-6">
                   <button onClick={() => openCatalogForm('room')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.copper, color: C.bg }}>
@@ -9130,13 +9178,13 @@ function XorlaApp() {
                   <button onClick={() => openCatalogForm('extra')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.35)', color: C.ink }}>
                     <Plus size={18} className="shrink-0" style={{ color: C.sage }} /><span><span className="block text-[14px] font-semibold">Add an extra</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Delivery, extra hours' : 'Laundry, bar, airport pickup'}</span></span>
                   </button>
-                  {canRun && <button onClick={openImport} className="col-span-2 -mt-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list of extras</button>}
+                  {isOwnerRole && <button onClick={openImport} className="col-span-2 -mt-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list of extras</button>}
                 </div>
               ) : (
               <button onClick={() => { setEditingProductId(null); setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
               )
             )}
-            {!T.saleHint && canRun && (
+            {!T.saleHint && isOwnerRole && (
               <button onClick={openImport} className="w-full -mt-4 mb-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list instead</button>
             )}
             {showProductForm && (
@@ -9309,7 +9357,7 @@ function XorlaApp() {
                       {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }, C.sage)}
                         {canRun && allLiveLocations.length > 1 && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
-                        {pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
+                        {isManager ? pill('Price here', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
                         {canRun && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
                         {isOwnerRole && <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>}
                       </>); })()}
@@ -9818,7 +9866,7 @@ function XorlaApp() {
       {renderListTool()}
       {renderPastImport()}
       {renderHelp()}{renderSupportToast()}{renderSpotlight()}
-      {renderFulfilPanel()}{renderPayAskPanel()}
+      {renderFulfilPanel()}{renderPayAskPanel()}{renderLocPrice()}
       {renderApptPanel()}
       {renderNotifPanel()}
       {renderLimitPrompt()}{renderAddLocations()}
