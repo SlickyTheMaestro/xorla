@@ -5147,7 +5147,10 @@ function XorlaApp() {
     const stayingNow = staying.filter((b) => b.check_out > bkToday);
     const leavingToday = staying.filter((b) => b.check_out <= bkToday);
     const roomsHere = bookables.flatMap((p) => roomsFor(p.id, deskShopId));
-    const freeRoomsNow = roomsHere.length ? roomsHere.filter((r) => !occupantOf(r)).length : bookables.reduce((a, p) => a + Math.max(0, freeOn(p.id, deskShopId, bkToday)), 0);
+    // Rooms held for guests arriving today don't count as free, the same as on the room board
+    const freeRoomsNow = roomsHere.length
+      ? bookables.reduce((a, p) => a + Math.max(0, roomsFor(p.id, deskShopId).filter((r) => !occupantOf(r)).length - arrivals.filter((x) => x.product_id === p.id && x.shop_id === deskShopId).reduce((n, x) => n + Math.max(1, Number(x.units) || 1), 0)), 0)
+      : bookables.reduce((a, p) => a + Math.max(0, freeOn(p.id, deskShopId, bkToday)), 0);
     const totalRooms = roomsHere.length || bookables.reduce((a, p) => a + capacityOf(p, deskShopId), 0);
     const jump = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     const tiles = [
@@ -6385,6 +6388,22 @@ function XorlaApp() {
                 {open.length === 0
                   ? <div className="text-[12.5px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkFaint }}>No upcoming appointments or requests.</div>
                   : <div className="space-y-3">{open.slice(0, 30).map((o) => renderOrderCard(o))}</div>}
+              </div>
+            );
+          })()}
+          {!apptMode && (() => {
+            // Storefront orders for the staff's own location: fulfil, ask to pay online, and send refunds
+            const open = orders.filter((o) => o.status === 'pending' || o.payStatus === 'refund_due')
+              .sort((a, b) => (a.payStatus === 'refund_due' ? 0 : a.payStatus === 'paid' ? 1 : 2) - (b.payStatus === 'refund_due' ? 0 : b.payStatus === 'paid' ? 1 : 2) || String(b.createdAt).localeCompare(String(a.createdAt)));
+            if (!open.length) return null;
+            const paidN = open.filter((o) => o.payStatus === 'paid').length;
+            return (
+              <div className="rounded-2xl p-4 mb-5" style={card}>
+                <div className="flex items-baseline justify-between gap-3 mb-3">
+                  <div className="text-[20px] font-bold cx-display">{T.orders}</div>
+                  <span className="text-[12px] font-semibold" style={{ color: C.copper }}>{pendingOrderCount > 0 ? `${pendingOrderCount} new` : ''}{pendingOrderCount > 0 && paidN > 0 ? ' · ' : ''}{paidN > 0 ? <span style={{ color: C.sage }}>{paidN} paid, ready to fulfil</span> : ''}</span>
+                </div>
+                <div className="space-y-3">{open.slice(0, 30).map((o) => renderOrderCard(o))}</div>
               </div>
             );
           })()}
