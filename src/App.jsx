@@ -5333,7 +5333,7 @@ function XorlaApp() {
           </div>
           <div className="flex gap-2 mt-3">
             <button onClick={openNewBooking} className="flex-1 flex items-center justify-center gap-2 rounded-2xl h-12 text-[14.5px] font-semibold" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -12px rgba(255,176,32,0.6)' }}><Plus size={18} /> New booking</button>
-            {isOwnerRole && (
+            {canRun && (
               <button onClick={() => setTab('products')} className="shrink-0 flex items-center gap-2 rounded-2xl h-12 px-4 text-[13.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage, border: '1px solid rgba(31,217,196,0.3)' }}><BedDouble size={17} /> {serviceKind === 'rentals' ? 'Items & prices' : 'Rooms & prices'}</button>
             )}
           </div>
