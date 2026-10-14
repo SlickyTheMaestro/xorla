@@ -3224,7 +3224,7 @@ function XorlaApp() {
   if (locked && settings.pin) return <>{fontStyle}<LockScreen pin={settings.pin} businessName={settings.businessName} onUnlock={() => setLocked(false)} onForgot={() => { setStoredPin(session?.user_id, ''); setLocked(false); logout(); }} /></>;
 
   const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
-  const card = { background: 'rgba(19,50,44,0.55)', backdropFilter: 'blur(16px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 1px 1px rgba(0,0,0,0.2), 0 16px 40px -20px rgba(0,0,0,0.7)' };
+  const card = { background: '#0F2925', border: `1px solid ${C.lineStrong}`, boxShadow: '0 1px 1px rgba(0,0,0,0.2), 0 16px 40px -20px rgba(0,0,0,0.7)' };
 
   // One pill, top of every screen, only once there's a second shop
   // Team presence: who has Xorla open right now, and who's been active today. Tapping someone opens their sales.
@@ -4938,7 +4938,10 @@ function XorlaApp() {
             <div className="mt-2 flex items-center gap-1.5">
               <div className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] min-w-0" style={{ background: 'rgba(0,0,0,0.2)', color: C.inkDim }}>
                 <CalendarClock size={12} style={{ color: C.inkFaint }} className="shrink-0" />
-                <span className="truncate"><strong style={{ color: C.ink }}>{dayLabel(b.check_in)}</strong> → <strong style={{ color: C.ink }}>{dayLabel(b.check_out)}</strong> · {b.nights} {unitWord(b)}{b.nights !== 1 ? 's' : ''}</span>
+                <span className="leading-tight">{b.check_in.slice(0, 7) === b.check_out.slice(0, 7)
+                  ? <><strong style={{ color: C.ink }}>{Number(b.check_in.slice(8, 10))}</strong> → <strong style={{ color: C.ink }}>{dayLabel(b.check_out)}</strong></>
+                  : <><strong style={{ color: C.ink }}>{dayLabel(b.check_in)}</strong> → <strong style={{ color: C.ink }}>{dayLabel(b.check_out)}</strong></>}
+                  <span className="block text-[10.5px]" style={{ color: C.inkFaint }}>{b.nights} {unitWord(b)}{b.nights !== 1 ? 's' : ''}</span></span>
               </div>
               {b.customer_phone && <span className="ml-auto flex items-center gap-1.5 shrink-0">
                 <a href={`https://wa.me/${toWhatsAppNumber(b.customer_phone)}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${b.customer_name}`} title="WhatsApp" className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={15} /></a>
@@ -6346,7 +6349,7 @@ function XorlaApp() {
     return (
       <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
-        <div className="sticky top-0 z-30" style={{ paddingTop: 'env(safe-area-inset-top)', background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderBottom: `1px solid ${C.line}` }}>
+        <div className="sticky top-0 z-30" style={{ paddingTop: 'env(safe-area-inset-top)', background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}` }}>
           <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -7304,7 +7307,7 @@ function XorlaApp() {
               {body}
             </div>
           </div>
-          <footer className="shrink-0" style={{ borderTop: `1px solid ${C.line}`, background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(12px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          <footer className="shrink-0" style={{ borderTop: `1px solid ${C.line}`, background: 'rgba(10,31,28,0.98)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
             <div className="max-w-xl w-full mx-auto px-5 lg:px-10 py-4">
               {setup.error && <div className="mb-3 rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.rustSoft, color: C.rust }}>{setup.error}</div>}
               <div className="flex gap-2.5">
@@ -7567,7 +7570,7 @@ function XorlaApp() {
           <nav className="px-5 pt-5 pb-10 space-y-6">{settingsGroups('side')}</nav>
         </aside>
         <div className="flex-1 min-w-0 flex flex-col min-h-screen lg:h-screen lg:overflow-y-auto">
-          <div className="lg:hidden sticky top-0 z-20 flex items-center h-14 px-2" style={{ background: 'rgba(10,31,28,0.9)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${C.line}` }}>
+          <div className="lg:hidden sticky top-0 z-20 flex items-center h-14 px-2" style={{ background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}` }}>
             <button onClick={() => (settingsPage ? setSettingsPage(null) : leaveSettings())} className="flex items-center gap-0.5 pl-1 pr-3 py-2 rounded-lg active:opacity-60" style={{ color: C.copper }}>
               <ChevronLeft size={22} />
               <span className="text-[14px] font-medium">{settingsPage ? 'Settings' : 'Back'}</span>
@@ -8361,7 +8364,7 @@ function XorlaApp() {
       <div className="flex-1 min-w-0 relative z-10">
 
         {/* Mobile brand bar */}
-        <div className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-5 pb-3" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))', background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderBottom: `1px solid ${C.line}` }}>
+        <div className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-5 pb-3" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))', background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}` }}>
           <div className="flex items-center gap-2">
             <XorlaMark size={26} />
             <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
@@ -9723,7 +9726,7 @@ function XorlaApp() {
       )}
 
       {/* Fixed bottom nav — mobile only, WhatsApp-style: always visible, never scrolls */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(10,31,28,0.97)', backdropFilter: 'blur(20px)', borderTop: `1px solid ${C.line}` }}>
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(10,31,28,0.97)', borderTop: `1px solid ${C.line}` }}>
         {(hasBookables ? [
           { id: 'overview', label: 'Overview', Icon: Home },
           { id: 'bookings', label: 'Bookings', Icon: CalendarClock },
@@ -11514,7 +11517,7 @@ function AdminDashboard() {
   };
   const shell = (body) => (
     <div className="min-h-screen cx-body" style={{ overflowX: 'clip', background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
-      <header className="sticky top-0 z-20" style={{ background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(14px)', borderBottom: `1px solid ${C.line}` }}>
+      <header className="sticky top-0 z-20" style={{ background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}` }}>
         <div className="max-w-6xl mx-auto px-5 py-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span><span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: role === 'agent' ? C.sageSoft : C.copperSoft, color: role === 'agent' ? C.sage : C.copper }}>{role === 'agent' ? 'Support' : 'Founder'}</span></div>
           {state.phase === 'ready' && role === 'founder' && (
