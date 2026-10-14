@@ -303,7 +303,7 @@ const SETTINGS_DESCRIPTIONS = {
   promote: 'A poster for your shop, pictures for WhatsApp Status, and discount codes.',
   payments: 'Let customers pay you online by card, transfer or USSD, straight into your bank.',
 };
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Staff & join code', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business', payments: 'Online payments' };
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Your team', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business', payments: 'Online payments' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -1454,6 +1454,7 @@ function XorlaApp() {
   const [pickedRooms, setPickedRooms] = useState([]);
   const [bookingPanel, setBookingPanel] = useState(false);
   const [showRefundHistory, setShowRefundHistory] = useState(false);
+  const [showAllCancelled, setShowAllCancelled] = useState(false);
   const [bookingForm, setBookingForm] = useState({ productId: '', checkIn: '', checkOut: '', units: '1', name: '', phone: '', note: '', paid: '' });
   const [bookingAct, setBookingAct] = useState(null);
   const [actForm, setActForm] = useState({ room: '', amount: '', reason: '' });
@@ -1490,6 +1491,7 @@ function XorlaApp() {
   const [ordersAll, setOrders] = useState([]);
   const [locationsAll, setShops] = useState([]);
   const [staffShops, setStaffShops] = useState([]);
+  const scopeRef = useRef({ isManager: false, uid: null });
   const [staffPresence, setStaffPresence] = useState([]);
   const [currentShopId, setCurrentShopId] = useState('all');
   const [recordShopId, setRecordShopId] = useState(null);
@@ -1509,8 +1511,14 @@ function XorlaApp() {
 
   // ---------- Multi-shop: the whole app follows the shop switcher ----------
   const isOwnerRole = settings.role === 'owner';
+  // A manager runs the location(s) the owner gave them: the owner's app, limited to those locations
+  const isManager = settings.role === 'manager';
+  scopeRef.current = { isManager, uid: session?.user_id };
+  const canRun = isOwnerRole || isManager;
+  const isMyLocation = (id) => staffShops.some((ss) => ss.profile_id === session?.user_id && ss.shop_id === id);
   // Locations are shops (they sell) or warehouses (storage only). Sales, staff, and the storefront only ever see shops.
-  const liveLocations = locationsAll.filter((s) => !s.archived);
+  const allLiveLocations = locationsAll.filter((s) => !s.archived);
+  const liveLocations = isManager ? allLiveLocations.filter((s) => isMyLocation(s.id)) : allLiveLocations;
   const closedLocations = locationsAll.filter((s) => s.archived && !s.deleted_at);
   const shops = liveLocations.filter((s) => (s.kind || 'shop') !== 'warehouse');
   const warehouses = liveLocations.filter((s) => s.kind === 'warehouse');
@@ -1521,13 +1529,17 @@ function XorlaApp() {
     const mine = shops.filter((s) => staffShops.some((ss) => ss.profile_id === session?.user_id && ss.shop_id === s.id));
     return mine.length ? mine : shops.slice(0, 1);
   })();
-  const viewAllShops = isOwnerRole && (currentShopId === 'all' || shops.length <= 1);
+  const viewAllShops = canRun && (currentShopId === 'all' || myShops.length <= 1);
   const activeShopId = viewAllShops ? null : (myShops.some((s) => s.id === currentShopId) ? currentShopId : myShops[0]?.id || null);
   const targetShopId = activeShopId || (myShops.some((s) => s.id === recordShopId) ? recordShopId : null) || mainShopId;
   const showShopSwitcher = myShops.length > 1;
+  // The people this user looks after: everyone for the owner; the staff at their own location(s) for a manager
+  const teamList = isManager
+    ? (settings.staffList || []).filter((p) => p.role !== 'manager' && staffShops.some((ss) => ss.profile_id === p.id && isMyLocation(ss.shop_id)))
+    : (settings.staffList || []);
   const locName = (s) => displayLocationName(s, L);
   const shopNameOf = (id) => locName(locationsAll.find((s) => s.id === (id || mainShopId)));
-  const inActiveShop = (r) => viewAllShops || (r.shopId || mainShopId) === activeShopId;
+  const inActiveShop = (r) => (viewAllShops ? (!isManager || myShops.some((s) => s.id === (r.shopId || r.shop_id || mainShopId))) : (r.shopId || mainShopId) === activeShopId);
   const sales = salesAll.filter(inActiveShop);
   const expenses = expensesAll.filter(inActiveShop);
   const invoices = invoicesAll.filter(inActiveShop);
@@ -1830,16 +1842,16 @@ function XorlaApp() {
     const businesses = await sbRest('businesses', { accessToken, query: `?id=eq.${profile.business_id}&select=*` });
     const business = businesses[0];
     let staffRoster = [];
-    if (profile.role === 'owner') {
-      const staffRows = await sbRest('profiles', { accessToken, query: `?business_id=eq.${profile.business_id}&role=eq.staff&select=id,name` });
-      staffRoster = staffRows.map((r) => ({ id: r.id, name: r.name }));
+    if (profile.role === 'owner' || profile.role === 'manager') {
+      const staffRows = await sbRest('profiles', { accessToken, query: `?business_id=eq.${profile.business_id}&role=in.(staff,manager)&select=id,name,role` });
+      staffRoster = staffRows.filter((r) => r.id !== profile.id).map((r) => ({ id: r.id, name: r.name, role: r.role }));
     }
     return { profile, business, staffRoster };
   }, []);
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      const [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, peopleRows, codeRows] = await Promise.all([
+      let [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, peopleRows, codeRows] = await Promise.all([
         sbRestAll('sales', { accessToken, query: `?select=*&sold_at=gte.${recentSince()}&order=sold_at.desc,id.desc` }),
         sbRestAll('invoices', { accessToken, query: '?select=*&order=created_at.desc,id.desc' }),
         sbRestAll('expenses', { accessToken, query: `?select=*&spent_at=gte.${recentSince()}&order=spent_at.desc,id.desc` }),
@@ -1862,6 +1874,12 @@ function XorlaApp() {
         sbRest('appt_people', { accessToken, query: '?select=*&order=name.asc' }).catch(() => []),
         sbRest('discount_codes', { accessToken, query: '?select=*&order=created_at.desc' }).catch(() => []),
       ]);
+      // A manager only ever holds their own locations' records (the database already limits this; this is a second lock)
+      const sc = scopeRef.current;
+      const mineIds = sc?.isManager ? new Set((staffShopRows || []).filter((r) => r.profile_id === sc.uid).map((r) => r.shop_id)) : null;
+      const mine = (r) => !mineIds || !r.shop_id || mineIds.has(r.shop_id);
+      salesRows = salesRows.filter(mine); invoiceRows = invoiceRows.filter(mine); expenseRows = expenseRows.filter(mine); orderRows = orderRows.filter(mine);
+      if (mineIds) { bookingRows = (bookingRows || []).filter(mine); refundRows = Array.isArray(refundRows) ? refundRows.filter(mine) : refundRows; }
       setSales(salesRows.map(fromSbSale));
       olderDaysRef.current = new Set(); setDataVersion((v) => v + 1);   // a full reload drops older days; refetch the one on screen
       setInvoices(invoiceRows.map(fromSbInvoice));
@@ -1891,7 +1909,7 @@ function XorlaApp() {
 
   // Staff apps quietly report "I'm here" once a minute while open, so the owner can see who's online
   useEffect(() => {
-    if (settings.role !== 'staff' || !session?.access_token) return;
+    if (!['staff', 'manager'].includes(settings.role) || !session?.access_token) return;
     const ping = () => { if (document.visibilityState === 'visible') sbRpc('touch_last_seen', session.access_token, {}).catch(() => {}); };
     ping();
     const t = setInterval(ping, 60 * 1000);
@@ -2336,6 +2354,16 @@ function XorlaApp() {
     if (!(await brandConfirm('Anyone with the old code will no longer be able to ask to join. Staff who have already joined are not affected.', { title: 'Make a new staff code?', confirm: 'Make new code' }))) return;
     try { const c = await sbRpc('new_staff_code', session.access_token, {}); setSettings((prev) => ({ ...prev, staffCode: c })); } catch (e) { brandAlert(e.message); }
   };
+  const setManagerRole = async (person, makeManager) => {
+    const ok = makeManager
+      ? await brandConfirm(`${person.name} will run the day-to-day of the ${L.many} they work in: sales, bookings, orders, refunds, stock, products and prices, expenses and their staff, with full reports for those ${L.many}. They can't change your plan, bank account or business settings, or delete records.`, { title: `Make ${person.name} a manager?`, confirm: 'Make manager' })
+      : await brandConfirm(`${person.name} goes back to being staff, with the usual staff access.`, { title: `Make ${person.name} staff again?`, confirm: 'Make staff' });
+    if (!ok) return;
+    try {
+      await sbRpc('set_manager', session.access_token, { p_profile: person.id, p_manager: makeManager });
+      setSettings((prev) => ({ ...prev, staffList: prev.staffList.map((x) => (x.id === person.id ? { ...x, role: makeManager ? 'manager' : 'staff' } : x)) }));
+    } catch (e) { brandAlert(e.message); }
+  };
   const removeStaff = async (staffId, staffName) => {
     if (!(await brandConfirm(`Remove ${staffName}? They'll be logged out immediately and won't be able to log back in.`, { confirm: 'Remove', danger: true }))) return;
     try {
@@ -2568,7 +2596,7 @@ function XorlaApp() {
         savedId = rows[0].id;
       }
       // Optional per-shop prices: blank means "use the normal price"
-      if (isOwnerRole && shops.length > 1 && savedId) {
+      if (canRun && shops.length > 1 && savedId) {
         const changes = shops.map((s) => {
           const raw = String((productForm.shopPrices || {})[s.id] ?? '').trim();
           const value = raw === '' ? null : Number(parseNumInput(raw));
@@ -3083,7 +3111,7 @@ function XorlaApp() {
   const isPausedLocation = (id) => !!id && pausedLocationIds.includes(id);
   const staffOverBy = planKnown ? Math.max(0, settings.staffList.length - planCaps.staff) : 0;
   useEffect(() => {
-    if (settings.role !== 'staff' || !session?.access_token || !planKnown) return;
+    if (!['staff', 'manager'].includes(settings.role) || !session?.access_token || !planKnown) return;
     sbRpc('staff_seat_ok', session.access_token, { p_profile: session.user_id }).then((ok) => setSeatOk(ok === false ? false : true)).catch(() => setSeatOk(true));
   }, [settings.role, session?.access_token, planKnown, effPlan]);
   // One-time tips: shown once, at the moment a feature first matters
@@ -3243,7 +3271,7 @@ function XorlaApp() {
   const renderTeamPresence = (compact) => (
     <div className="flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
       {!compact && <span className="text-[11px] font-medium shrink-0 mr-0.5" style={{ color: C.inkFaint }}>Team</span>}
-      {settings.staffList.map((s) => {
+      {teamList.map((s) => {
         const pr = presenceOf(s.name);
         return (
           <button key={s.id} onClick={() => { setStaffFilter(s.name); setTab('sales'); }} title={`${pr.label}${pr.salesToday ? ` · ${pr.salesToday} ${T.sale}${pr.salesToday !== 1 ? 's' : ''} today` : ''}`} className="shrink-0 flex items-center gap-2 pl-2.5 pr-3 py-1.5 rounded-full text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
@@ -3358,7 +3386,7 @@ function XorlaApp() {
   });
 
   const renderStockCenter = () => {
-    if (!isOwnerRole || !hasManyLocations) return null;
+    if (!canRun || allLiveLocations.length < 2) return null;
     if (!multiLocationOn) return (
       <div className="rounded-2xl p-4 mb-6 flex items-start gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Truck size={18} style={{ color: C.copper }} /></div>
@@ -3507,7 +3535,7 @@ function XorlaApp() {
                 <ArrowRight size={16} style={{ color: C.inkFaint }} className="shrink-0" />
                 <BrandSelect value={sendForm.to} onChange={(e) => setSendForm({ ...sendForm, to: e.target.value })} disabled={!!sendForm.requestId} className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
                   <option value="">To…</option>
-                  {locations.filter((l) => l.id !== sendForm.from).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  {allLiveLocations.filter((l) => l.id !== sendForm.from).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </BrandSelect>
               </div>
               <div className="space-y-2.5">{sendForm.lines.map((_, i) => lineRow(sendForm.lines, (lines) => setSendForm({ ...sendForm, lines }), i, true))}</div>
@@ -3884,7 +3912,7 @@ function XorlaApp() {
             {a.mode === 'reschedule' && <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{firstName} gets a link to accept this time, choose another free time, or say they can't make it. The time is held for them for 24 hours.</div>}
             {(a.mode === 'decline' || a.mode === 'cancel') && (
               <>
-                <input type="text" autoFocus placeholder={a.mode === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason, e.g. Our stylist is unwell that day'} value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                <input type="text" autoFocus placeholder={a.mode === 'cancel' && !canRun ? 'Reason (required)' : 'Reason, e.g. Our stylist is unwell that day'} value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{a.order.customerPhone ? `Next, you can send ${a.order.customerName} this reason on WhatsApp, with a link to book another time.` : `${a.order.customerName} didn't leave a phone number, so they can't be messaged.`}</div>
               </>
             )}
@@ -4006,7 +4034,7 @@ function XorlaApp() {
     } catch (e) { setBranchHours((x) => x && { ...x, busy: false, error: e.message }); }
   };
   const renderBranchHours = () => {
-    if (!isOwnerRole || shops.length < 2) return null;
+    if (!canRun || shops.length < 1 || (isOwnerRole && shops.length < 2)) return null;
     const b = branchHours;
     const hhmm = (t) => String(t || '').slice(0, 5);
     return (
@@ -4737,11 +4765,11 @@ function XorlaApp() {
   const renderExtrasEmpty = () => (
     <div className="rounded-xl p-3.5 mb-3" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
       <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
-        <strong style={{ color: C.ink }}>No extras yet.</strong> {isOwnerRole
+        <strong style={{ color: C.ink }}>No extras yet.</strong> {canRun
           ? `Add ${serviceKind === 'rentals' ? 'delivery, extra hours' : 'laundry, bar items'} and other extras once, and they'll appear here with their prices.`
           : 'Ask the owner to add extras like laundry or the bar, and they\'ll appear here with their prices.'}
       </div>
-      {isOwnerRole && <button type="button" onClick={() => openCatalogForm('extra')} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
+      {canRun && <button type="button" onClick={() => openCatalogForm('extra')} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
     </div>
   );
 
@@ -4749,7 +4777,7 @@ function XorlaApp() {
   const bookables = productsAll.filter(isBookable);
   const hasBookables = settings.businessType !== 'products' && bookables.length > 0;
   const deskShopId = activeShopId || targetShopId || mainShopId;
-  const bookings = bookingsAll.filter((b) => (viewAllShops ? true : b.shop_id === activeShopId));
+  const bookings = bookingsAll.filter((b) => (viewAllShops ? (!isManager || myShops.some((s) => s.id === b.shop_id)) : b.shop_id === activeShopId));
   const bkToday = todayKey();
   const holdLive = (b) => b.status === 'requested' && b.hold_until && new Date(b.hold_until).getTime() > Date.now();
   const occupies = (b) => b.status === 'confirmed' || b.status === 'checked_in' || holdLive(b);
@@ -4763,7 +4791,7 @@ function XorlaApp() {
   const arrivals = bookings.filter((b) => b.status === 'confirmed' && b.check_in <= bkToday);
   const staying = bookings.filter((b) => b.status === 'checked_in');
   const upcomingBookings = bookings.filter((b) => b.status === 'confirmed' && b.check_in > bkToday);
-  const canAnswerRequests = isOwnerRole || settings.staffConfirmBookings !== false;
+  const canAnswerRequests = canRun || settings.staffConfirmBookings !== false;
   // Deposits: the business's rules (50% of the stay, never more than one night per room, free cancellation until 24 hours before check-in, at the business's own check-in time)
   const depositPct = Number(settings.depositPercent ?? 50);
   const depositDueOf = (b) => {
@@ -4786,11 +4814,11 @@ function XorlaApp() {
     if (amt <= 0) { setBookingError('Enter the amount received.'); return; }
     runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: b.id, p_action: 'pay', p_amount: amt }), () => setChargeForm((f) => ({ ...f, pay: '' })));
   };
-  const canRemoveCharge = (c) => isOwnerRole || (c.added_by === session?.user_id && Date.now() - new Date(c.created_at).getTime() < 30 * 60000);
+  const canRemoveCharge = (c) => canRun || (c.added_by === session?.user_id && Date.now() - new Date(c.created_at).getTime() < 30 * 60000);
   const openBill = (b) => {
     setBookingError('');
     const first = billExtras[0];
-    setChargeForm({ productId: first?.id || '', qty: 1, custom: !first && isOwnerRole, item: '', price: '' });
+    setChargeForm({ productId: first?.id || '', qty: 1, custom: !first && canRun, item: '', price: '' });
     setBookingAct({ booking: b, action: 'bill' });
   };
   const addCharge = (b) => {
@@ -5098,7 +5126,7 @@ function XorlaApp() {
                     {arrivingHere.length > 0 && <span style={{ color: C.copper }}> · {heldUnits} held for {arrivingHere.length === 1 ? String(arrivingHere[0].customer_name).split(' ')[0] : `${arrivingHere.length} arrivals`} today</span>}
                   </div>
                 </div>
-                {isOwnerRole && rooms.length > 0 && <button onClick={() => (editing ? (setEditRoomsFor(null), setPickedRooms([])) : editRoomsOf(p.id))} className="shrink-0 text-[12px] font-medium" style={{ color: editing ? C.sage : C.copper }}>{editing ? 'Done' : 'Edit rooms'}</button>}
+                {canRun && rooms.length > 0 && <button onClick={() => (editing ? (setEditRoomsFor(null), setPickedRooms([])) : editRoomsOf(p.id))} className="shrink-0 text-[12px] font-medium" style={{ color: editing ? C.sage : C.copper }}>{editing ? 'Done' : 'Edit rooms'}</button>}
               </div>
 
               {rooms.length > 0 && (
@@ -5127,7 +5155,7 @@ function XorlaApp() {
                 </div>
               )}
 
-              {isOwnerRole && (rooms.length === 0 || editing) && (
+              {canRun && (rooms.length === 0 || editing) && (
                 <div className={rooms.length ? 'mt-3' : ''}>
                   {rooms.length === 0 && <div className="text-[12px] mb-2 leading-relaxed" style={{ color: C.inkDim }}>Name your {p.units || 1} {p.name.toLowerCase()}{(p.units || 1) !== 1 ? 's' : ''} so the front desk can check guests into a specific one.</div>}
                   <div className="flex gap-2">
@@ -5151,7 +5179,7 @@ function XorlaApp() {
                   })()}
                 </div>
               )}
-              {!isOwnerRole && rooms.length === 0 && <div className="text-[12px]" style={{ color: C.inkFaint }}>The owner hasn't named these rooms yet.</div>}
+              {!canRun && rooms.length === 0 && <div className="text-[12px]" style={{ color: C.inkFaint }}>The owner hasn't named these rooms yet.</div>}
             </div>
           );
         })}
@@ -5324,6 +5352,48 @@ function XorlaApp() {
         </div>
 
         {upcomingBookings.length > 0 && section('Coming up', C.ink, upcomingBookings.slice(0, 12), '', (b) => renderBookingRow(b, [...(depositPct > 0 && depositOwing(b) > 0 ? [actBtn('Record deposit', () => openAct(b, 'deposit'), true)] : []), actBtn('Cancel', () => openAct(b, 'cancel'))]), 'bk-upcoming', 'Confirmed, not arrived yet')}
+        {(() => {
+          // What happened to recent cancellations and no-shows, so the whole front desk knows (not just the owner)
+          const since = new Date(Date.now() - 3 * 86400000).toISOString();
+          const gone = bookings.filter((b) => ['cancelled', 'no_show'].includes(b.status) && String(b.updated_at || b.created_at || '') >= since)
+            .sort((x, y) => String(y.updated_at || '').localeCompare(String(x.updated_at || '')));
+          if (!gone.length) return null;
+          const outcome = (b) => b.deposit_status === 'kept' ? [`Deposit kept: ${fmt(b.deposit_paid)}`, C.copper, C.copperSoft]
+            : b.deposit_status === 'refund_due' ? [`Refund due: ${fmt(b.refund_amount)}`, C.rust, C.rustSoft]
+            : b.deposit_status === 'refunded' ? [`Refunded ${fmt(b.refund_amount)}`, C.sage, C.sageSoft]
+            : ['No deposit paid', C.inkFaint, 'rgba(255,255,255,0.05)'];
+          const when = (t) => (t ? new Date(t).toLocaleString('en-GB', { ...LAGOS_TIME, weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '');
+          const list = showAllCancelled ? gone : gone.slice(0, 3);
+          return (
+            <div id="bk-cancelled" className="scroll-mt-24">
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="text-[14px] font-semibold" style={{ color: C.inkDim }}>Cancelled recently</span>
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold cx-mono" style={{ background: 'rgba(255,255,255,0.06)', color: C.inkDim }}>{gone.length}</span>
+                <span className="ml-auto text-[11.5px]" style={{ color: C.inkFaint }}>Last 3 days</span>
+              </div>
+              <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                {list.map((b, i) => {
+                  const [txt, col, bg] = outcome(b);
+                  const byGuest = /^Cancelled by guest/.test(b.cancel_reason || '');
+                  return (
+                    <div key={b.id} className="px-4 py-3" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="block text-[13.5px] font-semibold truncate">{b.customer_name} <span className="font-normal" style={{ color: C.inkFaint }}>· {b.item_name}{b.units > 1 ? ` × ${b.units}` : ''}</span></span>
+                          <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{b.status === 'no_show' ? "Didn't arrive" : byGuest ? 'Guest cancelled' : 'Cancelled'} · was {dayLabel(b.check_in)} to {dayLabel(b.check_out)}{b.updated_at ? ` · ${when(b.updated_at)}` : ''}</span>
+                        </span>
+                        <span className="shrink-0 px-2 py-1 rounded-lg text-[11px] font-semibold" style={{ background: bg, color: col }}>{txt}</span>
+                      </div>
+                      {b.status !== 'no_show' && String(b.cancel_reason || '').replace(/^Cancelled by guest:?\s*/, '').trim() && <div className="text-[11.5px] mt-1 truncate" style={{ color: C.inkDim }}>Reason: {String(b.cancel_reason).replace(/^Cancelled by guest:?\s*/, '')}</div>}
+                      {b.deposit_status === 'kept' && <div className="text-[11.5px] mt-1" style={{ color: C.inkFaint }}>{b.status === 'no_show' ? 'Kept because they didn\'t arrive.' : `Kept because it was less than ${Number(settings.cancelWindowHours ?? 24)} hours before check-in.`} Already counted as a {T.sale}.</div>}
+                    </div>
+                  );
+                })}
+                {gone.length > 3 && <button type="button" onClick={() => setShowAllCancelled((v) => !v)} className="w-full py-2.5 text-[12.5px] font-semibold" style={{ color: C.copper, borderTop: `1px solid ${C.line}` }}>{showAllCancelled ? 'Show fewer' : `Show all ${gone.length}`}</button>}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -5506,7 +5576,7 @@ function XorlaApp() {
               <>
                 <div className="rounded-2xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                   <div className="text-[13px] font-semibold mb-2.5">Add an extra</div>
-                  {billExtras.length === 0 && !isOwnerRole ? renderExtrasEmpty() : (
+                  {billExtras.length === 0 && !canRun ? renderExtrasEmpty() : (
                     <>
                       {billExtras.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-3">
@@ -5519,7 +5589,7 @@ function XorlaApp() {
                               </button>
                             );
                           })}
-                          {isOwnerRole && <button type="button" onClick={() => setChargeForm({ ...f, custom: true })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.custom ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px dashed ${C.line}` }}>Other charge</button>}
+                          {canRun && <button type="button" onClick={() => setChargeForm({ ...f, custom: true })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.custom ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px dashed ${C.line}` }}>Other charge</button>}
                         </div>
                       )}
                       {f.custom && (
@@ -5609,7 +5679,7 @@ function XorlaApp() {
               {b.refund_account_number ? <>Send <strong style={{ color: C.ink }}>{fmt(b.refund_amount)}</strong> by transfer to <strong style={{ color: C.ink }}>{b.refund_bank_name} · {b.refund_account_number} · {b.refund_account_name}</strong> <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(b.refund_account_number); brandAlert('Account number copied.', { title: 'Copied' }); } catch (e) {} }} className="font-semibold underline" style={{ color: C.copper }}>Copy number</button>, then confirm here. </> : <>Confirm you've sent <strong style={{ color: C.ink }}>{fmt(b.refund_amount)}</strong> back to {b.customer_name}{b.customer_phone ? ` (${b.customer_phone})` : ''}. </>}Xorla records who marked it and when.
             </div>
           )}
-          {(action === 'decline' || action === 'cancel') && <input type="text" autoFocus placeholder={action === 'cancel' && !isOwnerRole ? 'Reason (required)' : 'Reason, e.g. Fully booked that weekend'} value={actForm.reason} onChange={(e) => setActForm({ ...actForm, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
+          {(action === 'decline' || action === 'cancel') && <input type="text" autoFocus placeholder={action === 'cancel' && !canRun ? 'Reason (required)' : 'Reason, e.g. Fully booked that weekend'} value={actForm.reason} onChange={(e) => setActForm({ ...actForm, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
           {(action === 'decline' || action === 'cancel') && <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{b.customer_phone ? `Next, you can send ${b.customer_name} this reason on WhatsApp.` : `${b.customer_name} has no phone number saved, so they can't be messaged.`}</div>}
         </div>
       );
@@ -5644,19 +5714,19 @@ function XorlaApp() {
   const notifItems = (() => {
     const items = [];
     const go = (t, extra) => () => { setNotifOpen(false); extra && extra(); setTab(t); };
-    if (isOwnerRole && staffRequests.length > 0) items.push({ key: 'staffreq', urgent: false, Icon: Users, title: `${staffRequests.length} ${staffRequests.length === 1 ? 'person is' : 'people are'} asking to join your team`, sub: staffRequests.slice(0, 2).map((r) => r.name).join(', '), onClick: () => { setNotifOpen(false); setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('team'); setTab('settings'); } });
+    if (canRun && staffRequests.length > 0) items.push({ key: 'staffreq', urgent: false, Icon: Users, title: `${staffRequests.length} ${staffRequests.length === 1 ? 'person is' : 'people are'} asking to join your team`, sub: staffRequests.slice(0, 2).map((r) => r.name).join(', '), onClick: () => { setNotifOpen(false); setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('team'); setTab('settings'); } });
     if (bookingRequests.length > 0 && canAnswerRequests) items.push({ key: 'bookreq', urgent: false, Icon: CalendarClock, title: `${bookingRequests.length} booking request${bookingRequests.length !== 1 ? 's' : ''} to answer`, sub: bookingRequests.slice(0, 2).map((b) => `${b.customer_name}, ${dayLabel(b.check_in)}`).join(' · '), onClick: go('bookings') });
     if (refundsDue.length > 0) items.push({ key: 'refunds', urgent: true, Icon: Wallet, title: `${refundsDue.length} deposit refund${refundsDue.length !== 1 ? 's' : ''} to send`, sub: refundsDue.slice(0, 2).map((b) => `${b.customer_name}, ${fmt(b.refund_amount)}`).join(' · '), onClick: go('bookings') });
     if (arrivals.length > 0) items.push({ key: 'arrivals', urgent: false, Icon: CalendarClock, title: `${arrivals.length} arrival${arrivals.length !== 1 ? 's' : ''} today`, sub: arrivals.slice(0, 3).map((b) => b.customer_name).join(', '), onClick: go('bookings') });
     if (pendingOrderCount > 0) items.push({ key: 'orders', urgent: false, Icon: ShoppingBag, title: `${pendingOrderCount} new ${T.order}${pendingOrderCount !== 1 ? 's' : ''} from your storefront`, sub: 'Review and fulfil', onClick: go('orders') });
-    if (isOwnerRole && pendingRequests.length > 0) items.push({ key: 'requests', urgent: false, Icon: PackagePlus, title: `${pendingRequests.length} stock request${pendingRequests.length !== 1 ? 's' : ''} from your shops`, sub: pendingRequests.slice(0, 2).map((r) => shopNameOf(r.shop_id)).join(', '), onClick: go('products', () => setProductsView('list')) });
+    if (canRun && pendingRequests.length > 0) items.push({ key: 'requests', urgent: false, Icon: PackagePlus, title: `${pendingRequests.length} stock request${pendingRequests.length !== 1 ? 's' : ''} from your shops`, sub: pendingRequests.slice(0, 2).map((r) => shopNameOf(r.shop_id)).join(', '), onClick: go('products', () => setProductsView('list')) });
     if (needsAttention.length > 0) items.push({ key: 'invoices', urgent: true, Icon: PhoneCall, title: `${needsAttention.length} invoice${needsAttention.length !== 1 ? 's' : ''} need${needsAttention.length === 1 ? 's' : ''} follow-up`, sub: needsAttention.slice(0, 3).map((i) => i.clientName).join(', '), onClick: go('invoices') });
     const arriving = isOwnerRole ? inTransit : inTransit.filter((t) => myShops.some((s) => s.id === t.to_shop));
     if (arriving.length > 0) items.push({ key: 'transit', urgent: false, Icon: Truck, title: `${arriving.length} item${arriving.length !== 1 ? 's' : ''} on the way`, sub: 'Confirm what arrives', onClick: go('products', () => setProductsView('list')) });
     const low = products.filter((p) => p.isLow);
     if (low.length > 0) items.push({ key: 'low', urgent: false, Icon: Package, title: `${low.length} item${low.length !== 1 ? 's' : ''} running low`, sub: low.slice(0, 3).map((p) => p.name).join(', '), onClick: go('products', () => setProductsView('list')) });
     const shortWeek = stockTransfers.filter((t) => t.status === 'received' && t.qty_received !== null && Number(t.qty_received) < Number(t.qty_sent) && Date.now() - new Date(t.received_at).getTime() < 7 * 86400000);
-    if (isOwnerRole && shortWeek.length > 0) items.push({ key: 'short', urgent: true, Icon: Truck, title: `${shortWeek.length} shortage${shortWeek.length !== 1 ? 's' : ''} this week`, sub: 'Items missing on arrival', onClick: go('products', () => setProductsView('list')) });
+    if (canRun && shortWeek.length > 0) items.push({ key: 'short', urgent: true, Icon: Truck, title: `${shortWeek.length} shortage${shortWeek.length !== 1 ? 's' : ''} this week`, sub: 'Items missing on arrival', onClick: go('products', () => setProductsView('list')) });
     return items;
   })();
   const notifUrgent = notifItems.some((i) => i.urgent);
@@ -6339,7 +6409,7 @@ function XorlaApp() {
   const renderShopSwitcher = () => showShopSwitcher && (
     <div className="flex items-center gap-3 mb-5 flex-wrap">
       <BrandSelect aria-label={`Choose ${L.one}`} icon={<Store size={15} className="shrink-0" style={{ color: C.copper }} />} value={viewAllShops ? 'all' : activeShopId || ''} onChange={(e) => setCurrentShopId(e.target.value)} className="pl-3.5 pr-3 py-2.5 rounded-full text-[13px] font-semibold whitespace-nowrap" style={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong || C.line}`, maxWidth: 260 }}>
-        {isOwnerRole && <option value="all">All {L.many}</option>}
+        {canRun && <option value="all">{isManager ? 'All my' : 'All'} {L.many}</option>}
         {myShops.map((s) => <option key={s.id} value={s.id}>{locName(s)}{isPausedLocation(s.id) ? ' (paused)' : ''}</option>)}
       </BrandSelect>
       {viewAllShops && <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Showing {shops.length} {L.many} combined</span>}
@@ -6355,7 +6425,7 @@ function XorlaApp() {
     </div>
   );
 
-  if (settings.role === 'staff' && planKnown && (planCaps.staff === 0 || seatOk === false)) {
+  if ((settings.role === 'staff' || isManager) && planKnown && (planCaps.staff === 0 || seatOk === false)) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
@@ -7496,7 +7566,7 @@ function XorlaApp() {
                 {isOwnerRole && planKnown && navGroup('Plan', [
                   { id: 'plan', Icon: Sparkles, label: 'Your plan', value: onTrial ? `Free trial, ${planDaysLeft}d left` : PLAN_INFO[effPlan].name, valueColor: effPlan === 'free' ? undefined : C.sage },
                 ])}
-                {navGroup('Business', [
+                {!isManager && navGroup('Business', [
                   { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
                   { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
                   { id: 'promote', Icon: Megaphone, label: 'Promote your business', value: (() => { const n = discountCodes.filter((d) => codeStateOf(d).tone === 'on').length; return n ? `${n} code${n > 1 ? 's' : ''} live` : 'Poster, Status, codes'; })(), valueColor: discountCodes.some((d) => codeStateOf(d).tone === 'on') ? C.sage : undefined },
@@ -7512,17 +7582,17 @@ function XorlaApp() {
                 {isOwnerRole && apptMode && navGroup('Appointments', [
                   { id: 'hours', Icon: CalendarClock, label: 'Opening hours & appointments', value: draft.apptEnabled === false ? 'Off' : `${hhmmLabel(draft.openTime || '08:00')} to ${hhmmLabel(draft.closeTime || '18:00')}` },
                 ])}
-                {navGroup('Language', [
+                {!isManager && navGroup('Language', [
                   { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
                 ])}
-                {navGroup('Customers', [
+                {!isManager && navGroup('Customers', [
                   { id: 'automation', Icon: Bell, label: 'Automatic WhatsApp', value: draft.autoReminders || draft.summaryFrequency !== 'off' ? 'On' : 'Off', valueColor: draft.autoReminders || draft.summaryFrequency !== 'off' ? C.sage : undefined },
                   { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
                 ])}
                 {navGroup('Team', [
-                  { id: 'team', Icon: Users, label: 'Staff & join code', value: `${settings.staffList.length} staff` },
-                  { toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) },
-                  ...(hasBookables || apptMode ? [{ toggle: true, Icon: CalendarClock, label: hasBookables && apptMode ? 'Let staff confirm bookings and appointments' : apptMode ? 'Let staff accept appointment requests' : 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
+                  { id: 'team', Icon: Users, label: isManager ? 'Your staff' : 'Staff & managers', value: `${teamList.length} ${teamList.length === 1 ? 'person' : 'people'}` },
+                  ...(isManager ? [] : [{ toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) }]),
+                  ...(!isManager && (hasBookables || apptMode) ? [{ toggle: true, Icon: CalendarClock, label: hasBookables && apptMode ? 'Let staff confirm bookings and appointments' : apptMode ? 'Let staff accept appointment requests' : 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
                 ])}
                 {navGroup('Security', [
                   { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
@@ -8138,7 +8208,7 @@ function XorlaApp() {
                 <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                   <div className="text-[12px] font-semibold uppercase tracking-wide mb-2.5" style={{ color: C.inkFaint }}>What you'll get</div>
                   <div className="space-y-2 text-[12.5px]" style={{ color: C.inkDim }}>
-                    {(isOwnerRole ? [
+                    {(canRun ? [
                       ['New storefront orders', 'the moment they come in'],
                       ['Stock requests', `when a ${L.one} asks for more`],
                       ['Overdue invoices', 'one summary each morning, not a buzz for each'],
@@ -8215,39 +8285,49 @@ function XorlaApp() {
                       </div>
                     </div>
                   )}
-                  <div className="text-[11px] mb-2 mt-3" style={{ color: C.inkFaint }}>Give this code only to people who work for you. They use it to ask to join, and nobody gets in until you approve them here.</div>
+                  <div className="text-[11px] mb-2 mt-3" style={{ color: C.inkFaint }}>{isManager ? `Give this code only to new staff for your ${L.many}. They use it to ask to join, and nobody gets in until you or the owner approve them.` : 'Give this code only to people who work for you. They use it to ask to join, and nobody gets in until you approve them here.'}</div>
                   <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-1.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                     <span className="cx-mono text-[16px] font-bold tracking-[0.1em]" style={{ color: C.sage }}>{settings.staffCode || '········'}</span>
                     <button onClick={() => copyText('code', settings.staffCode)} className="text-[11px] font-medium" style={{ color: copiedKey === 'code' ? C.sage : C.copper }}>{copiedKey === 'code' ? '✓ Copied' : 'Copy'}</button>
                   </div>
-                  <button onClick={changeStaffCode} className="text-[11.5px] font-medium mb-3" style={{ color: C.inkDim }}>Make a new code</button>
-                  {staffOverBy > 0 && (
+                  {isOwnerRole && <button onClick={changeStaffCode} className="text-[11.5px] font-medium mb-3" style={{ color: C.inkDim }}>Make a new code</button>}
+                  {isManager && <div className="text-[11px] mb-3" style={{ color: C.inkFaint }}>People you approve start in {shopNameOf(myShops[0]?.id)}.</div>}
+                  {isOwnerRole && staffOverBy > 0 && (
                     <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12px] leading-relaxed" style={{ background: C.rustSoft, color: C.ink }}>
                       Your plan includes {planCaps.staff} staff place{planCaps.staff !== 1 ? 's' : ''}, and you have {settings.staffList.length}. The {staffOverBy} who joined most recently {staffOverBy !== 1 ? 'are' : 'is'} paused until you upgrade or remove someone.{' '}
                       <button onClick={openPlanPage} className="font-semibold underline" style={{ color: C.copper }}>See plans</button>
                     </div>
                   )}
-                  {settings.staffList.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {settings.staffList.map((s) => (
-                        <div key={s.id} className="flex items-center gap-1.5 pl-3 pr-2.5 py-1.5 rounded-full text-[12.5px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>
-                          {s.name}
-                          <button onClick={() => removeStaff(s.id, s.name)} className="text-[11px] font-semibold ml-1 pl-2" style={{ color: C.rust, borderLeft: `1px solid ${C.line}` }}>Remove</button>
-                        </div>
-                      ))}
+                  {teamList.length > 0 ? (
+                    <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+                      {teamList.map((p, i) => {
+                        const where = staffShops.filter((ss) => ss.profile_id === p.id).map((ss) => shopNameOf(ss.shop_id)).join(', ');
+                        return (
+                          <div key={p.id} className="px-3.5 py-3 flex items-center gap-3" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                            <span className="w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0" style={{ background: p.role === 'manager' ? C.copperSoft : C.surfaceRaised, color: p.role === 'manager' ? C.copper : C.inkDim }}>{String(p.name || '?').slice(0, 2).toUpperCase()}</span>
+                            <span className="flex-1 min-w-0">
+                              <span className="flex items-center gap-1.5"><span className="text-[13.5px] font-semibold truncate">{p.name}</span>{p.role === 'manager' && <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold shrink-0" style={{ background: C.copperSoft, color: C.copper }}>MANAGER</span>}</span>
+                              {where && hasManyLocations && <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{where}</span>}
+                            </span>
+                            {isOwnerRole && <button onClick={() => setManagerRole(p, p.role !== 'manager')} className="shrink-0 text-[11.5px] font-semibold" style={{ color: p.role === 'manager' ? C.inkDim : C.copper }}>{p.role === 'manager' ? 'Make staff' : 'Make manager'}</button>}
+                            <button onClick={() => removeStaff(p.id, p.name)} className="shrink-0 text-[11.5px] font-semibold pl-2" style={{ color: C.rust, borderLeft: `1px solid ${C.line}` }}>Remove</button>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
-                    <div className="text-[11.5px]" style={{ color: C.inkFaint }}>No staff have joined yet.</div>
+                    <div className="text-[11.5px]" style={{ color: C.inkFaint }}>{isManager ? `No staff in your ${L.many} yet.` : 'No staff have joined yet.'}</div>
                   )}
+                  {isOwnerRole && teamList.length > 0 && <div className="text-[11px] mt-2 leading-relaxed" style={{ color: C.inkFaint }}>A manager runs the day-to-day of their {L.many}, with full reports for them. Your plan, bank account, business settings and deleting records stay with you.</div>}
                   
                 </div>
               </div>
             )}
-            {settingsPage === 'team' && shops.length > 1 && settings.staffList.length > 0 && (
+            {settingsPage === 'team' && shops.length > 1 && teamList.length > 0 && (
               <div className="mt-4">
                 <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Which {L.many} each person works in</div>
                 <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
-                  {settings.staffList.map((st, i) => (
+                  {teamList.filter((st) => isOwnerRole || st.role !== 'manager').map((st, i) => (
                     <div key={st.id} className="px-4 py-3.5" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                       <div className="text-[13.5px] font-semibold mb-2">{st.name}</div>
                       <div className="flex flex-wrap gap-1.5">
@@ -8259,7 +8339,7 @@ function XorlaApp() {
                     </div>
                   ))}
                 </div>
-                <div className="text-[11px] mt-2 px-1" style={{ color: C.inkFaint }}>Staff only see and record for the {L.many} they're in. Changes save instantly.</div>
+                <div className="text-[11px] mt-2 px-1" style={{ color: C.inkFaint }}>Staff and managers only see and work on the {L.many} they're in. Changes save instantly.</div>
               </div>
             )}
             {settingsPage === 'security' && (
@@ -8343,7 +8423,7 @@ function XorlaApp() {
             ...(hasBookables ? [{ id: 'bookings', label: 'Bookings', Icon: CalendarClock }] : []),
             { id: 'expenses', label: 'Expenses', Icon: Receipt },
             { id: 'invoices', label: 'Invoices', Icon: Wallet },
-            ...(isOwnerRole ? [{ id: 'reports', label: 'Reports', Icon: TrendingUp }] : []),
+            ...(canRun ? [{ id: 'reports', label: 'Reports', Icon: TrendingUp }] : []),
             { id: 'advisor', label: 'Oga', Icon: Lightbulb },
           ].map(({ id, label, Icon }) => (
             <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: C.sageSoft, color: C.sage } : { color: C.inkDim }}>
@@ -8444,7 +8524,7 @@ function XorlaApp() {
                 );
               })()}
             </div>
-            {settings.staffList.length > 0 && <div className="hidden md:flex">{renderTeamPresence(true)}</div>}
+            {teamList.length > 0 && <div className="hidden md:flex">{renderTeamPresence(true)}</div>}
             <span className="hidden sm:flex w-9 h-9 rounded-xl items-center justify-center shrink-0" style={{ border: `1px solid ${notifOpen ? C.copper : C.line}` }}>{renderBell()}</span>
             {tab !== 'bookings' && (
             <button
@@ -8456,14 +8536,14 @@ function XorlaApp() {
           </div>
 
           {/* Team presence (owner only) */}
-          {settings.staffList.length > 0 && tab !== 'bookings' && <div className="md:hidden mb-4">{renderTeamPresence(false)}</div>}
+          {teamList.length > 0 && tab !== 'bookings' && <div className="md:hidden mb-4">{renderTeamPresence(false)}</div>}
           {tab === 'overview' && !hasBookables ? <div className="lg:hidden text-[11px] mb-6 mt-3" style={{ color: C.inkFaint }}>Sold something? Use Sales. Billing without a sale now? Use Invoices.</div> : <div className="lg:hidden mb-4" />}
 
           {/* ============ OVERVIEW TAB ============ */}
           {tab === 'overview' && (
             <>
               {renderChecklist()}
-              {isOwnerRole && pendingRequests.length > 0 && (
+              {canRun && pendingRequests.length > 0 && (
                 <button onClick={() => setTab('products')} className="w-full flex items-center justify-between rounded-2xl p-4 mb-5 xorla-fade-up text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><PackagePlus size={18} style={{ color: C.bg }} /></div>
@@ -8555,7 +8635,7 @@ function XorlaApp() {
                   <button onClick={dismissLangIntro} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
                 </div>
               )}
-              {isOwnerRole && (() => {
+              {canRun && (() => {
                 // Reports: easy to find, with a taste of what's inside
                 const since = Date.now() - 7 * 86400000;
                 const week = salesAll.filter((x) => new Date(x.soldAt || 0).getTime() >= since);
@@ -8686,7 +8766,7 @@ function XorlaApp() {
                   <div className="flex justify-between mt-1 px-1">
                     {last7.map((d) => <span key={d.key} className="text-[9.5px]" style={{ color: C.inkFaint }}>{d.label}</span>)}
                   </div>
-                  {isOwnerRole && (
+                  {canRun && (
                     <button onClick={() => setTab('reports')} className="w-full mt-4 flex items-center justify-between rounded-xl px-3.5 py-3 text-left" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>
                       <span className="flex items-center gap-2.5"><TrendingUp size={16} style={{ color: C.copper }} /><span className="text-[13px] font-semibold">Reports</span><span className="text-[12px]" style={{ color: C.inkFaint }}>profit, best sellers, any period</span></span>
                       <ChevronRight size={16} style={{ color: C.inkFaint }} />
@@ -8824,11 +8904,11 @@ function XorlaApp() {
               </div>
             </div>
 
-            {settings.staffList.length > 0 && todaySales.length > 0 && (
+            {teamList.length > 0 && todaySales.length > 0 && (
               <div className="rounded-2xl p-4 mb-4" style={card}>
                 <div className="text-[10.5px] font-medium tracking-wide uppercase mb-2.5" style={{ color: C.inkFaint }}>Today by team member</div>
                 <div className="space-y-2">
-                  {settings.staffList.map((s) => {
+                  {teamList.map((s) => {
                     const total = todaySales.filter((sale) => sale.loggedBy === s.name).reduce((a, sale) => a + Number(sale.amount), 0);
                     const count = todaySales.filter((sale) => sale.loggedBy === s.name).length;
                     if (count === 0) return null;
@@ -8987,7 +9067,7 @@ function XorlaApp() {
                   <div className="flex items-center gap-3 shrink-0">
                     <div className="cx-mono text-[13.5px] font-medium">{fmt(s.amount)}</div>
                     <button onClick={() => setReceipt(receiptFromSale(s))} className="text-[11px] font-medium" style={{ color: C.copper }}>Receipt</button>
-                    <button onClick={() => removeSale(s.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
+                    {isOwnerRole && <button onClick={() => removeSale(s.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>}
                   </div>
                 </div>
               ))}
@@ -9050,13 +9130,13 @@ function XorlaApp() {
                   <button onClick={() => openCatalogForm('extra')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.35)', color: C.ink }}>
                     <Plus size={18} className="shrink-0" style={{ color: C.sage }} /><span><span className="block text-[14px] font-semibold">Add an extra</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Delivery, extra hours' : 'Laundry, bar, airport pickup'}</span></span>
                   </button>
-                  {isOwnerRole && <button onClick={openImport} className="col-span-2 -mt-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list of extras</button>}
+                  {canRun && <button onClick={openImport} className="col-span-2 -mt-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list of extras</button>}
                 </div>
               ) : (
               <button onClick={() => { setEditingProductId(null); setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
               )
             )}
-            {!T.saleHint && isOwnerRole && (
+            {!T.saleHint && canRun && (
               <button onClick={openImport} className="w-full -mt-4 mb-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list instead</button>
             )}
             {showProductForm && (
@@ -9153,7 +9233,7 @@ function XorlaApp() {
                     <div className="text-[11px] -mt-2" style={{ color: C.inkFaint }}>{editingProductId ? 'To change how many you have, use Restock on the product.' : "Leave stock blank if you don't want to track it for this product."}</div>
                   </>
                 )}
-                {isOwnerRole && shops.length > 1 && (
+                {canRun && shops.length > 1 && (
                   <div className="rounded-xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                     <div className={fieldLabel} style={{ color: C.inkFaint }}>PRICE BY {L.one.toUpperCase()} (OPTIONAL)</div>
                     <div className="text-[11px] mb-3" style={{ color: C.inkFaint }}>Leave a {L.one} blank to use the normal price{productForm.sellingPrice ? ` (${fmt(productForm.sellingPrice)})` : ''}.</div>
@@ -9228,10 +9308,10 @@ function XorlaApp() {
                     <div className="mt-3 pt-3 flex items-center gap-1.5 flex-wrap" style={{ borderTop: `1px solid ${C.line}` }}>
                       {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }, C.sage)}
-                        {isOwnerRole && hasManyLocations && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
+                        {canRun && allLiveLocations.length > 1 && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
                         {pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
-                        {isOwnerRole && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
-                        <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>
+                        {canRun && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
+                        {isOwnerRole && <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>}
                       </>); })()}
                     </div>
                     {transferringId === p.id && (
@@ -9320,7 +9400,7 @@ function XorlaApp() {
         )}
 
         {/* ============ EXPENSES TAB ============ */}
-        {tab === 'reports' && isOwnerRole && <ReportsView token={session.access_token} shops={shops} L={L} T={T} businessName={settings.businessName} onOpenInvoices={() => setTab('invoices')} locName={locName} onImportPast={() => openPastImport()} />}
+        {tab === 'reports' && canRun && <ReportsView token={session.access_token} shops={shops} L={L} T={T} businessName={settings.businessName} onOpenInvoices={() => setTab('invoices')} locName={locName} onImportPast={() => openPastImport()} />}
         {tab === 'expenses' && (
           <>
             <div className="rounded-2xl p-5 mb-6" style={card}>
@@ -9395,7 +9475,7 @@ function XorlaApp() {
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="cx-mono text-[13.5px] font-medium" style={{ color: C.rust }}>-{fmt(e.amount)}</div>
-                    <button onClick={() => removeExpense(e.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>
+                    {isOwnerRole && <button onClick={() => removeExpense(e.id)} className="text-[11px]" style={{ color: C.inkFaint }}>Remove</button>}
                   </div>
                 </div>
               ))}
@@ -9590,7 +9670,7 @@ function XorlaApp() {
                           {!isPaid && inv.phone && <button onClick={() => copyMessage(inv)}>{copiedId === inv.id ? 'Copied' : 'Copy'}</button>}
                           {!isPaid && payingId !== inv.id && <button onClick={() => setPayingId(inv.id)}>Payment</button>}
                           {isPaid && <button onClick={() => undoPaid(inv.id)}>Undo</button>}
-                          <button onClick={() => removeInvoice(inv.id)} style={{ color: C.inkFaint }}>Remove</button>
+                          {isOwnerRole && <button onClick={() => removeInvoice(inv.id)} style={{ color: C.inkFaint }}>Remove</button>}
                         </div>
                       </div>
                     </div>
