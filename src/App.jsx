@@ -3694,10 +3694,17 @@ function XorlaApp() {
   const todaysAppts = orders.filter((o) => isConfirmedAppt(o) && lagosDateKey(o.startAt) === todayKey()).sort((a, b) => a.startAt.localeCompare(b.startAt));
   // When the business turns a customer down, the customer hears why, in one tap
   const storeLink = settings.storefrontEnabled && settings.businessCode ? `${window.location.origin}/store/${settings.businessCode}` : '';
-  const offerWhatsApp = async (phone, message, title, body) => {
+  const offerWhatsApp = async (phone, message, title, body, onSent) => {
     if (!phone) return;
     const link = `https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(message)}`;
-    if (await brandConfirm(body, { title, confirm: 'Send on WhatsApp', cancel: 'Not now' })) window.open(link, '_blank');
+    if (await brandConfirm(body, { title, confirm: 'Send on WhatsApp', cancel: 'Not now' })) { window.open(link, '_blank'); onSent && onSent(); }
+  };
+  // The guest has their booking page (proof of booking, pay, cancel) once the link has gone out
+  const markLinkSent = (b) => {
+    if (!b?.id) return;
+    const now = new Date().toISOString();
+    setBookingsAll((prev) => prev.map((x) => (x.id === b.id ? { ...x, link_sent_at: now } : x)));
+    sbRpc('mark_booking_link_sent', session.access_token, { p_booking: b.id }).catch(() => {});
   };
   const turnDownMessage = ({ name, kind, what, reason, extra }) => {
     const first = String(name || '').split(' ')[0] || 'there';
@@ -4831,8 +4838,19 @@ function XorlaApp() {
   };
   const submitNewBooking = () => {
     const f = bookingForm;
-    runBooking(() => sbRpc('create_booking', session.access_token, { p_shop_id: deskShopId, p_product_id: f.productId, p_check_in: f.checkIn, p_check_out: f.checkOut, p_units: Number(f.units) || 1, p_name: f.name, p_phone: f.phone, p_note: f.note, p_amount_paid: Number(parseNumInput(f.paid)) || 0 }),
-      () => setBookingPanel(false));
+    let newId = null;
+    runBooking(async () => { newId = await sbRpc('create_booking', session.access_token, { p_shop_id: deskShopId, p_product_id: f.productId, p_check_in: f.checkIn, p_check_out: f.checkOut, p_units: Number(f.units) || 1, p_name: f.name, p_phone: f.phone, p_note: f.note, p_amount_paid: Number(parseNumInput(f.paid)) || 0 }); },
+      async () => {
+        setBookingPanel(false);
+        if (!f.phone || !String(f.phone).replace(/[^0-9]/g, '')) return;
+        try {
+          if (!newId) return;
+          const rows = await sbRest('bookings', { accessToken: session.access_token, query: `?select=*&id=eq.${newId}` });
+          const nb = rows[0]; if (!nb || !nb.manage_token) return;
+          const msg = confirmedMessage(nb, Number(parseNumInput(f.paid)) || 0);
+          offerWhatsApp(nb.customer_phone, msg, 'Booking saved', `Send ${String(nb.customer_name).split(' ')[0]} their confirmation and booking link on WhatsApp? It's their proof of booking. They'll see:\n\n"${msg}"`, () => markLinkSent(nb));
+        } catch (e) { /* the booking is saved either way */ }
+      });
   };
   const openAct = (booking, action, roomId) => {
     setBookingError('');
@@ -4860,7 +4878,7 @@ function XorlaApp() {
       () => {
         setBookingAct(null);
         if (action === 'refunded') { const first = String(booking.customer_name || '').split(' ')[0] || 'there'; const msg = `Hi ${first}, we've sent your ${fmt(booking.refund_amount)} refund from ${settings.businessName}${booking.refund_account_number ? ` to your ${booking.refund_bank_name} account ending ${String(booking.refund_account_number).slice(-4)}` : ''}. Thank you, and we hope to host you another time.`; offerWhatsApp(booking.customer_phone, msg, 'Refund recorded', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); }
-        if (action === 'deposit') { const msg = confirmedMessage(booking, adding); offerWhatsApp(booking.customer_phone, msg, 'Deposit recorded', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); }
+        if (action === 'deposit') { const msg = confirmedMessage(booking, adding); offerWhatsApp(booking.customer_phone, msg, 'Deposit recorded', `Send ${String(booking.customer_name).split(' ')[0]} their receipt and booking link on WhatsApp? They'll see:\n\n"${msg}"`, guestLinkOf(booking) ? () => markLinkSent(booking) : null); }
         if (action === 'decline' || action === 'cancel') {
           const held = Number(booking.deposit_paid) || 0;
           const stay = `${booking.item_name} for ${dayLabel(booking.check_in)} to ${dayLabel(booking.check_out)}`;
@@ -4886,24 +4904,24 @@ function XorlaApp() {
     const owing = depositPct > 0 ? Math.max(0, depositDueOf(b) - (Number(b.deposit_paid) || 0) - (deposit || 0)) : 0;
     const bank = settings.bankAccountNumber ? `${settings.bankName ? `${settings.bankName}, ` : ''}${settings.bankAccountNumber}${settings.bankAccountName ? ` (${settings.bankAccountName})` : ''}` : '';
     const lines = [
-      `Hi ${first}, your booking at ${settings.businessName} is confirmed${deposit ? ` and we've received your ${fmt(deposit)} deposit` : ''}.`,
+      `Hi ${first}, your booking at ${settings.businessName} is confirmed${deposit ? ` and we've received your ${fmt(deposit)} ${deposit >= Number(b.total) ? 'payment' : 'deposit'}` : ''}.`,
       `${b.item_name}${b.units > 1 ? ` × ${b.units}` : ''}, ${dayLabel(b.check_in)} to ${dayLabel(b.check_out)} (${nights}). Total ${fmt(b.total)}.`,
-      serviceKind === 'rentals' ? `Pick up from ${hhmmLabel(settings.checkinTime || '14:00')}, return by ${hhmmLabel(settings.checkoutTime || '12:00')}.` : `Check-in is from ${hhmmLabel(settings.checkinTime || '14:00')}, and check-out is by ${hhmmLabel(settings.checkoutTime || '12:00')}.`,
+      serviceKind === 'rentals' ? `Pick up from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, return by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.` : `Check-in is from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, and check-out is by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.`,
       owing > 0 ? `To secure it, please send the ${fmt(owing)} deposit${bank ? ` to ${bank}` : ''}.` : '',
       guestLinkOf(b) ? `See or manage your booking here: ${guestLinkOf(b)}` : '',
     ].filter(Boolean);
     return lines.join('\n\n');
   };
   const quickConfirm = (b) => runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: b.id, p_action: 'confirm' }),
-    () => { const msg = confirmedMessage(b, 0); offerWhatsApp(b.customer_phone, msg, 'Booking confirmed', `Let ${b.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); });
+    () => { const msg = confirmedMessage(b, 0); offerWhatsApp(b.customer_phone, msg, 'Booking confirmed', `Let ${b.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`, guestLinkOf(b) ? () => markLinkSent(b) : null); });
   const shareGuestLink = async (b) => {
     const link = guestLinkOf(b); if (!link) return;
     const first = String(b.customer_name || '').split(' ')[0] || 'there';
     const msg = b.deposit_status === 'refund_due'
       ? `Hi ${first}, we're sending back your ${fmt(b.refund_amount)} deposit from ${settings.businessName}. Please add the account to send it to here: ${link}`
       : `Hi ${first}, here is your booking at ${settings.businessName}. You can see it, pay the deposit or cancel here: ${link}`;
-    if (b.customer_phone) { offerWhatsApp(b.customer_phone, msg, 'Send the booking link', `Send ${b.customer_name} their booking page on WhatsApp? They'll see:\n\n"${msg}"`); return; }
-    try { await navigator.clipboard.writeText(link); brandAlert('Booking link copied. Paste it to the guest.', { title: 'Link copied' }); } catch (e) { brandAlert(link, { title: 'Booking link' }); }
+    if (b.customer_phone) { offerWhatsApp(b.customer_phone, msg, 'Send the booking link', `Send ${b.customer_name} their booking page on WhatsApp? They'll see:\n\n"${msg}"`, () => markLinkSent(b)); return; }
+    try { await navigator.clipboard.writeText(link); markLinkSent(b); brandAlert('Booking link copied. Paste it to the guest.', { title: 'Link copied' }); } catch (e) { brandAlert(link, { title: 'Booking link' }); }
   };
 
   const renderBookingRow = (b, actions) => {
@@ -4949,6 +4967,13 @@ function XorlaApp() {
               </span>}
               {b.manage_token && ['requested', 'confirmed'].includes(b.status) && <button type="button" onClick={() => shareGuestLink(b)} aria-label={`Send ${b.customer_name} their booking link`} title="Booking link" className={`${b.customer_phone ? '' : 'ml-auto '}w-8 h-8 shrink-0 rounded-lg flex items-center justify-center`} style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Link2 size={14} /></button>}
             </div>
+            {b.status === 'confirmed' && b.manage_token && b.customer_phone && !b.link_sent_at && (
+              <button type="button" onClick={() => shareGuestLink(b)} className="mt-2.5 w-full rounded-xl px-3 py-2.5 flex items-center gap-2.5 text-left" style={{ background: 'rgba(37,211,102,0.10)', border: '1px solid rgba(37,211,102,0.35)' }}>
+                <MessageCircle size={16} style={{ color: '#25D366' }} className="shrink-0" />
+                <span className="flex-1 min-w-0 text-[12.5px] leading-snug"><strong style={{ color: C.ink }}>Send {String(b.customer_name).split(' ')[0]} their booking link</strong><span className="block" style={{ color: C.inkDim }}>Their proof of booking, and where they can pay or cancel</span></span>
+                <ChevronRight size={15} style={{ color: '#25D366' }} className="shrink-0" />
+              </button>
+            )}
           </div>
         </div>
         {live && due > 0 && paid > 0 && paid < due && (
