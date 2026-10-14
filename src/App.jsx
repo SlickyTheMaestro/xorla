@@ -2583,8 +2583,33 @@ function XorlaApp() {
     } catch (err) { brandAlert(err.message); } finally { setLogoUploading(false); }
   };
 
+  // Hotels name their rooms while adding the room type: one box per branch that offers it
+  const formNamesRooms = () => serviceKind === 'accommodation' && formIsService && ['night', 'day'].includes(productForm.priceUnit) && productForm.mode !== 'extra';
+  const formRoomShops = () => {
+    const live = allLiveLocations.filter((l) => l.kind !== 'warehouse');
+    if (isManager) return [productForm.where || activeShopId || myShops[0]?.id].filter(Boolean);
+    if (productForm.where) return [productForm.where];
+    return live.length > 1 ? live.map((l) => l.id) : [mainShopId].filter(Boolean);
+  };
+  const roomPlan = (productId) => formRoomShops().map((shopId) => {
+    const have = roomsAll.filter((r) => r.shop_id === shopId && r.active !== false);
+    const mine = productId ? have.filter((r) => r.product_id === productId) : [];
+    const typed = parseRoomLabels((productForm.roomLabels || {})[shopId]);
+    const taken = new Set(have.map((r) => r.label.toLowerCase()));
+    const fresh = typed.filter((l) => !taken.has(l.toLowerCase()));
+    const clash = typed.filter((l) => taken.has(l.toLowerCase()) && !mine.some((r) => r.label.toLowerCase() === l.toLowerCase()));
+    return { shopId, mine, fresh, clash, total: mine.length + fresh.length };
+  });
   const addProduct = async () => {
     if (!productForm.name || !productForm.sellingPrice) return;
+    if (formNamesRooms()) {
+      const plan = roomPlan(editingProductId);
+      const bad = plan.find((x) => x.clash.length);
+      if (bad) { brandAlert(`${bad.clash.join(', ')} ${bad.clash.length === 1 ? 'is' : 'are'} already used by another room${hasManyLocations ? ` at ${shopNameOf(bad.shopId)}` : ''}. Use different numbers.`); return; }
+      const most = Math.max(0, ...plan.map((x) => x.total));
+      if (most > 0) productForm.units = String(most);
+      else if (!Number(productForm.units)) { brandAlert('Type the room numbers for this room type, e.g. 101-105.'); return; }
+    }
     if (savingProduct) return;
     if (!editingProductId && planKnown && planCaps.products !== null && productsAll.length >= planCaps.products) {
       setLimitPrompt({ title: `The Free plan includes ${planCaps.products} ${T.catalog.toLowerCase()}`, body: `Upgrade to Pro for unlimited ${T.catalog.toLowerCase()}, up to 3 staff, 150 Oga questions a month, and automatic WhatsApp reminders.` });
@@ -2610,6 +2635,15 @@ function XorlaApp() {
         const startQty = Number(productForm.stockQuantity);
         if (!formIsService && productForm.stockQuantity !== '' && startQty > 0) await changeStock(rows[0].id, targetShopId, startQty, 'initial');
         savedId = rows[0].id;
+      }
+      // New room numbers typed in the form go straight onto the room board
+      if (formNamesRooms() && savedId) {
+        const fresh = roomPlan(savedId).flatMap((x) => x.fresh.map((label) => ({ business_id: settings.businessId, shop_id: x.shopId, product_id: savedId, label })));
+        if (fresh.length) {
+          await sbRest('rooms', { method: 'POST', accessToken: session.access_token, body: fresh });
+          const roomRows = await sbRest('rooms', { accessToken: session.access_token, query: '?select=*&active=eq.true&order=label.asc' }).catch(() => null);
+          if (roomRows) setRoomsAll(roomRows);
+        }
       }
       // Optional per-shop prices: blank means "use the normal price"
       if (canRun && shops.length > 1 && savedId) {
@@ -6578,19 +6612,39 @@ function XorlaApp() {
   if (settings.role === 'staff') {
     const myTodaySales = sales.filter((s) => s.dateKey === todayKey() && s.loggedBy === settings.activeStaff);
     const myTodayTotal = myTodaySales.reduce((a, s) => a + Number(s.amount), 0);
+    // Staff work in sections: the front desk, orders, recording and stock, one at a time
+    const staffOpenOrders = orders.filter((o) => o.status === 'pending' || o.payStatus === 'refund_due').length;
+    const staffTabs = [
+      ...(hasBookables ? [{ id: 'bookings', label: 'Bookings', Icon: CalendarClock, badge: bookingsBadge }] : []),
+      ...(apptMode ? [{ id: 'orders', label: 'Appointments', Icon: CalendarClock, badge: ordersBadge }] : (settings.storefrontEnabled || staffOpenOrders > 0) ? [{ id: 'orders', label: T.orders, Icon: ShoppingBag, badge: ordersBadge }] : []),
+      { id: 'sales', label: hasBookables ? 'Record' : `Record ${T.sale}`, Icon: Plus, badge: 0 },
+      ...(hasManyLocations ? [{ id: 'stock', label: 'Stock', Icon: Package, badge: inTransit.filter((t) => myShops.some((sh) => sh.id === t.to_shop)).length }] : []),
+    ];
+    const staffTab = staffTabs.some((x) => x.id === tab) ? tab : staffTabs[0].id;
     return (
       <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
         <div className="sticky top-0 z-30" style={{ paddingTop: 'env(safe-area-inset-top)', background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}` }}>
           <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2 min-w-0">
                 <XorlaMark size={26} />
                 <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
               </div>
-              <div className="flex items-center gap-3">
+              {staffTabs.length > 1 && (
+                <nav className="hidden lg:flex items-center gap-1 flex-1 justify-center" aria-label="Sections">
+                  {staffTabs.map(({ id, label, Icon, badge }) => (
+                    <button key={id} onClick={() => setTab(id)} className="relative flex items-center gap-2 h-10 px-4 rounded-xl text-[13px] font-semibold" style={staffTab === id ? { background: C.copperSoft, color: C.copper } : { color: C.inkDim }}>
+                      <Icon size={16} />{label}
+                      {badge > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: C.copper, color: C.bg }}>{badge > 9 ? '9+' : badge}</span>}
+                    </button>
+                  ))}
+                </nav>
+              )}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="hidden lg:block text-right leading-tight mr-1"><span className="block text-[13px] font-semibold">{settings.activeStaff}</span><span className="block text-[11px]" style={{ color: C.inkFaint }}>{shopNameOf(activeShopId || targetShopId)}</span></span>
                 {renderHelpButton()}
-                <button onClick={logout} className="flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LogOut size={13} /> Log out</button>
+                <button onClick={logout} aria-label="Log out" className="flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LogOut size={13} /><span className="hidden sm:inline">Log out</span></button>
               </div>
             </div>
             {showShopSwitcher && <div className="mt-2.5">{renderShopSwitcher()}</div>}
@@ -6601,17 +6655,17 @@ function XorlaApp() {
         {renderBookingPanels()}
         {renderFulfilPanel()}{renderPayAskPanel()}{renderLocPrice()}
         {renderApptPanel()}
-        <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-6 lg:pt-8 pb-10">
-
-          <div className="mb-6">
-            <div className="text-[12px]" style={{ color: C.inkFaint }}>Logging in as</div>
-            <div className="text-[20px] font-bold cx-display">{settings.activeStaff}</div>
+        <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-5 lg:pt-7 pb-28 lg:pb-12">
+          <div className="lg:hidden mb-4 flex items-baseline justify-between gap-3">
+            <div className="text-[18px] font-bold cx-display truncate">Hi, {settings.activeStaff}</div>
+            {!showShopSwitcher && <div className="text-[12px] shrink-0" style={{ color: C.inkFaint }}>{shopNameOf(activeShopId || targetShopId)}</div>}
           </div>
           {renderXorlaNotices()}
           {renderHelp()}{renderSupportToast()}{renderSpotlight()}
-
-          {hasBookables && <div className="rounded-2xl p-4 mb-5" style={card}>{renderBookingDesk()}</div>}
-          {apptMode && (() => {
+          {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} ${L.many}`,
+            `Check the ${L.one} shown at the top before recording. That's where your ${T.sale} is saved.`)}
+          {staffTab === 'bookings' && <div className="rounded-2xl p-4 lg:p-6 mb-5" style={card}>{renderBookingDesk()}</div>}
+          {staffTab === 'orders' && apptMode && (() => {
             const open = orders.filter((o) => o.status === 'pending').sort((a, b) => (a.startAt || '9999').localeCompare(b.startAt || '9999'));
             return (
               <div className="rounded-2xl p-4 mb-5" style={card}>
@@ -6626,11 +6680,11 @@ function XorlaApp() {
               </div>
             );
           })()}
-          {!apptMode && (() => {
+          {staffTab === 'orders' && !apptMode && (() => {
             // Storefront orders for the staff's own location: fulfil, ask to pay online, and send refunds
             const open = orders.filter((o) => o.status === 'pending' || o.payStatus === 'refund_due')
               .sort((a, b) => (a.payStatus === 'refund_due' ? 0 : a.payStatus === 'paid' ? 1 : 2) - (b.payStatus === 'refund_due' ? 0 : b.payStatus === 'paid' ? 1 : 2) || String(b.createdAt).localeCompare(String(a.createdAt)));
-            if (!open.length) return null;
+            if (!open.length) return <div className="rounded-2xl p-6 mb-5 text-center" style={card}><ShoppingBag size={22} className="mx-auto mb-2" style={{ color: C.inkFaint }} /><div className="text-[14px] font-semibold">No {T.orders.toLowerCase()} waiting</div><div className="text-[12px] mt-1" style={{ color: C.inkFaint }}>New {T.orders.toLowerCase()} from your storefront show up here.</div></div>;
             const paidN = open.filter((o) => o.payStatus === 'paid').length;
             return (
               <div className="rounded-2xl p-4 mb-5" style={card}>
@@ -6642,12 +6696,9 @@ function XorlaApp() {
               </div>
             );
           })()}
-          {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} ${L.many}`,
-            `Check the ${L.one} shown at the top before recording. That's where your ${T.sale} is saved.`)}
-          {/* Wide screens: recording on the left, today's numbers and stock on the right. Phones keep the original order. */}
-          <div className="flex flex-col lg:flex-row lg:items-start lg:gap-8">
-            <div className="contents lg:block lg:flex-1 lg:min-w-0">
-              <div className="order-3 lg:order-none">
+          {staffTab === 'sales' && (
+            <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-6 lg:items-start">
+              <div className="order-2 lg:order-none min-w-0">
           <div className="rounded-2xl p-5 mb-5" style={card}>
             <div className="text-[13.5px] font-semibold cx-display mb-3">Record a {T.sale}{T.saleHint ? <span className="block text-[11.5px] font-normal mt-1" style={{ color: C.inkFaint }}>{T.saleHint}</span> : null}</div>
             {myShops.length > 1 && (
@@ -6718,8 +6769,6 @@ function XorlaApp() {
               <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
             </div>
           </div>
-              </div>
-              <div className="order-4 lg:order-none">
           {settings.allowStaffExpenses && (
             <div className="rounded-2xl p-5 mb-5" style={card}>
               <div className="text-[13.5px] font-semibold cx-display mb-3">Record an expense</div>
@@ -6744,16 +6793,33 @@ function XorlaApp() {
             </div>
           )}
               </div>
-            </div>
-            <div className="contents lg:block lg:w-[400px] lg:shrink-0">
-              <div className="order-1 lg:order-none">
+              <div className="order-1 lg:order-none lg:sticky lg:top-24">
           <div className="rounded-2xl p-4 mb-5" style={card}>
             <div className="text-[10.5px] uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Your sales today</div>
             <div className="cx-mono text-[26px] font-extrabold">{fmt(myTodayTotal)}</div>
             <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{myTodaySales.length} sale{myTodaySales.length !== 1 ? 's' : ''} logged</div>
           </div>
+          {myTodaySales.length > 0 && (
+            <div className="rounded-2xl p-4" style={card}>
+              <div className="text-[10.5px] uppercase tracking-wide mb-3" style={{ color: C.inkFaint }}>Logged today</div>
+              <div className="space-y-2.5">
+                {myTodaySales.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between gap-3 text-[12.5px]">
+                    <span className="min-w-0 truncate" style={{ color: C.inkDim }}>{s.item} · {s.time}</span>
+                    <span className="flex items-center gap-3 shrink-0">
+                      <span className="cx-mono font-medium">{fmt(s.amount)}</span>
+                      <button onClick={() => setReceipt(receiptFromSale(s))} className="text-[11px] font-medium" style={{ color: C.copper }}>Receipt</button>
+                    </span>
+                  </div>
+                ))}
               </div>
-              <div className="order-2 lg:order-none">
+            </div>
+          )}
+              </div>
+            </div>
+          )}
+          {staffTab === 'stock' && (
+            <div className="lg:max-w-2xl">
           {hasManyLocations && (() => {
             const myIncoming = inTransit.filter((t) => myShops.some((s) => s.id === t.to_shop));
             const myRequests = stockRequests.filter((r) => r.requested_by === session?.user_id).slice(0, 5);
@@ -6802,28 +6868,21 @@ function XorlaApp() {
               </div>
             );
           })()}
-              </div>
-              <div className="order-5 lg:order-none">
-          {myTodaySales.length > 0 && (
-            <div className="rounded-2xl p-4" style={card}>
-              <div className="text-[10.5px] uppercase tracking-wide mb-3" style={{ color: C.inkFaint }}>Logged today</div>
-              <div className="space-y-2.5">
-                {myTodaySales.map((s) => (
-                  <div key={s.id} className="flex items-center justify-between gap-3 text-[12.5px]">
-                    <span className="min-w-0 truncate" style={{ color: C.inkDim }}>{s.item} · {s.time}</span>
-                    <span className="flex items-center gap-3 shrink-0">
-                      <span className="cx-mono font-medium">{fmt(s.amount)}</span>
-                      <button onClick={() => setReceipt(receiptFromSale(s))} className="text-[11px] font-medium" style={{ color: C.copper }}>Receipt</button>
-                    </span>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
-              </div>
-            </div>
-          </div>
         </div>
+        {/* Phones: the sections sit at the bottom, in reach of the thumb */}
+        {staffTabs.length > 1 && (
+          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(10,31,28,0.97)', borderTop: `1px solid ${C.line}`, paddingBottom: 'env(safe-area-inset-bottom)' }}>
+            {staffTabs.map(({ id, label, Icon, badge }) => (
+              <button key={id} onClick={() => { setTab(id); window.scrollTo(0, 0); }} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
+                <Icon size={21} style={{ color: staffTab === id ? C.copper : C.inkFaint }} />
+                <span className="text-[10px] font-medium" style={{ color: staffTab === id ? C.copper : C.inkFaint }}>{label}</span>
+                {badge > 0 && <span className="absolute top-1.5 right-[24%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{badge > 9 ? '9+' : badge}</span>}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -9313,14 +9372,14 @@ function XorlaApp() {
 
                 <div>
                   <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
-                    <Camera size={14} />{productImageUploading ? 'Adding photo…' : productForm.imagePreview ? 'Photo added — tap to change' : formIsService ? 'Add a photo of your work (optional)' : 'Add a product photo (optional)'}
+                    <Camera size={14} />{productImageUploading ? 'Adding photo…' : productForm.imagePreview ? 'Photo added — tap to change' : formNamesRooms() ? 'Add a photo of this room (optional)' : formIsService && productForm.mode === 'extra' ? 'Add a photo (optional)' : formIsService ? 'Add a photo of your work (optional)' : 'Add a product photo (optional)'}
                     <input type="file" accept="image/*" onChange={handleProductPhotoSelect} className="hidden" />
                   </label>
                   {productForm.imagePreview && <img src={productForm.imagePreview} alt="" className="w-16 h-16 rounded-xl object-cover mt-2.5" />}
                 </div>
 
                 <div>
-                  <div className={fieldLabel} style={{ color: C.inkFaint }}>{formIsService ? 'SERVICE NAME' : 'PRODUCT NAME'}</div>
+                  <div className={fieldLabel} style={{ color: C.inkFaint }}>{formNamesRooms() ? 'ROOM TYPE' : formIsService && productForm.mode === 'extra' ? 'NAME' : formIsService ? 'SERVICE NAME' : 'PRODUCT NAME'}</div>
                   <input type="text" placeholder={productForm.mode === 'extra' ? (serviceKind === 'rentals' ? 'e.g. Delivery, Extra hour, Driver for the day' : 'e.g. Laundry (per bag), Bottle of water, Airport pickup') : formIsService ? (SERVICE_KINDS[serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : examplesFor(settings.businessType === 'products' ? null : serviceKind).name} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 </div>
 
@@ -9344,7 +9403,28 @@ function XorlaApp() {
                       </div>
                       {productForm.sellingPrice && <div className="text-[11.5px] mt-1.5" style={{ color: C.sage }}>Customers will see: {priceLabel({ sellingPrice: Number(productForm.sellingPrice), priceUnit: productForm.priceUnit })}</div>}
                     </div>
-                    {['night', 'day'].includes(productForm.priceUnit) ? (
+                    {formNamesRooms() ? (
+                      <div>
+                        <div className={fieldLabel} style={{ color: C.inkFaint }}>ROOM NUMBERS</div>
+                        <div className="space-y-2.5">
+                          {roomPlan(editingProductId).map((x) => (
+                            <div key={x.shopId} className={hasManyLocations ? 'rounded-xl p-3' : ''} style={hasManyLocations ? { background: C.surfaceRaised, border: `1px solid ${C.line}` } : {}}>
+                              {hasManyLocations && <div className="flex items-center gap-1.5 text-[12.5px] font-semibold mb-2"><MapPin size={12} style={{ color: C.copper }} />{shopNameOf(x.shopId)}</div>}
+                              {x.mine.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 mb-2">
+                                  {x.mine.map((r) => <span key={r.id} className="px-2 py-0.5 rounded-md text-[12px] cx-mono font-semibold" style={{ background: C.sageSoft, color: C.sage }}>{r.label}</span>)}
+                                </div>
+                              )}
+                              <input type="text" placeholder={x.mine.length ? 'Add more, e.g. 106-108' : 'e.g. 101-105, or 101, 102, Garden suite'} value={(productForm.roomLabels || {})[x.shopId] || ''} onChange={(e) => setProductForm({ ...productForm, roomLabels: { ...(productForm.roomLabels || {}), [x.shopId]: e.target.value } })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                              {x.fresh.length > 0 && <div className="text-[11.5px] mt-1.5" style={{ color: C.sage }}>Adds {x.fresh.length} room{x.fresh.length === 1 ? '' : 's'}: {x.fresh.length > 10 ? `${x.fresh.slice(0, 10).join(', ')} and ${x.fresh.length - 10} more` : x.fresh.join(', ')}</div>}
+                              {x.clash.length > 0 && <div className="text-[11.5px] mt-1.5" style={{ color: C.rust }}>{x.clash.join(', ')} {x.clash.length === 1 ? 'is' : 'are'} already used by another room here.</div>}
+                              <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>{x.total ? `${x.total} room${x.total === 1 ? '' : 's'} of this type${hasManyLocations ? ' here' : ''}.` : (hasManyLocations ? `Leave empty if ${shopNameOf(x.shopId)} has none yet.` : 'Each number becomes a room on your room board.')}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>Guests can book these by date on your storefront, and Xorla never lets two guests have the same room at once.{editingProductId ? ' To take a room out of use, open Bookings and tap Edit rooms.' : ''}</div>
+                      </div>
+                    ) : ['night', 'day'].includes(productForm.priceUnit) ? (
                       <div>
                         <div className={fieldLabel} style={{ color: C.inkFaint }}>HOW MANY DO YOU HAVE</div>
                         <input type="number" min="1" max="500" placeholder={serviceKind === 'accommodation' ? 'e.g. 5 rooms of this type' : 'e.g. 2'} value={productForm.units || ''} onChange={(e) => setProductForm({ ...productForm, units: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
