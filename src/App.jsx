@@ -722,7 +722,7 @@ function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '', shopId: row.shop_id || null };
 }
 function fromSbProduct(row) {
-  return { id: row.id, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
+  return { id: row.id, shopId: row.shop_id || null, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
 }
 // What a storefront order comes to: items less any discount, plus delivery once the business has added it,
 // and how much of it the customer has already paid online (less anything owed back to them)
@@ -1539,6 +1539,9 @@ function XorlaApp() {
   const teamList = isManager
     ? (settings.staffList || []).filter((p) => p.role !== 'manager' && staffShops.some((ss) => ss.profile_id === p.id && isMyLocation(ss.shop_id)))
     : (settings.staffList || []);
+  // The strip at the top follows the branch being looked at: one branch picked = only the people who work there
+  const worksAt = (pid, shopId) => { const rows = staffShops.filter((ss) => ss.profile_id === pid); return rows.length ? rows.some((ss) => ss.shop_id === shopId) : shopId === mainShopId; };
+  const stripTeam = !isManager && !viewAllShops && activeShopId ? teamList.filter((p) => worksAt(p.id, activeShopId)) : teamList;
   const locName = (s) => displayLocationName(s, L);
   const shopNameOf = (id) => locName(locationsAll.find((s) => s.id === (id || mainShopId)));
   const inActiveShop = (r) => (viewAllShops ? (!isManager || myShops.some((s) => s.id === (r.shopId || r.shop_id || mainShopId))) : (r.shopId || mainShopId) === activeShopId);
@@ -1555,7 +1558,11 @@ function XorlaApp() {
     return o !== null && o !== undefined ? Number(o) : Number(p.sellingPrice);
   };
   const stockShopIds = activeShopId ? [activeShopId] : (isOwnerRole ? locations : myShops).map((s) => s.id);
-  const products = productsAll.map((p) => {
+  // Each branch can have its own items: an item is for every branch (shopId empty) or one branch, and can be switched off at a branch
+  const availableAt = (p, shopId) => !!p && (!p.shopId || p.shopId === shopId) && !(shopId && shopRow(p.id, shopId)?.hidden);
+  const productsHere = productsAll.filter((p) => (viewAllShops ? (!isManager || !p.shopId || myShops.some((s) => s.id === p.shopId)) : (!p.shopId || p.shopId === activeShopId)));
+  const hereShopId = activeShopId || (isManager && myShops.length === 1 ? myShops[0].id : null);
+  const products = productsHere.map((p) => {
     const tracked = p.trackStock && kindOf(p, settings.businessType) === 'product';
     const lowShops = tracked ? stockShopIds.filter((id) => stockAt(p, id) <= p.lowStockThreshold) : [];
     return {
@@ -1565,10 +1572,12 @@ function XorlaApp() {
       stockQuantity: tracked ? stockShopIds.reduce((a, id) => a + stockAt(p, id), 0) : null,
       lowShops: lowShops.map(shopNameOf),
       isLow: T.tracksStock && lowShops.length > 0,
+      // still listed so it can be switched back on, but not sold or booked here
+      offHere: !!hereShopId && !!shopRow(p.id, hereShopId)?.hidden,
     };
   });
   // Rooms and rentals are booked by date in Bookings, never sold as a quick sale
-  const saleProducts = products.filter((p) => !isBookable(p));
+  const saleProducts = products.filter((p) => !isBookable(p) && !p.offHere);
   const hasOrderables = settings.businessType === 'products' || saleProducts.length > 0 || ordersAll.length > 0;
   const hasShopPrices = (p) => productShops.some((r) => r.product_id === p.id && r.price_override !== null && r.price_override !== undefined);
   const setLocalStock = (productId, shopId, qty) => setProductShops((prev) => {
@@ -2591,10 +2600,12 @@ function XorlaApp() {
       let savedId = editingProductId;
       if (editingProductId) {
         const existing = products.find((p) => p.id === editingProductId);
-        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) } });
+        const whereBody = allLiveLocations.length > 1 || isManager ? { shop_id: (isManager ? (productForm.where || activeShopId || myShops[0]?.id) : productForm.where) || null } : {};
+        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { ...whereBody, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) } });
         setProducts((prev) => prev.map((p) => p.id === editingProductId ? fromSbProduct(rows[0]) : p).sort((a, b) => a.name.localeCompare(b.name)));
       } else {
-        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '' } });
+        const whereBody = allLiveLocations.length > 1 || isManager ? { shop_id: (isManager ? (productForm.where || activeShopId || myShops[0]?.id) : productForm.where) || null } : {};
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { ...whereBody, business_id: settings.businessId, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '' } });
         setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
         const startQty = Number(productForm.stockQuantity);
         if (!formIsService && productForm.stockQuantity !== '' && startQty > 0) await changeStock(rows[0].id, targetShopId, startQty, 'initial');
@@ -2644,7 +2655,7 @@ function XorlaApp() {
     if (!pending.length && !recent.length) return null;
     const list = [...pending, ...(showAllChanges ? recent : recent.slice(0, 4))];
     const when = (t) => { const d = new Date(t); const today = lagosDateKey(t) === lagosToday; return d.toLocaleString('en-GB', { ...LAGOS_TIME, ...(today ? {} : { weekday: 'short' }), hour: 'numeric', minute: '2-digit', hour12: true }); };
-    const icon = (k) => (k === 'new' ? Plus : k === 'price' || k === 'location_price' ? Wallet : k === 'photo' || k === 'storefront' ? Camera : k === 'rooms' ? BedDouble : Package);
+    const icon = (k) => (k === 'team' ? Users : k === 'new' ? Plus : k === 'price' || k === 'location_price' ? Wallet : k === 'photo' || k === 'storefront' ? Camera : k === 'rooms' ? BedDouble : Package);
     return (
       <div id="changes" className="rounded-2xl p-4 mb-6 scroll-mt-24" style={card}>
         <div className="flex items-baseline justify-between gap-3 mb-3">
@@ -2656,12 +2667,12 @@ function XorlaApp() {
             const Ic = icon(c.kind);
             const wait = c.status === 'pending';
             return (
-              <div key={c.id} className="rounded-xl px-3 py-2.5" style={{ background: wait ? C.copperSoft : C.surfaceRaised, border: `1px solid ${wait ? 'rgba(255,176,32,0.35)' : C.line}`, opacity: c.status === 'undone' || c.status === 'declined' ? 0.6 : 1 }}>
+              <div key={c.id} className="rounded-xl px-3 py-2.5" style={{ background: wait ? C.copperSoft : C.surfaceRaised, border: `1px solid ${wait ? 'rgba(255,176,32,0.35)' : C.line}`, opacity: (c.status === 'undone' && c.kind !== 'team') || c.status === 'declined' ? 0.6 : 1 }}>
                 <div className="flex items-start gap-2.5">
                   <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: c.money ? C.copperSoft : 'rgba(255,255,255,0.05)' }}><Ic size={15} style={{ color: c.money ? C.copper : C.inkDim }} /></span>
                   <span className="flex-1 min-w-0">
-                    <span className="block text-[13px] leading-snug" style={{ color: C.ink, textDecoration: c.status === 'undone' ? 'line-through' : 'none' }}>{c.summary}</span>
-                    <span className="block text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{c.actor_name || 'Manager'}{c.shop_id && hasManyLocations ? ` · ${shopNameOf(c.shop_id)}` : ''} · {when(c.created_at)}{c.status === 'undone' ? ' · undone' : c.status === 'declined' ? ' · declined' : c.status === 'approved' ? ' · approved' : ''}</span>
+                    <span className="block text-[13px] leading-snug" style={{ color: C.ink, textDecoration: c.status === 'undone' && c.kind !== 'team' ? 'line-through' : 'none' }}>{c.summary}</span>
+                    <span className="block text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{c.actor_name || 'Manager'}{c.shop_id && hasManyLocations ? ` · ${shopNameOf(c.shop_id)}` : ''} · {when(c.created_at)}{c.status === 'undone' && c.kind !== 'team' ? ' · undone' : c.status === 'declined' ? ' · declined' : c.status === 'approved' ? ' · approved' : ''}</span>
                   </span>
                   {(c.status === 'applied' || c.status === 'approved') && <button onClick={() => undoChange(c)} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Undo</button>}
                 </div>
@@ -2719,9 +2730,26 @@ function XorlaApp() {
           <span style={{ color: C.inkDim }}>Standard price (set by the owner)</span>
           <span className="cx-mono font-semibold">{fmt(std)}{unit}</span>
         </div>
+        {(() => {
+          const offered = !shopRow(p.id, locPrice.shopId)?.hidden;
+          const toggle = async () => {
+            setLocPrice({ ...locPrice, busy: true, error: '' });
+            try {
+              await sbRest('product_shops', { method: 'POST', accessToken: session.access_token, upsert: true, body: [{ product_id: p.id, shop_id: locPrice.shopId, hidden: offered }] });
+              setProductShops((prev) => { const next = [...prev]; const i = next.findIndex((r) => r.product_id === p.id && r.shop_id === locPrice.shopId); if (i >= 0) next[i] = { ...next[i], hidden: offered }; else next.push({ product_id: p.id, shop_id: locPrice.shopId, stock_quantity: null, price_override: null, hidden: offered }); return next; });
+              setLocPrice((x) => x && { ...x, busy: false });
+            } catch (e) { setLocPrice((x) => x && { ...x, busy: false, error: e.message }); }
+          };
+          return (
+            <button type="button" onClick={toggle} disabled={locPrice.busy} className="w-full mb-3 rounded-xl px-3.5 py-3 flex items-center gap-3 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold">Offer at {shopNameOf(locPrice.shopId)}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{offered ? 'Guests and customers at this branch can book or buy it.' : 'Switched off here. Other branches still offer it.'}</span></span>
+              <span className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: offered ? C.sage : 'rgba(255,255,255,0.12)' }}><span className="absolute top-1 w-4 h-4 rounded-full" style={{ background: '#fff', left: offered ? '24px' : '4px' }} /></span>
+            </button>
+          );
+        })()}
         <label className="block text-[12.5px] font-semibold mb-1.5">Price here <span className="font-normal" style={{ color: C.inkFaint }}>(leave empty to use the standard price)</span></label>
         <input type="text" inputMode="decimal" autoFocus placeholder={fmt(std)} value={formatNumInput(locPrice.value)} onChange={(e) => setLocPrice({ ...locPrice, value: parseNumInput(e.target.value), error: '' })} onKeyDown={(e) => e.key === 'Enter' && saveLocPrice()} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
-        <div className="text-[11.5px] mt-2 leading-relaxed" style={{ color: C.inkFaint }}>Only {shopNameOf(locPrice.shopId)} and its storefront page use this price. To rename this, change its photo or change the standard price, ask the owner.</div>
+        <div className="text-[11.5px] mt-2 leading-relaxed" style={{ color: C.inkFaint }}>Only {shopNameOf(locPrice.shopId)} and its storefront page use this price. This item is shared by every branch, so renaming it or changing its photo is for the owner. To have your own version, add a new item for your branch.</div>
         {locPrice.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{locPrice.error}</div>}
         <button onClick={saveLocPrice} disabled={locPrice.busy} className="w-full mt-4 rounded-xl py-3 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: locPrice.busy ? 0.6 : 1 }}>{locPrice.busy ? 'Saving…' : 'Save price'}</button>
       </Sheet>
@@ -3378,7 +3406,7 @@ function XorlaApp() {
   const renderTeamPresence = (compact) => (
     <div className="flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
       {!compact && <span className="text-[11px] font-medium shrink-0 mr-0.5" style={{ color: C.inkFaint }}>Team</span>}
-      {teamList.map((s) => {
+      {stripTeam.map((s) => {
         const pr = presenceOf(s.name);
         return (
           <button key={s.id} onClick={() => { setStaffFilter(s.name); setTab('sales'); }} title={`${pr.label}${pr.salesToday ? ` · ${pr.salesToday} ${T.sale}${pr.salesToday !== 1 ? 's' : ''} today` : ''}`} className="shrink-0 flex items-center gap-2 pl-2.5 pr-3 py-1.5 rounded-full text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
@@ -3770,9 +3798,10 @@ function XorlaApp() {
 
   // Hotels and rentals: rooms are booked by date; extras (laundry, bar, pickup) have a set price for quick sales
   const roomWord = serviceKind === 'rentals' ? 'rental' : 'room';
+  const defaultWhere = () => (isManager ? (activeShopId || myShops[0]?.id || '') : (allLiveLocations.length > 1 && !viewAllShops && activeShopId ? activeShopId : ''));
   const openCatalogForm = (mode) => {
     setTab('products'); setProductsView('list'); setEditingProductId(null);
-    setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: 'service', mode, units: '1',
+    setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: 'service', mode, units: '1',
       priceUnit: mode === 'extra' ? 'fixed' : (SERVICE_KINDS[serviceKind]?.unit || 'night'), category: mode === 'extra' ? 'Extras' : '' });
     setShowProductForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4881,9 +4910,9 @@ function XorlaApp() {
   );
 
   // ---------- Bookings: stays and rentals ----------
-  const bookables = productsAll.filter(isBookable);
-  const hasBookables = settings.businessType !== 'products' && bookables.length > 0;
   const deskShopId = activeShopId || targetShopId || mainShopId;
+  const bookables = productsAll.filter((p) => isBookable(p) && availableAt(p, deskShopId));
+  const hasBookables = settings.businessType !== 'products' && productsAll.some(isBookable);
   const bookings = bookingsAll.filter((b) => (viewAllShops ? (!isManager || myShops.some((s) => s.id === b.shop_id)) : b.shop_id === activeShopId));
   const bkToday = todayKey();
   const holdLive = (b) => b.status === 'requested' && b.hold_until && new Date(b.hold_until).getTime() > Date.now();
@@ -8645,7 +8674,7 @@ function XorlaApp() {
                 );
               })()}
             </div>
-            {teamList.length > 0 && <div className="hidden md:flex">{renderTeamPresence(true)}</div>}
+            {stripTeam.length > 0 && <div className="hidden md:flex">{renderTeamPresence(true)}</div>}
             <span className="hidden sm:flex w-9 h-9 rounded-xl items-center justify-center shrink-0" style={{ border: `1px solid ${notifOpen ? C.copper : C.line}` }}>{renderBell()}</span>
             {tab !== 'bookings' && (
             <button
@@ -8657,7 +8686,7 @@ function XorlaApp() {
           </div>
 
           {/* Team presence (owner only) */}
-          {teamList.length > 0 && tab !== 'bookings' && <div className="md:hidden mb-4">{renderTeamPresence(false)}</div>}
+          {stripTeam.length > 0 && tab !== 'bookings' && <div className="md:hidden mb-4">{renderTeamPresence(false)}</div>}
           {tab === 'overview' && !hasBookables ? <div className="lg:hidden text-[11px] mb-6 mt-3" style={{ color: C.inkFaint }}>Sold something? Use Sales. Billing without a sale now? Use Invoices.</div> : <div className="lg:hidden mb-4" />}
 
           {/* ============ OVERVIEW TAB ============ */}
@@ -9261,7 +9290,7 @@ function XorlaApp() {
                   {isOwnerRole && <button onClick={openImport} className="col-span-2 -mt-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list of extras</button>}
                 </div>
               ) : (
-              <button onClick={() => { setEditingProductId(null); setProductForm({ ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
+              <button onClick={() => { setEditingProductId(null); setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
               )
             )}
             {!T.saleHint && isOwnerRole && (
@@ -9361,7 +9390,19 @@ function XorlaApp() {
                     <div className="text-[11px] -mt-2" style={{ color: C.inkFaint }}>{editingProductId ? 'To change how many you have, use Restock on the product.' : "Leave stock blank if you don't want to track it for this product."}</div>
                   </>
                 )}
-                {canRun && shops.length > 1 && (
+                {canRun && (allLiveLocations.length > 1 || isManager) && (
+                  <div className="rounded-xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                    <div className={fieldLabel} style={{ color: C.inkFaint }}>AVAILABLE AT</div>
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {[...(isOwnerRole ? [['', `Every ${L.one}`]] : []), ...(isManager ? myShops : shops).map((sh) => [sh.id, `Only ${locName(sh)}`])].map(([v, l]) => {
+                        const on = (productForm.where ?? '') === v || (isManager && !productForm.where && v === (activeShopId || myShops[0]?.id));
+                        return <button key={v || 'all'} type="button" onClick={() => setProductForm({ ...productForm, where: v })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={on ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>;
+                      })}
+                    </div>
+                    <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>{(productForm.where ?? '') === '' && isOwnerRole ? `Shared by every ${L.one}. You can still set a different price for a ${L.one} below.` : `Only this ${L.one} offers it, with its own name, photo and price. Other ${L.many} don't see it.`}</div>
+                  </div>
+                )}
+                {canRun && shops.length > 1 && (productForm.where ?? '') === '' && isOwnerRole && (
                   <div className="rounded-xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                     <div className={fieldLabel} style={{ color: C.inkFaint }}>PRICE BY {L.one.toUpperCase()} (OPTIONAL)</div>
                     <div className="text-[11px] mb-3" style={{ color: C.inkFaint }}>Leave a {L.one} blank to use the normal price{productForm.sellingPrice ? ` (${fmt(productForm.sellingPrice)})` : ''}.</div>
@@ -9416,6 +9457,9 @@ function XorlaApp() {
                             ? <span>{priceLabel(p)}{p.duration ? ` · ${p.duration}` : ''}{settings.businessType === 'both' ? ' · Service' : ''}</span>
                             : <><span>Sells <strong className="font-semibold" style={{ color: C.ink }}>{fmt(p.sellingPrice)}</strong></span><span>·</span><span>Cost {fmt(p.costPrice)}</span>{Number(p.sellingPrice) > 0 && Number(p.costPrice) > 0 && <span className="px-1.5 rounded-md text-[10.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage }}>{Math.round(((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100)}% margin</span>}{shops.length > 1 && hasShopPrices(p) && viewAllShops ? <span>· varies by {L.one}</span> : null}</>}
                           {p.category && <span className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{p.category}</span>}
+                          {hasManyLocations && p.shopId && <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1" style={{ color: C.copper, background: C.copperSoft }}><MapPin size={10} />Only {shopNameOf(p.shopId)}</span>}
+                          {p.offHere ? <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: C.rust, background: 'rgba(226,98,75,0.12)' }}>Switched off here</span>
+                            : viewAllShops && hasManyLocations && !p.shopId && (() => { const off = locations.filter((sh) => shopRow(p.id, sh.id)?.hidden); return off.length ? <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: C.rust, background: 'rgba(226,98,75,0.12)' }}>Off at {off.map(locName).join(', ')}</span> : null; })()}
                         </div>
                       </div>
                     </div>
@@ -9437,7 +9481,7 @@ function XorlaApp() {
                       {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }, C.sage)}
                         {canRun && allLiveLocations.length > 1 && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
-                        {pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
+                        {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
                         {canRun && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
                         {isOwnerRole && <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>}
                       </>); })()}
