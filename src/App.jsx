@@ -283,7 +283,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule'];
 const SETTINGS_DESCRIPTIONS = {
   plan: 'What your plan includes, and renewing it.',
   notifications: 'Alerts on this device for new orders, requests and staff.',
@@ -392,6 +392,11 @@ function dayChipLabel(dateStr, todayStr) {
 }
 const HALF_HOURS = Array.from({ length: 38 }, (_, i) => { const m = 5 * 60 + i * 30; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; });
 const hhmmLabel = (t) => { const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}`; };
+// Halls and event spaces: times from 6am to midnight
+const EVENT_TIMES = [...HALF_HOURS.filter((t) => t >= '06:00'), '24:00'];
+// Moving the start keeps the end after it (at least an hour later)
+const eventEndAfter = (start, end) => (end > start ? end : EVENT_TIMES.find((t) => t >= `${String(Number(start.slice(0, 2)) + 1).padStart(2, '0')}${start.slice(2)}`) || '24:00');
+const eventTimeLabel = (t) => (!t ? '' : t.startsWith('24') || t.startsWith('00:00') ? 'midnight' : hhmmLabel(t.slice(0, 5)));
 const DURATIONS = ['30 minutes', '1 hour', '1.5 hours', '2 hours', '3 hours', '4 hours', 'Half a day', 'Full day', '2+ days'];
 function priceLabel(p) {
   const amt = fmt(p.sellingPrice);
@@ -722,7 +727,7 @@ function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '', shopId: row.shop_id || null };
 }
 function fromSbProduct(row) {
-  return { id: row.id, shopId: row.shop_id || null, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '' };
+  return { id: row.id, shopId: row.shop_id || null, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '', isSpace: !!row.is_space, hourPrice: row.hour_price == null ? null : Number(row.hour_price), capacity: row.capacity == null ? null : Number(row.capacity) };
 }
 // What a storefront order comes to: items less any discount, plus delivery once the business has added it,
 // and how much of it the customer has already paid online (less anything owed back to them)
@@ -1448,6 +1453,8 @@ function XorlaApp() {
   const [stockTransfers, setStockTransfers] = useState([]);
   const [stockRequests, setStockRequests] = useState([]);
   const [bookingsAll, setBookingsAll] = useState([]);
+  const [spaceForm, setSpaceForm] = useState(null);
+  const [showAllEvents, setShowAllEvents] = useState(false); // booking a hall or event space at the front desk
   const [roomsAll, setRoomsAll] = useState([]);
   const [roomSetup, setRoomSetup] = useState({});
   const [editRoomsFor, setEditRoomsFor] = useState(null);
@@ -2141,6 +2148,7 @@ function XorlaApp() {
       checkinTime: String(business.checkin_time || '14:00').slice(0, 5),
       approveManagerPrices: !!business.approve_manager_prices,
       checkoutTime: String(business.checkout_time || '12:00').slice(0, 5),
+      earlyLeaveRule: business.early_leave_rule || 'stayed',
       closeTime: String(business.close_time || '18:00').slice(0, 5),
       openDays: Array.isArray(business.open_days) ? business.open_days : [1, 2, 3, 4, 5, 6],
       apptCapacity: business.appt_capacity ?? 1,
@@ -2584,7 +2592,7 @@ function XorlaApp() {
   };
 
   // Hotels name their rooms while adding the room type: one box per branch that offers it
-  const formNamesRooms = () => serviceKind === 'accommodation' && formIsService && ['night', 'day'].includes(productForm.priceUnit) && productForm.mode !== 'extra';
+  const formNamesRooms = () => serviceKind === 'accommodation' && formIsService && ['night', 'day'].includes(productForm.priceUnit) && productForm.mode !== 'extra' && productForm.mode !== 'space';
   const formRoomShops = () => {
     const live = allLiveLocations.filter((l) => l.kind !== 'warehouse');
     if (isManager) return [productForm.where || activeShopId || myShops[0]?.id].filter(Boolean);
@@ -2623,14 +2631,16 @@ function XorlaApp() {
         imageUrl = await sbUploadImage(session.access_token, productForm.imageBlob, path);
       }
       let savedId = editingProductId;
+      // A hall or event space: priced per day, optionally per hour, never counted as a room
+      const spaceBody = productForm.mode === 'space' ? { is_space: true, kind: 'service', price_unit: 'day', units: 1, track_stock: false, hour_price: Number(parseNumInput(productForm.hourPrice || '')) > 0 ? Number(parseNumInput(productForm.hourPrice)) : null, capacity: Number(productForm.capacity) > 0 ? Math.min(100000, Math.round(Number(productForm.capacity))) : null } : {};
       if (editingProductId) {
         const existing = products.find((p) => p.id === editingProductId);
         const whereBody = allLiveLocations.length > 1 || isManager ? { shop_id: (isManager ? (productForm.where || activeShopId || myShops[0]?.id) : productForm.where) || null } : {};
-        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { ...whereBody, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) } });
+        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { ...whereBody, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) , ...spaceBody } });
         setProducts((prev) => prev.map((p) => p.id === editingProductId ? fromSbProduct(rows[0]) : p).sort((a, b) => a.name.localeCompare(b.name)));
       } else {
         const whereBody = allLiveLocations.length > 1 || isManager ? { shop_id: (isManager ? (productForm.where || activeShopId || myShops[0]?.id) : productForm.where) || null } : {};
-        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { ...whereBody, business_id: settings.businessId, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '' } });
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { ...whereBody, business_id: settings.businessId, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...spaceBody } });
         setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
         const startQty = Number(productForm.stockQuantity);
         if (!formIsService && productForm.stockQuantity !== '' && startQty > 0) await changeStock(rows[0].id, targetShopId, startQty, 'initial');
@@ -3118,6 +3128,7 @@ function XorlaApp() {
       if ('checkinTime' in patch) bizPatch.checkin_time = patch.checkinTime;
       if ('approveManagerPrices' in patch) bizPatch.approve_manager_prices = !!patch.approveManagerPrices;
       if ('checkoutTime' in patch) bizPatch.checkout_time = patch.checkoutTime;
+      if ('earlyLeaveRule' in patch) bizPatch.early_leave_rule = patch.earlyLeaveRule;
       if ('closeTime' in patch) bizPatch.close_time = patch.closeTime;
       if ('openDays' in patch) bizPatch.open_days = patch.openDays;
       if ('apptCapacity' in patch) bizPatch.appt_capacity = Number(patch.apptCapacity);
@@ -3836,7 +3847,7 @@ function XorlaApp() {
   const openCatalogForm = (mode) => {
     setTab('products'); setProductsView('list'); setEditingProductId(null);
     setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: 'service', mode, units: '1',
-      priceUnit: mode === 'extra' ? 'fixed' : (SERVICE_KINDS[serviceKind]?.unit || 'night'), category: mode === 'extra' ? 'Extras' : '' });
+      priceUnit: mode === 'extra' ? 'fixed' : mode === 'space' ? 'day' : (SERVICE_KINDS[serviceKind]?.unit || 'night'), category: mode === 'extra' ? 'Extras' : mode === 'space' ? 'Halls & spaces' : '', hourPrice: '', capacity: '' });
     setShowProductForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -4945,7 +4956,8 @@ function XorlaApp() {
 
   // ---------- Bookings: stays and rentals ----------
   const deskShopId = activeShopId || targetShopId || mainShopId;
-  const bookables = productsAll.filter((p) => isBookable(p) && availableAt(p, deskShopId));
+  const bookables = productsAll.filter((p) => isBookable(p) && !p.isSpace && availableAt(p, deskShopId));
+  const spacesHere = productsAll.filter((p) => p.isSpace && availableAt(p, deskShopId));
   const hasBookables = settings.businessType !== 'products' && productsAll.some(isBookable);
   const bookings = bookingsAll.filter((b) => (viewAllShops ? (!isManager || myShops.some((s) => s.id === b.shop_id)) : b.shop_id === activeShopId));
   const bkToday = todayKey();
@@ -4958,15 +4970,25 @@ function XorlaApp() {
     ...bookings.filter((b) => b.deposit_status === 'refund_due').map((b) => b.id),
     ...bookings.filter((b) => newerThan(b.created_at, seenAt.bookings) || newerThan(b.guest_event_at, seenAt.bookings)).map((b) => b.id),
   ]).size;
-  const arrivals = bookings.filter((b) => b.status === 'confirmed' && b.check_in <= bkToday);
-  const staying = bookings.filter((b) => b.status === 'checked_in');
-  const upcomingBookings = bookings.filter((b) => b.status === 'confirmed' && b.check_in > bkToday);
+  // Stays (rooms) and events (halls and spaces) are run separately at the desk
+  const arrivals = bookings.filter((b) => !b.is_space && b.status === 'confirmed' && b.check_in <= bkToday);
+  const staying = bookings.filter((b) => !b.is_space && b.status === 'checked_in');
+  const upcomingBookings = bookings.filter((b) => !b.is_space && b.status === 'confirmed' && b.check_in > bkToday);
+  const byEventStart = (x, y) => String(x.check_in).localeCompare(String(y.check_in)) || String(x.start_time || '').localeCompare(String(y.start_time || ''));
+  const eventsNow = bookings.filter((b) => b.is_space && (b.status === 'checked_in' || (b.status === 'confirmed' && b.check_in <= bkToday))).sort(byEventStart);
+  const eventsNext = bookings.filter((b) => b.is_space && b.status === 'confirmed' && b.check_in > bkToday).sort(byEventStart);
+  const eventWhen = (b, withDay = true) => {
+    if (!b) return '';
+    if (b.start_time) return `${withDay ? `${dayLabel(b.check_in)}, ` : ''}${eventTimeLabel(b.start_time)} to ${eventTimeLabel(b.end_time)}`;
+    const n = nightsBetween(b.check_in, b.check_out);
+    return n > 1 ? `${dayLabel(b.check_in)} to ${dayLabel(addDays(b.check_out, -1))} (${n} days)` : `${withDay ? `${dayLabel(b.check_in)}, ` : ''}all day`;
+  };
   const canAnswerRequests = canRun || settings.staffConfirmBookings !== false;
   // Deposits: the business's rules (50% of the stay, never more than one night per room, free cancellation until 24 hours before check-in, at the business's own check-in time)
   const depositPct = Number(settings.depositPercent ?? 50);
   const depositDueOf = (b) => {
     const cap = Number(settings.depositCapNights ?? 1); const raw = Number(b.total) * depositPct / 100;
-    return Math.round(cap > 0 ? Math.min(raw, Number(b.unit_price) * (b.units || 1) * cap) : raw);
+    return Math.round(cap > 0 && !b.is_space ? Math.min(raw, Number(b.unit_price) * (b.units || 1) * cap) : raw);
   };
   const depositOwing = (b) => Math.max(0, depositDueOf(b) - (Number(b.deposit_paid) || 0));
   const depositsHeld = bookings.filter((b) => (b.status === 'confirmed' || b.status === 'requested') && Number(b.deposit_paid) > 0);
@@ -5004,6 +5026,20 @@ function XorlaApp() {
     runBooking(() => sbRpc('remove_room_charge', session.access_token, { p_charge: c.id, p_reason: '' }));
   };
   const checkInAt = (b) => new Date(`${b.check_in}T${settings.checkinTime || '14:00'}:00+01:00`).getTime();
+  // A guest checking out before their booked date: what the hotel's rule (or the owner's choice) charges
+  const daysBetween = (a, b) => Math.round((Date.parse(`${String(b).slice(0, 10)}T00:00:00Z`) - Date.parse(`${String(a).slice(0, 10)}T00:00:00Z`)) / 86400000);
+  const earlyRuleWords = { stayed: 'Only the nights used', one_night: 'One extra night', full: 'The full booking' };
+  const earlyOf = (b, ruleIn) => {
+    if (!b || b.status !== 'checked_in' || b.is_space) return null;
+    const nights = Math.max(1, Number(b.nights) || 1);
+    if (bkToday >= String(b.check_out).slice(0, 10)) return null;
+    const used = Math.max(1, daysBetween(b.check_in, bkToday) + (b.price_unit === 'day' ? 1 : 0));
+    if (used >= nights) return null;
+    const rule = (canRun && ruleIn) || settings.earlyLeaveRule || 'stayed';
+    const charge = rule === 'full' ? nights : rule === 'one_night' ? Math.min(nights, used + 1) : used;
+    const total = Math.round((Number(b.total) * charge) / nights);
+    return { used, nights, charge, rule, total, cut: Number(b.total) - total };
+  };
   const isEarlyCancel = (b) => Date.now() <= checkInAt(b) - Number(settings.cancelWindowHours ?? 24) * 3600000;
   const nightsBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 86400000);
   const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
@@ -5050,6 +5086,44 @@ function XorlaApp() {
         } catch (e) { /* the booking is saved either way */ }
       });
   };
+  // Halls and event spaces: one event at a time, by the day or by the hour
+  const spaceClash = (productId, shopId, date, days, start, end, excludeId) => {
+    if (!productId || !date) return null;
+    const out = start ? addDays(date, 1) : addDays(date, Math.max(1, Number(days) || 1));
+    return bookingsAll.find((x) => x.product_id === productId && x.shop_id === shopId && x.id !== excludeId && occupies(x)
+      && x.check_in < out && date < x.check_out
+      && (!x.start_time || !start || (String(x.start_time).slice(0, 5) < end && start < String(x.end_time).slice(0, 5)))) || null;
+  };
+  const spaceTotal = (p, f) => {
+    if (!p || !f) return 0;
+    if (f.mode === 'hour') { const [sh, sm] = f.start.split(':').map(Number); const [eh, em] = f.end.split(':').map(Number); const hrs = Math.max(0, (eh * 60 + em - sh * 60 - sm) / 60); return Math.round((Number(p.hourPrice) || 0) * hrs); }
+    return priceAt(p, deskShopId) * Math.max(1, Number(f.days) || 1);
+  };
+  const openSpaceBooking = (productId) => {
+    setBookingError('');
+    const p = spacesHere.find((x) => x.id === productId) || spacesHere[0];
+    setSpaceForm({ productId: p?.id || '', date: bkToday, mode: 'day', days: 1, start: '10:00', end: '14:00', name: '', phone: '', event: '', guests: '', note: '', paid: '' });
+  };
+  const submitSpaceBooking = () => {
+    const f = spaceForm; if (!f) return;
+    const hourly = f.mode === 'hour';
+    if (!f.name.trim()) { setBookingError("Enter the customer's name."); return; }
+    if (hourly && !(f.end > f.start)) { setBookingError('The end time must be after the start time.'); return; }
+    let newId = null;
+    runBooking(async () => {
+      newId = await sbRpc('create_space_booking', session.access_token, { p_shop_id: deskShopId, p_product_id: f.productId, p_date: f.date, p_days: hourly ? null : Math.max(1, Number(f.days) || 1), p_start: hourly ? f.start : null, p_end: hourly ? f.end : null,
+        p_name: f.name.trim(), p_phone: f.phone.trim(), p_note: f.note.trim(), p_amount_paid: Number(parseNumInput(f.paid)) || 0, p_guests: Number(f.guests) > 0 ? Math.round(Number(f.guests)) : null, p_event: f.event.trim() });
+    }, async () => {
+      setSpaceForm(null);
+      if (!newId || !String(f.phone || '').replace(/[^0-9]/g, '')) return;
+      try {
+        const rows = await sbRest('bookings', { accessToken: session.access_token, query: `?select=*&id=eq.${newId}` });
+        const nb = rows[0]; if (!nb || !nb.manage_token) return;
+        const msg = confirmedMessage(nb, Number(parseNumInput(f.paid)) || 0);
+        offerWhatsApp(nb.customer_phone, msg, 'Booking saved', `Send ${String(nb.customer_name).split(' ')[0]} their confirmation and booking link on WhatsApp? It's their proof of booking. They'll see:\n\n"${msg}"`, () => markLinkSent(nb));
+      } catch (e) { /* the booking is saved either way */ }
+    });
+  };
   const openAct = (booking, action, roomId) => {
     setBookingError('');
     const free = action === 'check_in' ? roomsFor(booking.product_id, booking.shop_id).filter((r) => !occupantOf(r)) : [];
@@ -5066,11 +5140,14 @@ function XorlaApp() {
     const adding = Number(parseNumInput(actForm.amount)) || 0;
     // For the guest's receipt: the stay and every extra, what's been paid and what's still owed
     const extras = chargesOf(booking);
-    const grand = Number(booking.total) + extras.reduce((a, c) => a + Number(c.amount), 0);
+    const leaving = action === 'check_out' ? earlyOf(booking, actForm.earlyRule) : null;
+    const stayTotal = leaving ? leaving.total : Number(booking.total);
+    const grand = stayTotal + extras.reduce((a, c) => a + Number(c.amount), 0);
     const paidAll = Math.min(grand, (Number(booking.amount_paid) || 0) + adding);
     const pickedRooms = action === 'check_in' ? (actForm.roomIds || []) : [];
     runBooking(async () => {
-      await sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: (pickedRooms[0] || actForm.roomId) || null });
+      if (leaving) await sbRpc('leave_early', session.access_token, { p_booking: booking.id, p_rule: canRun ? (actForm.earlyRule || '') : '', p_amount: adding, p_keep: !!actForm.keep });
+      else await sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: (pickedRooms[0] || actForm.roomId) || null });
       if (pickedRooms.length > 1) await sbRpc('assign_rooms', session.access_token, { p_booking: booking.id, p_room_ids: pickedRooms });
     },
       () => {
@@ -5087,7 +5164,7 @@ function XorlaApp() {
         if (action === 'check_out') setReceipt(makeReceipt({
           id: booking.id,
           items: [
-            { name: `${booking.item_name}${booking.room_label ? ` ${booking.room_label}` : ''}, ${booking.nights} ${unitWord(booking)}${booking.nights !== 1 ? 's' : ''}`, amount: Number(booking.total) },
+            booking.is_space ? { name: `${booking.item_name}, ${eventWhen(booking)}`, amount: stayTotal } : { name: `${booking.item_name}${booking.room_label ? ` ${booking.room_label}` : ''}, ${leaving ? leaving.charge : booking.nights} ${unitWord(booking)}${(leaving ? leaving.charge : booking.nights) !== 1 ? 's' : ''}${leaving ? ' (left early)' : ''}`, amount: stayTotal },
             ...extras.map((c) => ({ name: Number(c.quantity) > 1 ? `${c.item} ×${Number(c.quantity)}` : c.item, amount: Number(c.amount) })),
           ],
           total: grand, owed: grand - paidAll, customerName: booking.customer_name, customerPhone: booking.customer_phone, shopId: booking.shop_id,
@@ -5101,6 +5178,14 @@ function XorlaApp() {
     const nights = `${b.nights} ${unitWord(b)}${b.nights !== 1 ? 's' : ''}`;
     const owing = depositPct > 0 ? Math.max(0, depositDueOf(b) - (Number(b.deposit_paid) || 0) - (deposit || 0)) : 0;
     const bank = settings.bankAccountNumber ? `${settings.bankName ? `${settings.bankName}, ` : ''}${settings.bankAccountNumber}${settings.bankAccountName ? ` (${settings.bankAccountName})` : ''}` : '';
+    if (b.is_space) {
+      return [
+        `Hi ${first}, your booking at ${settings.businessName} is confirmed${deposit ? ` and we've received your ${fmt(deposit)} ${deposit >= Number(b.total) ? 'payment' : 'deposit'}` : ''}.`,
+        `${b.item_name}, ${eventWhen(b)}${b.event_type ? ` for your ${String(b.event_type).toLowerCase()}` : ''}${b.guest_count ? ` (${b.guest_count} guests)` : ''}. Total ${fmt(b.total)}.`,
+        owing > 0 ? `To secure it, please send the ${fmt(owing)} deposit${bank ? ` to ${bank}` : ''}.` : '',
+        guestLinkOf(b) ? `See or manage your booking here: ${guestLinkOf(b)}` : '',
+      ].filter(Boolean).join('\n\n');
+    }
     const lines = [
       `Hi ${first}, your booking at ${settings.businessName} is confirmed${deposit ? ` and we've received your ${fmt(deposit)} ${deposit >= Number(b.total) ? 'payment' : 'deposit'}` : ''}.`,
       `${b.item_name}${b.units > 1 ? ` × ${b.units}` : ''}, ${dayLabel(b.check_in)} to ${dayLabel(b.check_out)} (${nights}). Total ${fmt(b.total)}.`,
@@ -5143,8 +5228,9 @@ function XorlaApp() {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[14.5px] font-semibold leading-tight" style={{ overflowWrap: 'anywhere' }}>{b.customer_name}</span>
                   {b.room_label && <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}>{serviceKind === 'rentals' ? '' : String(b.room_label).includes(',') ? 'Rooms ' : 'Room '}{b.room_label}</span>}
+                  {b.left_early_at && <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold" title={b.booked_check_out ? `Booked until ${dayLabel(b.booked_check_out)}` : ''} style={{ background: C.copperSoft, color: C.copper }}>Left early{b.booked_total && Number(b.booked_total) > Number(b.total) ? ` · ${fmt(Number(b.booked_total) - Number(b.total))} off` : ''}</span>}
                 </div>
-                <div className="text-[12px] mt-0.5" style={{ color: C.inkDim }}>{b.item_name}{b.units > 1 ? ` × ${b.units}` : ''}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(b.shop_id)}` : ''}</div>
+                <div className="text-[12px] mt-0.5" style={{ color: C.inkDim }}>{b.item_name}{b.units > 1 ? ` × ${b.units}` : ''}{b.is_space && b.event_type ? ` · ${b.event_type}` : ''}{b.is_space && b.guest_count ? ` · ${Number(b.guest_count).toLocaleString('en-NG')} guests` : ''}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(b.shop_id)}` : ''}</div>
               </div>
               <div className="text-right shrink-0">
                 <div className="text-[14.5px] font-bold cx-mono leading-tight">{fmt(b.total)}</div>
@@ -5154,10 +5240,11 @@ function XorlaApp() {
             <div className="mt-2 flex items-center gap-1.5">
               <div className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] min-w-0" style={{ background: 'rgba(0,0,0,0.2)', color: C.inkDim }}>
                 <CalendarClock size={12} style={{ color: C.inkFaint }} className="shrink-0" />
+                {b.is_space ? <span className="leading-tight"><strong style={{ color: C.ink }}>{b.start_time ? `${dayLabel(b.check_in)}` : eventWhen(b).split(' (')[0].replace(', all day', '')}</strong><span className="block text-[10.5px]" style={{ color: C.inkFaint }}>{b.start_time ? `${eventTimeLabel(b.start_time)} to ${eventTimeLabel(b.end_time)}` : nightsBetween(b.check_in, b.check_out) > 1 ? `${nightsBetween(b.check_in, b.check_out)} days` : 'All day'}</span></span> :
                 <span className="leading-tight">{b.check_in.slice(0, 7) === b.check_out.slice(0, 7)
                   ? <><strong style={{ color: C.ink }}>{Number(b.check_in.slice(8, 10))}</strong> → <strong style={{ color: C.ink }}>{dayLabel(b.check_out)}</strong></>
                   : <><strong style={{ color: C.ink }}>{dayLabel(b.check_in)}</strong> → <strong style={{ color: C.ink }}>{dayLabel(b.check_out)}</strong></>}
-                  <span className="block text-[10.5px]" style={{ color: C.inkFaint }}>{b.nights} {unitWord(b)}{b.nights !== 1 ? 's' : ''}</span></span>
+                  <span className="block text-[10.5px]" style={{ color: C.inkFaint }}>{b.nights} {unitWord(b)}{b.nights !== 1 ? 's' : ''}</span></span>}
               </div>
               {b.customer_phone && <span className="ml-auto flex items-center gap-1.5 shrink-0">
                 <a href={`https://wa.me/${toWhatsAppNumber(b.customer_phone)}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${b.customer_name}`} title="WhatsApp" className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={15} /></a>
@@ -5395,7 +5482,7 @@ function XorlaApp() {
             <div className="text-[12px] truncate" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 ? 'All locations' : shopNameOf(deskShopId)} · {dayLabel(bkToday)}</div>
           </div>
           <div className="flex gap-2 mt-3">
-            <button onClick={openNewBooking} className="flex-1 flex items-center justify-center gap-2 rounded-2xl h-12 text-[14.5px] font-semibold" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -12px rgba(255,176,32,0.6)' }}><Plus size={18} /> New booking</button>
+            <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : openNewBooking())} className="flex-1 flex items-center justify-center gap-2 rounded-2xl h-12 text-[14.5px] font-semibold" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -12px rgba(255,176,32,0.6)' }}><Plus size={18} /> New booking</button>
             {canRun && (
               <button onClick={() => setTab('products')} className="shrink-0 flex items-center gap-2 rounded-2xl h-12 px-4 text-[13.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage, border: '1px solid rgba(31,217,196,0.3)' }}><BedDouble size={17} /> {serviceKind === 'rentals' ? 'Items & prices' : 'Rooms & prices'}</button>
             )}
@@ -5521,6 +5608,24 @@ function XorlaApp() {
           </div>
         </div>
 
+        {(spacesHere.length > 0 || eventsNow.length > 0 || eventsNext.length > 0) && (
+          <div id="bk-events" className="scroll-mt-24 rounded-2xl p-3.5 space-y-4" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Building2 size={17} style={{ color: C.copper }} /></span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[15px] font-semibold">Halls & events</div>
+                <div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{spacesHere.map((x) => x.name).join(', ') || 'Events booked here'}</div>
+              </div>
+              {spacesHere.length > 0 && <button onClick={() => openSpaceBooking()} className="shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={14} />Book</button>}
+            </div>
+            {eventsNow.length > 0 && section('Today', C.sage, eventsNow, '', (b) => renderBookingRow(b, b.status === 'checked_in'
+              ? [actBtn('Add to bill', () => openBill(b)), actBtn('Finish', () => openAct(b, 'check_out'), true)]
+              : [actBtn('Start', () => openAct(b, 'check_in'), true), b.check_out <= bkToday ? actBtn('No-show', () => openAct(b, 'no_show')) : depositPct > 0 && depositOwing(b) > 0 ? actBtn('Record deposit', () => openAct(b, 'deposit')) : actBtn('Cancel', () => openAct(b, 'cancel'))]), 'bk-events-now')}
+            {eventsNext.length > 0 && section('Coming up', C.ink, showAllEvents ? eventsNext : eventsNext.slice(0, 5), '', (b) => renderBookingRow(b, [...(depositPct > 0 && depositOwing(b) > 0 ? [actBtn('Record deposit', () => openAct(b, 'deposit'), true)] : []), actBtn('Cancel', () => openAct(b, 'cancel'))]), 'bk-events-next', `${eventsNext.length} booked`)}
+            {eventsNext.length > 5 && <button onClick={() => setShowAllEvents((v) => !v)} className="w-full text-[12.5px] font-semibold" style={{ color: C.copper }}>{showAllEvents ? 'Show fewer' : `Show all ${eventsNext.length}`}</button>}
+            {!eventsNow.length && !eventsNext.length && <div className="text-[12px] rounded-xl px-3 py-2.5" style={{ background: C.surface, color: C.inkFaint }}>No events booked yet. Customers can also book {spacesHere.length === 1 ? 'it' : 'them'} on your storefront.</div>}
+          </div>
+        )}
         {upcomingBookings.length > 0 && section('Coming up', C.ink, upcomingBookings.slice(0, 12), '', (b) => renderBookingRow(b, [...(depositPct > 0 && depositOwing(b) > 0 ? [actBtn('Record deposit', () => openAct(b, 'deposit'), true)] : []), actBtn('Cancel', () => openAct(b, 'cancel'))]), 'bk-upcoming', 'Confirmed, not arrived yet')}
         {(() => {
           // What happened to recent cancellations and no-shows, so the whole front desk knows (not just the owner)
@@ -5570,10 +5675,79 @@ function XorlaApp() {
 
   // New booking, and the check-in / check-out / decline / cancel forms
   const renderBookingPanels = () => {
-    if (!bookingPanel && !bookingAct) return null;
-    const close = () => { if (!bookingBusy) { setBookingPanel(false); setBookingAct(null); } };
+    if (!bookingPanel && !bookingAct && !spaceForm) return null;
+    const close = () => { if (!bookingBusy) { setBookingPanel(false); setBookingAct(null); setSpaceForm(null); } };
     let body = null, title = '', submit = null, submitLabel = '';
-    if (bookingPanel) {
+    if (spaceForm) {
+      const f = spaceForm; const set = (patch) => setSpaceForm({ ...f, ...patch });
+      const p = spacesHere.find((x) => x.id === f.productId);
+      const hourly = f.mode === 'hour' && p?.hourPrice;
+      const total = spaceTotal(p, { ...f, mode: hourly ? 'hour' : 'day' });
+      const clash = p ? spaceClash(p.id, deskShopId, f.date, f.days, hourly ? f.start : null, hourly ? f.end : null) : null;
+      const sameDay = p ? bookingsAll.filter((x) => x.product_id === p.id && x.shop_id === deskShopId && occupies(x) && x.check_in <= f.date && f.date < x.check_out).sort(byEventStart) : [];
+      const over = p?.capacity && Number(f.guests) > p.capacity;
+      title = 'Book a hall or space'; submitLabel = clash ? 'That time is taken' : `Confirm booking${total ? ` · ${fmt(total)}` : ''}`; submit = clash ? () => setBookingError(`${p.name} is already booked then. Choose another time or day.`) : submitSpaceBooking;
+      const sel = 'w-full mt-1 rounded-xl px-3 py-2.5 text-sm';
+      body = (
+        <div className="space-y-3">
+          {spacesHere.length > 1 && (
+            <div className="flex flex-wrap gap-2">
+              {spacesHere.map((x) => <button key={x.id} type="button" onClick={() => set({ productId: x.id, mode: x.hourPrice ? f.mode : 'day' })} className="px-3 py-2 rounded-xl text-left" style={x.id === f.productId ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}><span className="block text-[13px] font-semibold leading-tight">{x.name}</span><span className="block text-[11px]" style={{ color: x.id === f.productId ? C.bg : C.inkFaint }}>{fmt(priceAt(x, deskShopId))}/day{x.capacity ? ` · ${x.capacity} guests` : ''}</span></button>)}
+            </div>
+          )}
+          {spacesHere.length === 1 && p && <div className="text-[13px]" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>{p.name}</strong> · {fmt(priceAt(p, deskShopId))} a day{p.hourPrice ? `, ${fmt(p.hourPrice)} an hour` : ''}{p.capacity ? ` · holds ${p.capacity}` : ''}</div>}
+          <label className="block text-[11.5px]" style={{ color: C.inkFaint }}>Date of the event
+            <input type="date" min={bkToday} value={f.date} onChange={(e) => e.target.value && set({ date: e.target.value })} className={`${sel} outline-none`} style={{ ...field, colorScheme: 'dark' }} />
+          </label>
+          {p?.hourPrice ? (
+            <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              {[['day', 'Full day'], ['hour', 'By the hour']].map(([v, l]) => <button key={v} type="button" onClick={() => set({ mode: v })} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={(hourly ? 'hour' : 'day') === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+            </div>
+          ) : null}
+          {hourly ? (
+            <div className="grid grid-cols-2 gap-2">
+              {[['start', 'From'], ['end', 'Until']].map(([k, l]) => (
+                <label key={k} className="text-[11.5px]" style={{ color: C.inkFaint }}>{l}
+                  <BrandSelect value={f[k]} onChange={(e) => set(k === 'start' ? { start: e.target.value, end: eventEndAfter(e.target.value, f.end) } : { end: e.target.value })} className={sel} style={field}>
+                    {EVENT_TIMES.filter((t) => (k === 'start' ? t < '24:00' : t > f.start)).map((t) => <option key={t} value={t}>{eventTimeLabel(t)}</option>)}
+                  </BrandSelect>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-xl px-3.5 py-2.5" style={{ background: C.surfaceRaised }}>
+              <span className="text-[13px]" style={{ color: C.inkDim }}>How many days</span>
+              <span className="flex items-center gap-2">
+                <button type="button" aria-label="Fewer days" onClick={() => set({ days: Math.max(1, (Number(f.days) || 1) - 1) })} className="w-9 h-9 rounded-lg text-[18px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>−</button>
+                <span className="w-6 text-center text-[15px] font-semibold cx-mono">{Number(f.days) || 1}</span>
+                <button type="button" aria-label="More days" onClick={() => set({ days: Math.min(30, (Number(f.days) || 1) + 1) })} className="w-9 h-9 rounded-lg text-[18px]" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>+</button>
+              </span>
+            </div>
+          )}
+          {sameDay.length > 0 && (
+            <div className="rounded-xl px-3.5 py-2.5 text-[12px]" style={{ background: clash ? C.rustSoft : C.surfaceRaised, color: clash ? C.rust : C.inkDim }}>
+              <div className="font-semibold mb-0.5">{clash ? 'Already booked then' : `Booked on ${dayLabel(f.date)}`}</div>
+              {sameDay.map((x) => <div key={x.id}>{x.start_time ? `${eventTimeLabel(x.start_time)} to ${eventTimeLabel(x.end_time)}` : 'All day'} · {x.customer_name}{x.status === 'requested' ? ' (request)' : ''}</div>)}
+            </div>
+          )}
+          <div className="grid grid-cols-[1fr_96px] gap-2">
+            <input type="text" placeholder="What's the event? e.g. Wedding" value={f.event} onChange={(e) => set({ event: e.target.value })} className="min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+            <input type="number" min="1" placeholder="Guests" value={f.guests} onChange={(e) => set({ guests: e.target.value })} className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none cx-mono" style={field} />
+          </div>
+          {over && <div className="text-[11.5px] -mt-1.5" style={{ color: C.copper }}>{p.name} holds up to {p.capacity} guests.</div>}
+          <input type="text" placeholder="Customer's name" value={f.name} onChange={(e) => set({ name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+          <input type="tel" placeholder="Phone (for their confirmation)" value={f.phone} onChange={(e) => set({ phone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+          <input type="text" inputMode="decimal" placeholder="Paid now (₦), optional" value={formatNumInput(f.paid)} onChange={(e) => set({ paid: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+          <input type="text" placeholder="Note (optional), e.g. Decorators arrive at 8am" value={f.note} onChange={(e) => set({ note: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+          {p && total > 0 && (
+            <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
+              <div className="flex justify-between"><span style={{ color: C.inkDim }}>{hourly ? `${fmt(p.hourPrice)} × ${((Number(f.end.slice(0, 2)) * 60 + Number(f.end.slice(3))) - (Number(f.start.slice(0, 2)) * 60 + Number(f.start.slice(3)))) / 60} hours` : `${fmt(priceAt(p, deskShopId))} × ${Number(f.days) || 1} day${(Number(f.days) || 1) !== 1 ? 's' : ''}`}</span><strong className="cx-mono">{fmt(total)}</strong></div>
+              {depositPct > 0 && <div className="flex justify-between" style={{ color: C.inkFaint }}><span>Deposit ({depositPct}%)</span><span className="cx-mono">{fmt(Math.round(total * depositPct / 100))}</span></div>}
+            </div>
+          )}
+        </div>
+      );
+    } else if (bookingPanel) {
       const f = bookingForm; const p = productsAll.find((x) => x.id === f.productId);
       const n = f.checkIn && f.checkOut ? nightsBetween(f.checkIn, f.checkOut) : 0;
       const units = Math.max(1, Number(f.units) || 1);
@@ -5636,9 +5810,12 @@ function XorlaApp() {
       const b = bookingsAll.find((x) => x.id === bookingAct.booking.id) || bookingAct.booking;
       const charges = chargesOf(b), extrasTotal = extrasTotalOf(b);
       const paidSoFar = Number(b.amount_paid) || 0, adding = Number(parseNumInput(actForm.amount)) || 0;
-      const balance = Math.max(0, Number(b.total) + (action === 'check_out' ? extrasTotal : 0) - paidSoFar - adding);
+      const leaving = action === 'check_out' ? earlyOf(b, actForm.earlyRule) : null;
+      const stayTotal = leaving ? leaving.total : Number(b.total);
+      const balance = Math.max(0, stayTotal + (action === 'check_out' ? extrasTotal : 0) - paidSoFar - adding);
       const labels = { check_in: ['Check in', 'Check in'], check_out: ['Check out', 'Check out'], decline: ['Decline request', 'Decline'], cancel: ['Cancel booking', 'Cancel booking'], deposit: ['Record a deposit', 'Save deposit'], no_show: ['Mark as no-show', 'Mark as no-show'], refunded: ['Mark refunded', `I've refunded ${fmt(b.refund_amount)}`], bill: [`${b.room_label ? `${String(b.room_label).includes(',') ? 'Rooms' : 'Room'} ${b.room_label}` : b.customer_name}'s bill`, 'Check out'] };
       const held = Number(b.deposit_paid) || 0, early = isEarlyCancel(b);
+      if (b.is_space) Object.assign(labels, { check_in: ['Start the event', 'Start'], check_out: ['Finish the event', 'Finish'], bill: [`${b.customer_name}'s bill`, 'Finish the event'], no_show: ['Mark as no-show', 'Mark as no-show'] });
       [title, submitLabel] = labels[action]; submit = submitAct;
       body = (
         <div className="space-y-3">
@@ -5668,6 +5845,7 @@ function XorlaApp() {
             );
           })()}
           {action === 'check_in' && (() => {
+            if (b.is_space) return null;
             const named = roomsFor(b.product_id, b.shop_id);
             const free = named.filter((r) => !occupantOf(r));
             if (!named.length) return <input type="text" autoFocus placeholder={SERVICE_KINDS[serviceKind]?.what === 'item' ? 'Which one? e.g. Car 2 (optional)' : 'Room number, e.g. Room 12 (optional)'} value={actForm.room} onChange={(e) => setActForm({ ...actForm, room: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />;
@@ -5694,11 +5872,29 @@ function XorlaApp() {
               </div>
             );
           })()}
+          {leaving && (() => {
+            const nw = unitWord(b);
+            const pl = (n) => `${n} ${nw}${n !== 1 ? 's' : ''}`;
+            return (
+              <div className="rounded-xl p-3.5" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.3)' }}>
+                <div className="text-[13px] font-semibold" style={{ color: C.copper }}>Leaving early: {pl(leaving.used)} of {leaving.nights} used</div>
+                <div className="text-[12px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>Booked until {dayLabel(b.check_out)}. {leaving.cut > 0 ? <>Charging {pl(leaving.charge)}: <strong className="cx-mono" style={{ color: C.ink }}>{fmt(leaving.total)}</strong> instead of {fmt(b.total)}.</> : <>Charging the full booking, {fmt(b.total)}.</>} The {leaving.nights - leaving.used === 1 ? `unused ${nw} becomes` : `unused ${nw}s become`} free to book again.</div>
+                {canRun ? (
+                  <div className="flex gap-1 p-1 mt-2.5 rounded-xl" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    {['stayed', 'one_night', 'full'].map((v) => (
+                      <button key={v} type="button" onClick={() => setActForm({ ...actForm, earlyRule: v })} className="flex-1 py-1.5 px-1 rounded-lg text-[11.5px] font-semibold leading-tight" style={leaving.rule === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{v === 'stayed' ? `${nw[0].toUpperCase()}${nw.slice(1)}s used` : v === 'one_night' ? `One extra ${nw}` : 'Full booking'}</button>
+                    ))}
+                  </div>
+                ) : <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Your {serviceKind === 'rentals' ? 'business' : 'hotel'}'s rule: {earlyRuleWords[leaving.rule].toLowerCase()}. If this guest should be charged differently, ask the owner or a manager to check them out.</div>}
+                {canRun && leaving.rule !== (settings.earlyLeaveRule || 'stayed') && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Just for this guest. Your usual rule is {earlyRuleWords[settings.earlyLeaveRule || 'stayed'].toLowerCase()}.</div>}
+              </div>
+            );
+          })()}
           {(action === 'check_in' || action === 'check_out') && (
             <>
               <input type="text" inputMode="decimal" placeholder="Payment received now (₦)" value={formatNumInput(actForm.amount)} onChange={(e) => setActForm({ ...actForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
               {(() => {
-                const grand = Number(b.total) + (action === 'check_out' ? extrasTotal : 0);
+                const grand = stayTotal + (action === 'check_out' ? extrasTotal : 0);
                 const paidAll = paidSoFar + adding;
                 const owe = Math.max(0, grand - paidAll);
                 const extra = Math.max(0, paidAll - grand);
@@ -5706,18 +5902,18 @@ function XorlaApp() {
                   <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
                     {action === 'check_out' && extrasTotal > 0 ? (
                       <>
-                        <div className="flex justify-between"><span style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Rental' : 'Stay'}</span><span className="cx-mono">{fmt(b.total)}</span></div>
+                        <div className="flex justify-between"><span style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Rental' : 'Stay'}{leaving ? ` (${leaving.charge} ${unitWord(b)}${leaving.charge !== 1 ? 's' : ''})` : ''}</span><span className="cx-mono">{fmt(stayTotal)}</span></div>
                         <div className="flex justify-between"><span style={{ color: C.inkDim }}>Extras ({charges.length})</span><span className="cx-mono">{fmt(extrasTotal)}</span></div>
                         <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(grand)}</span></div>
                       </>
-                    ) : <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(grand)}</span></div>}
+                    ) : <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total{leaving ? ` (${leaving.charge} ${unitWord(b)}${leaving.charge !== 1 ? 's' : ''})` : ''}</span><span className="cx-mono">{fmt(grand)}</span></div>}
                     <div className="flex justify-between"><span style={{ color: C.inkDim }}>Paid{adding > 0 ? ' (with today)' : ' so far'}</span><span className="cx-mono">{fmt(paidAll)}</span></div>
                     {extra > 0
                       ? <div className="flex justify-between font-semibold"><span>{action === 'check_in' ? "Guest's credit" : 'Change to give back'}</span><span className="cx-mono" style={{ color: C.sage }}>{fmt(extra)}</span></div>
                       : <div className="flex justify-between font-semibold"><span>Balance</span><span className="cx-mono" style={{ color: owe > 0 ? C.rust : C.sage }}>{fmt(owe)}</span></div>}
                     <div className="text-[11.5px] pt-1 leading-relaxed" style={{ color: C.inkFaint }}>{action === 'check_in'
                       ? (extra > 0 ? `The stay is recorded as a ${fmt(b.total)} sale. The extra ${fmt(extra)} is held as the guest's credit, not a sale: extras on their bill come out of it, and whatever is left is given back at check-out.` : owe > 0 ? `Checking in records the stay as a sale today. The ${fmt(owe)} still owed becomes an invoice you can follow up.` : 'Checking in records the stay as a sale today, fully paid.')
-                      : extra > 0 ? `Everything is paid${extrasTotal > 0 ? ', extras included' : ''}. ${fmt(extra)} is left over from what the guest paid.`
+                      : extra > 0 ? (leaving && leaving.cut > 0 ? `Everything is paid${extrasTotal > 0 ? ', extras included' : ''}. ${fmt(extra)} is for the ${unitWord(b)}s not used: give it back by cash or transfer.` : `Everything is paid${extrasTotal > 0 ? ', extras included' : ''}. ${fmt(extra)} is left over from what the guest paid.`)
                       : `${extrasTotal > 0 ? 'Payment covers the stay first, then the extras, which are recorded as sales on one receipt. ' : ''}${owe > 0 ? `The ${fmt(owe)} still owed goes on the guest's invoice for follow-up.` : 'Fully paid. Nothing else to collect.'}`}</div>
                     {action === 'check_out' && extra > 0 && (
                       <div className="grid grid-cols-2 gap-2 pt-2">
@@ -5863,7 +6059,7 @@ function XorlaApp() {
           </div>
           {body}
           {bookingError && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
-          <button onClick={submit} disabled={bookingBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: ['cancel', 'decline', 'no_show'].includes(bookingAct?.action) ? C.rust : C.copper, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? 'Saving…' : submitLabel}</button>
+          <button onClick={submit} disabled={bookingBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: spaceForm && submitLabel === 'That time is taken' ? C.surfaceRaised : ['cancel', 'decline', 'no_show'].includes(bookingAct?.action) ? C.rust : C.copper, color: spaceForm && submitLabel === 'That time is taken' ? C.inkFaint : C.bg, opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? 'Saving…' : submitLabel}</button>
         </div>
       </div>
     );
@@ -7701,7 +7897,7 @@ function XorlaApp() {
       if ('businessName' in patch) patch.businessName = (draft.businessName || '').trim() || settings.businessName;
       // Setting these up here counts for the setup checklist, the same as doing it in guided setup
       const touched = [];
-      if (settingsPage === 'deposits' || ['depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankAccountNumber', 'checkinTime', 'checkoutTime'].some((k) => k in patch)) touched.push('deposits');
+      if (settingsPage === 'deposits' || ['depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankAccountNumber', 'checkinTime', 'checkoutTime', 'earlyLeaveRule'].some((k) => k in patch)) touched.push('deposits');
       if (settingsPage === 'hours' || ['openDays', 'openTime', 'closeTime', 'apptCapacity'].some((k) => k in patch)) touched.push('hours');
       const steps = settings.setupSteps || [];
       if (touched.some((t) => !steps.includes(t))) patch.setupSteps = [...new Set([...steps, ...touched])];
@@ -8238,7 +8434,7 @@ function XorlaApp() {
               const pills = (options, value, key) => (
                 <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                   {options.map(([v, l]) => (
-                    <button key={v} onClick={() => setDraft({ ...draft, [key]: v })} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={Number(value) === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+                    <button key={v} onClick={() => setDraft({ ...draft, [key]: v })} className="flex-1 py-2 px-1 rounded-lg text-[12.5px] font-semibold leading-tight" style={(typeof v === 'string' ? value === v : Number(value) === v) ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
                   ))}
                 </div>
               );
@@ -8276,6 +8472,12 @@ function XorlaApp() {
                       <div className="text-[14.5px] font-semibold mb-1">Free cancellation until</div>
                       <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>How long before {serviceKind === 'rentals' ? 'pick-up' : 'check-in'} ({hhmmLabel(draft.checkinTime || '14:00')}) a guest can cancel and get their deposit back.</div>
                       {pills([[12, '12 hours'], [24, '24 hours'], [48, '48 hours'], [72, '72 hours']], hrs, 'cancelWindowHours')}
+                    </div>
+                    <div className="px-4 py-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                      <div className="text-[14.5px] font-semibold mb-1">{serviceKind === 'rentals' ? 'Returned early' : 'Guest leaves early'}</div>
+                      <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>{serviceKind === 'rentals' ? 'When someone returns before the booked day, what do you charge?' : `When a guest checks out before their booked date, what do you charge? Xorla works it out at check-out, and the unused ${nightWord}s become free to book again.`}</div>
+                      {pills([['stayed', `Only the ${nightWord}s used`], ['one_night', `One extra ${nightWord}`], ['full', 'The full booking']], draft.earlyLeaveRule || 'stayed', 'earlyLeaveRule')}
+                      <div className="text-[11.5px] mt-2.5 leading-relaxed" style={{ color: C.inkFaint }}>{(draft.earlyLeaveRule || 'stayed') === 'full' ? `Booked 3 ${nightWord}s, left after 1: charged all 3, nothing given back.` : (draft.earlyLeaveRule || 'stayed') === 'one_night' ? `Booked 3 ${nightWord}s, left after 1: charged 2, the third given back.` : `Booked 3 ${nightWord}s, left after 1: charged 1, the other 2 given back.`} You or a manager can choose differently for one guest at check-out.</div>
                     </div>
                   </div>
 
@@ -9346,6 +9548,11 @@ function XorlaApp() {
                   <button onClick={() => openCatalogForm('extra')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.35)', color: C.ink }}>
                     <Plus size={18} className="shrink-0" style={{ color: C.sage }} /><span><span className="block text-[14px] font-semibold">Add an extra</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Delivery, extra hours' : 'Laundry, bar, airport pickup'}</span></span>
                   </button>
+                  {serviceKind === 'accommodation' && (
+                    <button onClick={() => openCatalogForm('space')} className="col-span-2 flex items-center gap-3 rounded-2xl px-4 py-3 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}>
+                      <Building2 size={18} className="shrink-0" style={{ color: C.copper }} /><span><span className="block text-[14px] font-semibold">Add a hall or event space</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>Event centre, conference hall, boardroom: booked by the day or hour</span></span>
+                    </button>
+                  )}
                   {isOwnerRole && <button onClick={openImport} className="col-span-2 -mt-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list of extras</button>}
                 </div>
               ) : (
@@ -9356,7 +9563,7 @@ function XorlaApp() {
               <button onClick={openImport} className="w-full -mt-4 mb-6 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list instead</button>
             )}
             {showProductForm && (
-              <Sheet title={productForm.mode === 'extra' ? (editingProductId ? 'Edit extra' : 'New extra') : productForm.mode === 'room' ? (editingProductId ? `Edit ${roomWord}` : `New ${roomWord}`) : editingProductId ? (formIsService ? 'Edit service' : 'Edit product') : (formIsService ? 'New service' : 'New product')} onClose={closeProductForm} closeOnBackdrop={false} busy={savingProduct}>
+              <Sheet title={productForm.mode === 'space' ? (editingProductId ? 'Edit hall or space' : 'New hall or space') : productForm.mode === 'extra' ? (editingProductId ? 'Edit extra' : 'New extra') : productForm.mode === 'room' ? (editingProductId ? `Edit ${roomWord}` : `New ${roomWord}`) : editingProductId ? (formIsService ? 'Edit service' : 'Edit product') : (formIsService ? 'New service' : 'New product')} onClose={closeProductForm} closeOnBackdrop={false} busy={savingProduct}>
               <div className="space-y-4">
 
                 {settings.businessType === 'both' && (
@@ -9372,15 +9579,15 @@ function XorlaApp() {
 
                 <div>
                   <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
-                    <Camera size={14} />{productImageUploading ? 'Adding photo…' : productForm.imagePreview ? 'Photo added — tap to change' : formNamesRooms() ? 'Add a photo of this room (optional)' : formIsService && productForm.mode === 'extra' ? 'Add a photo (optional)' : formIsService ? 'Add a photo of your work (optional)' : 'Add a product photo (optional)'}
+                    <Camera size={14} />{productImageUploading ? 'Adding photo…' : productForm.imagePreview ? 'Photo added — tap to change' : formNamesRooms() ? 'Add a photo of this room (optional)' : productForm.mode === 'space' ? 'Add a photo of the space (optional)' : formIsService && productForm.mode === 'extra' ? 'Add a photo (optional)' : formIsService ? 'Add a photo of your work (optional)' : 'Add a product photo (optional)'}
                     <input type="file" accept="image/*" onChange={handleProductPhotoSelect} className="hidden" />
                   </label>
                   {productForm.imagePreview && <img src={productForm.imagePreview} alt="" className="w-16 h-16 rounded-xl object-cover mt-2.5" />}
                 </div>
 
                 <div>
-                  <div className={fieldLabel} style={{ color: C.inkFaint }}>{formNamesRooms() ? 'ROOM TYPE' : formIsService && productForm.mode === 'extra' ? 'NAME' : formIsService ? 'SERVICE NAME' : 'PRODUCT NAME'}</div>
-                  <input type="text" placeholder={productForm.mode === 'extra' ? (serviceKind === 'rentals' ? 'e.g. Delivery, Extra hour, Driver for the day' : 'e.g. Laundry (per bag), Bottle of water, Airport pickup') : formIsService ? (SERVICE_KINDS[serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : examplesFor(settings.businessType === 'products' ? null : serviceKind).name} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <div className={fieldLabel} style={{ color: C.inkFaint }}>{formNamesRooms() ? 'ROOM TYPE' : productForm.mode === 'space' ? 'NAME OF THE HALL OR SPACE' : formIsService && productForm.mode === 'extra' ? 'NAME' : formIsService ? 'SERVICE NAME' : 'PRODUCT NAME'}</div>
+                  <input type="text" placeholder={productForm.mode === 'space' ? 'e.g. Grand Hall, Rooftop terrace, Boardroom' : productForm.mode === 'extra' ? (serviceKind === 'rentals' ? 'e.g. Delivery, Extra hour, Driver for the day' : 'e.g. Laundry (per bag), Bottle of water, Airport pickup') : formIsService ? (SERVICE_KINDS[serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : examplesFor(settings.businessType === 'products' ? null : serviceKind).name} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 </div>
 
                 <div>
@@ -9391,7 +9598,33 @@ function XorlaApp() {
                   </datalist>
                 </div>
 
-                {formIsService ? (
+                {productForm.mode === 'space' ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <div className={fieldLabel} style={{ color: C.inkFaint }}>PRICE PER DAY</div>
+                        <input type="text" inputMode="decimal" placeholder="₦ amount" value={formatNumInput(productForm.sellingPrice)} onChange={(e) => setProductForm({ ...productForm, sellingPrice: parseNumInput(e.target.value) })} className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                      </div>
+                      <div>
+                        <div className={fieldLabel} style={{ color: C.inkFaint }}>PER HOUR (OPTIONAL)</div>
+                        <input type="text" inputMode="decimal" placeholder="₦ amount" value={formatNumInput(productForm.hourPrice || '')} onChange={(e) => setProductForm({ ...productForm, hourPrice: parseNumInput(e.target.value) })} className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                      </div>
+                    </div>
+                    <div className="text-[11.5px] -mt-1.5" style={{ color: productForm.sellingPrice ? C.sage : C.inkFaint }}>{productForm.sellingPrice ? `Customers will see: ${fmt(Number(productForm.sellingPrice))} a day${Number(parseNumInput(productForm.hourPrice || '')) > 0 ? `, or ${fmt(Number(parseNumInput(productForm.hourPrice)))} an hour` : ''}` : 'Add an hourly price if it can be booked for a few hours, like a boardroom for a meeting. Leave it empty if it is only booked by the day.'}</div>
+                    <div>
+                      <div className={fieldLabel} style={{ color: C.inkFaint }}>HOLDS UP TO (OPTIONAL)</div>
+                      <div className="flex items-center gap-2">
+                        <input type="number" min="1" placeholder="e.g. 300" value={productForm.capacity || ''} onChange={(e) => setProductForm({ ...productForm, capacity: e.target.value })} className="w-32 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+                        <span className="text-[13px]" style={{ color: C.inkDim }}>guests</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className={fieldLabel} style={{ color: C.inkFaint }}>WHAT'S INCLUDED (OPTIONAL)</div>
+                      <textarea rows={2} maxLength={160} placeholder="e.g. Air-conditioned, 300 chairs, stage, sound system, parking" value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
+                    </div>
+                    <div className="text-[11px]" style={{ color: C.inkFaint }}>Booked for one event at a time, so two events never overlap. It shows under Halls & events in Bookings, never on the room board.</div>
+                  </>
+                ) : formIsService ? (
                   <>
                     <div>
                       <div className={fieldLabel} style={{ color: C.inkFaint }}>YOUR RATE</div>
@@ -9496,7 +9729,7 @@ function XorlaApp() {
                     </div>
                   </div>
                 )}
-                <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : editingProductId ? 'Save changes' : formIsService ? 'Save service' : 'Save product'}</button>
+                <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : editingProductId ? 'Save changes' : productForm.mode === 'space' ? 'Save hall' : productForm.mode === 'room' ? `Save ${roomWord}` : productForm.mode === 'extra' ? 'Save extra' : formIsService ? 'Save service' : 'Save product'}</button>
               </div>
               </Sheet>
             )}
@@ -9534,7 +9767,7 @@ function XorlaApp() {
                         </div>
                         <div className="text-[12px] mt-1 flex items-center gap-x-1.5 gap-y-1 flex-wrap" style={{ color: C.inkFaint }}>
                           {kindOf(p, settings.businessType) === 'service'
-                            ? <span>{priceLabel(p)}{p.duration ? ` · ${p.duration}` : ''}{settings.businessType === 'both' ? ' · Service' : ''}</span>
+                            ? <span>{priceLabel(p)}{p.isSpace && p.hourPrice ? ` or ${fmt(p.hourPrice)} / hour` : ''}{p.isSpace && p.capacity ? ` · holds ${Number(p.capacity).toLocaleString('en-NG')}` : ''}{p.duration ? ` · ${p.duration}` : ''}{settings.businessType === 'both' ? ' · Service' : ''}{p.isSpace ? <span className="ml-1.5 text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: C.copper, background: C.copperSoft }}>Hall</span> : null}</span>
                             : <><span>Sells <strong className="font-semibold" style={{ color: C.ink }}>{fmt(p.sellingPrice)}</strong></span><span>·</span><span>Cost {fmt(p.costPrice)}</span>{Number(p.sellingPrice) > 0 && Number(p.costPrice) > 0 && <span className="px-1.5 rounded-md text-[10.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage }}>{Math.round(((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100)}% margin</span>}{shops.length > 1 && hasShopPrices(p) && viewAllShops ? <span>· varies by {L.one}</span> : null}</>}
                           {p.category && <span className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{p.category}</span>}
                           {hasManyLocations && p.shopId && <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1" style={{ color: C.copper, background: C.copperSoft }}><MapPin size={10} />Only {shopNameOf(p.shopId)}</span>}
@@ -9561,7 +9794,7 @@ function XorlaApp() {
                       {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }, C.sage)}
                         {canRun && allLiveLocations.length > 1 && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
-                        {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
+                        {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: p.isSpace ? 'space' : T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, hourPrice: p.hourPrice == null ? '' : String(p.hourPrice), capacity: p.capacity == null ? '' : String(p.capacity), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
                         {canRun && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
                         {isOwnerRole && <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>}
                       </>); })()}
@@ -10176,6 +10409,16 @@ function Storefront({ businessCode }) {
   const [bookError, setBookError] = useState('');
   const [bookingSent, setBookingSent] = useState(null);
   const [bookTerms, setBookTerms] = useState(null);   // deposit rule, cancellation window and how to pay
+  // Halls and event spaces: one date, the whole day(s) or a few hours
+  const [spaceItem, setSpaceItem] = useState(null);
+  const [spaceAsk, setSpaceAsk] = useState({ date: '', mode: 'day', days: 1, start: '10:00', end: '14:00', guests: '', event: '' });
+  const [spaceTaken, setSpaceTaken] = useState([]);
+  useEffect(() => {
+    if (!spaceItem || !business) return;
+    const from = todayKey(); const to = new Date(Date.now() + 120 * 86400000).toLocaleDateString('sv-SE');
+    sbRpc('space_taken', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_product_id: spaceItem.id, p_from: from, p_to: to })
+      .then((rows) => setSpaceTaken(Array.isArray(rows) ? rows : [])).catch(() => setSpaceTaken([]));
+  }, [spaceItem?.id, business?.shop_id]);
   const [dateNudge, setDateNudge] = useState(false);
   const datesValid = !!stayIn && !!stayOut && stayOut > stayIn;
   useEffect(() => {
@@ -10543,9 +10786,134 @@ function Storefront({ businessCode }) {
       </div>
     );
   };
-  const hasStoreBookables = business.business_type !== 'products' && storeProducts.some(isBookable);
+  const hasStoreBookables = business.business_type !== 'products' && storeProducts.some((p) => isBookable(p) && !p.isSpace);
+  const openSpace = (p) => { setBookError(''); setSpaceAsk({ date: '', mode: 'day', days: 1, start: '10:00', end: '14:00', guests: '', event: '' }); setSpaceTaken([]); setSpaceItem(p); };
+  const spaceHours = (a) => Math.max(0, ((Number(a.end.slice(0, 2)) * 60 + Number(a.end.slice(3, 5))) - (Number(a.start.slice(0, 2)) * 60 + Number(a.start.slice(3, 5)))) / 60);
+  const renderSpaceCard = (p) => (
+    <div className="flex flex-col">
+      <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden mb-3 flex items-center justify-center" style={{ background: S.tile }}>
+        {p.imageUrl ? <img src={p.imageUrl} alt={p.name} loading="lazy" className="w-full h-full object-cover" /> : <Building2 size={30} style={{ color: S.soldOut }} />}
+        {p.capacity ? <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.ink }}>Holds {Number(p.capacity).toLocaleString('en-NG')} guests</span> : null}
+      </div>
+      <div className="text-[15px] font-semibold leading-snug">{p.name}</div>
+      {p.description && <div className="text-[13px] leading-snug mt-1 line-clamp-2" style={{ color: S.muted }}>{p.description}</div>}
+      <div className="mt-2">
+        <span className="text-[16px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(p.sellingPrice)}</span><span className="text-[13px]" style={{ color: S.muted }}> / day</span>
+        {p.hourPrice ? <div className="text-[13px] mt-0.5" style={{ color: S.ink }}>or <strong>{fmt(p.hourPrice)}</strong> an hour</div> : null}
+      </div>
+      <div className="flex-1 min-h-[12px]" />
+      <button onClick={() => openSpace(p)} className={`w-full py-2.5 rounded-xl text-[14px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff' }}>Check dates & book</button>
+    </div>
+  );
+  const submitSpace = async () => {
+    const a = spaceAsk; const hourly = a.mode === 'hour' && spaceItem.hourPrice;
+    if (!a.date) { setBookError('Choose the date of your event.'); return; }
+    if (!bookName.trim()) { setBookError('Please enter your name.'); return; }
+    if (bookPhone.replace(/[^0-9]/g, '').length < 10) { setBookError('Please enter your phone number, so they can confirm your booking.'); return; }
+    setBookBusy(true); setBookError('');
+    try {
+      const placed = await sbRpc('place_space_booking', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_product_id: spaceItem.id, p_date: a.date,
+        p_days: hourly ? null : Math.max(1, Number(a.days) || 1), p_start: hourly ? a.start : null, p_end: hourly ? a.end : null,
+        p_name: bookName.trim(), p_phone: bookPhone.trim(), p_note: bookNote.trim(), p_guests: Number(a.guests) > 0 ? Math.round(Number(a.guests)) : null, p_event: a.event.trim() });
+      if (placed?.token) { window.location.href = `/booking/${placed.token}?new=1`; return; }
+      setSpaceItem(null);
+    } catch (e) { setBookError(e.message); }
+    finally { setBookBusy(false); }
+  };
+  const renderSpaceSheet = () => {
+    if (!spaceItem) return null;
+    const p = spaceItem; const a = spaceAsk; const set = (patch) => setSpaceAsk({ ...a, ...patch });
+    const hourly = a.mode === 'hour' && p.hourPrice;
+    const days = Math.max(1, Number(a.days) || 1);
+    const total = hourly ? Math.round(p.hourPrice * spaceHours(a)) : p.sellingPrice * days;
+    const out = a.date ? new Date(new Date(a.date + 'T00:00:00Z').getTime() + (hourly ? 1 : days) * 86400000).toISOString().slice(0, 10) : '';
+    const onDay = a.date ? spaceTaken.filter((x) => x.from <= a.date && a.date < x.to) : [];
+    const clash = a.date && spaceTaken.find((x) => x.from < out && a.date < x.to && (!x.start || !hourly || (x.start < a.end && a.start < x.end)));
+    const pct = Number(bookTerms?.deposit_percent ?? 0);
+    const dep = pct > 0 ? Math.round(total * pct / 100) : 0;
+    const hrs = Number(bookTerms?.cancel_window_hours ?? 24);
+    const inputStyle = { background: S.tile, border: 'none', color: S.ink };
+    const pretty = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(23,25,26,0.5)' }} onClick={() => !bookBusy && setSpaceItem(null)}>
+        <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 max-h-[92vh] overflow-y-auto" style={{ background: '#fff', color: S.ink }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <div className="text-[20px] font-bold leading-tight">{p.name}</div>
+            <button onClick={() => setSpaceItem(null)} aria-label="Close" className={focusRing} style={{ color: S.muted }}><X size={20} /></button>
+          </div>
+          <div className="text-[14px] mb-5" style={{ color: S.muted }}>{fmt(p.sellingPrice)} a day{p.hourPrice ? `, or ${fmt(p.hourPrice)} an hour` : ''}{p.capacity ? ` · holds ${Number(p.capacity).toLocaleString('en-NG')}` : ''}</div>
+          <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sp-date">Date of your event</label>
+          <input id="sp-date" type="date" min={todayKey()} value={a.date} onChange={(e) => set({ date: e.target.value })} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 ${focusRing}`} style={inputStyle} />
+          {p.hourPrice ? (
+            <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: S.tile }}>
+              {[['day', 'Full day'], ['hour', 'By the hour']].map(([v, l]) => <button key={v} type="button" onClick={() => set({ mode: v })} className={`flex-1 py-2 rounded-lg text-[13.5px] font-semibold ${focusRing}`} style={(hourly ? 'hour' : 'day') === v ? { background: '#fff', color: S.ink, boxShadow: '0 1px 3px rgba(0,0,0,0.12)' } : { color: S.muted }}>{l}</button>)}
+            </div>
+          ) : null}
+          {hourly ? (
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              {[['start', 'From'], ['end', 'Until']].map(([k, l]) => (
+                <label key={k} className="block text-[13px] font-semibold">{l}
+                  <select value={a[k]} onChange={(e) => set(k === 'start' ? { start: e.target.value, end: eventEndAfter(e.target.value, a.end) } : { end: e.target.value })} className={`w-full mt-1.5 rounded-xl px-3 py-3 text-[15px] ${focusRing}`} style={inputStyle}>
+                    {EVENT_TIMES.filter((t) => (k === 'start' ? t < '24:00' : t > a.start)).map((t) => <option key={t} value={t}>{eventTimeLabel(t)}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-2xl px-4 py-3 mb-3" style={{ background: S.tile }}>
+              <span className="text-[14px] font-semibold">How many days</span>
+              <div className="flex items-center gap-3">
+                <button onClick={() => set({ days: Math.max(1, days - 1) })} aria-label="One day fewer" className={`w-9 h-9 rounded-full text-[18px] font-semibold ${focusRing}`} style={{ background: '#fff' }}>−</button>
+                <span className="text-[16px] font-bold w-5 text-center" style={{ fontVariantNumeric: 'tabular-nums' }}>{days}</span>
+                <button onClick={() => set({ days: Math.min(30, days + 1) })} aria-label="One more day" className={`w-9 h-9 rounded-full text-[18px] font-semibold ${focusRing}`} style={{ background: '#fff' }}>+</button>
+              </div>
+            </div>
+          )}
+          {a.date && (
+            <div className="rounded-2xl px-4 py-3 mb-4 text-[13px]" style={clash ? { background: '#FDECEA', color: '#B42318' } : { background: '#E8F6F1', color: '#0E7A5F' }}>
+              {clash
+                ? <><strong>Not available then.</strong> {onDay.length ? `Booked on ${pretty(a.date)}: ${onDay.map((x) => (x.start ? `${eventTimeLabel(x.start)} to ${eventTimeLabel(x.end)}` : 'all day')).join(', ')}.` : 'Part of those days is already booked.'} Please choose another {hourly ? 'time or ' : ''}date.</>
+                : <><strong>Available.</strong> {onDay.length ? `Also booked that day: ${onDay.map((x) => `${eventTimeLabel(x.start)} to ${eventTimeLabel(x.end)}`).join(', ')}.` : `${pretty(a.date)}${!hourly && days > 1 ? ` for ${days} days` : ''} is free.`}</>}
+            </div>
+          )}
+          <div className="grid grid-cols-[1fr_100px] gap-2 mb-3">
+            <label className="block text-[13px] font-semibold">What's the event?
+              <input value={a.event} onChange={(e) => set({ event: e.target.value })} placeholder="e.g. Wedding, Meeting" className={`w-full mt-1.5 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
+            </label>
+            <label className="block text-[13px] font-semibold">Guests
+              <input type="number" min="1" inputMode="numeric" value={a.guests} onChange={(e) => set({ guests: e.target.value })} className={`w-full mt-1.5 rounded-xl px-3 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
+            </label>
+          </div>
+          {p.capacity && Number(a.guests) > p.capacity ? <div className="text-[12.5px] -mt-1.5 mb-3" style={{ color: '#B54708' }}>{p.name} holds up to {p.capacity} guests.</div> : null}
+          <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sp-name">Your name</label>
+          <input id="sp-name" value={bookName} onChange={(e) => setBookName(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 ${focusRing}`} style={inputStyle} />
+          <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sp-phone">Phone number</label>
+          <input id="sp-phone" type="tel" value={bookPhone} onChange={(e) => setBookPhone(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 ${focusRing}`} style={inputStyle} />
+          <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sp-note">Anything they should know? <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
+          <textarea id="sp-note" rows={2} value={bookNote} onChange={(e) => setBookNote(e.target.value)} placeholder="e.g. Decorators arrive early, need a projector" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 resize-none ${focusRing}`} style={inputStyle} />
+          <div className="flex items-center justify-between py-3 mb-1" style={{ borderTop: `1px solid ${S.line}` }}>
+            <span className="text-[14px]" style={{ color: S.muted }}>{hourly ? `${fmt(p.hourPrice)} × ${spaceHours(a)} hour${spaceHours(a) !== 1 ? 's' : ''}` : `${fmt(p.sellingPrice)} × ${days} day${days !== 1 ? 's' : ''}`}</span>
+            <span className="text-[20px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(total)}</span>
+          </div>
+          <div className="rounded-2xl px-4 py-3.5 mb-4 space-y-2 text-[13px]" style={{ background: S.tile }}>
+            {bookTerms && dep > 0 ? (
+              <>
+                <div className="flex items-baseline justify-between gap-3"><span className="font-semibold">Deposit to secure it</span><span className="text-[16px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(dep)}</span></div>
+                <div className="flex items-baseline justify-between gap-3" style={{ color: S.muted }}><span>Balance before the event</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(total - dep)}</span></div>
+                <div className="pt-1 leading-relaxed" style={{ color: S.muted }}>{bookTerms.online_pay ? 'Nothing to pay right now. Send the request, then pay the deposit on the next page and your booking confirms straight away.' : `Send the request, then pay the deposit to ${business.name}. Your date is held for 24 hours.`}</div>
+              </>
+            ) : <div className="leading-relaxed" style={{ color: S.muted }}>No payment now. Your date is held for 24 hours while {business.name} confirms.</div>}
+            {bookTerms && <div className="flex items-start gap-2 pt-1 leading-relaxed"><ShieldCheck size={15} className="shrink-0 mt-0.5" style={{ color: '#0E7A5F' }} /><span>Free cancellation until {hrs} hours before your event starts.</span></div>}
+          </div>
+          {bookError && <div className="text-[13px] rounded-xl px-4 py-3 mb-3" style={{ background: '#FDECEA', color: '#B42318' }}>{bookError}</div>}
+          <button onClick={submitSpace} disabled={bookBusy || !!clash || !a.date} className={`w-full py-3.5 rounded-xl text-[15px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: bookBusy || clash || !a.date ? 0.5 : 1 }}>{bookBusy ? 'Sending…' : !a.date ? 'Choose a date' : clash ? 'Not available then' : 'Request booking'}</button>
+        </div>
+      </div>
+    );
+  };
 
   const renderProductCard = (p) => {
+    if (p.isSpace) return renderSpaceCard(p);
     if (isBookable(p)) return renderBookableCard(p);
     const qty = cart[p.id] || 0;
     const svc = kindOf(p, business.business_type) === 'service';
@@ -10868,7 +11236,7 @@ function Storefront({ businessCode }) {
       </div>
 
       {/* Footer */}
-      {renderBookSheet()}
+      {renderBookSheet()}{renderSpaceSheet()}
       <footer className="max-w-6xl mx-auto px-5 md:px-8 py-10 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-[13px]" style={{ borderTop: `1px solid ${S.line}`, color: S.muted }}>
         <div>
           <div className="font-semibold mb-0.5" style={{ color: S.ink }}>{business.name}</div>
@@ -14103,8 +14471,11 @@ function GuestBooking({ token }) {
   const day = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
   const when = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Lagos' });
   const word = bk.price_unit === 'day' ? 'day' : 'night';
+  const spaceDays = bk.is_space ? Math.round((new Date(bk.check_out + 'T00:00:00Z') - new Date(bk.check_in + 'T00:00:00Z')) / 86400000) : 0;
+  const lastDay = bk.is_space ? new Date(new Date(bk.check_out + 'T00:00:00Z').getTime() - 86400000).toISOString().slice(0, 10) : '';
+  const eventWhenText = !bk.is_space ? '' : bk.start_time ? `${day(bk.check_in)}, ${eventTimeLabel(bk.start_time)} to ${eventTimeLabel(bk.end_time)}` : spaceDays > 1 ? `${day(bk.check_in)} to ${day(lastDay)}` : `${day(bk.check_in)}, all day`;
   const link = typeof window !== 'undefined' ? `${window.location.origin}/booking/${token}` : '';
-  const waText = isNew && ['requested', 'confirmed'].includes(bk.status) ? `Hello ${bk.business}, I just sent a booking request: ${bk.item}${bk.units > 1 ? ` × ${bk.units}` : ''}, ${day(bk.check_in)} to ${day(bk.check_out)}. My name is ${bk.customer_name}. My booking: ${link}` : '';
+  const waText = isNew && ['requested', 'confirmed'].includes(bk.status) ? `Hello ${bk.business}, I just sent a booking request: ${bk.item}${bk.units > 1 ? ` × ${bk.units}` : ''}, ${bk.is_space ? eventWhenText : `${day(bk.check_in)} to ${day(bk.check_out)}`}. My name is ${bk.customer_name}. My booking: ${link}` : '';
   const wa = bk.phone ? `https://wa.me/${toWhatsAppNumber(bk.phone)}${waText ? `?text=${encodeURIComponent(waText)}` : ''}` : null;
   const saveRefund = async () => {
     setBusy(true);
@@ -14118,7 +14489,7 @@ function GuestBooking({ token }) {
   const act = async (action) => {
     if (action === 'cancel') {
       const msg = Number(bk.deposit_paid) > 0
-        ? (early ? `${bk.business} will owe you your ${fmt(bk.deposit_paid)} deposit back.` : `It's less than ${bk.cancel_window_hours} hours before check-in, so the ${fmt(bk.deposit_paid)} deposit won't be refunded.`)
+        ? (early ? `${bk.business} will owe you your ${fmt(bk.deposit_paid)} deposit back.` : `It's less than ${bk.cancel_window_hours} hours before ${bk.is_space ? 'the event' : 'check-in'}, so the ${fmt(bk.deposit_paid)} deposit won't be refunded.`)
         : `${bk.business} will be told straight away, and the dates will be released.`;
       if (!(await brandConfirm(msg, { title: 'Cancel this booking?', confirm: 'Yes, cancel it', cancel: 'Keep my booking', danger: true, theme: 'light' }))) return;
     }
@@ -14175,10 +14546,17 @@ function GuestBooking({ token }) {
 
         <div className="rounded-2xl p-4 mb-4 text-[14px]" style={{ background: S.tile }}>
           <div className="text-[17px] font-bold mb-1">{bk.item}{bk.units > 1 ? ` × ${bk.units}` : ''}</div>
+          {bk.is_space ? (<>
+            {row('Date', spaceDays > 1 ? `${day(bk.check_in)} to ${day(lastDay)}` : day(bk.check_in))}
+            {row('Time', bk.start_time ? `${eventTimeLabel(bk.start_time)} to ${eventTimeLabel(bk.end_time)}` : spaceDays > 1 ? `All day, ${spaceDays} days` : 'All day')}
+            {(bk.event_type || bk.guest_count) ? row('Event', [bk.event_type, bk.guest_count ? `${bk.guest_count} guests` : ''].filter(Boolean).join(', ')) : null}
+            {row('Booked by', bk.customer_name)}
+          </>) : (<>
           {row('Check-in', `${day(bk.check_in)}, from ${hhmmLabel(bk.checkin_time || '14:00')}`)}
           {row('Check-out', `${day(bk.check_out)}, by ${hhmmLabel(bk.checkout_time || '12:00')}`)}
           {row(`${word[0].toUpperCase()}${word.slice(1)}s`, bk.nights)}
           {row('Guest', bk.customer_name)}
+          </>)}
           <div className="my-1.5" style={{ borderTop: `1px solid ${S.line}` }} />
           {row('Total', fmt(bk.total), true)}
           {Number(bk.amount_paid) > 0 && row('Paid so far', fmt(bk.amount_paid))}
