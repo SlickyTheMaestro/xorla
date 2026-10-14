@@ -283,7 +283,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson', 'checkinTime', 'checkoutTime'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices'];
 const SETTINGS_DESCRIPTIONS = {
   plan: 'What your plan includes, and renewing it.',
   notifications: 'Alerts on this device for new orders, requests and staff.',
@@ -1455,6 +1455,8 @@ function XorlaApp() {
   const [bookingPanel, setBookingPanel] = useState(false);
   const [showRefundHistory, setShowRefundHistory] = useState(false);
   const [showAllCancelled, setShowAllCancelled] = useState(false);
+  const [catalogChanges, setCatalogChanges] = useState([]);
+  const [showAllChanges, setShowAllChanges] = useState(false);
   const [bookingForm, setBookingForm] = useState({ productId: '', checkIn: '', checkOut: '', units: '1', name: '', phone: '', note: '', paid: '' });
   const [bookingAct, setBookingAct] = useState(null);
   const [actForm, setActForm] = useState({ room: '', amount: '', reason: '' });
@@ -1901,6 +1903,7 @@ function XorlaApp() {
       setApptPeople(Array.isArray(peopleRows) ? peopleRows : []);
       setDiscountCodes(Array.isArray(codeRows) ? codeRows : []);
       loadStaffRequests(accessToken);
+      sbRest('catalog_changes', { accessToken, query: '?select=*&order=created_at.desc&limit=80' }).then((r) => setCatalogChanges(Array.isArray(r) ? r : [])).catch(() => setCatalogChanges([]));
       sbRpc('admin_access', accessToken, {}).then((a) => setIsFounder(!!a?.admin)).catch(() => setIsFounder(false));
     } catch (e) {
       console.error('Loading business data failed:', e);
@@ -2127,6 +2130,7 @@ function XorlaApp() {
       apptEnabled: business.appt_enabled !== false,
       openTime: String(business.open_time || '08:00').slice(0, 5),
       checkinTime: String(business.checkin_time || '14:00').slice(0, 5),
+      approveManagerPrices: !!business.approve_manager_prices,
       checkoutTime: String(business.checkout_time || '12:00').slice(0, 5),
       closeTime: String(business.close_time || '18:00').slice(0, 5),
       openDays: Array.isArray(business.open_days) ? business.open_days : [1, 2, 3, 4, 5, 6],
@@ -2537,7 +2541,8 @@ function XorlaApp() {
   };
 
   const saveHeroImages = async (list) => {
-    await sbRest(`businesses?id=eq.${settings.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: { hero_images: list, hero_image_url: list[0] || null } });
+    if (settings.role === 'manager') await sbRpc('set_storefront_look', session.access_token, { p_tagline: null, p_hero: list });
+    else await sbRest(`businesses?id=eq.${settings.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: { hero_images: list, hero_image_url: list[0] || null } });
     setSettings((prev) => ({ ...prev, heroImages: list, heroImageUrl: list[0] || null }));
   };
   const handleHeroSelect = async (e) => {
@@ -2620,6 +2625,59 @@ function XorlaApp() {
       setEditingProductId(null);
       setShowProductForm(false);
     } catch (e) { brandAlert(e.message); } finally { setSavingProduct(false); }
+  };
+  // The owner's view of what managers changed: undo anything, approve or decline price changes that wait
+  const undoChange = async (c) => {
+    if (!(await brandConfirm(`Undo this? ${c.summary}.`, { title: 'Undo the change?', confirm: 'Undo it' }))) return;
+    try { await sbRpc('undo_change', session.access_token, { p_id: c.id }); await loadBusinessData(session.access_token); }
+    catch (e) { brandAlert(e.message); }
+  };
+  const decideChange = async (c, approve) => {
+    try { await sbRpc('decide_change', session.access_token, { p_id: c.id, p_approve: approve }); await loadBusinessData(session.access_token); }
+    catch (e) { brandAlert(e.message); }
+  };
+  const renderChangesFeed = () => {
+    if (!isOwnerRole) return null;
+    const week = Date.now() - 7 * 86400000;
+    const pending = catalogChanges.filter((c) => c.status === 'pending');
+    const recent = catalogChanges.filter((c) => c.status !== 'pending' && new Date(c.created_at).getTime() > week);
+    if (!pending.length && !recent.length) return null;
+    const list = [...pending, ...(showAllChanges ? recent : recent.slice(0, 4))];
+    const when = (t) => { const d = new Date(t); const today = lagosDateKey(t) === lagosToday; return d.toLocaleString('en-GB', { ...LAGOS_TIME, ...(today ? {} : { weekday: 'short' }), hour: 'numeric', minute: '2-digit', hour12: true }); };
+    const icon = (k) => (k === 'new' ? Plus : k === 'price' || k === 'location_price' ? Wallet : k === 'photo' || k === 'storefront' ? Camera : k === 'rooms' ? BedDouble : Package);
+    return (
+      <div id="changes" className="rounded-2xl p-4 mb-6 scroll-mt-24" style={card}>
+        <div className="flex items-baseline justify-between gap-3 mb-3">
+          <div className="text-[15px] font-semibold cx-display">Changes by your managers</div>
+          {pending.length > 0 ? <span className="text-[12px] font-semibold" style={{ color: C.copper }}>{pending.length} waiting for you</span> : <span className="text-[11.5px]" style={{ color: C.inkFaint }}>Last 7 days</span>}
+        </div>
+        <div className="space-y-2">
+          {list.map((c) => {
+            const Ic = icon(c.kind);
+            const wait = c.status === 'pending';
+            return (
+              <div key={c.id} className="rounded-xl px-3 py-2.5" style={{ background: wait ? C.copperSoft : C.surfaceRaised, border: `1px solid ${wait ? 'rgba(255,176,32,0.35)' : C.line}`, opacity: c.status === 'undone' || c.status === 'declined' ? 0.6 : 1 }}>
+                <div className="flex items-start gap-2.5">
+                  <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: c.money ? C.copperSoft : 'rgba(255,255,255,0.05)' }}><Ic size={15} style={{ color: c.money ? C.copper : C.inkDim }} /></span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] leading-snug" style={{ color: C.ink, textDecoration: c.status === 'undone' ? 'line-through' : 'none' }}>{c.summary}</span>
+                    <span className="block text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{c.actor_name || 'Manager'}{c.shop_id && hasManyLocations ? ` · ${shopNameOf(c.shop_id)}` : ''} · {when(c.created_at)}{c.status === 'undone' ? ' · undone' : c.status === 'declined' ? ' · declined' : c.status === 'approved' ? ' · approved' : ''}</span>
+                  </span>
+                  {(c.status === 'applied' || c.status === 'approved') && <button onClick={() => undoChange(c)} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Undo</button>}
+                </div>
+                {wait && (
+                  <div className="grid grid-cols-2 gap-2 mt-2.5">
+                    <button onClick={() => decideChange(c, false)} className="h-9 rounded-lg text-[12.5px] font-semibold" style={{ color: C.rust, border: `1px solid ${C.line}`, background: C.surfaceRaised }}>Decline</button>
+                    <button onClick={() => decideChange(c, true)} className="h-9 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Approve</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {recent.length > 4 && <button onClick={() => setShowAllChanges((v) => !v)} className="w-full mt-2.5 text-[12.5px] font-semibold" style={{ color: C.copper }}>{showAllChanges ? 'Show fewer' : `Show all ${recent.length}`}</button>}
+      </div>
+    );
   };
   // Managers set the price at their own location only (blank = the business's standard price)
   const [locPrice, setLocPrice] = useState(null); // { p, shopId, value, busy, error }
@@ -2996,6 +3054,7 @@ function XorlaApp() {
       if ('apptEnabled' in patch) bizPatch.appt_enabled = !!patch.apptEnabled;
       if ('openTime' in patch) bizPatch.open_time = patch.openTime;
       if ('checkinTime' in patch) bizPatch.checkin_time = patch.checkinTime;
+      if ('approveManagerPrices' in patch) bizPatch.approve_manager_prices = !!patch.approveManagerPrices;
       if ('checkoutTime' in patch) bizPatch.checkout_time = patch.checkoutTime;
       if ('closeTime' in patch) bizPatch.close_time = patch.closeTime;
       if ('openDays' in patch) bizPatch.open_days = patch.openDays;
@@ -4813,11 +4872,11 @@ function XorlaApp() {
   const renderExtrasEmpty = () => (
     <div className="rounded-xl p-3.5 mb-3" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
       <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
-        <strong style={{ color: C.ink }}>No extras yet.</strong> {isOwnerRole
+        <strong style={{ color: C.ink }}>No extras yet.</strong> {canRun
           ? `Add ${serviceKind === 'rentals' ? 'delivery, extra hours' : 'laundry, bar items'} and other extras once, and they'll appear here with their prices.`
           : 'Ask the owner to add extras like laundry or the bar, and they\'ll appear here with their prices.'}
       </div>
-      {isOwnerRole && <button type="button" onClick={() => openCatalogForm('extra')} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
+      {canRun && <button type="button" onClick={() => openCatalogForm('extra')} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
     </div>
   );
 
@@ -5762,6 +5821,7 @@ function XorlaApp() {
   const notifItems = (() => {
     const items = [];
     const go = (t, extra) => () => { setNotifOpen(false); extra && extra(); setTab(t); };
+    if (isOwnerRole && catalogChanges.some((c) => c.status === 'pending')) { const n = catalogChanges.filter((c) => c.status === 'pending').length; items.push({ key: 'approvals', urgent: false, Icon: ShieldCheck, title: `${n} price change${n !== 1 ? 's' : ''} waiting for your OK`, sub: catalogChanges.find((c) => c.status === 'pending').summary, onClick: go('overview', () => setTimeout(() => document.getElementById('changes')?.scrollIntoView({ behavior: 'smooth' }), 250)) }); }
     if (canRun && staffRequests.length > 0) items.push({ key: 'staffreq', urgent: false, Icon: Users, title: `${staffRequests.length} ${staffRequests.length === 1 ? 'person is' : 'people are'} asking to join your team`, sub: staffRequests.slice(0, 2).map((r) => r.name).join(', '), onClick: () => { setNotifOpen(false); setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('team'); setTab('settings'); } });
     if (bookingRequests.length > 0 && canAnswerRequests) items.push({ key: 'bookreq', urgent: false, Icon: CalendarClock, title: `${bookingRequests.length} booking request${bookingRequests.length !== 1 ? 's' : ''} to answer`, sub: bookingRequests.slice(0, 2).map((b) => `${b.customer_name}, ${dayLabel(b.check_in)}`).join(' · '), onClick: go('bookings') });
     if (refundsDue.length > 0) items.push({ key: 'refunds', urgent: true, Icon: Wallet, title: `${refundsDue.length} deposit refund${refundsDue.length !== 1 ? 's' : ''} to send`, sub: refundsDue.slice(0, 2).map((b) => `${b.customer_name}, ${fmt(b.refund_amount)}`).join(' · '), onClick: go('bookings') });
@@ -6748,13 +6808,13 @@ function XorlaApp() {
   // What a customer would notice on the storefront right now. must = blocks orders; soft = nice to have
   const storefrontIssues = () => {
     const out = [];
-    if (!phoneOk(settings.ownerPhone)) out.push({ level: 'must', text: "No WhatsApp number yet, so new orders and requests can't reach you.", fix: 'contact', fixLabel: 'Add number' });
+    if (!phoneOk(settings.ownerPhone) && !isManager) out.push({ level: 'must', text: "No WhatsApp number yet, so new orders and requests can't reach you.", fix: 'contact', fixLabel: 'Add number' });
     if (!listItems.length) out.push({ level: 'must', text: `Nothing to ${actWord} yet. Add your ${T.catalog.toLowerCase()} first.`, fix: 'list', fixLabel: 'Add' });
     const noPrice = listItems.filter((p) => !(Number(p.sellingPrice) > 0)).length;
     if (noPrice) out.push({ level: 'should', text: `${noPrice} ${noPrice > 1 ? T.catalog.toLowerCase() : T.item} without a price.`, fix: 'list', fixLabel: 'Fix' });
     if (servicesWithoutTime.length) out.push({ level: 'should', text: `${servicesWithoutTime.length} service${servicesWithoutTime.length > 1 ? "s don't" : " doesn't"} say how long ${servicesWithoutTime.length > 1 ? 'they take' : 'it takes'}, so customers will see 1 hour.`, fix: 'list', fixLabel: 'Fix' });
     if (listItems.length && !listItems.some((p) => p.imageUrl)) out.push({ level: 'soft', text: `No photos yet. ${T.Item}s with photos get more ${T.orders.toLowerCase()}.`, fix: 'list', fixLabel: 'Add' });
-    if (!settings.logoUrl) out.push({ level: 'soft', text: 'No logo yet. It shows at the top of your storefront.', fix: 'branding', fixLabel: 'Add' });
+    if (!settings.logoUrl && !isManager) out.push({ level: 'soft', text: 'No logo yet. It shows at the top of your storefront.', fix: 'branding', fixLabel: 'Add' });
     if (!String(settings.storefrontTagline || '').trim()) out.push({ level: 'soft', text: 'No tagline yet. One line that tells customers what you do.', fix: 'storefront', fixLabel: 'Add' });
     return out;
   };
@@ -7537,6 +7597,15 @@ function XorlaApp() {
   if (tab === 'settings' && draft) {
     const settingsDirty = EDITABLE_SETTINGS.some((k) => (draft[k] ?? '') !== (settings[k] ?? ''));
     const saveSettingsDraft = () => {
+      if (isManager) {
+        // A manager only edits the storefront's tagline here; it goes through the shared function (and into the owner's change feed)
+        const tag = (draft.storefrontTagline || '').trim();
+        if (tag !== (settings.storefrontTagline || '')) sbRpc('set_storefront_look', session.access_token, { p_tagline: tag, p_hero: null }).catch((e) => brandAlert(e.message));
+        setSettings((prev) => ({ ...prev, storefrontTagline: tag }));
+        setDraft((prev) => ({ ...prev, storefrontTagline: tag }));
+        setSettingsPage(null); setSaveNotice('Changes saved'); setTimeout(() => setSaveNotice(''), 3000);
+        return;
+      }
       if ((draft.closeTime || '18:00') <= (draft.openTime || '08:00')) { brandAlert('Closing time must be after opening time.', { title: 'Check your opening hours' }); return; }
       const patch = {};
       // Only what changed is saved, so one new setting can never hold up the others
@@ -7630,6 +7699,9 @@ function XorlaApp() {
                 {isOwnerRole && apptMode && navGroup('Appointments', [
                   { id: 'hours', Icon: CalendarClock, label: 'Opening hours & appointments', value: draft.apptEnabled === false ? 'Off' : `${hhmmLabel(draft.openTime || '08:00')} to ${hhmmLabel(draft.closeTime || '18:00')}` },
                 ])}
+                {isManager && settings.storefrontEnabled && navGroup('Storefront', [
+                  { id: 'storefront', Icon: ShoppingBag, label: 'Banner photos & tagline', value: `${(settings.heroImages || []).length} photo${(settings.heroImages || []).length === 1 ? '' : 's'}` },
+                ])}
                 {!isManager && navGroup('Language', [
                   { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
                 ])}
@@ -7640,6 +7712,7 @@ function XorlaApp() {
                 {navGroup('Team', [
                   { id: 'team', Icon: Users, label: isManager ? 'Your staff' : 'Staff & managers', value: `${teamList.length} ${teamList.length === 1 ? 'person' : 'people'}` },
                   ...(isManager ? [] : [{ toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) }]),
+                  ...(isOwnerRole && settings.staffList.some((x) => x.role === 'manager') ? [{ toggle: true, Icon: ShieldCheck, label: 'Approve managers\' price changes first', on: !!draft.approveManagerPrices, onToggle: () => setDraft({ ...draft, approveManagerPrices: !draft.approveManagerPrices }) }] : []),
                   ...(!isManager && (hasBookables || apptMode) ? [{ toggle: true, Icon: CalendarClock, label: hasBookables && apptMode ? 'Let staff confirm bookings and appointments' : apptMode ? 'Let staff accept appointment requests' : 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
                 ])}
                 {navGroup('Security', [
@@ -7796,7 +7869,7 @@ function XorlaApp() {
                       <div className="text-[13px] font-medium mb-0.5">Public storefront</div>
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>Lets anyone browse your products and order — no login needed for them.</div>
                     </div>
-                    <button onClick={() => { if (draft.storefrontEnabled) setDraft({ ...draft, storefrontEnabled: false }); else requestStorefrontOn(() => setDraft((d) => ({ ...d, storefrontEnabled: true }))); }} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.storefrontEnabled ? C.sage : C.line }}>
+                    <button disabled={!isOwnerRole} onClick={() => { if (!isOwnerRole) return; if (draft.storefrontEnabled) setDraft({ ...draft, storefrontEnabled: false }); else requestStorefrontOn(() => setDraft((d) => ({ ...d, storefrontEnabled: true }))); }} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.storefrontEnabled ? C.sage : C.line, opacity: isOwnerRole ? 1 : 0.5 }}>
                       <div className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: C.bg, left: draft.storefrontEnabled ? '22px' : '2px' }} />
                     </button>
                   </div>
@@ -8683,6 +8756,7 @@ function XorlaApp() {
                   <button onClick={dismissLangIntro} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
                 </div>
               )}
+              {renderChangesFeed()}
               {canRun && (() => {
                 // Reports: easy to find, with a taste of what's inside
                 const since = Date.now() - 7 * 86400000;
@@ -9166,10 +9240,16 @@ function XorlaApp() {
               ))}
             </div>
             {productsView === 'insights' ? renderInsights() : (<>
-            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{isManager ? `You set prices and stock for your ${myShops.length > 1 ? L.many : L.one}. The owner adds new ${T.catalog.toLowerCase()} and sets the standard prices.` : T.intro}</div>
+            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>{isManager ? `${T.intro} The owner sees every change you make here, and can undo it.` : T.intro}</div>
+            {isManager && catalogChanges.some((c) => c.status === 'pending') && (
+              <div className="rounded-xl px-3.5 py-3 mb-4" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.3)' }}>
+                <div className="text-[12.5px] font-semibold mb-1" style={{ color: C.copper }}>Waiting for the owner's OK</div>
+                {catalogChanges.filter((c) => c.status === 'pending').map((c) => <div key={c.id} className="text-[12px] leading-relaxed" style={{ color: C.inkDim }}>{c.summary}</div>)}
+              </div>
+            )}
             {renderStockCenter()}
 
-            {!isManager && (
+            {canRun && (
               T.saleHint ? (
                 <div className="grid grid-cols-2 gap-2 mb-6">
                   <button onClick={() => openCatalogForm('room')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.copper, color: C.bg }}>
@@ -9357,7 +9437,7 @@ function XorlaApp() {
                       {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }, C.sage)}
                         {canRun && allLiveLocations.length > 1 && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
-                        {isManager ? pill('Price here', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
+                        {pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
                         {canRun && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
                         {isOwnerRole && <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>}
                       </>); })()}
