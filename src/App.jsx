@@ -303,7 +303,7 @@ const SETTINGS_DESCRIPTIONS = {
   promote: 'A poster for your shop, pictures for WhatsApp Status, and discount codes.',
   payments: 'Let customers pay you online by card, transfer or USSD, straight into your bank.',
 };
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Your team', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business', payments: 'Online payments' };
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Your team', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business', payments: 'Online payments', delivery: 'Delivery & riders' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -740,7 +740,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '' };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [] };
 }
 
 function staticMessage(inv, settings) {
@@ -1469,7 +1469,12 @@ function XorlaApp() {
   const [actForm, setActForm] = useState({ room: '', amount: '', reason: '' });
   const [bookingBusy, setBookingBusy] = useState(false);
   const [roomCharges, setRoomCharges] = useState([]);
-  const [roomOrders, setRoomOrders] = useState([]);     // guests ordering to their room from their booking link
+  const [roomOrders, setRoomOrders] = useState([]);
+  const [riders, setRiders] = useState([]);            // riders and dispatch companies the business uses
+  const [zones, setZones] = useState([]);              // delivery areas with fixed fees
+  const [riderFor, setRiderFor] = useState(null);      // { order, picks: { [riderId]: fee }, chosen, customerFee, busy, error }
+  const [riderForm, setRiderForm] = useState({ name: '', phone: '', areas: '' });
+  const [zoneForm, setZoneForm] = useState({ name: '', fee: '' });     // guests ordering to their room from their booking link
   const [roomBillFor, setRoomBillFor] = useState(null); // a storefront order being put on a guest's room bill
   const [notGuest, setNotGuest] = useState({});         // orders staff said are not from a guest (room number didn't match)
   const [apptPeople, setApptPeople] = useState([]);
@@ -1872,7 +1877,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      let [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, roomOrderRows, peopleRows, codeRows] = await Promise.all([
+      let [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, riderRows, zoneRows, roomOrderRows, peopleRows, codeRows] = await Promise.all([
         sbRestAll('sales', { accessToken, query: `?select=*&sold_at=gte.${recentSince()}&order=sold_at.desc,id.desc` }),
         sbRestAll('invoices', { accessToken, query: '?select=*&order=created_at.desc,id.desc' }),
         sbRestAll('expenses', { accessToken, query: `?select=*&spent_at=gte.${recentSince()}&order=spent_at.desc,id.desc` }),
@@ -1892,6 +1897,8 @@ function XorlaApp() {
         sbRest('bookings', { accessToken, query: `?select=*&or=(deposit_status.eq.refund_due,and(deposit_status.eq.refunded,refunded_at.gte.${new Date(Date.now() - 90 * 86400000).toISOString()}))&limit=300` })
           .catch(() => sbRest('bookings', { accessToken, query: '?select=*&deposit_status=eq.refund_due&limit=200' })).catch(() => []),
         sbRest('room_charges', { accessToken, query: '?select=*&status=eq.open&order=created_at.asc&limit=1000' }).catch(() => []),
+        sbRest('riders', { accessToken, query: '?select=*&active=eq.true&order=name.asc' }).catch(() => []),
+        sbRest('delivery_zones', { accessToken, query: '?select=*&active=eq.true&order=fee.asc' }).catch(() => []),
         sbRest('room_orders', { accessToken, query: `?select=*&created_at=gte.${new Date(Date.now() - 2 * 86400000).toISOString()}&order=created_at.desc&limit=200` }).catch(() => []),
         sbRest('appt_people', { accessToken, query: '?select=*&order=name.asc' }).catch(() => []),
         sbRest('discount_codes', { accessToken, query: '?select=*&order=created_at.desc' }).catch(() => []),
@@ -1921,6 +1928,8 @@ function XorlaApp() {
       setRoomsAll(roomRows || []);
       setRoomCharges(Array.isArray(chargeRows) ? chargeRows : []);
       setRoomOrders(Array.isArray(roomOrderRows) ? roomOrderRows : []);
+      setRiders(Array.isArray(riderRows) ? riderRows : []);
+      setZones(Array.isArray(zoneRows) ? zoneRows : []);
       setApptPeople(Array.isArray(peopleRows) ? peopleRows : []);
       setDiscountCodes(Array.isArray(codeRows) ? codeRows : []);
       loadStaffRequests(accessToken);
@@ -2929,7 +2938,7 @@ function XorlaApp() {
     const owing = o.payStatus === 'paid' ? Math.max(0, total - orderMoney(o).paidOnline) : total;
     const payLine = o.payStatus === 'requested' && orderLinkOf(o) ? `Please pay ${fmt(owing)} here before you ${o.fulfilMode === 'delivery' ? 'receive it' : 'come'}: ${orderLinkOf(o)}` : owing > 0 ? `Total: ${fmt(owing)}${o.fulfilMode === 'delivery' ? ', to pay on delivery' : ', to pay when you collect'}.` : 'It is fully paid.';
     return o.fulfilMode === 'delivery'
-      ? [`Hi ${first}, your order from ${settings.businessName} is on its way to you.`, `${items}.`, `Delivering to: ${o.deliveryAddress}`, payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n')
+      ? [`Hi ${first}, your order from ${settings.businessName} is on its way to you.`, `${items}.`, `Delivering to: ${o.deliveryAddress}`, o.riderName ? `Your rider: ${o.riderName}${o.riderPhone ? `, ${formatPhoneDisplay(o.riderPhone)}` : ''}` : '', payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n')
       : [`Hi ${first}, your order from ${settings.businessName} is ready for pick-up.`, `${items}.`, `Collect it from: ${where || (shops.length > 1 ? `${settings.businessName}, ${locName(shop)}` : settings.businessName)}`, payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n');
   };
   const markReady = async (o) => {
@@ -3000,6 +3009,104 @@ function XorlaApp() {
             );
           })}
         </div>
+      </Sheet>
+    );
+  };
+  // Delivery: the business's riders and areas (owner and managers keep the lists; everyone uses them)
+  const reloadDelivery = async () => {
+    const [r, z] = await Promise.all([
+      sbRest('riders', { accessToken: session.access_token, query: '?select=*&active=eq.true&order=name.asc' }).catch(() => null),
+      sbRest('delivery_zones', { accessToken: session.access_token, query: '?select=*&active=eq.true&order=fee.asc' }).catch(() => null),
+    ]);
+    if (Array.isArray(r)) setRiders(r); if (Array.isArray(z)) setZones(z);
+  };
+  const addRider = async () => {
+    const name = riderForm.name.trim(), phone = riderForm.phone.trim();
+    if (!name) { brandAlert("Add the rider's name, or the dispatch company's."); return; }
+    if (!phoneOk(phone)) { brandAlert('Add their WhatsApp number, e.g. 0803 123 4567.'); return; }
+    try { await sbRest('riders', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: name.slice(0, 60), phone, areas: riderForm.areas.trim().slice(0, 80) } }); setRiderForm({ name: '', phone: '', areas: '' }); await reloadDelivery(); }
+    catch (e) { brandAlert(e.message); }
+  };
+  const removeRider = async (r) => {
+    if (!(await brandConfirm(`Remove ${r.name} from your riders? Past deliveries keep their name.`, { confirm: 'Remove', danger: true }))) return;
+    try { await sbRest(`riders?id=eq.${r.id}`, { method: 'PATCH', accessToken: session.access_token, body: { active: false } }); await reloadDelivery(); } catch (e) { brandAlert(e.message); }
+  };
+  const addZone = async () => {
+    const name = zoneForm.name.trim(), fee = Number(parseNumInput(zoneForm.fee));
+    if (!name) { brandAlert('Name the area, e.g. Aba town.'); return; }
+    if (!Number.isFinite(fee) || fee < 0) { brandAlert('Enter the delivery fee for this area.'); return; }
+    try { await sbRest('delivery_zones', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: name.slice(0, 50), fee: Math.round(fee) } }); setZoneForm({ name: '', fee: '' }); await reloadDelivery(); }
+    catch (e) { brandAlert(e.message); }
+  };
+  const removeZone = async (z) => {
+    try { await sbRest(`delivery_zones?id=eq.${z.id}`, { method: 'PATCH', accessToken: session.access_token, body: { active: false } }); await reloadDelivery(); } catch (e) { brandAlert(e.message); }
+  };
+  const pickupPointOf = (o) => { const sh = locationsAll.find((x) => x.id === (o.shopId || mainShopId)); return sh?.address || settings.businessAddress || (shops.length > 1 ? `${settings.businessName}, ${locName(sh)}` : settings.businessName); };
+  const packageOf = (o) => o.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${it.description}`).join(', ');
+  const riderAskMessage = (r, o) => `Hello ${String(r.name).split(' ')[0]}, delivery request from ${settings.businessName}.\n\nPick up: ${pickupPointOf(o)}\nDrop off: ${o.deliveryAddress}\nPackage: ${packageOf(o)}\n\nHow much, and how soon can you come?`;
+  const riderBriefMessage = (o) => {
+    const owing = o.payStatus === 'paid' ? Math.max(0, orderMoney(o).total - orderMoney(o).paidOnline) : orderMoney(o).total;
+    return [`Hi ${String(o.riderName).split(' ')[0]}, please pick up a delivery from ${settings.businessName}.`, `Pick up: ${pickupPointOf(o)}`, `Deliver to: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}\n${o.deliveryAddress}`, `Package: ${packageOf(o)}`, o.riderFee != null ? `Your fee: ${fmt(o.riderFee)}` : '', owing > 0 ? `Collect ${fmt(owing)} from the customer.` : 'The customer has already paid.', `Map: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`].filter(Boolean).join('\n\n');
+  };
+  const openRiders = (o) => setRiderFor({ order: o, quotes: Object.fromEntries((Array.isArray(o.riderQuotes) ? o.riderQuotes : []).map((q) => [q.id, String(q.fee)])), chosen: o.riderId || '', customerFee: o.deliveryZone || o.deliveryFee ? String(o.deliveryFee || '') : '', busy: false, error: '' });
+  const saveRider = async () => {
+    const f = riderFor; if (!f || f.busy) return;
+    const o = f.order; const r = riders.find((x) => x.id === f.chosen);
+    const rFee = Number(parseNumInput(f.quotes[f.chosen] || '')); const cFee = Number(parseNumInput(f.customerFee || ''));
+    if (!r) { setRiderFor({ ...f, error: 'Choose the rider to send.' }); return; }
+    if (!Number.isFinite(rFee) || rFee < 0 || String(f.quotes[f.chosen] || '').trim() === '') { setRiderFor({ ...f, error: `Enter ${r.name}'s price.` }); return; }
+    if (!Number.isFinite(cFee) || cFee < 0 || String(f.customerFee || '').trim() === '') { setRiderFor({ ...f, error: 'Enter what the customer pays for delivery.' }); return; }
+    setRiderFor({ ...f, busy: true, error: '' });
+    try {
+      const quotes = riders.filter((x) => String(f.quotes[x.id] || '').trim() !== '').map((x) => ({ id: x.id, rider: x.name, fee: Number(parseNumInput(f.quotes[x.id])) }));
+      await sbRpc('set_order_rider', session.access_token, { p_order: o.id, p_rider: r.id, p_rider_fee: rFee, p_customer_fee: cFee, p_quotes: quotes });
+      const fresh = (await refreshOrder(o.id)) || { ...o, riderId: r.id, riderName: r.name, riderPhone: r.phone, riderFee: rFee, deliveryFee: cFee };
+      setRiderFor(null);
+      const brief = riderBriefMessage(fresh);
+      await offerWhatsApp(r.phone, brief, `${r.name} is taking it`, `Send ${String(r.name).split(' ')[0]} the pick-up details on WhatsApp? They'll see:\n\n"${brief}"`);
+      if (settings.payout && !fresh.payStatus && fresh.payToken) setPayAsk({ order: fresh, fee: String(cFee), busy: false, error: '' });
+    } catch (e) { setRiderFor((x) => x && { ...x, busy: false, error: e.message }); }
+  };
+  const renderRiderSheet = () => {
+    if (!riderFor) return null;
+    const f = riderFor; const o = f.order; const set = (patch) => setRiderFor({ ...f, ...patch, error: '' });
+    const chosenFee = Number(parseNumInput(f.quotes[f.chosen] || '')) || 0; const cFee = Number(parseNumInput(f.customerFee || '')) || 0;
+    return (
+      <Sheet title="Get rider prices" onClose={() => !f.busy && setRiderFor(null)} busy={f.busy}>
+        <div className="text-[12.5px] mb-3 leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>{packageOf(o)}</strong> from {pickupPointOf(o)} to <strong style={{ color: C.ink }}>{o.deliveryAddress}</strong>.</div>
+        {riders.length === 0 ? (
+          <div className="rounded-xl px-3.5 py-3 text-[12.5px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>You haven't added any riders yet.{canRun ? <> <button onClick={() => { setRiderFor(null); setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('delivery'); setTab('settings'); }} className="font-semibold" style={{ color: C.copper }}>Add your riders</button></> : ' Ask the owner or a manager to add them in Settings.'}</div>
+        ) : (
+          <>
+            <div className="text-[11.5px] mb-2" style={{ color: C.inkFaint }}>1. Ask on WhatsApp. 2. Type each price they reply with. 3. Choose one.</div>
+            <div className="space-y-2">
+              {riders.map((r) => {
+                const on = f.chosen === r.id;
+                return (
+                  <div key={r.id} className="rounded-xl p-3" style={{ background: on ? C.copperSoft : C.surfaceRaised, border: `1px solid ${on ? 'rgba(255,176,32,0.4)' : C.line}` }}>
+                    <div className="flex items-center gap-2.5">
+                      <button type="button" onClick={() => set({ chosen: r.id })} aria-label={`Choose ${r.name}`} className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={{ border: `1.5px solid ${on ? C.copper : C.inkFaint}` }}>{on && <span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copper }} />}</button>
+                      <button type="button" onClick={() => set({ chosen: r.id })} className="flex-1 min-w-0 text-left"><span className="block text-[13.5px] font-semibold truncate">{r.name}</span>{r.areas && <span className="block text-[11px] truncate" style={{ color: C.inkFaint }}>{r.areas}</span>}</button>
+                      <a href={`https://wa.me/${toWhatsAppNumber(r.phone)}?text=${encodeURIComponent(riderAskMessage(r, o))}`} target="_blank" rel="noopener noreferrer" className="shrink-0 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold flex items-center gap-1" style={{ background: C.sage, color: C.bg }}><MessageCircle size={13} /> Ask</a>
+                      <input type="text" inputMode="decimal" placeholder="₦ price" value={formatNumInput(f.quotes[r.id] || '')} onChange={(e) => setRiderFor({ ...f, error: '', quotes: { ...f.quotes, [r.id]: parseNumInput(e.target.value) }, chosen: f.chosen || r.id })} className="shrink-0 w-24 rounded-lg px-2.5 py-1.5 text-[13px] outline-none cx-mono" style={field} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-3 rounded-xl p-3" style={{ background: C.surfaceRaised }}>
+              <label className="block text-[12px] mb-1" style={{ color: C.inkDim }}>Customer pays for delivery{o.deliveryZone ? ` (${o.deliveryZone} area)` : ''}</label>
+              <div className="flex items-center gap-2">
+                <input type="text" inputMode="decimal" placeholder="₦ amount" value={formatNumInput(f.customerFee || '')} onChange={(e) => set({ customerFee: parseNumInput(e.target.value) })} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                {chosenFee > 0 && cFee !== chosenFee && o.payStatus !== 'paid' && <button type="button" onClick={() => set({ customerFee: String(chosenFee) })} className="shrink-0 text-[11.5px] font-semibold" style={{ color: C.copper }}>Same as rider</button>}
+              </div>
+              {chosenFee > 0 && cFee > 0 && <div className="text-[11.5px] mt-1.5" style={{ color: cFee >= chosenFee ? C.sage : C.rust }}>{cFee > chosenFee ? `You keep ${fmt(cFee - chosenFee)} on this delivery.` : cFee === chosenFee ? 'The customer pays exactly what the rider charges.' : `You pay ${fmt(chosenFee - cFee)} of the delivery yourself.`}</div>}
+              {o.payStatus === 'paid' && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Already paid online, so the customer's fee stays at {fmt(o.deliveryFee)}.</div>}
+            </div>
+            {f.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
+            <button onClick={saveRider} disabled={f.busy} className="w-full mt-3 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : f.chosen ? `Send ${riders.find((x) => x.id === f.chosen)?.name || 'rider'}` : 'Choose a rider'}</button>
+          </>
+        )}
       </Sheet>
     );
   };
@@ -4450,11 +4557,21 @@ function XorlaApp() {
                   {o.fulfilMode === 'delivery' && o.deliveryAddress && (
                     <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                       <div className="flex items-center gap-2 font-semibold" style={{ color: C.ink }}><Truck size={14} style={{ color: C.copper }} /> Deliver to</div>
-                      <div className="mt-0.5 leading-relaxed" style={{ color: C.inkDim }}>{o.deliveryAddress}</div>
+                      <div className="mt-0.5 leading-relaxed" style={{ color: C.inkDim }}>{o.deliveryAddress}{o.deliveryZone ? <span style={{ color: C.inkFaint }}> · {o.deliveryZone} area, {fmt(o.deliveryFee)}</span> : null}</div>
                       <div className="flex gap-3 mt-1.5">
                         <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold" style={{ color: C.sage }}>Open in Maps</a>
-                        <button onClick={() => copyText(`addr-${o.id}`, `${o.customerName}, ${o.customerPhone}\n${o.deliveryAddress}`)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>{copiedKey === `addr-${o.id}` ? 'Copied' : 'Copy for the rider'}</button>
+                        <button onClick={() => copyText(`addr-${o.id}`, `${o.customerName}, ${o.customerPhone}\n${o.deliveryAddress}`)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>{copiedKey === `addr-${o.id}` ? 'Copied' : 'Copy address'}</button>
                       </div>
+                      {o.riderName ? (
+                        <div className="mt-2 pt-2 flex items-center gap-2" style={{ borderTop: `1px solid ${C.line}` }}>
+                          <span className="flex-1 min-w-0"><span className="block font-semibold" style={{ color: C.ink }}>Rider: {o.riderName}{o.riderFee != null ? <span className="font-normal" style={{ color: C.inkFaint }}> · {fmt(o.riderFee)}</span> : null}</span>{o.deliveryFee > 0 && o.riderFee != null && <span className="block text-[11px]" style={{ color: o.deliveryFee >= o.riderFee ? C.sage : C.rust }}>Customer pays {fmt(o.deliveryFee)}{o.deliveryFee > o.riderFee ? `, you keep ${fmt(o.deliveryFee - o.riderFee)}` : o.deliveryFee < o.riderFee ? `, you cover ${fmt(o.riderFee - o.deliveryFee)}` : ''}</span>}</span>
+                          {o.riderPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.riderPhone)}?text=${encodeURIComponent(riderBriefMessage(o))}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={14} /></a>}
+                          {o.riderPhone && <a href={`tel:${String(o.riderPhone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Phone size={14} /></a>}
+                          {o.status === 'pending' && <button onClick={() => openRiders(o)} className="shrink-0 text-[11.5px] font-semibold" style={{ color: C.copper }}>Change</button>}
+                        </div>
+                      ) : o.status === 'pending' && (
+                        <button onClick={() => openRiders(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copper, color: C.bg }}><Truck size={14} /> Get rider prices</button>
+                      )}
                     </div>
                   )}
                   {o.fulfilMode === 'pickup' && <div className="rounded-xl px-3 py-2 mb-3 text-[12.5px] flex items-center gap-2" style={{ background: o.readyAt && o.status === 'pending' ? C.sageSoft : C.surfaceRaised, color: C.inkDim }}><Store size={14} style={{ color: o.readyAt ? C.sage : C.copper }} /> <span>Pick-up: {String(o.customerName).split(' ')[0]} collects it{shops.length > 1 ? ` at ${shopNameOf(o.shopId)}` : ''}{o.readyAt && o.status === 'pending' ? <strong style={{ color: C.sage }}> · told it's ready{o.readyByName ? ` by ${o.readyByName}` : ''}, {new Date(o.readyAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })}</strong> : null}</span></div>}
@@ -6998,7 +7115,7 @@ function XorlaApp() {
         {renderReceiptModal()}
         {renderStockPanel()}
         {renderBookingPanels()}
-        {renderFulfilPanel()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderLocPrice()}
+        {renderFulfilPanel()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
         {renderApptPanel()}
         <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-5 lg:pt-7 pb-28 lg:pb-12">
           <div className="lg:hidden mb-4 flex items-baseline justify-between gap-3">
@@ -8126,6 +8243,9 @@ function XorlaApp() {
                   ...(isOwnerRole ? [{ id: 'export', Icon: FileSpreadsheet, label: 'Your records', value: 'Bring in, download' }] : []),
                   { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
+                {canRun && (settings.businessType !== 'services' || ['accommodation', 'rentals'].includes(serviceKind)) && navGroup('Delivery', [
+                  { id: 'delivery', Icon: Truck, label: 'Delivery & riders', value: riders.length || zones.length ? `${riders.length} rider${riders.length === 1 ? '' : 's'} · ${zones.length} area${zones.length === 1 ? '' : 's'}` : 'Not set up' },
+                ])}
                 {isOwnerRole && hasBookables && navGroup('Bookings', [
                   { id: 'deposits', Icon: ShieldCheck, label: 'Deposits & cancellations', value: Number(draft.depositPercent ?? 50) === 0 ? 'No deposit' : `${draft.depositPercent ?? 50}% deposit` },
                 ])}
@@ -8601,6 +8721,58 @@ function XorlaApp() {
                   {hasBookables && <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>+</span><span>Guests can also pay booking deposits online. Set the deposit in Deposits & cancellations.</span></div>}
                   <div className="pt-1" style={{ color: C.inkFaint }}>Customers pay a small service fee on top, so you receive the full price. Customers who prefer cash or transfer can still pay you directly.</div>
                 </div>
+              </div>
+            )}
+            {settingsPage === 'delivery' && (
+              <div className="space-y-4">
+                <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Keep the riders and dispatch companies you use here. On a delivery order, your team asks them for a price on WhatsApp in one tap, picks one, and the customer is told who is coming. What you pay the rider is recorded as an expense when the order is delivered.</div>
+                <div className="rounded-2xl p-4" style={card}>
+                  <div className="text-[14.5px] font-semibold mb-3">Your riders</div>
+                  {riders.length === 0 && <div className="text-[12px] rounded-xl px-3 py-2.5 mb-3" style={{ background: C.surfaceRaised, color: C.inkFaint }}>No riders yet. Add the bike riders or dispatch companies you call.</div>}
+                  <div className="space-y-2 mb-3">
+                    {riders.map((r) => (
+                      <div key={r.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                        <Truck size={16} style={{ color: C.copper }} className="shrink-0" />
+                        <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold truncate">{r.name}</span><span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{formatPhoneDisplay(r.phone)}{r.areas ? ` · ${r.areas}` : ''}</span></span>
+                        {canRun && <button onClick={() => removeRider(r)} aria-label={`Remove ${r.name}`} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: C.rust }}><Trash2 size={14} /></button>}
+                      </div>
+                    ))}
+                  </div>
+                  {canRun && (
+                    <div className="space-y-2">
+                      <input type="text" placeholder="Name, e.g. Chidi (bike) or Kwik Dispatch" value={riderForm.name} onChange={(e) => setRiderForm({ ...riderForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input type="tel" placeholder="WhatsApp number" value={riderForm.phone} onChange={(e) => setRiderForm({ ...riderForm, phone: e.target.value })} className="min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                        <input type="text" placeholder="Areas (optional)" value={riderForm.areas} onChange={(e) => setRiderForm({ ...riderForm, areas: e.target.value })} className="min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                      </div>
+                      <button onClick={addRider} className="w-full h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><Plus size={15} /> Add rider</button>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-2xl p-4" style={card}>
+                  <div className="text-[14.5px] font-semibold mb-1">Delivery areas (optional)</div>
+                  <div className="text-[12px] mb-3 leading-relaxed" style={{ color: C.inkFaint }}>If you charge the same in an area, add it here. Customers pick their area in the basket and see the fee at once. Anywhere else, your team gets a rider's price and confirms the fee.</div>
+                  <div className="space-y-2 mb-3">
+                    {zones.map((z) => (
+                      <div key={z.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                        <MapPin size={15} style={{ color: C.copper }} className="shrink-0" />
+                        <span className="flex-1 min-w-0 text-[13.5px] font-semibold truncate">{z.name}</span>
+                        <span className="cx-mono text-[13px] font-semibold">{fmt(z.fee)}</span>
+                        {canRun && <button onClick={() => removeZone(z)} aria-label={`Remove ${z.name}`} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: C.rust }}><Trash2 size={14} /></button>}
+                      </div>
+                    ))}
+                  </div>
+                  {canRun && (
+                    <div className="grid grid-cols-[1fr_110px_auto] gap-2">
+                      <input type="text" placeholder="Area, e.g. Aba town" value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} className="min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                      <input type="text" inputMode="decimal" placeholder="Fee (₦)" value={formatNumInput(zoneForm.fee)} onChange={(e) => setZoneForm({ ...zoneForm, fee: parseNumInput(e.target.value) })} className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none cx-mono" style={field} />
+                      <button onClick={addZone} aria-label="Add area" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: C.sage, color: C.bg }}><Plus size={16} /></button>
+                    </div>
+                  )}
+                </div>
+                {!(Array.isArray(settings.orderModes) ? settings.orderModes : (settings.businessType !== 'services' || serviceKind === 'rentals') ? ['pickup', 'delivery'] : []).includes('delivery') && (
+                  <div className="text-[12px] rounded-xl px-3.5 py-2.5" style={{ background: C.copperSoft, color: C.copper }}>Delivery is off on your storefront. Turn it on in Settings → Storefront, under "How customers get their order".</div>
+                )}
               </div>
             )}
             {settingsPage === 'deposits' && (() => {
@@ -10478,7 +10650,7 @@ function XorlaApp() {
       {renderListTool()}
       {renderPastImport()}
       {renderHelp()}{renderSupportToast()}{renderSpotlight()}
-      {renderFulfilPanel()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderLocPrice()}
+      {renderFulfilPanel()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
       {renderApptPanel()}
       {renderNotifPanel()}
       {renderLimitPrompt()}{renderAddLocations()}
@@ -10554,6 +10726,8 @@ function Storefront({ businessCode }) {
   const [fulfilMode, setFulfilMode] = useState('');
   const [deliverAddr, setDeliverAddr] = useState('');
   const [deliverLandmark, setDeliverLandmark] = useState('');
+  const [storeZones, setStoreZones] = useState([]);   // delivery areas with fixed fees
+  const [zoneId, setZoneId] = useState('');           // '' = not chosen, 'other' = somewhere else (the business quotes)
   const [submitting, setSubmitting] = useState(false);
   const [orderSent, setOrderSent] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -10653,6 +10827,7 @@ function Storefront({ businessCode }) {
         document.title = store.name;
         setStoreProducts((store.products || []).map(fromSbProduct).filter((p) => store.business_type !== 'products' || !isBookable(p)));
         sbRpc('storefront_booking_terms', SB_KEY, { p_business_code: businessCode }).then((t) => setBookTerms(t || null)).catch(() => {});
+        sbRpc('storefront_delivery_zones', SB_KEY, { p_business_code: businessCode }).then((z) => setStoreZones(Array.isArray(z) ? z : [])).catch(() => setStoreZones([]));
         sbRpc('storefront_order_modes', SB_KEY, { p_business_code: businessCode })
           .then((m) => { const list = Array.isArray(m) ? m : []; setOrderModes(list); if (list.length === 1) setFulfilMode(list[0]); })
           .catch(() => setOrderModes(store.service_kind === 'accommodation' ? ['room', 'pickup'] : []));
@@ -10768,6 +10943,7 @@ function Storefront({ businessCode }) {
     if (!customerName.trim() || cartList.length === 0) return;
     if (askHow) {
       if (!fulfilMode) { brandAlert(`Please choose how you want your ${W.short.toLowerCase()}.`, { theme: 'light' }); return; }
+      if (fulfilMode === 'delivery' && storeZones.length && !zoneId) { brandAlert('Please choose your area, so you can see the delivery fee.', { theme: 'light' }); return; }
       if (fulfilMode === 'delivery' && deliverAddr.trim().length < 6) { brandAlert('Please add the address to deliver to.', { theme: 'light' }); return; }
       if (fulfilMode === 'room' && !guestRoom.trim()) { brandAlert('Please add your room number.', { theme: 'light' }); return; }
     }
@@ -10778,11 +10954,11 @@ function Storefront({ businessCode }) {
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(askHow && fulfilMode ? { p_mode: fulfilMode } : {}), ...(askHow && fulfilMode === 'room' ? { p_room: guestRoom.trim() } : {}), ...(askHow && fulfilMode === 'delivery' ? { p_address: `${deliverAddr.trim()}${deliverLandmark.trim() ? ` (near ${deliverLandmark.trim().replace(/^(near|opposite|beside)\s+/i, '')})` : ''}` } : {}) };
+      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(askHow && fulfilMode ? { p_mode: fulfilMode } : {}), ...(askHow && fulfilMode === 'room' ? { p_room: guestRoom.trim() } : {}), ...(askHow && fulfilMode === 'delivery' && zoneId && zoneId !== 'other' ? { p_zone: zoneId } : {}), ...(askHow && fulfilMode === 'delivery' ? { p_address: `${deliverAddr.trim()}${deliverLandmark.trim() ? ` (near ${deliverLandmark.trim().replace(/^(near|opposite|beside)\s+/i, '')})` : ''}` } : {}) };
       // Orders get the customer's own page (track it, pay online once confirmed). Appointments keep their own flow.
       let placed = null;
       try { placed = await sbRpc('place_order_v2', SB_KEY, orderArgs); }
-      catch (e) { if (/place_order_v2|does not exist|schema cache/i.test(e.message || '')) { const { p_room, p_mode, p_address, ...older } = orderArgs; await sbRpc('place_order', SB_KEY, { ...older, p_note: [older.p_note, p_mode === 'delivery' ? `Deliver to: ${p_address}` : p_mode === 'room' ? `Room ${p_room}` : p_mode === 'pickup' ? 'Pick-up' : ''].filter(Boolean).join(' · ') }); } else throw e; }
+      catch (e) { if (/place_order_v2|does not exist|schema cache/i.test(e.message || '')) { const { p_room, p_mode, p_address, p_zone, ...older } = orderArgs; await sbRpc('place_order', SB_KEY, { ...older, p_note: [older.p_note, p_mode === 'delivery' ? `Deliver to: ${p_address}` : p_mode === 'room' ? `Room ${p_room}` : p_mode === 'pickup' ? 'Pick-up' : ''].filter(Boolean).join(' · ') }); } else throw e; }
       if (placed?.token && !(usesSlots && apptSlot)) { window.location.href = `/order/${placed.token}?new=1`; return; }
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
@@ -11255,9 +11431,18 @@ function Storefront({ businessCode }) {
             )}
             {fulfilMode === 'delivery' && (
               <>
+                {storeZones.length > 0 && (
+                  <select id="sf-zone" value={zoneId} onChange={(e) => setZoneId(e.target.value)} className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={{ ...inputStyle, color: zoneId ? S.ink : S.muted }}>
+                    <option value="">Choose your area</option>
+                    {storeZones.map((z) => <option key={z.id} value={z.id}>{z.name}: {Number(z.fee) > 0 ? fmt(z.fee) : 'free delivery'}</option>)}
+                    <option value="other">Somewhere else</option>
+                  </select>
+                )}
                 <textarea id="sf-address" rows={2} maxLength={220} value={deliverAddr} onChange={(e) => setDeliverAddr(e.target.value)} placeholder="Address, e.g. 12 Faulks Road, Aba" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] resize-none ${focusRing}`} style={inputStyle} />
                 <input id="sf-landmark" value={deliverLandmark} onChange={(e) => setDeliverLandmark(e.target.value.slice(0, 70))} placeholder="Landmark (optional), e.g. opposite First Bank" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
-                <div className="text-[12px] mt-1" style={{ color: S.muted }}>{business.name} confirms the delivery fee before you pay.</div>
+                {(() => { const z = storeZones.find((x) => x.id === zoneId); return z
+                  ? <div className="text-[12.5px] mt-1.5" style={{ color: S.ink }}>Delivery to {z.name}: <strong>{Number(z.fee) > 0 ? fmt(z.fee) : 'free'}</strong>. Total with delivery: <strong>{fmt(payable + Number(z.fee))}</strong>.</div>
+                  : <div className="text-[12px] mt-1" style={{ color: S.muted }}>{business.name} confirms the delivery fee before you pay.</div>; })()}
               </>
             )}
           </div>
@@ -15049,7 +15234,7 @@ function CustomerOrder({ token }) {
     : od.status === 'fulfilled' ? ['#DFF6EE', '#0E7A5F', 'Completed', `Thank you for ${noun === 'order' ? 'ordering from' : 'choosing'} ${od.business}.`]
     : od.status === 'cancelled' ? ['#FDECEA', '#B42318', 'Cancelled', `${od.business} couldn't take this ${noun}${od.cancel_reason ? `: ${od.cancel_reason}` : ''}.`]
     : od.ready_at && od.fulfil_mode === 'pickup' ? ['#DFF6EE', '#0E7A5F', 'Ready for pick-up', `Your ${noun} is ready. Collect it from ${od.address || od.business}.${od.pay_status === 'requested' && od.online ? ' Pay below first, or when you collect it.' : ''}`]
-    : od.ready_at && od.fulfil_mode === 'delivery' ? ['#DFF6EE', '#0E7A5F', 'On its way', `Your ${noun} is on its way to ${od.delivery_address}.`]
+    : od.ready_at && od.fulfil_mode === 'delivery' ? ['#DFF6EE', '#0E7A5F', 'On its way', `Your ${noun} is on its way to ${od.delivery_address}.${od.rider_name ? ` Your rider is ${od.rider_name}${od.rider_phone ? ` (${formatPhoneDisplay(od.rider_phone)})` : ''}.` : ''}`]
     : od.pay_status === 'paid' ? ['#DFF6EE', '#0E7A5F', 'Paid', `Thanks, ${first}! ${od.business} has your payment and is getting your ${noun} ready.`]
     : od.pay_status === 'requested' ? ['#DFF6EE', '#0E7A5F', 'Confirmed: ready to pay', `${od.business} has everything for your ${noun}.${od.online ? ' Pay below to complete it.' : ''}`]
     : od.accepted ? ['#DFF6EE', '#0E7A5F', 'Confirmed', `${od.business} has confirmed your ${noun}${od.fulfil_mode === 'pickup' ? ". You'll get a message when it's ready to collect." : od.fulfil_mode === 'delivery' ? ". You'll get a message when it's on its way." : ` and will contact you about payment${noun === 'order' ? ' and pickup or delivery' : ''}.`}`]
@@ -15091,7 +15276,8 @@ function CustomerOrder({ token }) {
           <div className="my-1.5" style={{ borderTop: `1px solid ${S.line}` }} />
           {row('Total', fmt(od.pay_status ? total : itemsTotal - discount), true, S.ink)}
           {od.pay_status === 'paid' && row('Paid online', fmt(od.amount_paid), false, '#0E7A5F')}
-          {od.fulfil_mode === 'delivery' && od.delivery_address && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Delivering to: <strong style={{ color: S.ink }}>{od.delivery_address}</strong></div>}
+          {od.fulfil_mode === 'delivery' && od.delivery_address && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Delivering to: <strong style={{ color: S.ink }}>{od.delivery_address}</strong>{od.delivery_zone ? ` (${od.delivery_zone})` : ''}</div>}
+          {od.fulfil_mode === 'delivery' && od.ready_at && od.rider_phone && od.status === 'pending' && <a href={`tel:${String(od.rider_phone).replace(/[^0-9+]/g, '')}`} className="inline-flex items-center gap-1.5 mt-2 text-[13px] font-semibold" style={{ color: '#0E7A5F' }}><Phone size={14} /> Call {od.rider_name || 'your rider'}</a>}
           {od.fulfil_mode === 'pickup' && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>You'll pick it up{od.address ? <> from <strong style={{ color: S.ink }}>{od.address}</strong></> : ''}.</div>}
           {od.fulfil_mode === 'room' && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>{od.on_room_bill ? <>Added to your room bill{od.room_label ? <> (room <strong style={{ color: S.ink }}>{od.room_label}</strong>)</> : ''}. You'll pay at check-out.</> : <>For room <strong style={{ color: S.ink }}>{od.room_label}</strong>. The front desk will confirm it and add it to your room bill.</>}</div>}
           {od.preferred_time && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Preferred time: <strong style={{ color: S.ink }}>{od.preferred_time}</strong></div>}
