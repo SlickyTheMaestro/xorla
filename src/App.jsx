@@ -10631,13 +10631,15 @@ function Storefront({ businessCode }) {
   };
   const storeShops = business?.shops || [];
   const currentStoreShop = storeShops.find((sh) => sh.id === business?.shop_id) || storeShops[0];
-  const cartHasService = cartList.some((c) => kindOf(c.product, business?.business_type) === 'service');
+  // Hotels and rentals: extras (water, laundry, drinks) are counted like goods, not booked like a haircut
+  const storeKind = (p) => { const k = kindOf(p, business?.business_type); return k === 'service' && ['accommodation', 'rentals'].includes(business?.service_kind) && !isBookable(p) ? 'product' : k; };
+  const cartHasService = cartList.some((c) => storeKind(c.product) === 'service');
   const lineQtyText = (c) => {
-    if (kindOf(c.product, business?.business_type) !== 'service') return ` ×${c.qty}`;
+    if (storeKind(c.product) !== 'service') return ` ×${c.qty}`;
     return c.product.priceUnit === 'hour' ? ` (${c.qty} hr${c.qty !== 1 ? 's' : ''})` : '';
   };
 
-  const serviceKey = JSON.stringify(cartList.filter((c) => kindOf(c.product, business?.business_type) === 'service').map((c) => [c.product.id, c.qty]));
+  const serviceKey = JSON.stringify(cartList.filter((c) => storeKind(c.product) === 'service').map((c) => [c.product.id, c.qty]));
   const loadStoreCalendar = useCallback(async () => {
     const items = JSON.parse(serviceKey).map(([productId, quantity]) => ({ productId, quantity }));
     // Hotels and rentals don't take appointments: their extras (water, laundry, airport pickup) are simply ordered
@@ -10668,7 +10670,7 @@ function Storefront({ businessCode }) {
   const changeQty = (product, delta) => {
     setCart((prev) => {
       const current = prev[product.id] || 0;
-      const svc = kindOf(product, business?.business_type) === 'service';
+      const svc = storeKind(product) === 'service';
       const max = svc ? (product.priceUnit === 'hour' ? 24 : 1) : product.stockQuantity !== null ? product.stockQuantity : Infinity;
       return { ...prev, [product.id]: Math.max(0, Math.min(max, current + delta)) };
     });
@@ -11015,7 +11017,7 @@ function Storefront({ businessCode }) {
     if (p.isSpace) return renderSpaceCard(p);
     if (isBookable(p)) return renderBookableCard(p);
     const qty = cart[p.id] || 0;
-    const svc = kindOf(p, business.business_type) === 'service';
+    const svc = storeKind(p) === 'service';
     const isOut = !svc && p.stockQuantity === 0;
     const fewLeft = !svc && p.stockQuantity !== null && p.stockQuantity > 0 && p.stockQuantity <= 3;
     return (
@@ -11075,7 +11077,7 @@ function Storefront({ businessCode }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13.5px] font-semibold truncate">{c.product.name}</div>
-                  <div className="text-[12.5px]" style={{ color: S.muted, fontVariantNumeric: 'tabular-nums' }}>{kindOf(c.product, business.business_type) === 'service' ? (c.product.priceUnit === 'hour' ? `${c.qty} hr${c.qty !== 1 ? 's' : ''} × ${fmt(c.product.sellingPrice)}` : priceLabel(c.product)) : `${c.qty} × ${fmt(c.product.sellingPrice)}`}</div>
+                  <div className="text-[12.5px]" style={{ color: S.muted, fontVariantNumeric: 'tabular-nums' }}>{storeKind(c.product) === 'service' ? (c.product.priceUnit === 'hour' ? `${c.qty} hr${c.qty !== 1 ? 's' : ''} × ${fmt(c.product.sellingPrice)}` : priceLabel(c.product)) : `${c.qty} × ${fmt(c.product.sellingPrice)}`}</div>
                 </div>
                 <div className="flex items-center gap-1">
                   <button onClick={() => changeQty(c.product, -1)} aria-label={`Remove one ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile }}>−</button>
