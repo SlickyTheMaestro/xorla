@@ -283,7 +283,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule', 'orderModes'];
 const SETTINGS_DESCRIPTIONS = {
   plan: 'What your plan includes, and renewing it.',
   notifications: 'Alerts on this device for new orders, requests and staff.',
@@ -740,7 +740,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '' };
 }
 
 function staticMessage(inv, settings) {
@@ -1471,6 +1471,7 @@ function XorlaApp() {
   const [roomCharges, setRoomCharges] = useState([]);
   const [roomOrders, setRoomOrders] = useState([]);     // guests ordering to their room from their booking link
   const [roomBillFor, setRoomBillFor] = useState(null); // a storefront order being put on a guest's room bill
+  const [notGuest, setNotGuest] = useState({});         // orders staff said are not from a guest (room number didn't match)
   const [apptPeople, setApptPeople] = useState([]);
   const [apptMineOnly, setApptMineOnly] = useState(false);
   const [discountCodes, setDiscountCodes] = useState([]);
@@ -2153,6 +2154,7 @@ function XorlaApp() {
       approveManagerPrices: !!business.approve_manager_prices,
       checkoutTime: String(business.checkout_time || '12:00').slice(0, 5),
       earlyLeaveRule: business.early_leave_rule || 'stayed',
+      orderModes: Array.isArray(business.order_modes) ? business.order_modes : null,
       closeTime: String(business.close_time || '18:00').slice(0, 5),
       openDays: Array.isArray(business.open_days) ? business.open_days : [1, 2, 3, 4, 5, 6],
       apptCapacity: business.appt_capacity ?? 1,
@@ -3167,6 +3169,7 @@ function XorlaApp() {
       if ('approveManagerPrices' in patch) bizPatch.approve_manager_prices = !!patch.approveManagerPrices;
       if ('checkoutTime' in patch) bizPatch.checkout_time = patch.checkoutTime;
       if ('earlyLeaveRule' in patch) bizPatch.early_leave_rule = patch.earlyLeaveRule;
+      if ('orderModes' in patch) bizPatch.order_modes = patch.orderModes;
       if ('closeTime' in patch) bizPatch.close_time = patch.closeTime;
       if ('openDays' in patch) bizPatch.open_days = patch.openDays;
       if ('apptCapacity' in patch) bizPatch.appt_capacity = Number(patch.apptCapacity);
@@ -4422,6 +4425,17 @@ function XorlaApp() {
                     );
                     return null;
                   })()}
+                  {o.fulfilMode === 'delivery' && o.deliveryAddress && (
+                    <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                      <div className="flex items-center gap-2 font-semibold" style={{ color: C.ink }}><Truck size={14} style={{ color: C.copper }} /> Deliver to</div>
+                      <div className="mt-0.5 leading-relaxed" style={{ color: C.inkDim }}>{o.deliveryAddress}</div>
+                      <div className="flex gap-3 mt-1.5">
+                        <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold" style={{ color: C.sage }}>Open in Maps</a>
+                        <button onClick={() => copyText(`addr-${o.id}`, `${o.customerName}, ${o.customerPhone}\n${o.deliveryAddress}`)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>{copiedKey === `addr-${o.id}` ? 'Copied' : 'Copy for the rider'}</button>
+                      </div>
+                    </div>
+                  )}
+                  {o.fulfilMode === 'pickup' && <div className="rounded-xl px-3 py-2 mb-3 text-[12.5px] flex items-center gap-2" style={{ background: C.surfaceRaised, color: C.inkDim }}><Store size={14} style={{ color: C.copper }} /> Pick-up: {String(o.customerName).split(' ')[0]} collects it{shops.length > 1 ? ` at ${shopNameOf(o.shopId)}` : ''}</div>}
                   {serviceKind === 'accommodation' && !o.startAt && (() => {
                     const onBill = o.roomBookingId ? bookingsAll.find((b) => b.id === o.roomBookingId) : null;
                     if (o.status === 'fulfilled' && o.roomBookingId) return (
@@ -4429,7 +4443,8 @@ function XorlaApp() {
                         <BedDouble size={14} /> On {onBill ? `${String(onBill.customer_name).split(' ')[0]}'s` : 'the guest\'s'} room bill{onBill?.room_label ? ` (room ${onBill.room_label})` : ''}, paid at check-out
                       </div>
                     );
-                    if (o.status !== 'pending' || ['paid', 'refund_due', 'refunded'].includes(o.payStatus)) return null;
+                    if (o.status !== 'pending' || ['paid', 'refund_due', 'refunded'].includes(o.payStatus) || o.fulfilMode === 'delivery' || o.fulfilMode === 'pickup') return null;
+                    if (notGuest[o.id]) return <div className="rounded-xl px-3 py-2 mb-3 text-[12px] flex items-center justify-between gap-2" style={{ background: C.surfaceRaised, color: C.inkDim }}><span>Not a guest: take payment the usual way.</span><button onClick={() => setNotGuest((x) => ({ ...x, [o.id]: false }))} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>Undo</button></div>;
                     const inHouse = guestsInHouseAt(o.shopId);
                     if (!o.roomLabel && !inHouse.length) return null;
                     const match = o.roomLabel ? inHouse.filter((b) => roomMatches(b, o.roomLabel)) : [];
@@ -4437,7 +4452,13 @@ function XorlaApp() {
                       <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: o.roomLabel ? C.copperSoft : C.surfaceRaised, border: o.roomLabel ? '1px solid rgba(255,176,32,0.25)' : 'none' }}>
                         {o.roomLabel && <div className="flex items-center gap-2 font-semibold" style={{ color: C.copper }}><BedDouble size={14} /> Says they're in room {o.roomLabel}</div>}
                         {o.roomLabel && <div className="mt-0.5" style={{ color: match.length ? C.inkDim : C.rust }}>{match.length ? `Checked in there: ${match.map((b) => b.customer_name).join(', ')}.` : `Nobody is checked in to room ${o.roomLabel}. Check with ${String(o.customerName).split(' ')[0]} before adding it to a bill.`}</div>}
-                        {inHouse.length > 0 && <button onClick={() => setRoomBillFor(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold" style={o.roomLabel ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{match.length === 1 ? `Add to ${String(match[0].customer_name).split(' ')[0]}'s room bill` : 'Put it on a room bill'}</button>}
+                        {o.roomLabel && !match.length && (
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                            {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${String(o.customerName).split(' ')[0]}, thank you for your order from ${settings.businessName}. We couldn't find room ${o.roomLabel}. Which room are you in? If you're not staying with us, we can arrange payment instead.`)}`} target="_blank" rel="noopener noreferrer" className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={14} /> WhatsApp them</a> : <span />}
+                            <button onClick={() => setNotGuest((x) => ({ ...x, [o.id]: true }))} className="h-9 rounded-lg text-[12.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Not a guest</button>
+                          </div>
+                        )}
+                        {inHouse.length > 0 && <button onClick={() => setRoomBillFor(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold" style={o.roomLabel && match.length ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{match.length === 1 ? `Add to ${String(match[0].customer_name).split(' ')[0]}'s room bill` : o.roomLabel ? 'Choose the guest yourself' : 'Put it on a room bill'}</button>}
                       </div>
                     );
                   })()}
@@ -8285,6 +8306,32 @@ function XorlaApp() {
                       <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Tagline</div>
                       <input type="text" maxLength={80} placeholder={examplesFor(settings.businessType === 'products' ? null : serviceKind).tagline} value={draft.storefrontTagline} onChange={(e) => setDraft({ ...draft, storefrontTagline: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-4" style={field} />
 
+                      {(() => {
+                        // Same defaults as the database: hotels room + pick-up, shops and rentals pick-up + delivery, other services nothing
+                        const hotel = serviceKind === 'accommodation';
+                        const dflt = hotel ? ['room', 'pickup'] : (settings.businessType !== 'services' || serviceKind === 'rentals') ? ['pickup', 'delivery'] : [];
+                        const cur = Array.isArray(draft.orderModes) ? draft.orderModes : dflt;
+                        const opts = [...(hotel ? [['room', "Staying here", 'Guests give their room number; you check it, then add it to their bill']] : []), ['pickup', 'Pick-up', `They collect it from you${settings.businessAddress ? ` (${settings.businessAddress})` : ''}`], ['delivery', 'Delivery', 'They give an address and landmark; you add a delivery fee when you confirm']];
+                        const flip = (v) => setDraft({ ...draft, orderModes: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] });
+                        return (
+                          <div className="mb-4">
+                            <div className="text-[13px] font-semibold mb-1" style={{ color: C.ink }}>How customers get their order</div>
+                            <div className="text-[11px] mb-2" style={{ color: C.inkFaint }}>Customers choose one of these in their basket.{!isOwnerRole ? ' Only the owner can change this.' : ''}</div>
+                            <div className="space-y-1.5">
+                              {opts.map(([v, l, d]) => {
+                                const on = cur.includes(v);
+                                return (
+                                  <button key={v} type="button" disabled={!isOwnerRole} onClick={() => flip(v)} className="w-full flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${on ? 'rgba(31,217,196,0.4)' : C.line}`, opacity: isOwnerRole ? 1 : 0.7 }}>
+                                    <span className="w-5 h-5 rounded-md flex items-center justify-center shrink-0" style={{ background: on ? C.sage : 'transparent', border: `1.5px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.bg }} />}</span>
+                                    <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold">{l}</span><span className="block text-[11px]" style={{ color: C.inkFaint }}>{d}</span></span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {!cur.length && <div className="text-[11px] mt-1.5" style={{ color: C.copper }}>With none ticked, customers aren't asked. You agree it with them by phone.</div>}
+                          </div>
+                        );
+                      })()}
                       <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Your store link</div>
                       <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                         <span className="cx-mono text-[12px] truncate pr-2" style={{ color: C.sage }}>{window.location.origin}/store/{settings.businessCode}</span>
@@ -10471,6 +10518,11 @@ function Storefront({ businessCode }) {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [guestRoom, setGuestRoom] = useState('');   // hotels: a guest staying here can say which room (staff check it before billing)
+  // How the customer gets their order: pick-up, delivery (address + landmark), or brought to their room at a hotel
+  const [orderModes, setOrderModes] = useState([]);
+  const [fulfilMode, setFulfilMode] = useState('');
+  const [deliverAddr, setDeliverAddr] = useState('');
+  const [deliverLandmark, setDeliverLandmark] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [orderSent, setOrderSent] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -10570,6 +10622,9 @@ function Storefront({ businessCode }) {
         document.title = store.name;
         setStoreProducts((store.products || []).map(fromSbProduct).filter((p) => store.business_type !== 'products' || !isBookable(p)));
         sbRpc('storefront_booking_terms', SB_KEY, { p_business_code: businessCode }).then((t) => setBookTerms(t || null)).catch(() => {});
+        sbRpc('storefront_order_modes', SB_KEY, { p_business_code: businessCode })
+          .then((m) => { const list = Array.isArray(m) ? m : []; setOrderModes(list); if (list.length === 1) setFulfilMode(list[0]); })
+          .catch(() => setOrderModes(store.service_kind === 'accommodation' ? ['room', 'pickup'] : []));
       } catch (e) { if (!business) setLoadError(true); }
       setLoading(false);
       setSwitchingShop(false);
@@ -10634,6 +10689,8 @@ function Storefront({ businessCode }) {
   // Hotels and rentals: extras (water, laundry, drinks) are counted like goods, not booked like a haircut
   const storeKind = (p) => { const k = kindOf(p, business?.business_type); return k === 'service' && ['accommodation', 'rentals'].includes(business?.service_kind) && !isBookable(p) ? 'product' : k; };
   const cartHasService = cartList.some((c) => storeKind(c.product) === 'service');
+  // Ask "how do you want it?" when there are goods to hand over (not for appointments or pure services)
+  const askHow = orderModes.length > 0 && cartList.some((c) => storeKind(c.product) !== 'service' && !isBookable(c.product));
   const lineQtyText = (c) => {
     if (storeKind(c.product) !== 'service') return ` ×${c.qty}`;
     return c.product.priceUnit === 'hour' ? ` (${c.qty} hr${c.qty !== 1 ? 's' : ''})` : '';
@@ -10678,6 +10735,11 @@ function Storefront({ businessCode }) {
 
   const submitOrder = async () => {
     if (!customerName.trim() || cartList.length === 0) return;
+    if (askHow) {
+      if (!fulfilMode) { brandAlert(`Please choose how you want your ${W.short.toLowerCase()}.`, { theme: 'light' }); return; }
+      if (fulfilMode === 'delivery' && deliverAddr.trim().length < 6) { brandAlert('Please add the address to deliver to.', { theme: 'light' }); return; }
+      if (fulfilMode === 'room' && !guestRoom.trim()) { brandAlert('Please add your room number.', { theme: 'light' }); return; }
+    }
     setSubmitting(true);
     try {
       // Only product IDs + quantities are sent — the database looks up the real prices itself
@@ -10685,17 +10747,17 @@ function Storefront({ businessCode }) {
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(business.service_kind === 'accommodation' && guestRoom.trim() ? { p_room: guestRoom.trim() } : {}) };
+      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(askHow && fulfilMode ? { p_mode: fulfilMode } : {}), ...(askHow && fulfilMode === 'room' ? { p_room: guestRoom.trim() } : {}), ...(askHow && fulfilMode === 'delivery' ? { p_address: `${deliverAddr.trim()}${deliverLandmark.trim() ? ` (near ${deliverLandmark.trim().replace(/^(near|opposite|beside)\s+/i, '')})` : ''}` } : {}) };
       // Orders get the customer's own page (track it, pay online once confirmed). Appointments keep their own flow.
       let placed = null;
       try { placed = await sbRpc('place_order_v2', SB_KEY, orderArgs); }
-      catch (e) { if (/place_order_v2|does not exist|schema cache/i.test(e.message || '')) { const { p_room, ...older } = orderArgs; await sbRpc('place_order', SB_KEY, older); } else throw e; }
+      catch (e) { if (/place_order_v2|does not exist|schema cache/i.test(e.message || '')) { const { p_room, p_mode, p_address, ...older } = orderArgs; await sbRpc('place_order', SB_KEY, { ...older, p_note: [older.p_note, p_mode === 'delivery' ? `Deliver to: ${p_address}` : p_mode === 'room' ? `Room ${p_room}` : p_mode === 'pickup' ? 'Pick-up' : ''].filter(Boolean).join(' · ') }); } else throw e; }
       if (placed?.token && !(usesSlots && apptSlot)) { window.location.href = `/order/${placed.token}?new=1`; return; }
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
         const lines = cartList.map((c) => `• ${c.product.name}${lineQtyText(c)} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
-        const extra = `${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
+        const extra = `${askHow && fulfilMode === 'delivery' ? `\nDeliver to: ${orderArgs.p_address}` : askHow && fulfilMode === 'room' ? `\nRoom: ${guestRoom.trim()}` : askHow && fulfilMode === 'pickup' ? '\nPick-up' : ''}${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
         const shopLabel = storeShops.length > 1 ? ` for ${displayLocationName(currentStoreShop, locationWords(business?.business_type, business?.service_kind))}` : '';
         const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}${discountOff ? `\n\nSubtotal: ${fmt(cartTotal)}\nDiscount (${discount.code}): ${fmt(-discountOff)}` : ''}\n\nTotal: ${fmt(payable)}${extra}`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -10704,7 +10766,7 @@ function Storefront({ businessCode }) {
       setShowCheckout(false);
     } catch (e) {
       if (/code|fully used|expired|orders of/i.test(e.message || '')) { setDiscount(null); setCodeOpen(true); setCodeError(e.message); brandAlert(`${e.message} Your ${W.short.toLowerCase()} wasn't sent. Remove the code or try another, then send again.`, { theme: 'light', title: 'Discount code' }); }
-      else if (/too many|requests waiting|receiving a lot|phone number/i.test(e.message || '')) brandAlert(e.message, { theme: 'light' });
+      else if (/too many|requests waiting|receiving a lot|phone number|address|room number|how you want/i.test(e.message || '')) brandAlert(e.message, { theme: 'light' });
       else if (/time|closed|opening hours|booked/i.test(e.message || '')) { brandAlert(e.message, { theme: 'light', title: 'Please pick another time' }); setApptSlot(''); loadStoreCalendar(); }
       else brandAlert(`Your ${W.short.toLowerCase()} didn't go through. Check your connection and tap ${W.send} again.`, { theme: 'light' });
     }
@@ -11133,13 +11195,43 @@ function Storefront({ businessCode }) {
       <input id="sf-name" type="text" autoComplete="name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
       <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-phone">Phone number{usesSlots ? '' : <span className="font-normal" style={{ color: S.muted }}> (recommended)</span>}</label>
       <input id="sf-phone" type="tel" autoComplete="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="So they can confirm with you" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-2 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
-      {business.service_kind === 'accommodation' && (
-        <>
-          <label className="block text-[13px] font-semibold mb-1.5 mt-2" htmlFor="sf-room">Staying with us? <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
-          <input id="sf-room" value={guestRoom} onChange={(e) => setGuestRoom(e.target.value.slice(0, 20))} placeholder="Your room number, e.g. 204" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-1 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
-          <div className="text-[12px] mb-2" style={{ color: S.muted }}>{guestRoom.trim() ? 'The front desk checks it, then it can go on your room bill and be paid at check-out.' : 'Guests can have it added to their room bill.'}</div>
-        </>
-      )}
+      {askHow && (() => {
+        const opts = [
+          ['room', "I'm staying here", 'Brought to your room'],
+          ['pickup', "I'll pick it up", currentStoreShop?.address ? `From ${currentStoreShop.address}` : `From ${business.name}`],
+          ['delivery', 'Deliver to me', 'Add your address'],
+        ].filter(([v]) => orderModes.includes(v));
+        const inputStyle = { background: S.tile, border: 'none', color: S.ink };
+        return (
+          <div className="mt-2 mb-3">
+            <div className="text-[13px] font-semibold mb-1.5">How do you want it?</div>
+            <div className={`grid gap-2 ${opts.length === 3 ? 'grid-cols-3' : opts.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`} role="radiogroup" aria-label="How do you want it?">
+              {opts.map(([v, l, d]) => {
+                const on = fulfilMode === v;
+                return (
+                  <button key={v} type="button" role="radio" aria-checked={on} onClick={() => setFulfilMode(v)} className={`rounded-xl px-3 py-2.5 text-left ${focusRing}`} style={on ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>
+                    <span className="block text-[13px] font-semibold leading-tight">{l}</span>
+                    <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: on ? 'rgba(255,255,255,0.75)' : S.muted }}>{d}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {fulfilMode === 'room' && (
+              <>
+                <input id="sf-room" value={guestRoom} onChange={(e) => setGuestRoom(e.target.value.slice(0, 20))} placeholder="Your room number, e.g. 204" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
+                <div className="text-[12px] mt-1" style={{ color: S.muted }}>The front desk checks it, then it goes on your room bill, paid at check-out.</div>
+              </>
+            )}
+            {fulfilMode === 'delivery' && (
+              <>
+                <textarea id="sf-address" rows={2} maxLength={220} value={deliverAddr} onChange={(e) => setDeliverAddr(e.target.value)} placeholder="Address, e.g. 12 Faulks Road, Aba" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] resize-none ${focusRing}`} style={inputStyle} />
+                <input id="sf-landmark" value={deliverLandmark} onChange={(e) => setDeliverLandmark(e.target.value.slice(0, 70))} placeholder="Landmark (optional), e.g. opposite First Bank" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
+                <div className="text-[12px] mt-1" style={{ color: S.muted }}>{business.name} confirms the delivery fee before you pay.</div>
+              </>
+            )}
+          </div>
+        );
+      })()}
       {cartHasService && (
         <>
           {apptCalLoading && !apptCal && <div className="flex items-center gap-2 text-[13px] mb-4 mt-2" style={{ color: S.muted }}><Loader2 size={15} className="animate-spin" /> Checking free times…</div>}
@@ -14966,6 +15058,9 @@ function CustomerOrder({ token }) {
           <div className="my-1.5" style={{ borderTop: `1px solid ${S.line}` }} />
           {row('Total', fmt(od.pay_status ? total : itemsTotal - discount), true, S.ink)}
           {od.pay_status === 'paid' && row('Paid online', fmt(od.amount_paid), false, '#0E7A5F')}
+          {od.fulfil_mode === 'delivery' && od.delivery_address && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Delivering to: <strong style={{ color: S.ink }}>{od.delivery_address}</strong></div>}
+          {od.fulfil_mode === 'pickup' && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>You'll pick it up{od.address ? <> from <strong style={{ color: S.ink }}>{od.address}</strong></> : ''}.</div>}
+          {od.fulfil_mode === 'room' && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>{od.on_room_bill ? <>Added to your room bill{od.room_label ? <> (room <strong style={{ color: S.ink }}>{od.room_label}</strong>)</> : ''}. You'll pay at check-out.</> : <>For room <strong style={{ color: S.ink }}>{od.room_label}</strong>. The front desk will confirm it and add it to your room bill.</>}</div>}
           {od.preferred_time && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Preferred time: <strong style={{ color: S.ink }}>{od.preferred_time}</strong></div>}
           {od.note && <div className="text-[12.5px] mt-1" style={{ color: S.muted }}>Your note: {od.note}</div>}
           {od.address && <div className="text-[12.5px] mt-2 flex items-start gap-1.5" style={{ color: S.muted }}><MapPin size={14} className="shrink-0 mt-0.5" /> {od.address}</div>}
