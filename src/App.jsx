@@ -740,7 +740,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '' };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '' };
 }
 
 function staticMessage(inv, settings) {
@@ -2919,6 +2919,28 @@ function XorlaApp() {
     const first = String(o.customerName || '').split(' ')[0] || 'there';
     return `Hi ${first}, ${settings.businessName} has confirmed your order. The total is ${fmt(amount)}${delivery > 0 ? ` (including ${fmt(delivery)} delivery)` : ''}. You can pay securely here with card, transfer or USSD: ${orderLinkOf(o)}`;
   };
+  // Pick-up and delivery: tell the customer it's ready (or on its way) on their order page and by WhatsApp
+  const readyMessage = (o) => {
+    const first = String(o.customerName || '').split(' ')[0] || 'there';
+    const items = o.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${it.description}`).join(', ');
+    const total = orderMoney(o).total;
+    const shop = locationsAll.find((x) => x.id === (o.shopId || mainShopId));
+    const where = shop?.address || settings.businessAddress || '';
+    const owing = o.payStatus === 'paid' ? Math.max(0, total - orderMoney(o).paidOnline) : total;
+    const payLine = o.payStatus === 'requested' && orderLinkOf(o) ? `Please pay ${fmt(owing)} here before you ${o.fulfilMode === 'delivery' ? 'receive it' : 'come'}: ${orderLinkOf(o)}` : owing > 0 ? `Total: ${fmt(owing)}${o.fulfilMode === 'delivery' ? ', to pay on delivery' : ', to pay when you collect'}.` : 'It is fully paid.';
+    return o.fulfilMode === 'delivery'
+      ? [`Hi ${first}, your order from ${settings.businessName} is on its way to you.`, `${items}.`, `Delivering to: ${o.deliveryAddress}`, payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n')
+      : [`Hi ${first}, your order from ${settings.businessName} is ready for pick-up.`, `${items}.`, `Collect it from: ${where || (shops.length > 1 ? `${settings.businessName}, ${locName(shop)}` : settings.businessName)}`, payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n');
+  };
+  const markReady = async (o) => {
+    try {
+      await sbRpc('mark_order_ready', session.access_token, { p_order: o.id });
+      const fresh = (await refreshOrder(o.id)) || { ...o, readyAt: new Date().toISOString() };
+      const msg = readyMessage(fresh);
+      if (fresh.customerPhone) offerWhatsApp(fresh.customerPhone, msg, o.fulfilMode === 'delivery' ? 'Marked as on its way' : 'Marked ready for pick-up', `Tell ${String(fresh.customerName).split(' ')[0]} on WhatsApp? They'll see:\n\n"${msg}"`);
+      else brandAlert(`${String(fresh.customerName).split(' ')[0]}'s order page now says it's ${o.fulfilMode === 'delivery' ? 'on its way' : 'ready for pick-up'}. There's no phone number on this order to message them.`);
+    } catch (e) { brandAlert(e.message); }
+  };
   const sendPayLink = (o) => {
     const amount = o.payAmount ?? orderMoney(o).total;
     const msg = payMessage(o, amount, o.deliveryFee);
@@ -4435,7 +4457,8 @@ function XorlaApp() {
                       </div>
                     </div>
                   )}
-                  {o.fulfilMode === 'pickup' && <div className="rounded-xl px-3 py-2 mb-3 text-[12.5px] flex items-center gap-2" style={{ background: C.surfaceRaised, color: C.inkDim }}><Store size={14} style={{ color: C.copper }} /> Pick-up: {String(o.customerName).split(' ')[0]} collects it{shops.length > 1 ? ` at ${shopNameOf(o.shopId)}` : ''}</div>}
+                  {o.fulfilMode === 'pickup' && <div className="rounded-xl px-3 py-2 mb-3 text-[12.5px] flex items-center gap-2" style={{ background: o.readyAt && o.status === 'pending' ? C.sageSoft : C.surfaceRaised, color: C.inkDim }}><Store size={14} style={{ color: o.readyAt ? C.sage : C.copper }} /> <span>Pick-up: {String(o.customerName).split(' ')[0]} collects it{shops.length > 1 ? ` at ${shopNameOf(o.shopId)}` : ''}{o.readyAt && o.status === 'pending' ? <strong style={{ color: C.sage }}> · told it's ready{o.readyByName ? ` by ${o.readyByName}` : ''}, {new Date(o.readyAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })}</strong> : null}</span></div>}
+                  {o.fulfilMode === 'delivery' && o.readyAt && o.status === 'pending' && <div className="-mt-2 mb-3 text-[12px] font-semibold" style={{ color: C.sage }}>On its way · sent {new Date(o.readyAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })}{o.readyByName ? ` by ${o.readyByName}` : ''}</div>}
                   {serviceKind === 'accommodation' && !o.startAt && (() => {
                     const onBill = o.roomBookingId ? bookingsAll.find((b) => b.id === o.roomBookingId) : null;
                     if (o.status === 'fulfilled' && o.roomBookingId) return (
@@ -4539,6 +4562,14 @@ function XorlaApp() {
                         sec.push({ label: 'Ask to pay online', tone: 'accent', onClick: () => setPayAsk({ order: o, fee: '', busy: false, error: '' }) });
                       }
                       primary = { label: T.tracksStock ? 'Fulfill' : 'Mark done', onClick: () => fulfillOrder(o) };
+                      // Pick-up and delivery: first tell the customer it's ready / on its way, then close it when they have it
+                      if ((o.fulfilMode === 'pickup' || o.fulfilMode === 'delivery') && o.payStatus !== 'refund_due') {
+                        if (!o.readyAt) primary = { label: o.fulfilMode === 'delivery' ? 'Out for delivery' : 'Ready for pick-up', onClick: () => markReady(o) };
+                        else {
+                          if (o.customerPhone) sec.push({ label: 'Message', tone: 'accent', href: `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(readyMessage(o))}` });
+                          primary = { label: o.fulfilMode === 'delivery' ? 'Delivered' : 'Collected', onClick: () => fulfillOrder(o) };
+                        }
+                      }
                     }
                     const secBtn = (b, i) => {
                       const cls = 'h-10 px-2 rounded-xl text-[12.5px] font-semibold whitespace-nowrap flex items-center justify-center min-w-0 transition-opacity active:opacity-70';
@@ -14517,7 +14548,7 @@ function BrandDialogHost() {
           <span className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `${iconTone}22` }}><Icon size={18} style={{ color: iconTone }} /></span>
           <div className="min-w-0 pt-0.5">
             {title && <div className="text-[16px] font-semibold leading-snug mb-1">{title}</div>}
-            <div className="text-[13.5px] leading-relaxed whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: title ? P.dim : P.ink }}>{body}</div>
+            <div className="text-[13.5px] leading-relaxed whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: title ? P.dim : P.ink, overflowWrap: 'anywhere' }}>{body}</div>
           </div>
         </div>
         <div className={`grid gap-2 mt-5 ${d.kind === 'confirm' ? 'grid-cols-2' : 'grid-cols-1'}`}>
@@ -15017,10 +15048,12 @@ function CustomerOrder({ token }) {
     : od.pay_status === 'refunded' ? ['#F1F2EF', '#3F4440', 'Refunded', `${od.business} sent your ${fmt(od.refund_amount)} back${od.refunded_at ? ` on ${when(od.refunded_at)}` : ''}.`]
     : od.status === 'fulfilled' ? ['#DFF6EE', '#0E7A5F', 'Completed', `Thank you for ${noun === 'order' ? 'ordering from' : 'choosing'} ${od.business}.`]
     : od.status === 'cancelled' ? ['#FDECEA', '#B42318', 'Cancelled', `${od.business} couldn't take this ${noun}${od.cancel_reason ? `: ${od.cancel_reason}` : ''}.`]
+    : od.ready_at && od.fulfil_mode === 'pickup' ? ['#DFF6EE', '#0E7A5F', 'Ready for pick-up', `Your ${noun} is ready. Collect it from ${od.address || od.business}.${od.pay_status === 'requested' && od.online ? ' Pay below first, or when you collect it.' : ''}`]
+    : od.ready_at && od.fulfil_mode === 'delivery' ? ['#DFF6EE', '#0E7A5F', 'On its way', `Your ${noun} is on its way to ${od.delivery_address}.`]
     : od.pay_status === 'paid' ? ['#DFF6EE', '#0E7A5F', 'Paid', `Thanks, ${first}! ${od.business} has your payment and is getting your ${noun} ready.`]
     : od.pay_status === 'requested' ? ['#DFF6EE', '#0E7A5F', 'Confirmed: ready to pay', `${od.business} has everything for your ${noun}.${od.online ? ' Pay below to complete it.' : ''}`]
-    : od.accepted ? ['#DFF6EE', '#0E7A5F', 'Confirmed', `${od.business} has confirmed your ${noun} and will contact you about payment${noun === 'order' ? ' and pickup or delivery' : ''}.`]
-    : ['#FFF4D6', '#8A5A00', 'Waiting for confirmation', `${od.business} is checking your ${noun}.${od.online ? ` Once they confirm, you can pay here online.` : ` They'll contact you to confirm and arrange payment.`}`];
+    : od.accepted ? ['#DFF6EE', '#0E7A5F', 'Confirmed', `${od.business} has confirmed your ${noun}${od.fulfil_mode === 'pickup' ? ". You'll get a message when it's ready to collect." : od.fulfil_mode === 'delivery' ? ". You'll get a message when it's on its way." : ` and will contact you about payment${noun === 'order' ? ' and pickup or delivery' : ''}.`}`]
+    : ['#FFF4D6', '#8A5A00', 'Waiting for confirmation', `${od.business} is checking your ${noun}.${od.fulfil_mode === 'pickup' ? " You'll get a message when it's ready to collect." : od.fulfil_mode === 'delivery' ? " They'll confirm the delivery fee, then send it." : ''}${od.online ? ` Once they confirm, you can pay here online.` : od.fulfil_mode ? '' : ` They'll contact you to confirm and arrange payment.`}`];
   const row = (l, v, strong, color) => <div className="flex items-baseline justify-between gap-4 py-1.5"><span style={{ color: color || S.muted }}>{l}</span><span className={strong ? 'font-bold' : 'font-medium'} style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right', color }}>{v}</span></div>;
   return (
     <div style={page}>
