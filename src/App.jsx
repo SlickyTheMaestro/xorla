@@ -10542,7 +10542,8 @@ function Storefront({ businessCode }) {
   const serviceKey = JSON.stringify(cartList.filter((c) => kindOf(c.product, business?.business_type) === 'service').map((c) => [c.product.id, c.qty]));
   const loadStoreCalendar = useCallback(async () => {
     const items = JSON.parse(serviceKey).map(([productId, quantity]) => ({ productId, quantity }));
-    if (!items.length || !business) { setApptCal(null); return; }
+    // Hotels and rentals don't take appointments: their extras (water, laundry, airport pickup) are simply ordered
+    if (!items.length || !business || ['accommodation', 'rentals'].includes(business.service_kind)) { setApptCal(null); return; }
     setApptCalLoading(true);
     try {
       const cal = await sbRpc('appointment_calendar', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_items: items, p_days: 14, ...(apptPerson ? { p_person: apptPerson } : {}) });
