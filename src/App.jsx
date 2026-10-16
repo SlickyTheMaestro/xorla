@@ -727,7 +727,7 @@ function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '', shopId: row.shop_id || null };
 }
 function fromSbProduct(row) {
-  return { id: row.id, shopId: row.shop_id || null, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '', isSpace: !!row.is_space, hourPrice: row.hour_price == null ? null : Number(row.hour_price), capacity: row.capacity == null ? null : Number(row.capacity) };
+  return { id: row.id, shopId: row.shop_id || null, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '', images: Array.isArray(row.images) ? row.images.filter(Boolean) : [], isSpace: !!row.is_space, hourPrice: row.hour_price == null ? null : Number(row.hour_price), capacity: row.capacity == null ? null : Number(row.capacity) };
 }
 // What a storefront order comes to: items less any discount, plus delivery once the business has added it,
 // and how much of it the customer has already paid online (less anything owed back to them)
@@ -1474,7 +1474,10 @@ function XorlaApp() {
   const [zones, setZones] = useState([]);              // delivery areas with fixed fees
   const [riderFor, setRiderFor] = useState(null);      // { order, picks: { [riderId]: fee }, chosen, customerFee, busy, error }
   const [riderForm, setRiderForm] = useState({ name: '', phone: '', areas: '' });
-  const [zoneForm, setZoneForm] = useState({ name: '', fee: '' });     // guests ordering to their room from their booking link
+  const [zoneForm, setZoneForm] = useState({ name: '', fee: '' });
+  const [slugDraft, setSlugDraft] = useState(null);
+  const [slugBusy, setSlugBusy] = useState(false);
+  const [slugError, setSlugError] = useState('');     // guests ordering to their room from their booking link
   const [roomBillFor, setRoomBillFor] = useState(null); // a storefront order being put on a guest's room bill
   const [notGuest, setNotGuest] = useState({});         // orders staff said are not from a guest (room number didn't match)
   const [apptPeople, setApptPeople] = useState([]);
@@ -1769,7 +1772,7 @@ function XorlaApp() {
   const [correctShopId, setCorrectShopId] = useState(null);
   const [transferringId, setTransferringId] = useState(null);
   const [transferForm, setTransferForm] = useState({ from: '', to: '', qty: '' });
-  const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null });
+  const [productForm, setProductForm] = useState({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null, photos: [] });
   const formIsService = settings.businessType === 'services' || (settings.businessType === 'both' && productForm.kind === 'service');
   const fieldLabel = 'text-[10.5px] font-semibold tracking-wide mb-1.5';
   const [productImageUploading, setProductImageUploading] = useState(false);
@@ -2164,6 +2167,7 @@ function XorlaApp() {
       checkoutTime: String(business.checkout_time || '12:00').slice(0, 5),
       earlyLeaveRule: business.early_leave_rule || 'stayed',
       orderModes: Array.isArray(business.order_modes) ? business.order_modes : null,
+      storeSlug: business.store_slug || '',
       closeTime: String(business.close_time || '18:00').slice(0, 5),
       openDays: Array.isArray(business.open_days) ? business.open_days : [1, 2, 3, 4, 5, 6],
       apptCapacity: business.appt_capacity ?? 1,
@@ -2563,14 +2567,24 @@ function XorlaApp() {
     catch (e) { brandAlert(e.message); }
   };
 
+  // Up to 6 photos per item: the first is the cover, the rest are the gallery customers swipe through
+  const MAX_PRODUCT_PHOTOS = 6;
   const handleProductPhotoSelect = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return;
+    const files = Array.from(e.target.files || []); e.target.value = '';
+    if (!files.length) return;
     setProductImageUploading(true);
     try {
-      const [preview, blob] = await Promise.all([resizeImage(file, 200, 0.6), resizeImageToBlob(file, 500, 0.7)]);
-      setProductForm((f) => ({ ...f, imagePreview: preview, imageBlob: blob }));
+      const room = MAX_PRODUCT_PHOTOS - (productForm.photos || []).length;
+      const added = [];
+      for (const file of files.slice(0, Math.max(0, room))) {
+        const [preview, blob] = await Promise.all([resizeImage(file, 240, 0.6), resizeImageToBlob(file, 1000, 0.75)]);
+        added.push({ preview, blob });
+      }
+      if (files.length > room) brandAlert(`Up to ${MAX_PRODUCT_PHOTOS} photos per item. The first ${Math.max(0, room)} were added.`);
+      setProductForm((f) => { const photos = [...(f.photos || []), ...added]; return { ...f, photos, imagePreview: photos[0]?.preview || null }; });
     } catch (err) { console.error(err); } finally { setProductImageUploading(false); }
   };
+  const movePhoto = (i, to) => setProductForm((f) => { const photos = [...(f.photos || [])]; const [x] = photos.splice(i, 1); if (to === null) return { ...f, photos, imagePreview: photos[0]?.preview || null }; photos.splice(to, 0, x); return { ...f, photos, imagePreview: photos[0]?.preview || null }; });
 
   const saveHeroImages = async (list) => {
     if (settings.role === 'manager') await sbRpc('set_storefront_look', session.access_token, { p_tagline: null, p_hero: list });
@@ -2640,22 +2654,25 @@ function XorlaApp() {
     }
     setSavingProduct(true);
     try {
-      let imageUrl = null;
-      if (productForm.imageBlob) {
-        const path = `${settings.businessId}/${Date.now()}.jpg`;
-        imageUrl = await sbUploadImage(session.access_token, productForm.imageBlob, path);
+      // New photos are uploaded; photos already online keep their address. Cover first, then the gallery.
+      const urls = [];
+      for (const [i, ph] of (productForm.photos || []).entries()) {
+        if (ph.url) urls.push(ph.url);
+        else if (ph.blob) urls.push(await sbUploadImage(session.access_token, ph.blob, `${settings.businessId}/${Date.now()}-${i}.jpg`));
       }
+      const imageUrl = urls[0] || null;
+      const photoBody = { image_url: imageUrl, images: urls.slice(1) };
       let savedId = editingProductId;
       // A hall or event space: priced per day, optionally per hour, never counted as a room
       const spaceBody = productForm.mode === 'space' ? { is_space: true, kind: 'service', price_unit: 'day', units: 1, track_stock: false, hour_price: Number(parseNumInput(productForm.hourPrice || '')) > 0 ? Number(parseNumInput(productForm.hourPrice)) : null, capacity: Number(productForm.capacity) > 0 ? Math.min(100000, Math.round(Number(productForm.capacity))) : null } : {};
       if (editingProductId) {
         const existing = products.find((p) => p.id === editingProductId);
         const whereBody = allLiveLocations.length > 1 || isManager ? { shop_id: (isManager ? (productForm.where || activeShopId || myShops[0]?.id) : productForm.where) || null } : {};
-        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { ...whereBody, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl || existing?.imageUrl || null, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) , ...spaceBody } });
+        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { ...whereBody, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, ...photoBody, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) , ...spaceBody } });
         setProducts((prev) => prev.map((p) => p.id === editingProductId ? fromSbProduct(rows[0]) : p).sort((a, b) => a.name.localeCompare(b.name)));
       } else {
         const whereBody = allLiveLocations.length > 1 || isManager ? { shop_id: (isManager ? (productForm.where || activeShopId || myShops[0]?.id) : productForm.where) || null } : {};
-        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { ...whereBody, business_id: settings.businessId, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, image_url: imageUrl, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...spaceBody } });
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { ...whereBody, business_id: settings.businessId, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, ...photoBody, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...spaceBody } });
         setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
         const startQty = Number(productForm.stockQuantity);
         if (!formIsService && productForm.stockQuantity !== '' && startQty > 0) await changeStock(rows[0].id, targetShopId, startQty, 'initial');
@@ -2691,7 +2708,7 @@ function XorlaApp() {
           });
         }
       }
-      setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null });
+      setProductForm({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null, photos: [] });
       setEditingProductId(null);
       setShowProductForm(false);
     } catch (e) { brandAlert(e.message); } finally { setSavingProduct(false); }
@@ -3013,6 +3030,15 @@ function XorlaApp() {
     );
   };
   // Delivery: the business's riders and areas (owner and managers keep the lists; everyone uses them)
+  const saveSlug = async () => {
+    if (slugDraft === null || slugBusy) return;
+    setSlugBusy(true); setSlugError('');
+    try {
+      const v = await sbRpc('set_store_slug', session.access_token, { p_slug: slugDraft });
+      setSettings((prev) => ({ ...prev, storeSlug: v || slugDraft })); setDraft((d) => ({ ...d, storeSlug: v || slugDraft })); setSlugDraft(null);
+    } catch (e) { setSlugError(e.message); }
+    setSlugBusy(false);
+  };
   const reloadDelivery = async () => {
     const [r, z] = await Promise.all([
       sbRest('riders', { accessToken: session.access_token, query: '?select=*&active=eq.true&order=name.asc' }).catch(() => null),
@@ -4063,7 +4089,7 @@ function XorlaApp() {
   const defaultWhere = () => (isManager ? (activeShopId || myShops[0]?.id || '') : (allLiveLocations.length > 1 && !viewAllShops && activeShopId ? activeShopId : ''));
   const openCatalogForm = (mode) => {
     setTab('products'); setProductsView('list'); setEditingProductId(null);
-    setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: 'service', mode, units: '1',
+    setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null, photos: [] }), kind: 'service', mode, units: '1',
       priceUnit: mode === 'extra' ? 'fixed' : mode === 'space' ? 'day' : (SERVICE_KINDS[serviceKind]?.unit || 'night'), category: mode === 'extra' ? 'Extras' : mode === 'space' ? 'Halls & spaces' : '', hourPrice: '', capacity: '' });
     setShowProductForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4119,7 +4145,7 @@ function XorlaApp() {
   const apptPassed = (o) => o.startAt && new Date(o.startAt).getTime() < Date.now();
   const todaysAppts = orders.filter((o) => isConfirmedAppt(o) && lagosDateKey(o.startAt) === todayKey()).sort((a, b) => a.startAt.localeCompare(b.startAt));
   // When the business turns a customer down, the customer hears why, in one tap
-  const storeLink = settings.storefrontEnabled && settings.businessCode ? `${window.location.origin}/store/${settings.businessCode}` : '';
+  const storeLink = settings.storefrontEnabled && settings.businessCode ? storeUrlOf(settings.storeSlug, settings.businessCode) : '';
   const offerWhatsApp = async (phone, message, title, body, onSent) => {
     if (!phone) return;
     const link = `https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(message)}`;
@@ -8473,26 +8499,27 @@ function XorlaApp() {
             )}
             {settingsPage === 'promote' && (
               <PromotePage settings={settings} products={productsAll.filter((p) => !(serviceKind === 'accommodation' && p.category === 'Extras'))} codes={discountCodes} token={session.access_token}
-                reload={() => loadBusinessData(session.access_token)} storeLink={settings.storefrontEnabled && settings.businessCode ? `${window.location.origin}/store/${settings.businessCode}` : ''}
+                reload={() => loadBusinessData(session.access_token)} storeLink={settings.storefrontEnabled && settings.businessCode ? storeUrlOf(settings.storeSlug, settings.businessCode) : ''}
                 words={promoWords(settings.businessType)} isOwner={isOwnerRole} onOpenStorefront={() => setSettingsPage('storefront')} />
             )}
             {settingsPage === 'storefront' && (
-              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
-                <div className="px-4 pb-5 pt-1">
-                  {draft.storefrontEnabled && !draft.ownerPhone && (
-                    <button onClick={() => setSettingsPage('contact')} className="w-full text-left mt-3 rounded-xl px-3.5 py-3 text-[12px] leading-relaxed" style={{ background: C.rustSoft, color: C.rust }}>
-                      <strong>Add your WhatsApp number</strong> so storefront orders can reach you. Tap to add it →
-                    </button>
-                  )}
-                  <div className="flex items-center justify-between mt-3">
-                    <div className="pr-4">
-                      <div className="text-[13px] font-medium mb-0.5">Public storefront</div>
-                      <div className="text-[11px]" style={{ color: C.inkFaint }}>Lets anyone browse your products and order — no login needed for them.</div>
+              <div className="space-y-4">
+                {/* 1. The store itself: on or off, and its link */}
+                <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-[15px] font-semibold">Your online store</div>
+                      <div className="text-[12px] mt-0.5" style={{ color: C.inkFaint }}>{draft.storefrontEnabled ? 'Live. Anyone with the link can browse, order and book. No login needed.' : 'Off. Turn it on to get your shareable link.'}</div>
                     </div>
                     <button disabled={!isOwnerRole} onClick={() => { if (!isOwnerRole) return; if (draft.storefrontEnabled) setDraft({ ...draft, storefrontEnabled: false }); else requestStorefrontOn(() => setDraft((d) => ({ ...d, storefrontEnabled: true }))); }} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.storefrontEnabled ? C.sage : C.line, opacity: isOwnerRole ? 1 : 0.5 }}>
                       <div className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: C.bg, left: draft.storefrontEnabled ? '22px' : '2px' }} />
                     </button>
                   </div>
+                  {draft.storefrontEnabled && !draft.ownerPhone && (
+                    <button onClick={() => setSettingsPage('contact')} className="w-full text-left mt-3 rounded-xl px-3.5 py-3 text-[12px] leading-relaxed" style={{ background: C.rustSoft, color: C.rust }}>
+                      <strong>Add your WhatsApp number</strong> so storefront orders can reach you. Tap to add it →
+                    </button>
+                  )}
                   {settings.storefrontEnabled && storefrontIssues().length > 0 && (
                     <div className="mt-4 rounded-xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                       <div className="text-[12.5px] font-semibold mb-0.5">Customers will notice</div>
@@ -8500,8 +8527,39 @@ function XorlaApp() {
                       {storefrontIssues().map((it, i) => issueRow(it, i, runFix))}
                     </div>
                   )}
-                  {settings.storefrontEnabled && (
-                    <div className="mt-4">
+                  {settings.storefrontEnabled && (() => {
+                    const slug = slugDraft ?? settings.storeSlug ?? '';
+                    const link = storeUrlOf(settings.storeSlug, settings.businessCode);
+                    const changed = slugDraft !== null && slugDraft !== settings.storeSlug;
+                    return (
+                      <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
+                        <div className="text-[12px] font-semibold mb-1.5" style={{ color: C.inkDim }}>Your store link</div>
+                        {isOwnerRole && !STORE_ROOT_DOMAIN ? (
+                          <div className="flex items-stretch rounded-xl overflow-hidden" style={{ border: `1px solid ${changed ? C.copper : C.line}`, background: C.surfaceRaised }}>
+                            <span className="pl-3.5 pr-1 flex items-center text-[13px] cx-mono shrink-0" style={{ color: C.inkFaint }}>{window.location.host}/</span>
+                            <input value={slug} onChange={(e) => { setSlugDraft(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30)); setSlugError(''); }} aria-label="Store name in the link" className="flex-1 min-w-0 bg-transparent py-2.5 pr-3 text-[13.5px] cx-mono font-semibold outline-none" style={{ color: C.sage }} />
+                            {changed && <button onClick={saveSlug} disabled={slugBusy} className="px-3.5 text-[12.5px] font-semibold shrink-0" style={{ background: C.copper, color: C.bg, opacity: slugBusy ? 0.6 : 1 }}>{slugBusy ? 'Saving…' : 'Save'}</button>}
+                          </div>
+                        ) : (
+                          <div className="rounded-xl px-3.5 py-2.5 cx-mono text-[13px] truncate" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.sage }}>{link.replace(/^https?:\/\//, '')}</div>
+                        )}
+                        {slugError && <div className="text-[11.5px] mt-1.5" style={{ color: C.rust }}>{slugError}</div>}
+                        {changed && !slugError && <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>Letters, numbers and dashes. Links you shared before keep working.</div>}
+                        <div className="grid grid-cols-3 gap-2 mt-2.5">
+                          <button onClick={() => copyText('store', link)} className="h-10 rounded-xl text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: copiedKey === 'store' ? C.sage : C.ink }}>{copiedKey === 'store' ? <Check size={14} /> : <Copy size={14} />} {copiedKey === 'store' ? 'Copied' : 'Copy'}</button>
+                          <a href={link} target="_blank" rel="noopener noreferrer" className="h-10 rounded-xl text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Globe size={14} /> Open</a>
+                          <a href={`https://wa.me/?text=${encodeURIComponent(`Shop with ${settings.businessName} online: ${link}`)}`} target="_blank" rel="noopener noreferrer" className="h-10 rounded-xl text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={14} /> Share</a>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* 2. How the store looks */}
+                {settings.storefrontEnabled && (
+                  <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                    <div className="text-[15px] font-semibold mb-0.5">How it looks</div>
+                    <div className="text-[12px] mb-3.5" style={{ color: C.inkFaint }}>The first thing customers see. Bright, wide photos of your shop, your best work or your rooms work best.</div>
                       <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Banner photos ({(settings.heroImages || []).length}/5)</div>
                       <div className="grid grid-cols-2 gap-2 mb-1.5">
                         {(settings.heroImages || []).map((url, i) => (
@@ -8519,11 +8577,16 @@ function XorlaApp() {
                           </label>
                         )}
                       </div>
-                      <div className="text-[10.5px] mb-4" style={{ color: C.inkFaint }}>Add up to 5 wide, bright photos — they slide automatically at the top of your store. Photos save as soon as they upload.</div>
+                    <div className="text-[11px] mb-4" style={{ color: C.inkFaint }}>Up to 5 photos. They slide at the top of your store and save as soon as they upload.</div>
+                    <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Tagline</div>
+                    <input type="text" maxLength={80} placeholder={examplesFor(settings.businessType === 'products' ? null : serviceKind).tagline} value={draft.storefrontTagline} onChange={(e) => setDraft({ ...draft, storefrontTagline: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>One line under your name, e.g. what you're known for.</div>
+                  </div>
+                )}
 
-                      <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Tagline</div>
-                      <input type="text" maxLength={80} placeholder={examplesFor(settings.businessType === 'products' ? null : serviceKind).tagline} value={draft.storefrontTagline} onChange={(e) => setDraft({ ...draft, storefrontTagline: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-4" style={field} />
-
+                {/* 3. Orders: how customers get them */}
+                {settings.storefrontEnabled && !isManager && (
+                  <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
                       {(() => {
                         // Same defaults as the database: hotels room + pick-up, shops and rentals pick-up + delivery, other services nothing
                         const hotel = serviceKind === 'accommodation';
@@ -8532,7 +8595,7 @@ function XorlaApp() {
                         const opts = [...(hotel ? [['room', "Staying here", 'Guests give their room number; you check it, then add it to their bill']] : []), ['pickup', 'Pick-up', `They collect it from you${settings.businessAddress ? ` (${settings.businessAddress})` : ''}`], ['delivery', 'Delivery', 'They give an address and landmark; you add a delivery fee when you confirm']];
                         const flip = (v) => setDraft({ ...draft, orderModes: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] });
                         return (
-                          <div className="mb-4">
+                          <div>
                             <div className="text-[13px] font-semibold mb-1" style={{ color: C.ink }}>How customers get their order</div>
                             <div className="text-[11px] mb-2" style={{ color: C.inkFaint }}>Customers choose one of these in their basket.{!isOwnerRole ? ' Only the owner can change this.' : ''}</div>
                             <div className="space-y-1.5">
@@ -8550,18 +8613,27 @@ function XorlaApp() {
                           </div>
                         );
                       })()}
-                      <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Your store link</div>
-                      <div className="flex items-center justify-between rounded-xl px-3.5 py-3 mb-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                        <span className="cx-mono text-[12px] truncate pr-2" style={{ color: C.sage }}>{window.location.origin}/store/{settings.businessCode}</span>
-                        <button onClick={() => copyText('store', `${window.location.origin}/store/${settings.businessCode}`)} className="shrink-0 text-[11px] font-medium" style={{ color: copiedKey === 'store' ? C.sage : C.copper }}>{copiedKey === 'store' ? '✓ Copied' : 'Copy'}</button>
-                      </div>
-                      <a href={`/store/${settings.businessCode}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium" style={{ color: C.sage }}>Open your storefront →</a>
-                    </div>
-                  )}
-                  {!settings.storefrontEnabled && (
-                    <div className="text-[10.5px] mt-3" style={{ color: C.inkFaint }}>Toggle on and save to get your shareable link.</div>
-                  )}
-                </div>
+                  </div>
+                )}
+
+                {/* 4. Shortcuts to the other storefront settings */}
+                {settings.storefrontEnabled && !isManager && (
+                  <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                    {[
+                      ...((settings.businessType !== 'services' || ['accommodation', 'rentals'].includes(serviceKind)) ? [['delivery', Truck, 'Delivery & riders', riders.length || zones.length ? `${riders.length} rider${riders.length === 1 ? '' : 's'} · ${zones.length} area${zones.length === 1 ? '' : 's'}` : 'Not set up']] : []),
+                      ...(isOwnerRole ? [['payments', CreditCard, 'Online payments', settings.payout ? 'On' : 'Off']] : []),
+                      ...(hasBookables && isOwnerRole ? [['deposits', ShieldCheck, 'Deposits & cancellations', `${draft.depositPercent ?? 50}% deposit`]] : []),
+                      ['promote', Megaphone, 'Promote your store', 'Poster, Status, codes'],
+                    ].map(([id, Ic, label, value], i) => (
+                      <button key={id} onClick={() => setSettingsPage(id)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                        <Ic size={17} style={{ color: C.copper }} className="shrink-0" />
+                        <span className="flex-1 text-[13.5px] font-medium">{label}</span>
+                        <span className="text-[12px]" style={{ color: C.inkFaint }}>{value}</span>
+                        <ChevronRight size={16} style={{ color: C.inkFaint }} />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {settingsPage === 'messages' && (
@@ -9970,7 +10042,7 @@ function XorlaApp() {
                   {isOwnerRole && <button onClick={openImport} className="col-span-2 -mt-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list of extras</button>}
                 </div>
               ) : (
-              <button onClick={() => { setEditingProductId(null); setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
+              <button onClick={() => { setEditingProductId(null); setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null, photos: [] }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
               )
             )}
             {!T.saleHint && isOwnerRole && (
@@ -9992,11 +10064,33 @@ function XorlaApp() {
                 )}
 
                 <div>
-                  <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
-                    <Camera size={14} />{productImageUploading ? 'Adding photo…' : productForm.imagePreview ? 'Photo added — tap to change' : formNamesRooms() ? 'Add a photo of this room (optional)' : productForm.mode === 'space' ? 'Add a photo of the space (optional)' : formIsService && productForm.mode === 'extra' ? 'Add a photo (optional)' : formIsService ? 'Add a photo of your work (optional)' : 'Add a product photo (optional)'}
-                    <input type="file" accept="image/*" onChange={handleProductPhotoSelect} className="hidden" />
-                  </label>
-                  {productForm.imagePreview && <img src={productForm.imagePreview} alt="" className="w-16 h-16 rounded-xl object-cover mt-2.5" />}
+                  {(productForm.photos || []).length === 0 ? (
+                    <label className="flex items-center gap-2 text-[12.5px] font-medium py-2.5 px-3.5 rounded-xl cursor-pointer" style={{ border: `1px dashed ${C.line}`, color: C.inkDim }}>
+                      <Camera size={14} />{productImageUploading ? 'Adding photos…' : formNamesRooms() ? 'Add a photo of this room (optional)' : productForm.mode === 'space' ? 'Add a photo of the space (optional)' : formIsService && productForm.mode === 'extra' ? 'Add a photo (optional)' : formIsService ? 'Add a photo of your work (optional)' : 'Add a product photo (optional)'}
+                      <input type="file" accept="image/*" multiple onChange={handleProductPhotoSelect} className="hidden" />
+                    </label>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                        {productForm.photos.map((ph, i) => (
+                          <div key={ph.url || i} className="relative rounded-xl overflow-hidden" style={{ aspectRatio: '1 / 1', background: C.bg, border: `1.5px solid ${i === 0 ? C.copper : C.line}` }}>
+                            <img src={ph.preview || ph.url} alt={i === 0 ? 'Cover photo' : `Photo ${i + 1}`} className="w-full h-full object-cover" />
+                            {i === 0 ? <span className="absolute bottom-0 inset-x-0 text-center text-[9.5px] font-bold py-0.5" style={{ background: C.copper, color: C.bg }}>COVER</span>
+                              : <button type="button" onClick={() => movePhoto(i, 0)} className="absolute bottom-0 inset-x-0 text-center text-[9.5px] font-semibold py-0.5" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>Make cover</button>}
+                            <button type="button" onClick={() => movePhoto(i, null)} aria-label={`Remove photo ${i + 1}`} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.65)', color: '#fff' }}><X size={11} /></button>
+                          </div>
+                        ))}
+                        {productForm.photos.length < MAX_PRODUCT_PHOTOS && (
+                          <label className="rounded-xl cursor-pointer flex flex-col items-center justify-center gap-0.5" style={{ aspectRatio: '1 / 1', border: `1px dashed ${C.line}`, color: C.inkDim }}>
+                            {productImageUploading ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+                            <span className="text-[10px] font-medium">Add</span>
+                            <input type="file" accept="image/*" multiple onChange={handleProductPhotoSelect} className="hidden" disabled={productImageUploading} />
+                          </label>
+                        )}
+                      </div>
+                      <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Up to {MAX_PRODUCT_PHOTOS} photos: front, back, close-ups, how it's worn. Customers swipe through them on your storefront.</div>
+                    </>
+                  )}
                 </div>
 
                 <div>
@@ -10208,7 +10302,7 @@ function XorlaApp() {
                       {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }, C.sage)}
                         {canRun && allLiveLocations.length > 1 && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
-                        {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: p.isSpace ? 'space' : T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, hourPrice: p.hourPrice == null ? '' : String(p.hourPrice), capacity: p.capacity == null ? '' : String(p.capacity), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null }); setShowProductForm(true); })}
+                        {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: p.isSpace ? 'space' : T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, hourPrice: p.hourPrice == null ? '' : String(p.hourPrice), capacity: p.capacity == null ? '' : String(p.capacity), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null, photos: [p.imageUrl, ...(p.images || [])].filter(Boolean).map((url) => ({ url, preview: url })) }); setShowProductForm(true); })}
                         {canRun && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
                         {isOwnerRole && <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>}
                       </>); })()}
@@ -10810,7 +10904,14 @@ function Storefront({ businessCode }) {
   const [discount, setDiscount] = useState(null); // { code, amount }
   const [codeError, setCodeError] = useState('');
   const [codeBusy, setCodeBusy] = useState(false);
-  const [storeShopId, setStoreShopId] = useState(null);
+  // The branch a customer shops from is remembered on their phone, so they choose it once
+  const branchKey = `xorla:sf-branch:${businessCode}`;
+  const [storeShopId, setStoreShopId] = useState(() => { try { return localStorage.getItem(branchKey) || null; } catch (e) { return null; } });
+  const [branchAsk, setBranchAsk] = useState(false);
+  const [viewItem, setViewItem] = useState(null);    // the product page open on top of the store
+  const [viewIdx, setViewIdx] = useState(0);         // which photo of it
+  const [viewQty, setViewQty] = useState(1);
+  const [viewTouch, setViewTouch] = useState(null);
   // Appointments: free times for the services in the basket
   const [apptCal, setApptCal] = useState(null);
   const [apptCalLoading, setApptCalLoading] = useState(false);
@@ -10903,6 +11004,20 @@ function Storefront({ businessCode }) {
       setSwitchingShop(false);
     })();
   }, [businessCode, storeShopId]);
+  useEffect(() => {
+    if (!business || (business.shops || []).length < 2) return;
+    let saved = null; try { saved = localStorage.getItem(branchKey); } catch (e) {}
+    if (!saved || !(business.shops || []).some((sh) => sh.id === saved)) setBranchAsk(true);
+  }, [business?.name, (business?.shops || []).length]);
+  const chooseBranch = (id) => {
+    try { localStorage.setItem(branchKey, id); } catch (e) {}
+    setBranchAsk(false);
+    if (id !== business?.shop_id) { setSwitchingShop(true); setStoreShopId(id); }
+  };
+  // The product page: open, swipe photos, and close with the back button on phones
+  const openItem = (p) => { setViewItem(p); setViewIdx(0); setViewQty(1); try { window.history.pushState({ sfItem: p.id }, ''); } catch (e) {} };
+  const closeItem = () => { if (viewItem) { try { if (window.history.state?.sfItem) window.history.back(); else setViewItem(null); } catch (e) { setViewItem(null); } } };
+  useEffect(() => { const onPop = () => setViewItem(null); window.addEventListener('popstate', onPop); return () => window.removeEventListener('popstate', onPop); }, []);
 
   // Banner carousel auto-advance — every 5s, paused for people who've asked their phone to reduce motion
   useEffect(() => {
@@ -10932,7 +11047,11 @@ function Storefront({ businessCode }) {
     });
 
   // Grouped into sections only when browsing "All" with categories in use and no search — otherwise one clean grid
-  const sections = (activeCategory === 'All' && hasCategories && !query.trim() && sortBy === 'featured')
+  // "All": one full grid, like a shop window. Group by category only when there are several items per group,
+  // or when the store mixes rooms, halls and extras (each is its own kind of thing).
+  const perCategory = hasCategories ? visibleProducts.length / Math.max(1, categories.length - 1) : 0;
+  const mixedKinds = storeProducts.some((p) => p.isSpace || isBookable(p));
+  const sections = (activeCategory === 'All' && hasCategories && !query.trim() && sortBy === 'featured' && (mixedKinds || perCategory >= 3))
     ? categories.slice(1).map((cat) => ({ title: cat, items: visibleProducts.filter((p) => p.category === cat) }))
         .concat([{ title: 'More', items: visibleProducts.filter((p) => !p.category) }])
         .filter((s) => s.items.length)
@@ -11050,8 +11169,8 @@ function Storefront({ businessCode }) {
   const isService = business?.business_type === 'services';
   const searchWord = business?.business_type === 'services' ? (business?.service_kind === 'accommodation' ? 'Search rooms' : 'Search services') : business?.business_type === 'both' ? 'Search' : 'Search products';
   const W = isService
-    ? { your: 'Your request', send: 'Send request', view: 'View request', sent: 'Request sent to', short: 'Request', inYour: 'your request', empty: "Tap a service's price to add it here." }
-    : { your: 'Your order', send: 'Send order', view: 'View order', sent: 'Order sent to', short: 'Order', inYour: 'your order', empty: "Tap a product's price to add it here." };
+    ? { your: 'Your request', send: 'Send request', view: 'View request', sent: 'Request sent to', short: 'Request', inYour: 'your request', empty: 'Tap Request on anything you need, and it shows up here.' }
+    : { your: 'Your order', send: 'Send order', view: 'View order', sent: 'Order sent to', short: 'Order', inYour: 'your order', empty: 'Tap Add on anything you like, and it shows up here.' };
   const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
   const focusRing = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black';
 
@@ -11357,21 +11476,25 @@ function Storefront({ businessCode }) {
     const isOut = !svc && p.stockQuantity === 0;
     const fewLeft = !svc && p.stockQuantity !== null && p.stockQuantity > 0 && p.stockQuantity <= 3;
     return (
-      <div className="flex flex-col">
-        <div className="relative w-full aspect-square rounded-2xl overflow-hidden mb-3 flex items-center justify-center" style={{ background: S.tile }}>
+      <div className="group flex flex-col">
+        <button type="button" onClick={() => openItem(p)} aria-label={`See ${p.name}`} className={`relative w-full ${svc ? 'aspect-square' : 'aspect-[4/5]'} rounded-2xl overflow-hidden mb-3 flex items-center justify-center ${focusRing}`} style={{ background: S.tile }}>
           {p.imageUrl
-            ? <img src={p.imageUrl} alt={p.name} loading="lazy" className="w-full h-full object-cover" style={isOut ? { opacity: 0.45, filter: 'grayscale(1)' } : {}} />
+            ? <img src={p.imageUrl} alt={p.name} loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" style={isOut ? { opacity: 0.45, filter: 'grayscale(1)' } : {}} />
             : svc ? <Sparkles size={30} style={{ color: S.soldOut }} /> : <Package size={32} style={{ color: S.soldOut }} />}
+          {(p.images || []).length > 0 && <span className="absolute bottom-2.5 right-2.5 px-2 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1" style={{ background: 'rgba(255,255,255,0.92)', color: S.ink }}><Camera size={12} /> {(p.images || []).length + 1}</span>}
           {isOut && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.muted }}>Sold out</span>}
           {fewLeft && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.ink }}>Only {p.stockQuantity} left</span>}
           {svc && p.duration && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1" style={{ background: '#fff', color: S.ink }}>{p.duration}</span>}
-        </div>
-        <div className="text-[14px] font-semibold leading-snug line-clamp-2" style={{ color: isOut ? S.muted : S.ink }}>{p.name}</div>
+        </button>
+        <button type="button" onClick={() => openItem(p)} className={`text-left ${focusRing}`}>
+          <div className="text-[14px] font-semibold leading-snug line-clamp-2" style={{ color: isOut ? S.muted : S.ink }}>{p.name}</div>
+          {!svc && <div className="text-[15px] font-bold mt-1" style={{ fontVariantNumeric: 'tabular-nums', color: isOut ? S.muted : S.ink }}>{fmt(p.sellingPrice)}</div>}
+        </button>
         {svc && p.description && <div className="text-[12.5px] leading-snug mt-1 line-clamp-2" style={{ color: S.muted }}>{p.description}</div>}
         {svc && <div className="text-[14px] font-bold mt-1.5" style={{ fontVariantNumeric: 'tabular-nums' }}>{priceLabel(p)}</div>}
         <div className="flex-1 min-h-[10px]" />
         {isOut ? (
-          <div className="w-full py-2.5 rounded-xl text-center text-[13px] font-semibold" style={{ background: S.tile, color: S.soldOut }}>{fmt(p.sellingPrice)}</div>
+          <div className="w-full py-2.5 rounded-xl text-center text-[13px] font-semibold" style={{ background: S.tile, color: S.soldOut }}>Sold out</div>
         ) : svc ? (
           qty === 0 ? (
             <button onClick={() => changeQty(p, 1)} aria-label={`Request ${p.name}`} className={`w-full py-2.5 rounded-xl text-[13.5px] font-semibold active:scale-[0.98] transition-transform ${focusRing}`} style={{ background: S.ink, color: '#fff' }}>Request</button>
@@ -11386,7 +11509,7 @@ function Storefront({ businessCode }) {
           )
         ) : qty === 0 ? (
           <button onClick={() => changeQty(p, 1)} aria-label={`Add ${p.name} to your order`} className={`w-full py-2.5 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform ${focusRing}`} style={{ background: S.ink, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
-            <Plus size={15} strokeWidth={2.5} /> {fmt(p.sellingPrice)}
+            <Plus size={15} strokeWidth={2.5} /> Add
           </button>
         ) : (
           <div className="w-full flex items-center justify-between rounded-xl" style={{ border: `1.5px solid ${S.ink}` }}>
@@ -11395,6 +11518,101 @@ function Storefront({ businessCode }) {
             <button onClick={() => changeQty(p, 1)} aria-label={`Add one more ${p.name}`} disabled={p.stockQuantity !== null && qty >= p.stockQuantity} className={`w-11 py-2 text-[18px] font-semibold rounded-r-xl ${focusRing}`} style={{ opacity: p.stockQuantity !== null && qty >= p.stockQuantity ? 0.3 : 1 }}>+</button>
           </div>
         )}
+      </div>
+    );
+  };
+
+  // A product's own page: every photo, the full description, how many, and add to the order
+  const renderItemSheet = () => {
+    const p0 = viewItem; if (!p0) return null;
+    const p = storeProducts.find((x) => x.id === p0.id) || p0;
+    const photos = [p.imageUrl, ...(p.images || [])].filter(Boolean);
+    const idx = photos.length ? ((viewIdx % photos.length) + photos.length) % photos.length : 0;
+    const svc = storeKind(p) === 'service';
+    const inCart = cart[p.id] || 0;
+    const isOut = !svc && p.stockQuantity === 0;
+    const max = svc ? (p.priceUnit === 'hour' ? 24 : 1) : p.stockQuantity !== null ? Math.max(0, p.stockQuantity - inCart) : 99;
+    const step = (d) => setViewQty((q) => Math.max(1, Math.min(Math.max(1, max), q + d)));
+    const add = () => { if (isOut || max <= 0) return; changeQty(p, Math.min(viewQty, max)); closeItem(); };
+    const ask = business.owner_phone ? `https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(`Hello ${business.name}, I'm interested in "${p.name}" (${fmt(p.sellingPrice)}) on your store.`)}` : null;
+    return (
+      <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-6" style={{ background: 'rgba(23,25,26,0.55)' }} onClick={closeItem}>
+        <div className="w-full md:max-w-4xl max-h-[94vh] md:max-h-[88vh] overflow-y-auto rounded-t-3xl md:rounded-3xl sf-rise md:grid md:grid-cols-[1.1fr_1fr]" style={{ background: '#fff', color: S.ink }} onClick={(e) => e.stopPropagation()}>
+          <div className="relative md:sticky md:top-0 md:self-start">
+            <div className="relative w-full aspect-[4/5] md:rounded-l-3xl overflow-hidden flex items-center justify-center" style={{ background: S.tile }}
+              onTouchStart={(e) => setViewTouch(e.touches[0].clientX)}
+              onTouchEnd={(e) => { if (viewTouch === null || photos.length < 2) return; const dx = e.changedTouches[0].clientX - viewTouch; if (Math.abs(dx) > 40) setViewIdx(idx + (dx < 0 ? 1 : -1)); setViewTouch(null); }}>
+              {photos.length ? photos.map((src, i) => <img key={src + i} src={src} alt={`${p.name}, photo ${i + 1} of ${photos.length}`} className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300" style={{ opacity: i === idx ? 1 : 0 }} />)
+                : svc ? <Sparkles size={40} style={{ color: S.soldOut }} /> : <Package size={44} style={{ color: S.soldOut }} />}
+              {photos.length > 1 && (
+                <>
+                  <button onClick={() => setViewIdx(idx - 1)} aria-label="Previous photo" className={`hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full items-center justify-center ${focusRing}`} style={{ background: 'rgba(255,255,255,0.92)' }}><ChevronLeft size={20} /></button>
+                  <button onClick={() => setViewIdx(idx + 1)} aria-label="Next photo" className={`hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full items-center justify-center ${focusRing}`} style={{ background: 'rgba(255,255,255,0.92)' }}><ChevronRight size={20} /></button>
+                  <div className="absolute bottom-3 inset-x-0 flex justify-center gap-1.5 md:hidden">{photos.map((_, i) => <span key={i} className="h-1.5 rounded-full transition-all" style={{ width: i === idx ? 18 : 6, background: i === idx ? '#fff' : 'rgba(255,255,255,0.6)' }} />)}</div>
+                </>
+              )}
+              <button onClick={closeItem} aria-label="Close" className={`absolute top-3 right-3 md:hidden w-10 h-10 rounded-full flex items-center justify-center ${focusRing}`} style={{ background: 'rgba(255,255,255,0.92)' }}><X size={19} /></button>
+            </div>
+            {photos.length > 1 && (
+              <div className="hidden md:flex gap-2 p-3 overflow-x-auto">
+                {photos.map((src, i) => <button key={src + i} onClick={() => setViewIdx(i)} aria-label={`Photo ${i + 1}`} className={`w-16 h-20 rounded-xl overflow-hidden shrink-0 ${focusRing}`} style={{ outline: i === idx ? `2px solid ${S.ink}` : 'none', outlineOffset: 2, opacity: i === idx ? 1 : 0.7 }}><img src={src} alt="" className="w-full h-full object-cover" /></button>)}
+              </div>
+            )}
+          </div>
+          <div className="p-6 md:p-8 flex flex-col" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+            <div className="hidden md:flex justify-end -mt-2 -mr-2 mb-2"><button onClick={closeItem} aria-label="Close" className={`w-10 h-10 rounded-full flex items-center justify-center ${focusRing}`} style={{ background: S.tile }}><X size={18} /></button></div>
+            {p.category && <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: S.muted }}>{p.category}</div>}
+            <h2 className="text-[24px] md:text-[28px] font-extrabold leading-tight" style={{ letterSpacing: '-0.02em' }}>{p.name}</h2>
+            <div className="text-[22px] font-bold mt-2" style={{ fontVariantNumeric: 'tabular-nums' }}>{svc ? priceLabel(p) : fmt(p.sellingPrice)}</div>
+            {!svc && p.stockQuantity !== null && <div className="text-[13px] mt-1.5 font-medium" style={{ color: isOut ? '#B42318' : p.stockQuantity <= 3 ? '#B54708' : '#0E7A5F' }}>{isOut ? 'Sold out at this branch' : p.stockQuantity <= 3 ? `Only ${p.stockQuantity} left` : 'In stock'}</div>}
+            {svc && p.duration && <div className="text-[13px] mt-1.5" style={{ color: S.muted }}>Takes {p.duration.toLowerCase()}</div>}
+            {p.description && <p className="text-[14.5px] leading-relaxed mt-4 whitespace-pre-line" style={{ color: '#3F4440' }}>{p.description}</p>}
+            <div className="flex-1 min-h-[20px]" />
+            {!isOut && (
+              <div className="mt-5 flex items-center gap-3">
+                {!svc || p.priceUnit === 'hour' ? (
+                  <div className="flex items-center rounded-xl shrink-0" style={{ border: `1.5px solid ${S.line}` }}>
+                    <button onClick={() => step(-1)} aria-label="One fewer" className={`w-11 h-12 text-[20px] font-semibold ${focusRing}`}>−</button>
+                    <span className="w-8 text-center text-[16px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{viewQty}</span>
+                    <button onClick={() => step(1)} aria-label="One more" disabled={viewQty >= max} className={`w-11 h-12 text-[20px] font-semibold ${focusRing}`} style={{ opacity: viewQty >= max ? 0.3 : 1 }}>+</button>
+                  </div>
+                ) : null}
+                <button onClick={add} disabled={max <= 0} className={`flex-1 h-12 rounded-xl text-[15px] font-semibold flex items-center justify-center gap-2 ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: max <= 0 ? 0.4 : 1 }}>
+                  {max <= 0 ? (svc ? 'Already in your request' : 'All in your order') : <><ShoppingBag size={17} /> {svc ? 'Add to request' : `Add to order · ${fmt(p.sellingPrice * (svc && p.priceUnit !== 'hour' ? 1 : viewQty))}`}</>}
+                </button>
+              </div>
+            )}
+            {inCart > 0 && <div className="text-[12.5px] mt-2.5" style={{ color: S.muted }}>{inCart} already in your {W.short.toLowerCase()}.</div>}
+            {ask && <a href={ask} target="_blank" rel="noopener noreferrer" className={`mt-3 h-11 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-2 ${focusRing}`} style={{ border: `1.5px solid ${S.line}`, color: S.ink }}><MessageCircle size={16} /> Ask about this on WhatsApp</a>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+  // First visit to a store with several branches: choose where you're shopping from
+  const renderBranchChooser = () => {
+    if (!branchAsk || storeShops.length < 2) return null;
+    const words = locationWords(business.business_type, business.service_kind);
+    let saved = null; try { saved = localStorage.getItem(branchKey); } catch (e) {}
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(23,25,26,0.55)' }} onClick={() => saved && setBranchAsk(false)}>
+        <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 sf-rise max-h-[88vh] overflow-y-auto" style={{ background: '#fff', color: S.ink, paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
+          {business.logo_url && <img src={business.logo_url} alt="" className="w-12 h-12 rounded-xl object-cover mb-3" />}
+          <div className="text-[21px] font-extrabold leading-tight" style={{ letterSpacing: '-0.015em' }}>Which {words.one} are you shopping from?</div>
+          <div className="text-[14px] mt-1 mb-5" style={{ color: S.muted }}>{business.name} has {storeShops.length} {words.many}. Prices and what's in stock can differ between them.</div>
+          <div className="space-y-2.5">
+            {storeShops.map((sh) => {
+              const on = sh.id === (saved || '');
+              return (
+                <button key={sh.id} onClick={() => chooseBranch(sh.id)} className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left transition-colors ${focusRing}`} style={{ border: `1.5px solid ${on ? S.ink : S.line}`, background: on ? S.tile : '#fff' }}>
+                  <span className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: S.tile }}><MapPin size={18} /></span>
+                  <span className="flex-1 min-w-0"><span className="block text-[15.5px] font-bold">{displayLocationName(sh, words)}</span>{sh.address && <span className="block text-[13px]" style={{ color: S.muted }}>{sh.address}</span>}</span>
+                  <ChevronRight size={18} style={{ color: S.muted }} className="shrink-0" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   };
@@ -11582,6 +11800,11 @@ function Storefront({ businessCode }) {
             {business.logo_url && <img src={business.logo_url} alt="" className="w-9 h-9 md:w-11 md:h-11 rounded-xl object-cover shrink-0" style={overlay ? { boxShadow: '0 0 0 2px rgba(255,255,255,0.9)' } : {}} />}
             <span className="text-[16px] md:text-[18px] font-bold truncate transition-colors" style={{ color: overlay ? '#fff' : S.ink, letterSpacing: '-0.01em' }}>{business.name}</span>
           </div>
+          {storeShops.length > 1 && (
+            <button onClick={() => setBranchAsk(true)} className={`hidden md:flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[13px] font-semibold shrink-0 ${focusRing}`} style={overlay ? { background: 'rgba(255,255,255,0.18)', color: '#fff', border: '1px solid rgba(255,255,255,0.4)' } : { background: S.tile, color: S.ink }}>
+              <MapPin size={14} /> {displayLocationName(currentStoreShop, locationWords(business.business_type, business.service_kind))} <ChevronRight size={14} className="rotate-90" />
+            </button>
+          )}
           <div className="hidden md:block flex-1 max-w-sm">
             <div className="relative">
               <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: overlay ? 'rgba(255,255,255,0.85)' : S.muted }} />
@@ -11624,28 +11847,27 @@ function Storefront({ businessCode }) {
             {business.logo_url && !hasHero && <img src={business.logo_url} alt="" className="w-16 h-16 rounded-full object-cover mx-auto mb-4" style={{ border: '3px solid #fff' }} />}
             <h1 className="font-extrabold leading-[1.05] mb-3" style={{ fontSize: 'clamp(34px, 6vw, 60px)', letterSpacing: '-0.025em', color: hasHero ? '#fff' : S.ink, textWrap: 'balance' }}>{heroTitle}</h1>
             {heroSub && <p className="mx-auto max-w-md text-[15px] md:text-[17px] leading-relaxed" style={{ color: hasHero ? 'rgba(255,255,255,0.88)' : S.muted }}>{heroSub}</p>}
+            <div className="flex flex-wrap items-center justify-center gap-2.5 mt-6">
+              <button onClick={() => document.getElementById('sf-shop')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className={`h-12 px-6 rounded-full text-[14.5px] font-semibold ${focusRing}`} style={hasHero ? { background: '#fff', color: S.ink } : { background: S.ink, color: '#fff' }}>{hasStoreBookables ? 'See rooms & prices' : isService ? 'See what we offer' : 'Shop now'}</button>
+              {business.owner_phone && <a href={`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(`Hello ${business.name}, I found you on your Xorla store.`)}`} target="_blank" rel="noopener noreferrer" className={`h-12 px-5 rounded-full text-[14.5px] font-semibold flex items-center gap-2 ${focusRing}`} style={hasHero ? { background: 'rgba(255,255,255,0.16)', color: '#fff', border: '1px solid rgba(255,255,255,0.45)' } : { background: '#fff', color: S.ink, border: `1.5px solid ${S.line}` }}><MessageCircle size={17} /> Chat with us</a>}
+            </div>
           </div>
         </div>
       </section>
 
       <div className="max-w-6xl mx-auto px-5 md:px-8 pt-6 lg:pt-8 lg:grid lg:grid-cols-[1fr_340px] lg:gap-10" style={{ paddingBottom: cartCount ? '110px' : '40px' }}>
-        <main>
+        <main id="sf-shop" className="scroll-mt-24">
           {hasStoreBookables && renderDateBar()}
           {storeShops.length > 1 && (
-            <div className="mb-5 rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: S.tile }}>
-              <Store size={18} style={{ color: S.ink }} className="shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="text-[11.5px]" style={{ color: S.muted }}>{locationWords(business.business_type, business.service_kind).one === 'branch' ? 'Branch' : 'Shopping from'}</div>
-                <div className="relative">
-                  <select aria-label="Choose which shop to order from" value={currentStoreShop?.id || ''} onChange={(e) => { setSwitchingShop(true); setStoreShopId(e.target.value); }} className={`w-full appearance-none bg-transparent pr-6 text-[15px] font-bold outline-none cursor-pointer ${focusRing}`} style={{ color: S.ink }}>
-                    {storeShops.map((sh) => <option key={sh.id} value={sh.id}>{displayLocationName(sh, locationWords(business.business_type, business.service_kind))}</option>)}
-                  </select>
-                  <ChevronRight size={16} className="absolute right-0 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" style={{ color: S.muted }} />
-                </div>
-                {currentStoreShop?.address && <div className="text-[12px] truncate" style={{ color: S.muted }}>{currentStoreShop.address}</div>}
-              </div>
-              {switchingShop && <Loader2 size={16} className="animate-spin shrink-0" style={{ color: S.muted }} />}
-            </div>
+            <button onClick={() => setBranchAsk(true)} className={`w-full mb-5 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left ${focusRing}`} style={{ background: '#fff', border: `1.5px solid ${S.ink}` }}>
+              <span className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: S.ink, color: '#fff' }}><MapPin size={18} /></span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: S.muted }}>You're shopping from</span>
+                <span className="block text-[16px] font-bold leading-tight truncate">{displayLocationName(currentStoreShop, locationWords(business.business_type, business.service_kind))}</span>
+                {currentStoreShop?.address && <span className="block text-[12.5px] truncate" style={{ color: S.muted }}>{currentStoreShop.address}</span>}
+              </span>
+              {switchingShop ? <Loader2 size={16} className="animate-spin shrink-0" style={{ color: S.muted }} /> : <span className="shrink-0 px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={{ background: S.tile }}>Change</span>}
+            </button>
           )}
           {/* Mobile search */}
           <div className="md:hidden relative mb-4">
@@ -11701,7 +11923,7 @@ function Storefront({ businessCode }) {
           {sections.map((sec) => (
             <section key={sec.title || 'all'} className="mb-10">
               {sec.title && <h2 className="text-[22px] font-bold mb-4" style={{ letterSpacing: '-0.015em' }}>{sec.title}</h2>}
-              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-3 gap-x-4 gap-y-7">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 md:gap-x-5 gap-y-8">
                 {sec.items.map((p) => <React.Fragment key={p.id}>{renderProductCard(p)}</React.Fragment>)}
               </div>
             </section>
@@ -11720,12 +11942,28 @@ function Storefront({ businessCode }) {
 
       {/* Footer */}
       {renderBookSheet()}{renderSpaceSheet()}
-      <footer className="max-w-6xl mx-auto px-5 md:px-8 py-10 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-[13px]" style={{ borderTop: `1px solid ${S.line}`, color: S.muted }}>
-        <div>
-          <div className="font-semibold mb-0.5" style={{ color: S.ink }}>{business.name}</div>
-          {business.address && <div>{business.address}</div>}
+      {renderItemSheet()}{renderBranchChooser()}
+      <footer className="mt-4" style={{ background: S.tile }}>
+        <div className="max-w-6xl mx-auto px-5 md:px-8 py-10 grid gap-8 md:grid-cols-[1.2fr_1fr_1fr] text-[13.5px]" style={{ color: S.muted }}>
+          <div>
+            <div className="flex items-center gap-2.5 mb-2">{business.logo_url && <img src={business.logo_url} alt="" className="w-9 h-9 rounded-xl object-cover" />}<span className="text-[17px] font-bold" style={{ color: S.ink }}>{business.name}</span></div>
+            {heroSub && <div className="leading-relaxed max-w-xs">{heroSub}</div>}
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold uppercase tracking-wide mb-2" style={{ color: S.ink }}>{storeShops.length > 1 ? `Our ${locationWords(business.business_type, business.service_kind).many}` : 'Visit us'}</div>
+            {(storeShops.length ? storeShops : [{ id: 'x', name: business.name, address: business.address }]).map((sh) => (
+              <div key={sh.id} className="mb-2 leading-snug"><span className="font-semibold" style={{ color: S.ink }}>{storeShops.length > 1 ? displayLocationName(sh, locationWords(business.business_type, business.service_kind)) : ''}</span>{storeShops.length > 1 && sh.address ? <br /> : null}{sh.address || (storeShops.length > 1 ? '' : business.address)}</div>
+            ))}
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold uppercase tracking-wide mb-2" style={{ color: S.ink }}>Talk to us</div>
+            {business.owner_phone ? <a href={`https://wa.me/${toWhatsAppNumber(business.owner_phone)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-semibold underline-offset-4 hover:underline" style={{ color: S.ink }}><MessageCircle size={15} /> WhatsApp {formatPhoneDisplay(business.owner_phone)}</a> : <div>Order here and {business.name} will contact you.</div>}
+          </div>
         </div>
-        <div className="text-[12px] flex items-center gap-3">{business.show_branding !== false && <span>Store powered by Xorla</span>}<a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">Privacy</a></div>
+        <div className="max-w-6xl mx-auto px-5 md:px-8 py-5 flex items-center justify-between gap-3 text-[12px]" style={{ borderTop: `1px solid ${S.line}`, color: S.muted }}>
+          <span>© {new Date().getFullYear()} {business.name}</span>
+          <span className="flex items-center gap-3">{business.show_branding !== false && <span>Store powered by Xorla</span>}<a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">Privacy</a></span>
+        </div>
       </footer>
 
       {/* Mobile order bar */}
@@ -15415,11 +15653,38 @@ function CustomerOrder({ token }) {
   );
 }
 
+// Store links: by name today (xorla.vercel.app/amakastores); when Xorla has its own domain, set STORE_ROOT_DOMAIN
+// (e.g. 'xorla.ng') and amakastores.xorla.ng opens the same store. Old /store/CODE links keep working.
+const STORE_ROOT_DOMAIN = '';
+const STORE_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/;
+function storeUrlOf(slug, code) {
+  if (slug && STORE_ROOT_DOMAIN) return `https://${slug}.${STORE_ROOT_DOMAIN}`;
+  if (typeof window === 'undefined') return '';
+  return slug ? `${window.location.origin}/${slug}` : `${window.location.origin}/store/${code}`;
+}
+function StoreBySlug({ slug }) {
+  const [code, setCode] = useState(undefined);
+  useEffect(() => { sbRpc('store_code_for', SB_KEY, { p_slug: slug }).then((c) => setCode(c || null)).catch(() => setCode(null)); }, [slug]);
+  if (code === undefined) return <div className="flex items-center justify-center" style={{ background: S.bg, minHeight: '100vh' }}><Loader2 className="animate-spin" size={22} style={{ color: S.muted }} /></div>;
+  if (!code) return (
+    <div className="flex flex-col items-center justify-center px-6 text-center" style={{ background: S.bg, color: S.ink, minHeight: '100vh', fontFamily: SF_FONT }}>
+      <div className="text-[20px] font-bold mb-2">We couldn't find that store</div>
+      <div className="text-[14px] max-w-sm mb-6" style={{ color: S.muted }}>Check the link you were sent. The business may have changed its store name.</div>
+      <a href="/" className="text-[14px] font-semibold underline underline-offset-4">Go to Xorla</a>
+    </div>
+  );
+  return <Storefront businessCode={code} />;
+}
+
 export default function Root() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
   const clean = path.replace(/\/+$/, '');
   const offerMatch = path.match(/^\/appt\/([a-f0-9]{20,64})/);
+  // A store opened by its name: /amakastores, or amakastores.<STORE_ROOT_DOMAIN>
+  const slugMatch = path.match(/^\/([A-Za-z0-9-]{3,30})\/?$/);
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  const storeSub = STORE_ROOT_DOMAIN && host.endsWith(`.${STORE_ROOT_DOMAIN}`) && clean === '' ? host.slice(0, -STORE_ROOT_DOMAIN.length - 1).toLowerCase().replace(/^(www|app)$/, '') : '';
   const guestMatch = path.match(/^\/booking\/([a-f0-9]{20,64})/);
   const orderMatch = path.match(/^\/order\/([a-f0-9]{20,64})/);
   const page = offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : guestMatch ? <GuestBooking token={guestMatch[1]} /> : orderMatch ? <CustomerOrder token={orderMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
@@ -15427,6 +15692,8 @@ export default function Root() {
     : clean === '/privacy' ? <LegalPage kind="privacy" />
     : clean === '/terms' ? <LegalPage kind="terms" />
     : clean === '/admin' ? <AdminDashboard />
+    : storeSub ? <StoreBySlug slug={storeSub} />
+    : slugMatch && STORE_SLUG_RE.test(slugMatch[1].toLowerCase()) ? <StoreBySlug slug={slugMatch[1].toLowerCase()} />
     : <XorlaApp />;
   return <>{page}<BrandDialogHost /></>;
 }
