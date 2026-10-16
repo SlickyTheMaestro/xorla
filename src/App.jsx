@@ -726,8 +726,30 @@ function fromSbInvoice(row) {
 function fromSbExpense(row) {
   return { id: row.id, item: row.item, amount: row.amount, category: row.category || 'Other', dateKey: dateKeyOf(row.spent_at), time: timeLabel(row.spent_at), loggedBy: row.logged_by_name || '', shopId: row.shop_id || null };
 }
+// Colours, sizes and other choices: up to 2 kinds, each with its list. Every combination is one "option" (e.g. "Red / M").
+const OPTION_KIND_SUGGESTIONS = ['Colour', 'Size', 'Length', 'Material', 'Style', 'Flavour'];
+function cleanOptions(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((g) => g && String(g.name || '').trim() && Array.isArray(g.values) && g.values.some((v) => String(v).trim()))
+    .slice(0, 2).map((g) => ({ name: String(g.name).trim(), values: g.values.map((v) => String(v).trim()).filter(Boolean) }));
+}
+function optionCombos(options) {
+  const o = cleanOptions(options);
+  if (!o.length) return [];
+  if (o.length === 1) return o[0].values;
+  return o[0].values.flatMap((a) => o[1].values.map((b) => `${a} / ${b}`));
+}
+// A little dot of colour next to colour names customers know (Red, Navy blue, Wine…); unknown names get none
+const SWATCHES = { black: '#111111', white: '#FFFFFF', red: '#D32F2F', blue: '#1E63D6', navy: '#1B2A4A', 'navy blue': '#1B2A4A', 'sky blue': '#7EC8F2', 'royal blue': '#2348C9', green: '#2E8B57', 'olive': '#6B7A2F', 'olive green': '#6B7A2F', 'emerald': '#0F9D6B', 'emerald green': '#0F9D6B', 'lemon': '#E9E35A', 'lemon green': '#A7D93A', yellow: '#F4C430', mustard: '#D9A21B', orange: '#F07C1B', pink: '#F48FB1', 'baby pink': '#F8C8D8', 'hot pink': '#E9407A', purple: '#7B3FA0', lilac: '#C8A2C8', lavender: '#B9A6E0', brown: '#7B4B2A', 'chocolate': '#5A3420', 'coffee': '#6F4E37', beige: '#E8D9BC', nude: '#E3BC9A', cream: '#F3E9D2', 'off white': '#F5F1E6', 'off-white': '#F5F1E6', ivory: '#FFFDF0', gold: '#C9A227', silver: '#BFC4C9', grey: '#8A8F94', gray: '#8A8F94', 'ash': '#9EA3A8', maroon: '#7A1F2B', wine: '#6E1B2D', burgundy: '#7A1F35', teal: '#1E8C8C', turquoise: '#33C1C1', peach: '#F6B98E', coral: '#F2765B', khaki: '#BDB07A', 'army green': '#4B5320', 'rose gold': '#C9967F', 'multicolour': 'conic-gradient(#D32F2F, #F4C430, #2E8B57, #1E63D6, #7B3FA0, #D32F2F)', 'multicolor': 'conic-gradient(#D32F2F, #F4C430, #2E8B57, #1E63D6, #7B3FA0, #D32F2F)' };
+const swatchFor = (name) => SWATCHES[String(name || '').trim().toLowerCase()] || null;
+const isColourGroup = (g) => /colou?r|shade/i.test(g?.name || '');
+const optionWords = (options) => cleanOptions(options).map((g) => g.name.toLowerCase()).join(' and ');
+const hasOptions = (p) => !!p && Array.isArray(p.options) && p.options.length > 0;
+// Counted per colour/size: has options, stock is tracked, and it isn't made to order
+const countsByOption = (p) => hasOptions(p) && !!p.trackStock && !p.madeToOrder;
+
 function fromSbProduct(row) {
-  return { id: row.id, shopId: row.shop_id || null, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '', images: Array.isArray(row.images) ? row.images.filter(Boolean) : [], isSpace: !!row.is_space, hourPrice: row.hour_price == null ? null : Number(row.hour_price), capacity: row.capacity == null ? null : Number(row.capacity) };
+  return { id: row.id, shopId: row.shop_id || null, name: row.name, costPrice: row.cost_price || 0, sellingPrice: row.selling_price || 0, imageUrl: row.image_url || null, stockQuantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity), units: Number(row.units) || 1, lowStockThreshold: row.low_stock_threshold ?? 5, trackStock: !!row.track_stock || (row.stock_quantity !== null && row.stock_quantity !== undefined), category: row.category || '', kind: row.kind || null, priceUnit: row.price_unit || 'fixed', duration: row.duration || '', description: row.description || '', images: Array.isArray(row.images) ? row.images.filter(Boolean) : [], isSpace: !!row.is_space, hourPrice: row.hour_price == null ? null : Number(row.hour_price), capacity: row.capacity == null ? null : Number(row.capacity), options: cleanOptions(row.options), madeToOrder: !!row.made_to_order, customChoice: !!row.custom_choice, leadTime: row.lead_time || '' };
 }
 // What a storefront order comes to: items less any discount, plus delivery once the business has added it,
 // and how much of it the customer has already paid online (less anything owed back to them)
@@ -1450,6 +1472,7 @@ function XorlaApp() {
   const [expensesAll, setExpenses] = useState([]);
   const [productsAll, setProducts] = useState([]);
   const [productShops, setProductShops] = useState([]);
+  const [variantStock, setVariantStock] = useState([]);   // how many of each colour/size at each branch
   const [stockTransfers, setStockTransfers] = useState([]);
   const [stockRequests, setStockRequests] = useState([]);
   const [bookingsAll, setBookingsAll] = useState([]);
@@ -1575,6 +1598,7 @@ function XorlaApp() {
     const o = shopId ? shopRow(p.id, shopId)?.price_override : null;
     return o !== null && o !== undefined ? Number(o) : Number(p.sellingPrice);
   };
+  const optionAt = (productId, shopId, variant) => Number(variantStock.find((r) => r.product_id === productId && r.shop_id === shopId && r.variant === variant)?.stock_quantity || 0);
   const stockShopIds = activeShopId ? [activeShopId] : (isOwnerRole ? locations : myShops).map((s) => s.id);
   // Each branch can have its own items: an item is for every branch (shopId empty) or one branch, and can be switched off at a branch
   const availableAt = (p, shopId) => !!p && (!p.shopId || p.shopId === shopId) && !(shopId && shopRow(p.id, shopId)?.hidden);
@@ -1592,6 +1616,8 @@ function XorlaApp() {
       isLow: T.tracksStock && lowShops.length > 0,
       // still listed so it can be switched back on, but not sold or booked here
       offHere: !!hereShopId && !!shopRow(p.id, hereShopId)?.hidden,
+      // colours/sizes: how many of each, here (or across the branches in view)
+      optionStock: tracked && countsByOption(p) ? Object.fromEntries(optionCombos(p.options).map((v) => [v, stockShopIds.reduce((a, id) => a + optionAt(p.id, id, v), 0)])) : null,
     };
   });
   // Rooms and rentals are booked by date in Bookings, never sold as a quick sale
@@ -1607,6 +1633,31 @@ function XorlaApp() {
     const next = await sbRpc('adjust_stock', session.access_token, { p_product_id: productId, p_shop_id: shopId, p_change: change, p_reason: reason });
     setLocalStock(productId, shopId, Number(next));
     return Number(next);
+  };
+  const setLocalOption = (productId, shopId, variant, qty) => setVariantStock((prev) => {
+    const i = prev.findIndex((r) => r.product_id === productId && r.shop_id === shopId && r.variant === variant);
+    if (i < 0) return [...prev, { product_id: productId, shop_id: shopId, variant, stock_quantity: qty }];
+    const next = [...prev]; next[i] = { ...next[i], stock_quantity: qty }; return next;
+  });
+  // One colour/size: the branch total follows in the same database step
+  const changeOptionStock = async (productId, shopId, variant, change, reason) => {
+    const r = await sbRpc('adjust_variant_stock', session.access_token, { p_product_id: productId, p_shop_id: shopId, p_variant: variant, p_change: change, p_reason: reason });
+    setLocalOption(productId, shopId, variant, Number(r?.variant) || 0);
+    if (r && r.total !== null && r.total !== undefined) setLocalStock(productId, shopId, Number(r.total));
+    return r;
+  };
+  // Count every colour/size at a branch (first count or fixing the count); the counts become the branch total
+  const setOptionCounts = async (productId, shopId, counts, reason = 'count') => {
+    const r = await sbRpc('set_variant_counts', session.access_token, { p_product_id: productId, p_shop_id: shopId, p_counts: counts, p_reason: reason });
+    Object.entries(r?.counts || {}).forEach(([v, q]) => setLocalOption(productId, shopId, v, Number(q) || 0));
+    setLocalStock(productId, shopId, Number(r?.total) || 0);
+    return r;
+  };
+  // A sale or order of one item takes stock off the right colour/size when it's counted that way
+  const takeStock = async (product, shopId, qty, variant, reason) => {
+    if (!product || !product.trackStock || product.madeToOrder) return;
+    if (countsByOption(product)) { if (variant && optionCombos(product.options).includes(variant)) await changeOptionStock(product.id, shopId, variant, -qty, reason); return; }
+    await changeStock(product.id, shopId, -qty, reason);
   };
   const [loaded, setLoaded] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -1735,6 +1786,7 @@ function XorlaApp() {
   const [editingProductId, setEditingProductId] = useState(null);
   const closeProductForm = () => { setShowProductForm(false); setEditingProductId(null); };
   const [restockAmount, setRestockAmount] = useState('');
+  const [restockOpts, setRestockOpts] = useState({});   // colour/size → how many arrived
   const [restockShopId, setRestockShopId] = useState(null);
   const [restockCost, setRestockCost] = useState('');
   const [productsView, setProductsView] = useState('list');
@@ -1769,6 +1821,8 @@ function XorlaApp() {
   const [insightDays, setInsightDays] = useState(30);
   const [correctingId, setCorrectingId] = useState(null);
   const [correctQty, setCorrectQty] = useState('');
+  const [correctOpts, setCorrectOpts] = useState({});   // colour/size → real count
+  const [expandedOptsId, setExpandedOptsId] = useState(null);
   const [correctShopId, setCorrectShopId] = useState(null);
   const [transferringId, setTransferringId] = useState(null);
   const [transferForm, setTransferForm] = useState({ from: '', to: '', qty: '' });
@@ -1841,7 +1895,7 @@ function XorlaApp() {
   const [staffFilter, setStaffFilter] = useState('');
   const [error, setError] = useState('');
   const [form, setForm] = useState({ clientName: '', invoiceNo: '', amount: '', dueDate: '', phone: '', clientAddress: '', itemized: false, items: [{ description: '', quantity: '1', unitPrice: '' }], taxRate: '0', notes: '' });
-  const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
+  const [saleForm, setSaleForm] = useState({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1', variant: '' });
   const [expenseForm, setExpenseForm] = useState({ item: '', amount: '', category: 'Other' });
   const [payingId, setPayingId] = useState(null);
   const [payAmount, setPayAmount] = useState('');
@@ -1880,7 +1934,7 @@ function XorlaApp() {
 
   const loadBusinessData = useCallback(async (accessToken) => {
     try {
-      let [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, riderRows, zoneRows, roomOrderRows, peopleRows, codeRows] = await Promise.all([
+      let [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, riderRows, zoneRows, roomOrderRows, peopleRows, codeRows, variantRows] = await Promise.all([
         sbRestAll('sales', { accessToken, query: `?select=*&sold_at=gte.${recentSince()}&order=sold_at.desc,id.desc` }),
         sbRestAll('invoices', { accessToken, query: '?select=*&order=created_at.desc,id.desc' }),
         sbRestAll('expenses', { accessToken, query: `?select=*&spent_at=gte.${recentSince()}&order=spent_at.desc,id.desc` }),
@@ -1905,6 +1959,7 @@ function XorlaApp() {
         sbRest('room_orders', { accessToken, query: `?select=*&created_at=gte.${new Date(Date.now() - 2 * 86400000).toISOString()}&order=created_at.desc&limit=200` }).catch(() => []),
         sbRest('appt_people', { accessToken, query: '?select=*&order=name.asc' }).catch(() => []),
         sbRest('discount_codes', { accessToken, query: '?select=*&order=created_at.desc' }).catch(() => []),
+        sbRestAll('variant_stock', { accessToken, query: '?select=*&order=product_id.asc,shop_id.asc,variant.asc' }).catch(() => []),
       ]);
       // A manager only ever holds their own locations' records (the database already limits this; this is a second lock)
       const sc = scopeRef.current;
@@ -1922,6 +1977,7 @@ function XorlaApp() {
       setStaffShops(staffShopRows);
       setStaffPresence(presenceRows);
       setProductShops(productShopRows);
+      setVariantStock(Array.isArray(variantRows) ? variantRows : []);
       setStockTransfers(transferRows);
       setStockRequests(requestRows);
       setSubscription(Array.isArray(subscriptionRows) && subscriptionRows[0] ? subscriptionRows[0] : null);
@@ -2463,10 +2519,12 @@ function XorlaApp() {
   const addSale = async () => {
     if (!saleForm.item || !saleForm.amount) return;
     if (savingSale) return;
+    const picked = saleForm.productId ? products.find((p) => p.id === saleForm.productId) : null;
+    if (picked && countsByOption(picked) && !saleForm.variant) { brandAlert(`Choose the ${optionWords(picked.options)} of ${picked.name} first, so the right stock goes down.`); return; }
     setSavingSale(true);
     const owed = saleForm.fullyPaid ? 0 : Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0));
     try {
-      const saleRows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, owed, product_id: saleForm.productId || null, quantity: saleForm.productId ? Math.max(1, Number(saleForm.quantity) || 1) : 1 } });
+      const saleRows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, owed, product_id: saleForm.productId || null, quantity: saleForm.productId ? Math.max(1, Number(saleForm.quantity) || 1) : 1, ...(saleForm.productId && saleForm.variant ? { variant: saleForm.variant } : {}) } });
       const newSale = fromSbSale(saleRows[0]);
       setSales((prev) => [newSale, ...prev]);
 
@@ -2480,13 +2538,13 @@ function XorlaApp() {
         const product = products.find((p) => p.id === saleForm.productId);
         if (product && product.stockQuantity !== null) {
           const qtySold = Math.max(1, Number(saleForm.quantity) || 1);
-          try { await changeStock(product.id, targetShopId, -qtySold, 'sale'); }
+          try { await takeStock(product, targetShopId, qtySold, saleForm.variant, 'sale'); }
           catch (e) { console.error('Stock update failed:', e); }
         }
       }
 
       setReceipt(makeReceipt({ id: newSale.id, items: [{ name: saleForm.item, amount: Number(saleForm.amount) }], total: saleForm.amount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId }));
-      setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1' });
+      setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1', variant: '' });
       setShowSaleForm(false);
     } catch (e) { console.error(e); brandAlert(e.message); } finally { setSavingSale(false); }
   };
@@ -2499,19 +2557,21 @@ function XorlaApp() {
 
   const applyProductToCartRow = (idx, productId) => {
     const items = [...cartItems];
-    if (!productId) { items[idx] = { ...items[idx], productId: '' }; setCartItems(items); return; }
+    if (!productId) { items[idx] = { ...items[idx], productId: '', variant: '' }; setCartItems(items); return; }
     const product = products.find((p) => p.id === productId);
     if (!product) return;
-    items[idx] = { ...items[idx], productId, description: product.name, unitPrice: String(product.sellingPrice), unitCost: String(kindOf(product, settings.businessType) === 'service' ? 0 : product.costPrice) };
+    items[idx] = { ...items[idx], productId, variant: '', description: product.name, unitPrice: String(product.sellingPrice), unitCost: String(kindOf(product, settings.businessType) === 'service' ? 0 : product.costPrice) };
     setCartItems(items);
   };
 
   const addCartSale = async () => {
     const cleanItems = cartItems
       .filter((it) => it.description.trim() && Number(it.unitPrice) > 0)
-      .map((it) => ({ productId: it.productId || null, description: it.description.trim(), quantity: Math.max(1, Number(it.quantity) || 1), unitPrice: Number(it.unitPrice), unitCost: Number(it.unitCost) || 0 }));
+      .map((it) => ({ productId: it.productId || null, variant: it.productId ? it.variant || '' : '', description: `${it.description.trim()}${it.productId && it.variant && !it.description.includes(it.variant) ? ` (${it.variant})` : ''}`, quantity: Math.max(1, Number(it.quantity) || 1), unitPrice: Number(it.unitPrice), unitCost: Number(it.unitCost) || 0 }));
     if (!cleanItems.length) return;
     if (savingSale) return;
+    const missing = cleanItems.map((it) => it.productId && products.find((p) => p.id === it.productId)).find((p, i) => p && countsByOption(p) && !cleanItems[i].variant);
+    if (missing) { brandAlert(`Choose the ${optionWords(missing.options)} of ${missing.name} first, so the right stock goes down.`); return; }
     setSavingSale(true);
     try {
       const totalAmount = cleanItems.reduce((a, it) => a + it.quantity * it.unitPrice, 0);
@@ -2522,12 +2582,12 @@ function XorlaApp() {
       // One basket = one receipt: every item shares a basket ID; the balance owed sits on the first item
       const basketId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null;
       for (const [idx, it] of cleanItems.entries()) {
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: idx === 0 ? owed : 0, product_id: it.productId || null, quantity: it.quantity, ...(basketId ? { basket_id: basketId } : {}) } });
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: idx === 0 ? owed : 0, product_id: it.productId || null, quantity: it.quantity, ...(it.variant ? { variant: it.variant } : {}), ...(basketId ? { basket_id: basketId } : {}) } });
         newSales.push(rows[0]);
         if (it.productId) {
           const product = products.find((p) => p.id === it.productId);
           if (product && product.stockQuantity !== null) {
-            try { await changeStock(product.id, targetShopId, -it.quantity, 'sale'); }
+            try { await takeStock(product, targetShopId, it.quantity, it.variant, 'sale'); }
             catch (e) { console.error('Stock update failed:', e); }
           }
         }
@@ -2639,6 +2699,21 @@ function XorlaApp() {
   });
   const addProduct = async () => {
     if (!productForm.name || !productForm.sellingPrice) return;
+    // Colours/sizes: what's typed but not yet added still counts, and every kind needs a name
+    const formOptions = formIsService || productForm.mode === 'space' ? [] : formOptionGroups();
+    const formHasOptions = formOptions.length > 0;
+    const formMto = !formIsService && !!productForm.madeToOrder;
+    const formCounts = Object.fromEntries(optionCombos(formOptions).map((v) => [v, (productForm.optionCounts || {})[v]]).filter(([, q]) => q !== undefined && q !== ''));
+    if (!formIsService && (productForm.options || []).some((g) => (g.values || []).length || String(g.draft || '').trim()) && (productForm.options || []).some((g) => ((g.values || []).length || String(g.draft || '').trim()) && !String(g.name || '').trim())) { brandAlert('Give each list a name, like Colour or Size.'); return; }
+    if (editingProductId && formHasOptions) {
+      const keep = new Set(optionCombos(formOptions));
+      const lost = variantStock.filter((r) => r.product_id === editingProductId && !keep.has(r.variant) && Number(r.stock_quantity) > 0);
+      if (lost.length) {
+        const n = lost.reduce((a, r) => a + Number(r.stock_quantity), 0);
+        const names = [...new Set(lost.map((r) => r.variant))];
+        if (!(await brandConfirm(`${names.slice(0, 4).join(', ')}${names.length > 4 ? ` and ${names.length - 4} more` : ''} still ${n === 1 ? 'has 1' : `have ${n}`} in stock. Removing ${names.length === 1 ? 'it' : 'them'} takes ${n === 1 ? 'that' : `those ${n}`} off your stock count.`, { title: 'Remove these options?', confirm: 'Remove them', danger: true }))) return;
+      }
+    }
     if (formNamesRooms()) {
       const plan = roomPlan(editingProductId);
       const bad = plan.find((x) => x.clash.length);
@@ -2664,18 +2739,33 @@ function XorlaApp() {
       const photoBody = { image_url: imageUrl, images: urls.slice(1) };
       let savedId = editingProductId;
       // A hall or event space: priced per day, optionally per hour, never counted as a room
+      const optionBody = formIsService || productForm.mode === 'space' ? {} : { options: formOptions, made_to_order: formMto, custom_choice: formHasOptions && !!productForm.customChoice, lead_time: formMto ? String(productForm.leadTime || '').trim().slice(0, 40) : '' };
       const spaceBody = productForm.mode === 'space' ? { is_space: true, kind: 'service', price_unit: 'day', units: 1, track_stock: false, hour_price: Number(parseNumInput(productForm.hourPrice || '')) > 0 ? Number(parseNumInput(productForm.hourPrice)) : null, capacity: Number(productForm.capacity) > 0 ? Math.min(100000, Math.round(Number(productForm.capacity))) : null } : {};
       if (editingProductId) {
         const existing = products.find((p) => p.id === editingProductId);
         const whereBody = allLiveLocations.length > 1 || isManager ? { shop_id: (isManager ? (productForm.where || activeShopId || myShops[0]?.id) : productForm.where) || null } : {};
-        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { ...whereBody, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, ...photoBody, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...(formIsService ? { track_stock: false } : {}) , ...spaceBody } });
+        const rows = await sbRest(`products?id=eq.${editingProductId}`, { method: 'PATCH', accessToken: session.access_token, body: { ...whereBody, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, ...photoBody, low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: (productForm.description || '').trim(), ...(formIsService ? { track_stock: false } : {}), ...optionBody, ...spaceBody } });
         setProducts((prev) => prev.map((p) => p.id === editingProductId ? fromSbProduct(rows[0]) : p).sort((a, b) => a.name.localeCompare(b.name)));
+        // Options that changed: the counts that went with removed ones are gone; counts typed here are saved for this branch
+        if (formHasOptions || hasOptions(existing)) {
+          const vrows = await sbRestAll('variant_stock', { accessToken: session.access_token, query: `?product_id=eq.${editingProductId}&select=*` }).catch(() => null);
+          const prows = await sbRest('product_shops', { accessToken: session.access_token, query: `?product_id=eq.${editingProductId}&select=*` }).catch(() => null);
+          if (vrows) setVariantStock((prev) => [...prev.filter((r) => r.product_id !== editingProductId), ...vrows]);
+          if (prows) setProductShops((prev) => [...prev.filter((r) => r.product_id !== editingProductId), ...prows]);
+        }
+        if (canRun && !formMto && formHasOptions && productForm.countsTouched && Object.keys(formCounts).length) {
+          await setOptionCounts(editingProductId, targetShopId, formCounts, 'count');
+          setProducts((prev) => prev.map((p) => (p.id === editingProductId ? { ...p, trackStock: true } : p)));
+        }
       } else {
         const whereBody = allLiveLocations.length > 1 || isManager ? { shop_id: (isManager ? (productForm.where || activeShopId || myShops[0]?.id) : productForm.where) || null } : {};
-        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { ...whereBody, business_id: settings.businessId, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, ...photoBody, track_stock: !formIsService && productForm.stockQuantity !== '', low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: formIsService ? productForm.description.trim() : '', ...spaceBody } });
+        const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: { ...whereBody, business_id: settings.businessId, name: productForm.name, cost_price: formIsService ? 0 : (productForm.costPrice || 0), selling_price: productForm.sellingPrice, ...photoBody, track_stock: !formIsService && !formMto && (formHasOptions ? Object.keys(formCounts).length > 0 : productForm.stockQuantity !== ''), low_stock_threshold: Number(productForm.lowStockThreshold) || 5, category: productForm.category.trim(), kind: formIsService ? 'service' : 'product', units: formIsService && ['night', 'day'].includes(productForm.priceUnit) ? Math.max(1, Math.min(500, Number(productForm.units) || 1)) : 1, price_unit: formIsService ? productForm.priceUnit : 'fixed', duration: formIsService ? productForm.duration : '', description: (productForm.description || '').trim(), ...optionBody, ...spaceBody } });
         setProducts((prev) => [fromSbProduct(rows[0]), ...prev].sort((a, b) => a.name.localeCompare(b.name)));
         const startQty = Number(productForm.stockQuantity);
-        if (!formIsService && productForm.stockQuantity !== '' && startQty > 0) await changeStock(rows[0].id, targetShopId, startQty, 'initial');
+        if (!formIsService && !formMto && formHasOptions && Object.keys(formCounts).length) {
+          await setOptionCounts(rows[0].id, targetShopId, formCounts, 'initial');
+          setProducts((prev) => prev.map((p) => (p.id === rows[0].id ? { ...p, trackStock: true } : p)));
+        } else if (!formIsService && !formMto && !formHasOptions && productForm.stockQuantity !== '' && startQty > 0) await changeStock(rows[0].id, targetShopId, startQty, 'initial');
         savedId = rows[0].id;
       }
       // New room numbers typed in the form go straight onto the room board
@@ -2857,10 +2947,10 @@ function XorlaApp() {
       for (const [idx, item] of order.items.entries()) {
         const base = productsAll.find((p) => p.id === item.productId);
         const unitCost = item.unitCost ?? (base && kindOf(base, settings.businessType) === 'product' ? Number(base.costPrice) || 0 : 0);
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: `${item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description} (${order.customerName})`, amount: item.quantity * item.unitPrice - shares[idx], cost: item.quantity * unitCost, owed: idx === 0 ? owed : 0, product_id: item.productId || null, quantity: item.quantity, ...(basketId ? { basket_id: basketId } : {}) } });
+        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: shopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: `${item.quantity > 1 ? `${item.description} ×${item.quantity}` : item.description} (${order.customerName})`, amount: item.quantity * item.unitPrice - shares[idx], cost: item.quantity * unitCost, owed: idx === 0 ? owed : 0, product_id: item.productId || null, quantity: item.quantity, ...(item.variant ? { variant: item.variant } : {}), ...(basketId ? { basket_id: basketId } : {}) } });
         newSales.push(rows[0]);
         if (base && base.trackStock && kindOf(base, settings.businessType) === 'product') {
-          try { await changeStock(base.id, shopId, -item.quantity, 'order'); } catch (e) { console.error('Stock update failed:', e); }
+          try { await takeStock(base, shopId, Number(item.quantity), item.variant, 'order'); } catch (e) { console.error('Stock update failed:', e); }
         }
       }
       // Delivery is the business's income too: its own line on the same receipt
@@ -3241,7 +3331,9 @@ function XorlaApp() {
   };
 
   const handleRestock = async (product) => {
-    const added = Number(restockAmount);
+    const byOption = hasOptions(product) && !product.madeToOrder;
+    const optLines = byOption ? Object.entries(restockOpts).map(([v, q]) => [v, Number(q) || 0]).filter(([v, q]) => q > 0 && optionCombos(product.options).includes(v)) : [];
+    const added = byOption ? optLines.reduce((a, [, q]) => a + q, 0) : Number(restockAmount);
     if (!added || added < 0) return;
     const shopId = activeShopId || (locations.some((s) => s.id === restockShopId && !isPausedLocation(s.id)) ? restockShopId : mainShopId);
     const unitCost = Number(parseNumInput(restockCost));
@@ -3251,9 +3343,11 @@ function XorlaApp() {
         await sbRest(`products?id=eq.${product.id}`, { method: 'PATCH', accessToken: session.access_token, body: { track_stock: true } });
         setProducts((prev) => prev.map((p) => (p.id === product.id ? { ...p, trackStock: true } : p)));
       }
-      await changeStock(product.id, shopId, added, product.trackStock ? 'restock' : 'initial');
+      if (byOption) { for (const [v, q] of optLines) await changeOptionStock(product.id, shopId, v, q, product.trackStock ? 'restock' : 'initial'); }
+      else await changeStock(product.id, shopId, added, product.trackStock ? 'restock' : 'initial');
       if (nextCost !== null && nextCost !== Number(product.costPrice)) await saveCostPrice(product.id, nextCost);
       setRestockingId(null);
+      setRestockOpts({});
       setRestockAmount('');
       setRestockCost('');
     } catch (e) { brandAlert(e.message); }
@@ -3261,6 +3355,16 @@ function XorlaApp() {
 
   // Fix a stock mistake: set the real count; the difference is recorded as a correction
   const handleCorrectCount = async (p) => {
+    if (countsByOption(p)) {
+      const shopId = activeShopId || (locations.some((s) => s.id === correctShopId && !isPausedLocation(s.id)) ? correctShopId : mainShopId);
+      const changed = Object.entries(correctOpts).filter(([v, q]) => q !== '' && Number(q) >= 0 && Number(q) !== optionAt(p.id, shopId, v));
+      if (!changed.length) { setCorrectingId(null); return; }
+      const list = changed.slice(0, 5).map(([v, q]) => `${v}: ${optionAt(p.id, shopId, v)} → ${Number(q)}`).join('\n');
+      if (!(await brandConfirm(`Change the count at ${shopNameOf(shopId)}?\n\n${list}${changed.length > 5 ? `\n…and ${changed.length - 5} more` : ''}\n\nThis is saved as a correction in your stock history.`, { confirm: 'Save count' }))) return;
+      try { await setOptionCounts(p.id, shopId, Object.fromEntries(changed.map(([v, q]) => [v, Number(q)])), 'correction'); setCorrectingId(null); setCorrectOpts({}); }
+      catch (e) { brandAlert(e.message); }
+      return;
+    }
     const actual = Number(correctQty);
     if (correctQty === '' || !Number.isFinite(actual) || actual < 0) return;
     const shopId = activeShopId || (locations.some((s) => s.id === correctShopId && !isPausedLocation(s.id)) ? correctShopId : mainShopId);
@@ -3285,17 +3389,155 @@ function XorlaApp() {
     } catch (e) { brandAlert(e.message); }
   };
 
+  // ---- Colours, sizes and made to order, in the product form ----
+  const splitOptionText = (t) => String(t || '').split(/[,\n]/).map((x) => x.trim().replace(/\s*\/\s*/g, '-').slice(0, 30)).filter(Boolean);
+  const formOptionGroups = () => cleanOptions((productForm.options || []).map((g) => ({ name: String(g.name || '').trim().slice(0, 20), values: [...(g.values || []), ...splitOptionText(g.draft)].filter((v, i, a) => a.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i).slice(0, 30) })));
+  const setOptionGroup = (i, patch) => setProductForm((f) => ({ ...f, options: (f.options || []).map((g, j) => (j === i ? { ...g, ...patch } : g)) }));
+  const addOptionValues = (i) => setProductForm((f) => ({ ...f, options: (f.options || []).map((g, j) => {
+    if (j !== i) return g;
+    const vals = [...(g.values || [])];
+    splitOptionText(g.draft).forEach((v) => { if (vals.length < 30 && !vals.some((x) => x.toLowerCase() === v.toLowerCase())) vals.push(v); });
+    return { ...g, values: vals, draft: '' };
+  }) }));
+  const renderOptionsEditor = () => {
+    const groups = productForm.options || [];
+    const live = formOptionGroups();
+    const combos = optionCombos(live);
+    const mto = !!productForm.madeToOrder;
+    const unused = OPTION_KIND_SUGGESTIONS.filter((k) => !groups.some((g) => String(g.name || '').toLowerCase() === k.toLowerCase()));
+    const editingCounts = editingProductId && !canRun;
+    const stockHere = editingProductId ? stockAt({ id: editingProductId }, targetShopId) : 0;
+    const countedBefore = editingProductId && variantStock.some((r) => r.product_id === editingProductId && r.shop_id === targetShopId);
+    const chip = (on) => (on ? { background: C.sage, color: C.bg, border: `1px solid ${C.sage}` } : { color: C.inkDim, border: `1px solid ${C.line}` });
+    return (
+      <>
+        <div className="rounded-xl p-3.5 space-y-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+          <div>
+            <div className={fieldLabel} style={{ color: C.inkFaint }}>COLOURS, SIZES & MORE (OPTIONAL)</div>
+            <div className="text-[11.5px]" style={{ color: C.inkFaint }}>For products that come in different colours or sizes. Customers pick one on your storefront, and you see which one they want.</div>
+          </div>
+          {groups.map((g, i) => (
+            <div key={i} className="rounded-xl p-3 space-y-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2">
+                <input type="text" maxLength={20} placeholder="e.g. Colour" value={g.name || ''} onChange={(e) => setOptionGroup(i, { name: e.target.value })} aria-label="Name of this list" className="flex-1 min-w-0 rounded-lg px-3 py-2 text-[13px] font-semibold outline-none" style={field} />
+                <button type="button" onClick={() => setProductForm((f) => ({ ...f, options: (f.options || []).filter((_, j) => j !== i) }))} aria-label={`Remove ${g.name || 'this list'}`} className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><X size={14} /></button>
+              </div>
+              {(g.values || []).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {(g.values || []).map((v, k) => (
+                    <span key={v} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full text-[12px] font-medium" style={{ background: C.sageSoft, color: C.ink }}>
+                      {v}
+                      <button type="button" onClick={() => setOptionGroup(i, { values: (g.values || []).filter((_, m) => m !== k) })} aria-label={`Remove ${v}`} className="w-5 h-5 rounded-full flex items-center justify-center" style={{ color: C.inkDim }}><X size={11} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input type="text" placeholder={/size/i.test(g.name || '') ? 'e.g. S, M, L, XL' : /colou?r/i.test(g.name || '') ? 'e.g. Red, Navy blue, Black' : 'Type one or more, with commas'} value={g.draft || ''}
+                  onChange={(e) => setOptionGroup(i, { draft: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOptionValues(i); } }} onBlur={() => String(g.draft || '').includes(',') && addOptionValues(i)}
+                  className="flex-1 min-w-0 rounded-lg px-3 py-2 text-[13px] outline-none" style={field} />
+                <button type="button" onClick={() => addOptionValues(i)} disabled={!String(g.draft || '').trim()} className="shrink-0 px-3.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: String(g.draft || '').trim() ? 1 : 0.4 }}>Add</button>
+              </div>
+            </div>
+          ))}
+          {groups.length < 2 && (
+            <div className="flex flex-wrap gap-1.5">
+              {unused.slice(0, groups.length ? 3 : 2).map((k) => <button key={k} type="button" onClick={() => setProductForm((f) => ({ ...f, options: [...(f.options || []), { name: k, values: [], draft: '' }] }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium flex items-center gap-1" style={{ color: C.sage, border: `1px dashed ${C.sage}` }}><Plus size={12} /> {k === 'Colour' ? 'Colours' : k === 'Size' ? 'Sizes' : k}</button>)}
+              <button type="button" onClick={() => setProductForm((f) => ({ ...f, options: [...(f.options || []), { name: '', values: [], draft: '' }] }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium flex items-center gap-1" style={{ color: C.inkDim, border: `1px dashed ${C.line}` }}><Plus size={12} /> Something else</button>
+            </div>
+          )}
+          {live.length > 0 && (
+            <button type="button" onClick={() => setProductForm((f) => ({ ...f, customChoice: !f.customChoice }))} role="checkbox" aria-checked={!!productForm.customChoice} className="w-full text-left flex items-start gap-3 rounded-xl px-3 py-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+              <span className="mt-0.5 w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: productForm.customChoice ? C.sage : 'transparent', border: `2px solid ${productForm.customChoice ? C.sage : C.inkFaint}` }}>{productForm.customChoice && <Check size={13} style={{ color: C.bg }} />}</span>
+              <span className="min-w-0"><span className="block text-[13px] font-semibold">Customers can ask for another {live[0].name.toLowerCase()}</span><span className="block text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>They type what they want (e.g. "emerald green") if it isn't on your list. You make it for them.</span></span>
+            </button>
+          )}
+        </div>
+
+        <div>
+          <div className={fieldLabel} style={{ color: C.inkFaint }}>HOW YOU SELL IT</div>
+          <div className="grid grid-cols-2 gap-2">
+            {[[false, 'Ready in stock', 'You count what you have'], [true, 'Made to order', 'You make it after they order']].map(([v, t, d]) => (
+              <button key={t} type="button" onClick={() => setProductForm((f) => ({ ...f, madeToOrder: v }))} className="text-left rounded-xl px-3 py-2.5" style={{ background: mto === v ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${mto === v ? C.copper : C.line}` }}>
+                <span className="block text-[13px] font-semibold">{t}</span>
+                <span className="block text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{d}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {mto ? (
+          <div>
+            <div className={fieldLabel} style={{ color: C.inkFaint }}>READY IN (OPTIONAL)</div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {['2 days', '3 days', '5 days', '1 week', '2 weeks'].map((d) => <button key={d} type="button" onClick={() => setProductForm((f) => ({ ...f, leadTime: f.leadTime === d ? '' : d }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={chip(productForm.leadTime === d)}>{d}</button>)}
+            </div>
+            <input type="text" maxLength={40} placeholder="Or type it, e.g. 10 working days" value={productForm.leadTime || ''} onChange={(e) => setProductForm({ ...productForm, leadTime: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+            <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>{productForm.leadTime ? `Customers see: Made to order · ready in about ${productForm.leadTime}.` : 'Customers see "Made to order". No stock count, so it never shows as sold out.'}</div>
+          </div>
+        ) : combos.length > 0 ? (
+          <div>
+            <div className={fieldLabel} style={{ color: C.inkFaint }}>{shops.length > 1 ? `HOW MANY AT ${shopNameOf(targetShopId).toUpperCase()}` : 'HOW MANY YOU HAVE'}{editingProductId ? '' : ' (OPTIONAL)'}</div>
+            {editingCounts ? (
+              <div className="text-[12px]" style={{ color: C.inkFaint }}>The owner or a manager sets the counts. Use Restock when new stock arrives.</div>
+            ) : (
+              <>
+                <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+                  {combos.slice(0, 120).map((v, k) => (
+                    <div key={v} className="flex items-center gap-2 px-3 py-1.5" style={{ background: k % 2 ? C.surfaceRaised : C.bg }}>
+                      <span className="flex-1 min-w-0 truncate text-[13px]">{v}</span>
+                      <input type="number" min="0" inputMode="numeric" placeholder="0" value={(productForm.optionCounts || {})[v] ?? ''} aria-label={`How many ${v}`}
+                        onChange={(e) => setProductForm((f) => ({ ...f, countsTouched: true, optionCounts: { ...(f.optionCounts || {}), [v]: e.target.value } }))}
+                        className="w-20 rounded-lg px-2 py-1.5 text-[13px] text-center outline-none cx-mono" style={field} />
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>
+                  {combos.length > 120 ? `That's ${combos.length} combinations — only the first 120 are shown. Fewer choices are easier for customers too. ` : ''}
+                  {editingProductId
+                    ? (countedBefore ? 'These are the counts now. Change a number only if the count is wrong; use Restock when new stock arrives.' : stockHere > 0 ? `You have ${stockHere} counted here without colours or sizes. Count them by option here, and these numbers replace that total.` : 'Type how many of each you have. Leave it empty to skip for now.')
+                    : 'Leave it empty if you don’t count stock for this product.'}
+                </div>
+              </>
+            )}
+            <div className="mt-3">
+              <div className={fieldLabel} style={{ color: C.inkFaint }}>LOW STOCK ALERT AT</div>
+              <input type="number" min="0" placeholder="e.g. 5" value={productForm.lowStockThreshold} onChange={(e) => setProductForm({ ...productForm, lowStockThreshold: e.target.value })} className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  };
+  // Which colour/size: a list of every combination, with how many are at this branch when they're counted
+  const renderOptionPick = (product, value, onChange, shopId, { small = false, label = true } = {}) => {
+    if (!hasOptions(product)) return null;
+    const counted = countsByOption(product) && shopId;
+    return (
+      <div className="min-w-0">
+        {label && <div className={`${small ? 'text-[9.5px]' : 'text-[10.5px]'} font-semibold mb-1 uppercase tracking-wide`} style={{ color: C.inkFaint }}>{optionWords(product.options)}</div>}
+        <BrandSelect value={value || ''} onChange={(e) => onChange(e.target.value)} aria-label={`Choose ${optionWords(product.options)}`} className={`w-full min-w-0 rounded-lg ${small ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-sm'} outline-none`} style={{ ...field, colorScheme: 'dark', ...(countsByOption(product) && !value ? { border: `1.5px solid ${C.copper}` } : {}) }}>
+          <option value="">Choose {optionWords(product.options)}…</option>
+          {optionCombos(product.options).map((v) => { const n = counted ? optionAt(product.id, shopId, v) : null; return <option key={v} value={v} disabled={counted && n <= 0}>{v}{counted ? (n > 0 ? ` — ${n} here` : ' — none here') : ''}</option>; })}
+        </BrandSelect>
+      </div>
+    );
+  };
   // Picking a product (or changing quantity) auto-fills the sale's item/amount/cost — still editable afterward for discounts
-  const applyProductToSale = (productId, qtyRaw) => {
-    if (!productId) { setSaleForm((f) => ({ ...f, productId: '', quantity: qtyRaw })); return; }
+  const applyProductToSale = (productId, qtyRaw, variantArg) => {
+    if (!productId) { setSaleForm((f) => ({ ...f, productId: '', quantity: qtyRaw, variant: '' })); return; }
     const product = products.find((p) => p.id === productId);
     if (!product) return;
     const qty = Math.max(1, Number(qtyRaw) || 1); // used only for computing totals — the field itself keeps whatever the user typed, including empty
+    // A new product starts with no colour/size chosen; the same product keeps its choice
+    const variant = variantArg !== undefined ? variantArg : (productId === saleForm.productId ? saleForm.variant || '' : '');
+    const label = `${product.name}${variant ? ` (${variant})` : ''}`;
     setSaleForm((f) => ({
       ...f,
       productId,
+      variant,
       quantity: qtyRaw,
-      item: qty > 1 ? `${product.name} ×${qty}` : product.name,
+      item: qty > 1 ? `${label} ×${qty}` : label,
       amount: (Number(product.sellingPrice) * qty).toString(),
       cost: (kindOf(product, settings.businessType) === 'service' ? 0 : Number(product.costPrice) * qty).toString(),
     }));
@@ -3715,7 +3957,7 @@ function XorlaApp() {
 
   // ---------- Stock system: deliveries, transfers, requests ----------
   const stockProducts = productsAll.filter((p) => kindOf(p, settings.businessType) === 'product');
-  const productName = (id) => (productsAll.find((p) => p.id === id) || {}).name || 'Item';
+  const productName = (id, variant) => `${(productsAll.find((p) => p.id === id) || {}).name || 'Item'}${variant ? ` (${variant})` : ''}`;
   const inTransit = stockTransfers.filter((t) => t.status === 'in_transit');
   const pendingRequests = stockRequests.filter((r) => r.status === 'pending');
   const runStock = async (fn, after) => {
@@ -3728,10 +3970,17 @@ function XorlaApp() {
     setSendForm({ from: prefill.from || (warehouses[0]?.id || ''), to: prefill.to || '', lines: prefill.lines?.length ? prefill.lines : [{ productId: prefill.productId || '', qty: '' }], receivedNow: false, requestId: prefill.requestId || null, note: '' });
     setStockError(''); setStockPanel('transfer');
   };
+  // Stock lines for products with colours/sizes must say which one
+  const stockLinesNeedOption = (lines) => {
+    const miss = lines.map((l) => l.productId && !l.variant && productsAll.find((p) => p.id === l.productId)).find((p) => p && hasOptions(p) && !p.madeToOrder);
+    if (miss) { setStockError(`Choose the ${optionWords(miss.options)} of ${miss.name}.`); return true; }
+    return false;
+  };
   const submitDelivery = () => {
     const items = [];
-    deliveryForm.lines.forEach((l) => { if (!l.productId) return; Object.entries(l.split || {}).forEach(([shopId, q]) => { const qty = Number(q); if (qty > 0) items.push({ productId: l.productId, shopId, qty }); }); });
+    deliveryForm.lines.forEach((l) => { if (!l.productId) return; Object.entries(l.split || {}).forEach(([shopId, q]) => { const qty = Number(q); if (qty > 0) items.push({ productId: l.productId, shopId, qty, ...(l.variant ? { variant: l.variant } : {}) }); }); });
     if (!items.length) { setStockError('Add at least one item with a quantity.'); return; }
+    if (stockLinesNeedOption(deliveryForm.lines.filter((l) => Object.values(l.split || {}).some((q) => Number(q) > 0)))) return;
     const costUpdates = deliveryForm.lines.map((l) => {
       const qty = Object.values(l.split || {}).reduce((a, q) => a + (Number(q) || 0), 0);
       const uc = Number(parseNumInput(l.cost || ''));
@@ -3747,15 +3996,17 @@ function XorlaApp() {
       () => { setStockPanel(null); setDeliveryForm({ lines: [{ productId: '', split: {} }], arrived: true, note: '' }); });
   };
   const submitSend = () => {
-    const items = sendForm.lines.filter((l) => l.productId && Number(l.qty) > 0).map((l) => ({ productId: l.productId, qty: Number(l.qty) }));
+    const items = sendForm.lines.filter((l) => l.productId && Number(l.qty) > 0).map((l) => ({ productId: l.productId, qty: Number(l.qty), ...(l.variant ? { variant: l.variant } : {}) }));
     if (!sendForm.from || !sendForm.to) { setStockError('Choose where the stock is going from and to.'); return; }
     if (!items.length) { setStockError('Add at least one item with a quantity.'); return; }
+    if (stockLinesNeedOption(sendForm.lines.filter((l) => Number(l.qty) > 0))) return;
     runStock(() => sbRpc('send_transfer', session.access_token, { p_from: sendForm.from, p_to: sendForm.to, p_items: items, p_received_now: sendForm.receivedNow, p_request_id: sendForm.requestId, p_note: sendForm.note }),
       () => setStockPanel(null));
   };
   const submitRequest = () => {
-    const items = requestForm.lines.filter((l) => l.productId && Number(l.qty) > 0).map((l) => ({ productId: l.productId, qty: Number(l.qty) }));
+    const items = requestForm.lines.filter((l) => l.productId && Number(l.qty) > 0).map((l) => ({ productId: l.productId, qty: Number(l.qty), ...(l.variant ? { variant: l.variant } : {}) }));
     if (!items.length) { setStockError('Add at least one item with a quantity.'); return; }
+    if (stockLinesNeedOption(requestForm.lines.filter((l) => Number(l.qty) > 0))) return;
     runStock(() => sbRpc('request_stock', session.access_token, { p_shop_id: activeShopId || targetShopId, p_items: items, p_note: requestForm.note }),
       () => { setStockPanel(null); setRequestForm({ lines: [{ productId: '', qty: '' }], note: '' }); });
   };
@@ -3797,8 +4048,8 @@ function XorlaApp() {
         <div className="space-y-2">
           {batch.map((t) => (
             <div key={t.id} className="flex items-center gap-2">
-              <span className="flex-1 min-w-0 truncate text-[13px]">{productName(t.product_id)} <span style={{ color: C.inkFaint }}>· {Number(t.qty_sent)} sent</span></span>
-              <input type="number" min="0" aria-label={`How many ${productName(t.product_id)} arrived`} placeholder={String(Number(t.qty_sent))} value={receiveQty[t.id] ?? ''} onChange={(e) => setReceiveQty({ ...receiveQty, [t.id]: e.target.value })} className="w-16 rounded-lg px-2 py-1.5 text-[13px] text-center outline-none cx-mono" style={field} />
+              <span className="flex-1 min-w-0 truncate text-[13px]">{productName(t.product_id, t.variant)} <span style={{ color: C.inkFaint }}>· {Number(t.qty_sent)} sent</span></span>
+              <input type="number" min="0" aria-label={`How many ${productName(t.product_id, t.variant)} arrived`} placeholder={String(Number(t.qty_sent))} value={receiveQty[t.id] ?? ''} onChange={(e) => setReceiveQty({ ...receiveQty, [t.id]: e.target.value })} className="w-16 rounded-lg px-2 py-1.5 text-[13px] text-center outline-none cx-mono" style={field} />
               <button onClick={() => confirmReceived(t)} disabled={stockBusy} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: stockBusy ? 0.6 : 1 }}>Received</button>
             </div>
           ))}
@@ -3840,10 +4091,10 @@ function XorlaApp() {
               {pendingRequests.map((r) => (
                 <div key={r.id} className="rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                   <div className="text-[12.5px] font-semibold">{shopNameOf(r.shop_id)} <span className="font-normal" style={{ color: C.inkFaint }}>· {r.requested_by_name || 'Staff'} · {fmtDay(r.created_at)}</span></div>
-                  <div className="text-[12.5px] mt-1" style={{ color: C.inkDim }}>{(r.items || []).map((it) => `${productName(it.productId)} ×${it.qty}`).join(', ')}</div>
+                  <div className="text-[12.5px] mt-1" style={{ color: C.inkDim }}>{(r.items || []).map((it) => `${productName(it.productId, it.variant)} ×${it.qty}`).join(', ')}</div>
                   {r.note && <div className="text-[11.5px] mt-1 italic" style={{ color: C.inkFaint }}>"{r.note}"</div>}
                   <div className="flex gap-2 mt-2.5">
-                    <button onClick={() => openSend({ to: r.shop_id, requestId: r.id, lines: (r.items || []).map((it) => ({ productId: it.productId, qty: String(it.qty) })) })} className="flex-1 rounded-lg py-2 text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Approve & send</button>
+                    <button onClick={() => openSend({ to: r.shop_id, requestId: r.id, lines: (r.items || []).map((it) => ({ productId: it.productId, variant: it.variant || '', qty: String(it.qty) })) })} className="flex-1 rounded-lg py-2 text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Approve & send</button>
                     <button onClick={() => declineRequest(r)} className="px-4 rounded-lg py-2 text-[12.5px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Decline</button>
                   </div>
                 </div>
@@ -3865,7 +4116,7 @@ function XorlaApp() {
             <div className="space-y-1.5">
               {shortages.map((t) => (
                 <div key={t.id} className="text-[12.5px] rounded-lg px-3 py-2" style={{ background: C.rustSoft, color: C.ink }}>
-                  <strong style={{ color: C.rust }}>{Number(t.qty_sent) - Number(t.qty_received)} missing</strong> · {productName(t.product_id)} · {t.kind === 'delivery' ? 'Supplier' : shopNameOf(t.from_shop)} → {shopNameOf(t.to_shop)} · received {fmtDay(t.received_at)}{t.received_by_name ? ` by ${t.received_by_name}` : ''}
+                  <strong style={{ color: C.rust }}>{Number(t.qty_sent) - Number(t.qty_received)} missing</strong> · {productName(t.product_id, t.variant)} · {t.kind === 'delivery' ? 'Supplier' : shopNameOf(t.from_shop)} → {shopNameOf(t.to_shop)} · received {fmtDay(t.received_at)}{t.received_by_name ? ` by ${t.received_by_name}` : ''}
                 </div>
               ))}
             </div>
@@ -3880,14 +4131,17 @@ function XorlaApp() {
     if (!stockPanel) return null;
     const lineRow = (lines, setLines, i, withAvail) => {
       const l = lines[i];
-      const avail = withAvail && sendForm.from && l.productId ? stockAt({ id: l.productId }, sendForm.from) : null;
+      const lp = l.productId ? productsAll.find((p) => p.id === l.productId) : null;
+      const byOpt = lp && hasOptions(lp) && !lp.madeToOrder;
+      const avail = withAvail && sendForm.from && l.productId ? (byOpt ? (l.variant ? optionAt(l.productId, sendForm.from, l.variant) : null) : stockAt({ id: l.productId }, sendForm.from)) : null;
       return (
         <div key={i} className="space-y-1">
           <div className="flex gap-2 items-center">
-            {productSelect(l.productId, (v) => setLines(lines.map((x, j) => (j === i ? { ...x, productId: v } : x))))}
+            {productSelect(l.productId, (v) => setLines(lines.map((x, j) => (j === i ? { ...x, productId: v, variant: '' } : x))))}
             <input type="number" min="1" placeholder="Qty" value={l.qty} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)))} className="w-20 rounded-lg px-2 py-2 text-[13px] text-center outline-none cx-mono" style={field} />
             {lines.length > 1 && <button onClick={() => setLines(lines.filter((_, j) => j !== i))} aria-label="Remove item" style={{ color: C.inkFaint }}><X size={15} /></button>}
           </div>
+          {byOpt && renderOptionPick({ ...lp, trackStock: true }, l.variant, (v) => setLines(lines.map((x, j) => (j === i ? { ...x, variant: v } : x))), withAvail ? sendForm.from : null, { small: true, label: false })}
           {avail !== null && <div className="text-[11px] pl-1" style={{ color: Number(l.qty) > avail ? C.rust : C.inkFaint }}>{avail} available at {shopNameOf(sendForm.from)}</div>}
         </div>
       );
@@ -3907,9 +4161,10 @@ function XorlaApp() {
               {deliveryForm.lines.map((l, i) => (
                 <div key={i} className="rounded-xl p-3 space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                   <div className="flex gap-2 items-center">
-                    {productSelect(l.productId, (v) => setDeliveryForm({ ...deliveryForm, lines: deliveryForm.lines.map((x, j) => (j === i ? { ...x, productId: v } : x)) }))}
+                    {productSelect(l.productId, (v) => setDeliveryForm({ ...deliveryForm, lines: deliveryForm.lines.map((x, j) => (j === i ? { ...x, productId: v, variant: '' } : x)) }))}
                     {deliveryForm.lines.length > 1 && <button onClick={() => setDeliveryForm({ ...deliveryForm, lines: deliveryForm.lines.filter((_, j) => j !== i) })} aria-label="Remove item" style={{ color: C.inkFaint }}><X size={15} /></button>}
                   </div>
+                  {(() => { const dp = l.productId && productsAll.find((p) => p.id === l.productId); return dp && hasOptions(dp) && !dp.madeToOrder ? renderOptionPick(dp, l.variant, (v) => setDeliveryForm({ ...deliveryForm, lines: deliveryForm.lines.map((x, j) => (j === i ? { ...x, variant: v } : x)) }), null, { small: true, label: false }) : null; })()}
                   {locations.map((loc) => (
                     <div key={loc.id} className="flex items-center gap-2 pl-1">
                       <span className="flex-1 min-w-0 truncate text-[12.5px]" style={{ color: C.inkDim }}>{locName(loc)}{loc.kind === 'warehouse' ? ' (warehouse)' : ''}</span>
@@ -7115,6 +7370,7 @@ function XorlaApp() {
                             {saleProducts.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                           </BrandSelect>
                         )}
+                        {(() => { const cp = it.productId && products.find((p) => p.id === it.productId); return cp && hasOptions(cp) ? renderOptionPick(cp, it.variant, (v) => { const items = [...cartItems]; items[idx] = { ...items[idx], variant: v, description: v ? `${cp.name} (${v})` : cp.name }; setCartItems(items); }, targetShopId, { small: true, label: false }) : null; })()}
                         <div className="flex gap-1.5 items-center">
                           <input type="text" placeholder="Item" value={it.description} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], description: e.target.value }; setCartItems(items); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
                           <input type="number" min="1" placeholder="Qty" value={it.quantity} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], quantity: e.target.value }; setCartItems(items); }} className="w-14 rounded-lg px-2 py-2 text-[12.5px] text-center outline-none cx-mono" style={field} />
@@ -7285,6 +7541,7 @@ function XorlaApp() {
                       </div>
                     )}
                   </div>
+                  {(() => { const sp = saleForm.productId && products.find((p) => p.id === saleForm.productId); return sp && hasOptions(sp) ? <div className="mt-2">{renderOptionPick(sp, saleForm.variant, (v) => applyProductToSale(sp.id, saleForm.quantity, v), targetShopId)}</div> : null; })()}
                 </div>
               )}
               <input type="text" placeholder={T.soldPrompt} value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -7412,7 +7669,7 @@ function XorlaApp() {
                         const [label, color] = statusOf(r);
                         return (
                           <div key={r.id} className="flex items-start justify-between gap-3 text-[12.5px]">
-                            <span className="min-w-0" style={{ color: C.inkDim }}>{(r.items || []).map((it) => `${productName(it.productId)} ×${it.qty}`).join(', ')} <span style={{ color: C.inkFaint }}>· {fmtDay(r.created_at)}</span></span>
+                            <span className="min-w-0" style={{ color: C.inkDim }}>{(r.items || []).map((it) => `${productName(it.productId, it.variant)} ×${it.qty}`).join(', ')} <span style={{ color: C.inkFaint }}>· {fmtDay(r.created_at)}</span></span>
                             <span className="shrink-0 font-semibold text-right" style={{ color }}>{label}</span>
                           </div>
                         );
@@ -9691,6 +9948,7 @@ function XorlaApp() {
                         )}
                       </div>
                     )}
+                    {(() => { const sp = saleForm.productId && products.find((p) => p.id === saleForm.productId); return sp && hasOptions(sp) ? renderOptionPick(sp, saleForm.variant, (v) => applyProductToSale(sp.id, saleForm.quantity, v), targetShopId) : null; })()}
                     <input type="text" placeholder={T.soldPrompt} value={saleForm.item} onChange={(e) => setSaleForm({ ...saleForm, item: e.target.value, productId: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <div className="flex gap-2">
                       <input type="text" inputMode="decimal" placeholder={T.amountPh} value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className={`${T.costPh ? "w-1/2" : "w-full"} rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono`} style={field} />
@@ -9852,6 +10110,7 @@ function XorlaApp() {
                             </div>
                           )}
                         </div>
+                        {(() => { const sp = saleForm.productId && products.find((p) => p.id === saleForm.productId); return sp && hasOptions(sp) ? <div className="mt-2">{renderOptionPick(sp, saleForm.variant, (v) => applyProductToSale(sp.id, saleForm.quantity, v), targetShopId)}</div> : null; })()}
                         {saleForm.productId && <div className="text-[10.5px] mt-1.5" style={{ color: C.inkFaint }}>Amount and cost below are auto-filled — still editable if you're giving a discount.</div>}
                       </div>
                     )}
@@ -10198,6 +10457,12 @@ function XorlaApp() {
                         <input type="text" inputMode="decimal" placeholder="What you charge" value={formatNumInput(productForm.sellingPrice)} onChange={(e) => setProductForm({ ...productForm, sellingPrice: parseNumInput(e.target.value) })} className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                       </div>
                     </div>
+                    <div>
+                      <div className={fieldLabel} style={{ color: C.inkFaint }}>DESCRIPTION (OPTIONAL)</div>
+                      <textarea rows={3} maxLength={600} placeholder="e.g. Material, fit, how to care for it, what's in the box" value={productForm.description || ''} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-y" style={field} />
+                    </div>
+                    {renderOptionsEditor()}
+                    {!productForm.madeToOrder && optionCombos(formOptionGroups()).length === 0 && (<>
                     <div className="flex gap-2">
                       {!editingProductId && <div className="w-1/2">
                         <div className={fieldLabel} style={{ color: C.inkFaint }}>{shops.length > 1 ? `STOCK AT ${shopNameOf(targetShopId).toUpperCase()}` : 'STOCK ON HAND (OPTIONAL)'}</div>
@@ -10209,6 +10474,7 @@ function XorlaApp() {
                       </div>
                     </div>
                     <div className="text-[11px] -mt-2" style={{ color: C.inkFaint }}>{editingProductId ? 'To change how many you have, use Restock on the product.' : "Leave stock blank if you don't want to track it for this product."}</div>
+                    </>)}
                   </>
                 )}
                 {canRun && (allLiveLocations.length > 1 || isManager) && (
@@ -10278,12 +10544,32 @@ function XorlaApp() {
                             ? <span>{priceLabel(p)}{p.isSpace && p.hourPrice ? ` or ${fmt(p.hourPrice)} / hour` : ''}{p.isSpace && p.capacity ? ` · holds ${Number(p.capacity).toLocaleString('en-NG')}` : ''}{p.duration ? ` · ${p.duration}` : ''}{settings.businessType === 'both' ? ' · Service' : ''}{p.isSpace ? <span className="ml-1.5 text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: C.copper, background: C.copperSoft }}>Hall</span> : null}</span>
                             : <><span>Sells <strong className="font-semibold" style={{ color: C.ink }}>{fmt(p.sellingPrice)}</strong></span><span>·</span><span>Cost {fmt(p.costPrice)}</span>{Number(p.sellingPrice) > 0 && Number(p.costPrice) > 0 && <span className="px-1.5 rounded-md text-[10.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage }}>{Math.round(((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100)}% margin</span>}{shops.length > 1 && hasShopPrices(p) && viewAllShops ? <span>· varies by {L.one}</span> : null}</>}
                           {p.category && <span className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{p.category}</span>}
+                          {p.madeToOrder && kindOf(p, settings.businessType) === 'product' && <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: C.copper, background: C.copperSoft }}>Made to order{p.leadTime ? ` · ${p.leadTime}` : ''}</span>}
+                          {hasOptions(p) && kindOf(p, settings.businessType) === 'product' && !p.optionStock && <span className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-full" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{optionCombos(p.options).length} {optionWords(p.options)} options{p.customChoice ? ' + own choice' : ''}</span>}
                           {hasManyLocations && p.shopId && <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1" style={{ color: C.copper, background: C.copperSoft }}><MapPin size={10} />Only {shopNameOf(p.shopId)}</span>}
                           {p.offHere ? <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: C.rust, background: 'rgba(226,98,75,0.12)' }}>Switched off here</span>
                             : viewAllShops && hasManyLocations && !p.shopId && (() => { const off = locations.filter((sh) => shopRow(p.id, sh.id)?.hidden); return off.length ? <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: C.rust, background: 'rgba(226,98,75,0.12)' }}>Off at {off.map(locName).join(', ')}</span> : null; })()}
                         </div>
                       </div>
                     </div>
+                    {p.optionStock && (() => {
+                      const entries = Object.entries(p.optionStock);
+                      const shown = expandedOptsId === p.id ? entries : entries.slice(0, 8);
+                      const lowAt = Math.max(1, Math.ceil((p.lowStockThreshold || 0) / Math.max(1, entries.length)));
+                      return (
+                        <div className="mt-3">
+                          <div className="flex flex-wrap gap-1.5">
+                            {shown.map(([v, q]) => (
+                              <span key={v} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11.5px]" style={{ background: q <= 0 ? 'rgba(226,98,75,0.12)' : 'rgba(0,0,0,0.18)', border: `1px solid ${q <= 0 ? 'rgba(226,98,75,0.25)' : 'rgba(255,255,255,0.05)'}`, color: q <= 0 ? C.rust : C.inkDim }}>
+                                {v}<strong className="cx-mono" style={{ color: q <= 0 ? C.rust : q <= lowAt ? C.copper : C.ink }}>{q}</strong>
+                              </span>
+                            ))}
+                            {entries.length > 8 && <button onClick={() => setExpandedOptsId(expandedOptsId === p.id ? null : p.id)} className="px-2 py-1 rounded-lg text-[11.5px] font-semibold" style={{ color: C.sage }}>{expandedOptsId === p.id ? 'Show less' : `+${entries.length - 8} more`}</button>}
+                          </div>
+                          {p.customChoice && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Customers can also ask for their own {cleanOptions(p.options)[0]?.name.toLowerCase()}.</div>}
+                        </div>
+                      );
+                    })()}
                     {viewAllShops && hasManyLocations && p.stockQuantity !== null && (
                       <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                         {locations.map((sh) => {
@@ -10300,10 +10586,10 @@ function XorlaApp() {
                     )}
                     <div className="mt-3 pt-3 flex items-center gap-1.5 flex-wrap" style={{ borderTop: `1px solid ${C.line}` }}>
                       {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
-                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockCost(''); }, C.sage)}
+                        {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !p.madeToOrder && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockOpts({}); setRestockCost(''); }, C.sage)}
                         {canRun && allLiveLocations.length > 1 && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
-                        {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: p.isSpace ? 'space' : T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, hourPrice: p.hourPrice == null ? '' : String(p.hourPrice), capacity: p.capacity == null ? '' : String(p.capacity), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null, photos: [p.imageUrl, ...(p.images || [])].filter(Boolean).map((url) => ({ url, preview: url })) }); setShowProductForm(true); })}
-                        {canRun && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectShopId(activeShopId || mainShopId); })}
+                        {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: p.isSpace ? 'space' : T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, hourPrice: p.hourPrice == null ? '' : String(p.hourPrice), capacity: p.capacity == null ? '' : String(p.capacity), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null, photos: [p.imageUrl, ...(p.images || [])].filter(Boolean).map((url) => ({ url, preview: url })), options: (p.options || []).map((g) => ({ name: g.name, values: [...g.values], draft: '' })), madeToOrder: !!p.madeToOrder, customChoice: !!p.customChoice, leadTime: p.leadTime || '', countsTouched: false, optionCounts: countsByOption(p) ? Object.fromEntries(optionCombos(p.options).filter((v) => variantStock.some((r) => r.product_id === p.id && r.shop_id === targetShopId && r.variant === v)).map((v) => [v, String(optionAt(p.id, targetShopId, v))])) : {} }); setShowProductForm(true); })}
+                        {canRun && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectOpts({}); setCorrectShopId(activeShopId || mainShopId); })}
                         {isOwnerRole && <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>}
                       </>); })()}
                     </div>
@@ -10328,10 +10614,12 @@ function XorlaApp() {
                       </div>
                     )}
                     {isRestocking && (() => {
-                      const qty = Number(restockAmount);
+                      const byOption = hasOptions(p) && !p.madeToOrder;
+                      const rShop = activeShopId || (locations.some((s) => s.id === restockShopId && !isPausedLocation(s.id)) ? restockShopId : mainShopId);
+                      const qty = byOption ? Object.entries(restockOpts).reduce((a, [v, q]) => a + (optionCombos(p.options).includes(v) ? Math.max(0, Number(q) || 0) : 0), 0) : Number(restockAmount);
                       const uc = Number(parseNumInput(restockCost));
                       const avg = restockCost !== '' && uc > 0 && qty > 0 ? newAverageCost(p.id, qty, uc) : null;
-                      const closeRestock = () => { setRestockingId(null); setRestockAmount(''); setRestockCost(''); };
+                      const closeRestock = () => { setRestockingId(null); setRestockAmount(''); setRestockOpts({}); setRestockCost(''); };
                       return (
                         <Sheet onClose={closeRestock} title={<><div className="text-[16px] font-semibold cx-display">{p.stockQuantity === null ? 'Start tracking stock' : 'Restock'}</div><div className="text-[12.5px] mt-0.5 truncate" style={{ color: C.inkDim }}>{p.name}{p.stockQuantity !== null ? ` · ${Number(p.stockQuantity).toLocaleString('en-NG')} in stock now` : ''}</div></>}>
                           <div className="space-y-3.5">
@@ -10345,10 +10633,24 @@ function XorlaApp() {
                                 </div>
                               </div>
                             )}
-                            <div className="grid grid-cols-2 gap-2.5">
-                              <label className="min-w-0"><span className="block text-[11px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>{p.stockQuantity === null ? 'How many now' : 'Units received'}</span>
-                                <input type="number" min="0" inputMode="numeric" autoFocus placeholder="0" value={restockAmount} onChange={(e) => setRestockAmount(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleRestock(p); }} className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none cx-mono" style={field} /></label>
-                              <label className="min-w-0"><span className="block text-[11px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>Cost each <span className="normal-case tracking-normal">(optional)</span></span>
+                            {byOption && (
+                              <div>
+                                <div className="text-[11px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>{p.stockQuantity === null ? 'How many of each now' : 'How many of each arrived'}</div>
+                                <div className="rounded-xl overflow-hidden max-h-[42vh] overflow-y-auto" style={{ border: `1px solid ${C.line}` }}>
+                                  {optionCombos(p.options).map((v, k) => (
+                                    <div key={v} className="flex items-center gap-2 px-3 py-1.5" style={{ background: k % 2 ? C.surfaceRaised : C.bg }}>
+                                      <span className="flex-1 min-w-0 truncate text-[13px]">{v}</span>
+                                      <span className="text-[11px] cx-mono shrink-0" style={{ color: C.inkFaint }}>{optionAt(p.id, rShop, v)} now</span>
+                                      <input type="number" min="0" inputMode="numeric" placeholder="+0" value={restockOpts[v] ?? ''} aria-label={`How many ${v} arrived`} onChange={(e) => setRestockOpts((o) => ({ ...o, [v]: e.target.value }))} className="w-20 rounded-lg px-2 py-1.5 text-[13px] text-center outline-none cx-mono" style={field} />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className={byOption ? '' : 'grid grid-cols-2 gap-2.5'}>
+                              {!byOption && <label className="min-w-0"><span className="block text-[11px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>{p.stockQuantity === null ? 'How many now' : 'Units received'}</span>
+                                <input type="number" min="0" inputMode="numeric" autoFocus placeholder="0" value={restockAmount} onChange={(e) => setRestockAmount(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleRestock(p); }} className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none cx-mono" style={field} /></label>}
+                              <label className="min-w-0 block"><span className="block text-[11px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>Cost each <span className="normal-case tracking-normal">(optional)</span></span>
                                 <input type="text" inputMode="decimal" placeholder={fmt(p.costPrice)} value={formatNumInput(restockCost)} onChange={(e) => setRestockCost(parseNumInput(e.target.value))} className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none cx-mono" style={field} /></label>
                             </div>
                             <div className="text-[11.5px] leading-relaxed" style={{ color: avg !== null && avg !== Number(p.costPrice) ? C.sage : C.inkFaint }}>
@@ -10356,7 +10658,7 @@ function XorlaApp() {
                                 ? costExplainer(p.id, qty, uc, avg)
                                 : 'Paid a different price this time? Add the cost per unit. It only affects your profit figures — your selling price stays yours to set.'}
                             </div>
-                            <button onClick={() => handleRestock(p)} disabled={!(qty >= 0) || restockAmount === ''} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: restockAmount === '' ? 0.45 : 1 }}>{p.stockQuantity === null ? 'Start tracking' : qty > 0 ? `Add ${qty.toLocaleString('en-NG')} to stock` : 'Save'}</button>
+                            <button onClick={() => handleRestock(p)} disabled={byOption ? !(qty > 0) : (!(qty >= 0) || restockAmount === '')} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: (byOption ? !(qty > 0) : restockAmount === '') ? 0.45 : 1 }}>{p.stockQuantity === null ? 'Start tracking' : qty > 0 ? `Add ${qty.toLocaleString('en-NG')} to stock` : 'Save'}</button>
                           </div>
                         </Sheet>
                       );
@@ -10374,12 +10676,25 @@ function XorlaApp() {
                                 ))}
                               </div>
                             )}
+                            {countsByOption(p) ? (
+                              <div className="rounded-xl overflow-hidden max-h-[46vh] overflow-y-auto" style={{ border: `1px solid ${C.line}` }}>
+                                <div className="flex items-center gap-2 px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint, background: C.surfaceRaised }}><span className="flex-1">{optionWords(p.options)}</span><span className="w-12 text-center">Xorla</span><span className="w-20 text-center">Real count</span></div>
+                                {optionCombos(p.options).map((v, k) => (
+                                  <div key={v} className="flex items-center gap-2 px-3 py-1.5" style={{ background: k % 2 ? C.surfaceRaised : C.bg }}>
+                                    <span className="flex-1 min-w-0 truncate text-[13px]">{v}</span>
+                                    <span className="w-12 text-center text-[12.5px] cx-mono" style={{ color: C.inkDim }}>{optionAt(p.id, cShop, v)}</span>
+                                    <input type="number" min="0" inputMode="numeric" placeholder={String(optionAt(p.id, cShop, v))} value={correctOpts[v] ?? ''} aria-label={`Real count of ${v}`} onChange={(e) => setCorrectOpts((o) => ({ ...o, [v]: e.target.value }))} className="w-20 rounded-lg px-2 py-1.5 text-[13px] text-center outline-none cx-mono" style={field} />
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
                             <div className="flex items-center gap-3 rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                               <span className="flex-1 min-w-0 text-[13px]" style={{ color: C.inkDim }}>Xorla says <strong className="cx-mono" style={{ color: C.ink }}>{stockAt(p, cShop)}</strong> at {shopNameOf(cShop)}. Real count:</span>
                               <input type="number" min="0" inputMode="numeric" autoFocus placeholder={String(stockAt(p, cShop))} value={correctQty} onChange={(e) => setCorrectQty(e.target.value)} className="w-24 rounded-lg px-2 py-2.5 text-[15px] text-center outline-none cx-mono" style={field} />
                             </div>
+                            )}
                             <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>For fixing a typing mistake, or after counting what's really on the shelf. It's saved as a correction, so your stock history stays honest.</div>
-                            <button onClick={() => handleCorrectCount(p)} disabled={correctQty === ''} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: correctQty === '' ? 0.45 : 1 }}>Save count</button>
+                            <button onClick={() => handleCorrectCount(p)} disabled={countsByOption(p) ? !Object.values(correctOpts).some((q) => q !== '') : correctQty === ''} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: (countsByOption(p) ? !Object.values(correctOpts).some((q) => q !== '') : correctQty === '') ? 0.45 : 1 }}>Save count</button>
                           </div>
                         </Sheet>
                       );
@@ -10912,6 +11227,9 @@ function Storefront({ businessCode }) {
   const [viewIdx, setViewIdx] = useState(0);         // which photo of it
   const [viewQty, setViewQty] = useState(1);
   const [viewTouch, setViewTouch] = useState(null);
+  const [viewSel, setViewSel] = useState({});        // chosen colour/size on the product page: { 0: 'Red', 1: 'M' }
+  const [viewOther, setViewOther] = useState('');    // the customer's own colour, when the business allows it
+  const [viewOtherOn, setViewOtherOn] = useState(false);
   // Appointments: free times for the services in the basket
   const [apptCal, setApptCal] = useState(null);
   const [apptCalLoading, setApptCalLoading] = useState(false);
@@ -10993,7 +11311,7 @@ function Storefront({ businessCode }) {
         if (!store) { setLoadError(true); setLoading(false); return; }
         setBusiness(store);
         document.title = store.name;
-        setStoreProducts((store.products || []).map(fromSbProduct).filter((p) => store.business_type !== 'products' || !isBookable(p)));
+        setStoreProducts((store.products || []).map((r) => ({ ...fromSbProduct(r), variantStock: r.variant_stock && typeof r.variant_stock === 'object' ? r.variant_stock : null })).filter((p) => store.business_type !== 'products' || !isBookable(p)));
         sbRpc('storefront_booking_terms', SB_KEY, { p_business_code: businessCode }).then((t) => setBookTerms(t || null)).catch(() => {});
         sbRpc('storefront_delivery_zones', SB_KEY, { p_business_code: businessCode }).then((z) => setStoreZones(Array.isArray(z) ? z : [])).catch(() => setStoreZones([]));
         sbRpc('storefront_order_modes', SB_KEY, { p_business_code: businessCode })
@@ -11015,7 +11333,7 @@ function Storefront({ businessCode }) {
     if (id !== business?.shop_id) { setSwitchingShop(true); setStoreShopId(id); }
   };
   // The product page: open, swipe photos, and close with the back button on phones
-  const openItem = (p) => { setViewItem(p); setViewIdx(0); setViewQty(1); try { window.history.pushState({ sfItem: p.id }, ''); } catch (e) {} };
+  const openItem = (p) => { setViewItem(p); setViewIdx(0); setViewQty(1); setViewSel({}); setViewOther(''); setViewOtherOn(false); try { window.history.pushState({ sfItem: p.id }, ''); } catch (e) {} };
   const closeItem = () => { if (viewItem) { try { if (window.history.state?.sfItem) window.history.back(); else setViewItem(null); } catch (e) { setViewItem(null); } } };
   useEffect(() => { const onPop = () => setViewItem(null); window.addEventListener('popstate', onPop); return () => window.removeEventListener('popstate', onPop); }, []);
 
@@ -11057,12 +11375,27 @@ function Storefront({ businessCode }) {
         .filter((s) => s.items.length)
     : [{ title: null, items: visibleProducts }];
 
-  const cartList = Object.entries(cart).filter(([, qty]) => qty > 0).map(([id, qty]) => ({ product: storeProducts.find((p) => p.id === id), qty })).filter((c) => c.product);
+  // A basket line is one product, or one colour/size of it ("id::Red / M"), or the customer's own choice ("id::~Emerald")
+  const cartKeyOf = (productId, variant, custom) => (custom ? `${productId}::~${custom}` : variant ? `${productId}::${variant}` : productId);
+  const cartList = Object.entries(cart).filter(([, qty]) => qty > 0).map(([key, qty]) => {
+    const [id, rest] = [key.split('::')[0], key.includes('::') ? key.slice(key.indexOf('::') + 2) : ''];
+    const custom = rest.startsWith('~') ? rest.slice(1) : '';
+    return { key, product: storeProducts.find((p) => p.id === id), qty, variant: custom ? '' : rest, custom };
+  }).filter((c) => c.product);
+  const inCartOf = (productId) => cartList.filter((c) => c.product.id === productId).reduce((a, c) => a + c.qty, 0);
+  const lineLabel = (c) => (c.custom ? `Own choice: ${c.custom}` : c.variant || '');
+  // How many a basket line may hold: the stock of that colour/size, unlimited for made to order and own choices
+  const lineMax = (product, variant, custom) => {
+    if (storeKind(product) === 'service') return product.priceUnit === 'hour' ? 24 : 1;
+    if (product.madeToOrder || custom) return 99;
+    if (variant && product.variantStock) return Math.max(0, Number(product.variantStock[variant]) || 0);
+    return product.stockQuantity !== null ? product.stockQuantity : Infinity;
+  };
   const cartTotal = cartList.reduce((a, c) => a + c.product.sellingPrice * c.qty, 0);
   const cartCount = cartList.reduce((a, c) => a + c.qty, 0);
   const discountOff = discount ? Math.min(cartTotal, Number(discount.amount) || 0) : 0;
   const payable = cartTotal - discountOff;
-  const cartKey = JSON.stringify(cartList.map((c) => [c.product.id, c.qty]));
+  const cartKey = JSON.stringify(cartList.map((c) => [c.key, c.qty]));
   const phoneReady = customerPhone.replace(/\D/g, '').length >= 10 ? customerPhone.replace(/\D/g, '').slice(-10) : '';
   const applyCode = async (codeArg, quiet) => {
     const code = String(codeArg ?? codeInput).toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -11116,12 +11449,13 @@ function Storefront({ businessCode }) {
     return () => clearTimeout(t);
   }, [cartKey, business?.shop_id, phoneReady]);
 
-  const changeQty = (product, delta) => {
+  const changeQty = (product, delta, variant = '', custom = '') => {
+    const key = cartKeyOf(product.id, variant, custom);
     setCart((prev) => {
-      const current = prev[product.id] || 0;
-      const svc = storeKind(product) === 'service';
-      const max = svc ? (product.priceUnit === 'hour' ? 24 : 1) : product.stockQuantity !== null ? product.stockQuantity : Infinity;
-      return { ...prev, [product.id]: Math.max(0, Math.min(max, current + delta)) };
+      const current = prev[key] || 0;
+      // Without options the whole product's stock is the limit; one colour/size is limited by its own stock
+      const max = Math.max(0, lineMax(product, variant, custom));
+      return { ...prev, [key]: Math.max(0, Math.min(max, current + delta)) };
     });
   };
 
@@ -11136,7 +11470,7 @@ function Storefront({ businessCode }) {
     setSubmitting(true);
     try {
       // Only product IDs + quantities are sent — the database looks up the real prices itself
-      const items = cartList.map((c) => ({ productId: c.product.id, quantity: c.qty }));
+      const items = cartList.map((c) => ({ productId: c.product.id, quantity: c.qty, ...(c.variant ? { variant: c.variant } : {}), ...(c.custom ? { custom: c.custom } : {}) }));
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
@@ -11149,7 +11483,7 @@ function Storefront({ businessCode }) {
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
-        const lines = cartList.map((c) => `• ${c.product.name}${lineQtyText(c)} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
+        const lines = cartList.map((c) => `• ${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${lineQtyText(c)} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
         const extra = `${askHow && fulfilMode === 'delivery' ? `\nDeliver to: ${orderArgs.p_address}` : askHow && fulfilMode === 'room' ? `\nRoom: ${guestRoom.trim()}` : askHow && fulfilMode === 'pickup' ? '\nPick-up' : ''}${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
         const shopLabel = storeShops.length > 1 ? ` for ${displayLocationName(currentStoreShop, locationWords(business?.business_type, business?.service_kind))}` : '';
         const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}${discountOff ? `\n\nSubtotal: ${fmt(cartTotal)}\nDiscount (${discount.code}): ${fmt(-discountOff)}` : ''}\n\nTotal: ${fmt(payable)}${extra}`;
@@ -11159,7 +11493,7 @@ function Storefront({ businessCode }) {
       setShowCheckout(false);
     } catch (e) {
       if (/code|fully used|expired|orders of/i.test(e.message || '')) { setDiscount(null); setCodeOpen(true); setCodeError(e.message); brandAlert(`${e.message} Your ${W.short.toLowerCase()} wasn't sent. Remove the code or try another, then send again.`, { theme: 'light', title: 'Discount code' }); }
-      else if (/too many|requests waiting|receiving a lot|phone number|address|room number|how you want/i.test(e.message || '')) brandAlert(e.message, { theme: 'light' });
+      else if (/too many|requests waiting|receiving a lot|phone number|address|room number|how you want|sold out|left\. Please|Please choose the/i.test(e.message || '')) brandAlert(e.message, { theme: 'light' });
       else if (/time|closed|opening hours|booked/i.test(e.message || '')) { brandAlert(e.message, { theme: 'light', title: 'Please pick another time' }); setApptSlot(''); loadStoreCalendar(); }
       else brandAlert(`Your ${W.short.toLowerCase()} didn't go through. Check your connection and tap ${W.send} again.`, { theme: 'light' });
     }
@@ -11473,8 +11807,11 @@ function Storefront({ businessCode }) {
     if (isBookable(p)) return renderBookableCard(p);
     const qty = cart[p.id] || 0;
     const svc = storeKind(p) === 'service';
-    const isOut = !svc && p.stockQuantity === 0;
-    const fewLeft = !svc && p.stockQuantity !== null && p.stockQuantity > 0 && p.stockQuantity <= 3;
+    const opts = !svc && hasOptions(p);
+    const inCart = opts ? inCartOf(p.id) : qty;
+    const isOut = !svc && p.stockQuantity === 0 && !(opts && p.customChoice);
+    const fewLeft = !svc && !opts && p.stockQuantity !== null && p.stockQuantity > 0 && p.stockQuantity <= 3;
+    const colours = opts ? cleanOptions(p.options).find(isColourGroup) : null;
     return (
       <div className="group flex flex-col">
         <button type="button" onClick={() => openItem(p)} aria-label={`See ${p.name}`} className={`relative w-full ${svc ? 'aspect-square' : 'aspect-[4/5]'} rounded-2xl overflow-hidden mb-3 flex items-center justify-center ${focusRing}`} style={{ background: S.tile }}>
@@ -11485,16 +11822,28 @@ function Storefront({ businessCode }) {
           {isOut && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.muted }}>Sold out</span>}
           {fewLeft && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.ink }}>Only {p.stockQuantity} left</span>}
           {svc && p.duration && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1" style={{ background: '#fff', color: S.ink }}>{p.duration}</span>}
+          {!svc && !isOut && !fewLeft && p.madeToOrder && <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: '#fff', color: S.ink }}>Made to order</span>}
         </button>
         <button type="button" onClick={() => openItem(p)} className={`text-left ${focusRing}`}>
           <div className="text-[14px] font-semibold leading-snug line-clamp-2" style={{ color: isOut ? S.muted : S.ink }}>{p.name}</div>
           {!svc && <div className="text-[15px] font-bold mt-1" style={{ fontVariantNumeric: 'tabular-nums', color: isOut ? S.muted : S.ink }}>{fmt(p.sellingPrice)}</div>}
+          {opts && (
+            <div className="flex items-center gap-1.5 mt-1.5 min-w-0">
+              {colours && colours.values.some((v) => swatchFor(v))
+                ? <>{colours.values.slice(0, 5).map((v) => <span key={v} title={v} className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: swatchFor(v) || S.tile, border: '1px solid rgba(0,0,0,0.15)' }} />)}{colours.values.length > 5 && <span className="text-[11.5px]" style={{ color: S.muted }}>+{colours.values.length - 5}</span>}</>
+                : <span className="text-[12px] truncate" style={{ color: S.muted }}>{cleanOptions(p.options).map((g) => `${g.values.length} ${g.values.length === 1 ? g.name.toLowerCase() : g.name.toLowerCase().replace(/(?<!s)$/, 's')}`).join(' · ')}</span>}
+            </div>
+          )}
         </button>
         {svc && p.description && <div className="text-[12.5px] leading-snug mt-1 line-clamp-2" style={{ color: S.muted }}>{p.description}</div>}
         {svc && <div className="text-[14px] font-bold mt-1.5" style={{ fontVariantNumeric: 'tabular-nums' }}>{priceLabel(p)}</div>}
         <div className="flex-1 min-h-[10px]" />
         {isOut ? (
           <div className="w-full py-2.5 rounded-xl text-center text-[13px] font-semibold" style={{ background: S.tile, color: S.soldOut }}>Sold out</div>
+        ) : opts ? (
+          <button onClick={() => openItem(p)} aria-label={`Choose ${optionWords(p.options)} of ${p.name}`} className={`w-full py-2.5 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform ${focusRing}`} style={inCart ? { border: `1.5px solid ${S.ink}`, color: S.ink } : { background: S.ink, color: '#fff' }}>
+            {inCart ? <><Check size={15} strokeWidth={2.5} /> {inCart} in your {W.short.toLowerCase()}</> : <>Choose {cleanOptions(p.options)[0].name.toLowerCase()}{p.options.length > 1 ? ' & more' : ''}</>}
+          </button>
         ) : svc ? (
           qty === 0 ? (
             <button onClick={() => changeQty(p, 1)} aria-label={`Request ${p.name}`} className={`w-full py-2.5 rounded-xl text-[13.5px] font-semibold active:scale-[0.98] transition-transform ${focusRing}`} style={{ background: S.ink, color: '#fff' }}>Request</button>
@@ -11529,12 +11878,32 @@ function Storefront({ businessCode }) {
     const photos = [p.imageUrl, ...(p.images || [])].filter(Boolean);
     const idx = photos.length ? ((viewIdx % photos.length) + photos.length) % photos.length : 0;
     const svc = storeKind(p) === 'service';
-    const inCart = cart[p.id] || 0;
-    const isOut = !svc && p.stockQuantity === 0;
-    const max = svc ? (p.priceUnit === 'hour' ? 24 : 1) : p.stockQuantity !== null ? Math.max(0, p.stockQuantity - inCart) : 99;
+    // Colours and sizes: the customer picks one of each (or types their own, when the business allows it)
+    const opts = !svc && hasOptions(p) ? cleanOptions(p.options) : [];
+    const otherOk = opts.length > 0 && p.customChoice;
+    const otherOn = otherOk && viewOtherOn;
+    const missing = opts.find((g, i) => !(i === 0 && otherOn ? viewOther.trim().length >= 2 : viewSel[i]));
+    const resolved = !missing;
+    const variant = opts.length && !otherOn && resolved ? opts.map((g, i) => viewSel[i]).join(' / ') : '';
+    const custom = otherOn && resolved ? [viewOther.trim().slice(0, 50), ...opts.slice(1).map((g, i) => viewSel[i + 1])].join(' / ') : '';
+    const counted = opts.length > 0 && !!p.variantStock && !p.madeToOrder;
+    const stockOf = (v) => (counted ? Math.max(0, Number(p.variantStock[v]) || 0) : Infinity);
+    const combos = optionCombos(opts);
+    const partsOf = (c) => (opts.length === 1 ? [c] : c.split(' / '));
+    // How many are left with this value, given what's already chosen in the other list
+    const valueLeft = (gi, val) => (!counted ? Infinity : combos.filter((c) => { const parts = partsOf(c); return parts[gi] === val && opts.every((g, j) => j === gi || (j === 0 && otherOn) || !viewSel[j] || parts[j] === viewSel[j]); }).reduce((a, c) => a + stockOf(c), 0));
+    const lineKey = cartKeyOf(p.id, variant, custom);
+    const inCart = opts.length ? (resolved ? cart[lineKey] || 0 : 0) : cart[p.id] || 0;
+    const inCartAll = opts.length ? inCartOf(p.id) : inCart;
+    const isOut = !svc && p.stockQuantity === 0 && !otherOk;
+    const lineLeft = opts.length && resolved ? stockOf(variant || '') : null;
+    const max = opts.length
+      ? (!resolved ? 0 : custom || !counted ? Math.max(0, 99 - inCart) : Math.max(0, lineLeft - inCart))
+      : svc ? (p.priceUnit === 'hour' ? 24 : 1) : p.madeToOrder ? Math.max(0, 99 - inCart) : p.stockQuantity !== null ? Math.max(0, p.stockQuantity - inCart) : 99;
     const step = (d) => setViewQty((q) => Math.max(1, Math.min(Math.max(1, max), q + d)));
-    const add = () => { if (isOut || max <= 0) return; changeQty(p, Math.min(viewQty, max)); closeItem(); };
-    const ask = business.owner_phone ? `https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(`Hello ${business.name}, I'm interested in "${p.name}" (${fmt(p.sellingPrice)}) on your store.`)}` : null;
+    const add = () => { if (isOut || max <= 0) return; changeQty(p, Math.min(viewQty, max), variant, custom); closeItem(); };
+    const pickOption = (gi, v) => { setViewSel((cur) => ({ ...cur, [gi]: cur[gi] === v && !(gi === 0 && otherOn) ? undefined : v })); if (gi === 0) setViewOtherOn(false); setViewQty(1); };
+    const ask = business.owner_phone ? `https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(`Hello ${business.name}, I'm interested in "${p.name}"${variant || custom ? ` (${variant || custom})` : ''} (${fmt(p.sellingPrice)}) on your store.`)}` : null;
     return (
       <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-6" style={{ background: 'rgba(23,25,26,0.55)' }} onClick={closeItem}>
         <div className="w-full md:max-w-4xl max-h-[94vh] md:max-h-[88vh] overflow-y-auto rounded-t-3xl md:rounded-3xl sf-rise md:grid md:grid-cols-[1.1fr_1fr]" style={{ background: '#fff', color: S.ink }} onClick={(e) => e.stopPropagation()}>
@@ -11564,9 +11933,45 @@ function Storefront({ businessCode }) {
             {p.category && <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: S.muted }}>{p.category}</div>}
             <h2 className="text-[24px] md:text-[28px] font-extrabold leading-tight" style={{ letterSpacing: '-0.02em' }}>{p.name}</h2>
             <div className="text-[22px] font-bold mt-2" style={{ fontVariantNumeric: 'tabular-nums' }}>{svc ? priceLabel(p) : fmt(p.sellingPrice)}</div>
-            {!svc && p.stockQuantity !== null && <div className="text-[13px] mt-1.5 font-medium" style={{ color: isOut ? '#B42318' : p.stockQuantity <= 3 ? '#B54708' : '#0E7A5F' }}>{isOut ? 'Sold out at this branch' : p.stockQuantity <= 3 ? `Only ${p.stockQuantity} left` : 'In stock'}</div>}
+            {!svc && p.madeToOrder && <div className="text-[13px] mt-1.5 font-medium" style={{ color: '#0E7A5F' }}>Made to order{p.leadTime ? ` · ready in about ${p.leadTime.replace(/^(about|in)\s+/i, '')}` : ''}</div>}
+            {!svc && !p.madeToOrder && !opts.length && p.stockQuantity !== null && <div className="text-[13px] mt-1.5 font-medium" style={{ color: isOut ? '#B42318' : p.stockQuantity <= 3 ? '#B54708' : '#0E7A5F' }}>{isOut ? 'Sold out at this branch' : p.stockQuantity <= 3 ? `Only ${p.stockQuantity} left` : 'In stock'}</div>}
+            {!svc && !p.madeToOrder && opts.length > 0 && counted && (
+              <div className="text-[13px] mt-1.5 font-medium" style={{ color: custom ? '#0E7A5F' : isOut ? '#B42318' : lineLeft !== null && lineLeft <= 3 ? (lineLeft === 0 ? '#B42318' : '#B54708') : '#0E7A5F' }}>
+                {custom ? 'Made specially for you' : isOut ? 'Sold out at this branch' : lineLeft === null ? 'In stock' : lineLeft === 0 ? `Sold out in ${variant}` : lineLeft <= 3 ? `Only ${lineLeft} left in ${variant}` : `In stock in ${variant}`}
+              </div>
+            )}
             {svc && p.duration && <div className="text-[13px] mt-1.5" style={{ color: S.muted }}>Takes {p.duration.toLowerCase()}</div>}
-            {p.description && <p className="text-[14.5px] leading-relaxed mt-4 whitespace-pre-line" style={{ color: '#3F4440' }}>{p.description}</p>}
+            {opts.map((g, gi) => (
+              <div key={g.name} className="mt-5">
+                <div className="text-[13.5px] font-semibold mb-2">{g.name}{gi === 0 && otherOn ? <span className="font-normal" style={{ color: S.muted }}>: your own choice</span> : viewSel[gi] ? <span className="font-normal" style={{ color: S.muted }}>: {viewSel[gi]}</span> : null}</div>
+                <div className="flex flex-wrap gap-2">
+                  {g.values.map((v) => {
+                    const on = viewSel[gi] === v && !(gi === 0 && otherOn);
+                    const gone = valueLeft(gi, v) <= 0;
+                    const sw = isColourGroup(g) ? swatchFor(v) : null;
+                    return (
+                      <button key={v} type="button" onClick={() => pickOption(gi, v)} aria-pressed={on} aria-label={`${g.name} ${v}${gone ? ', sold out' : ''}`}
+                        className={`min-h-[40px] px-3.5 rounded-xl text-[13.5px] font-semibold inline-flex items-center gap-2 transition-colors ${focusRing}`}
+                        style={{ border: `1.5px solid ${on ? S.ink : S.line}`, background: on ? S.ink : '#fff', color: on ? '#fff' : gone ? S.soldOut : S.ink }}>
+                        {sw && <span className="w-4 h-4 rounded-full shrink-0" style={{ background: sw, border: `1px solid ${on ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.15)'}` }} />}
+                        <span style={{ textDecoration: gone && !on ? 'line-through' : 'none' }}>{v}</span>
+                      </button>
+                    );
+                  })}
+                  {gi === 0 && otherOk && (
+                    <button type="button" onClick={() => { setViewOtherOn(!otherOn); setViewQty(1); }} aria-pressed={otherOn} className={`min-h-[40px] px-3.5 rounded-xl text-[13.5px] font-semibold ${focusRing}`} style={{ border: `1.5px ${otherOn ? 'solid' : 'dashed'} ${otherOn ? S.ink : S.line}`, background: otherOn ? S.ink : '#fff', color: otherOn ? '#fff' : S.ink }}>Another {g.name.toLowerCase()}…</button>
+                  )}
+                </div>
+                {gi === 0 && otherOn && (
+                  <div className="mt-2.5">
+                    <input autoFocus maxLength={50} value={viewOther} onChange={(e) => setViewOther(e.target.value)} placeholder={isColourGroup(g) ? 'Which colour? e.g. Emerald green' : `Which ${g.name.toLowerCase()} would you like?`} aria-label={`Your own ${g.name.toLowerCase()}`}
+                      className={`w-full rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+                    <div className="text-[12.5px] mt-1.5" style={{ color: S.muted }}>{business.name} will confirm it with you{p.leadTime ? ` and how long it takes (usually about ${p.leadTime.replace(/^(about|in)\s+/i, '')})` : ''}.</div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {p.description && <p className="text-[14.5px] leading-relaxed mt-5 whitespace-pre-line" style={{ color: '#3F4440' }}>{p.description}</p>}
             <div className="flex-1 min-h-[20px]" />
             {!isOut && (
               <div className="mt-5 flex items-center gap-3">
@@ -11578,11 +11983,11 @@ function Storefront({ businessCode }) {
                   </div>
                 ) : null}
                 <button onClick={add} disabled={max <= 0} className={`flex-1 h-12 rounded-xl text-[15px] font-semibold flex items-center justify-center gap-2 ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: max <= 0 ? 0.4 : 1 }}>
-                  {max <= 0 ? (svc ? 'Already in your request' : 'All in your order') : <><ShoppingBag size={17} /> {svc ? 'Add to request' : `Add to order · ${fmt(p.sellingPrice * (svc && p.priceUnit !== 'hour' ? 1 : viewQty))}`}</>}
+                  {missing ? (missing === opts[0] && otherOn ? `Type your ${missing.name.toLowerCase()}` : `Choose ${missing.name.toLowerCase()}`) : max <= 0 ? (svc ? 'Already in your request' : lineLeft === 0 && !custom ? 'Sold out — choose another' : 'All in your order') : <><ShoppingBag size={17} /> {svc ? 'Add to request' : `Add to order · ${fmt(p.sellingPrice * (svc && p.priceUnit !== 'hour' ? 1 : viewQty))}`}</>}
                 </button>
               </div>
             )}
-            {inCart > 0 && <div className="text-[12.5px] mt-2.5" style={{ color: S.muted }}>{inCart} already in your {W.short.toLowerCase()}.</div>}
+            {inCartAll > 0 && <div className="text-[12.5px] mt-2.5" style={{ color: S.muted }}>{opts.length ? (inCart > 0 ? `${inCart} of this already in your ${W.short.toLowerCase()}` : `${inCartAll} already in your ${W.short.toLowerCase()}`) : `${inCart} already in your ${W.short.toLowerCase()}`}{opts.length && inCart !== inCartAll ? ` (${inCartAll} in all)` : ''}.</div>}
             {ask && <a href={ask} target="_blank" rel="noopener noreferrer" className={`mt-3 h-11 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-2 ${focusRing}`} style={{ border: `1.5px solid ${S.line}`, color: S.ink }}><MessageCircle size={16} /> Ask about this on WhatsApp</a>}
           </div>
         </div>
@@ -11625,17 +12030,18 @@ function Storefront({ businessCode }) {
         <>
           <div className="space-y-3 mb-4">
             {cartList.map((c) => (
-              <div key={c.product.id} className="flex items-center gap-3">
+              <div key={c.key} className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center" style={{ background: S.tile }}>
                   {c.product.imageUrl ? <img src={c.product.imageUrl} alt="" className="w-full h-full object-cover" /> : <Package size={16} style={{ color: S.soldOut }} />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13.5px] font-semibold truncate">{c.product.name}</div>
+                  {lineLabel(c) && <div className="text-[12.5px] truncate" style={{ color: S.ink }}>{lineLabel(c)}</div>}
                   <div className="text-[12.5px]" style={{ color: S.muted, fontVariantNumeric: 'tabular-nums' }}>{storeKind(c.product) === 'service' ? (c.product.priceUnit === 'hour' ? `${c.qty} hr${c.qty !== 1 ? 's' : ''} × ${fmt(c.product.sellingPrice)}` : priceLabel(c.product)) : `${c.qty} × ${fmt(c.product.sellingPrice)}`}</div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => changeQty(c.product, -1)} aria-label={`Remove one ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile }}>−</button>
-                  <button onClick={() => changeQty(c.product, 1)} aria-label={`Add one more ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile }}>+</button>
+                  <button onClick={() => changeQty(c.product, -1, c.variant, c.custom)} aria-label={`Remove one ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile }}>−</button>
+                  <button onClick={() => changeQty(c.product, 1, c.variant, c.custom)} disabled={c.qty >= lineMax(c.product, c.variant, c.custom)} aria-label={`Add one more ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile, opacity: c.qty >= lineMax(c.product, c.variant, c.custom) ? 0.35 : 1 }}>+</button>
                 </div>
               </div>
             ))}
