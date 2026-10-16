@@ -740,7 +740,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [] };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null };
 }
 
 function staticMessage(inv, settings) {
@@ -2936,7 +2936,7 @@ function XorlaApp() {
     const shop = locationsAll.find((x) => x.id === (o.shopId || mainShopId));
     const where = shop?.address || settings.businessAddress || '';
     const owing = o.payStatus === 'paid' ? Math.max(0, total - orderMoney(o).paidOnline) : total;
-    const payLine = o.payStatus === 'requested' && orderLinkOf(o) ? `Please pay ${fmt(owing)} here before you ${o.fulfilMode === 'delivery' ? 'receive it' : 'come'}: ${orderLinkOf(o)}` : owing > 0 ? `Total: ${fmt(owing)}${o.fulfilMode === 'delivery' ? ', to pay on delivery' : ', to pay when you collect'}.` : 'It is fully paid.';
+    const payLine = o.fulfilMode === 'delivery' && o.deliveryPay ? (deliveryPaid(o) ? 'It is fully paid.' : `Please have ${fmt(deliveryOwing(o))} ready for the rider (cash or transfer).`) : o.payStatus === 'requested' && orderLinkOf(o) ? `Please pay ${fmt(owing)} here before you ${o.fulfilMode === 'delivery' ? 'receive it' : 'come'}: ${orderLinkOf(o)}` : owing > 0 ? `Total: ${fmt(owing)}${o.fulfilMode === 'delivery' ? ', to pay on delivery' : ', to pay when you collect'}.` : 'It is fully paid.';
     return o.fulfilMode === 'delivery'
       ? [`Hi ${first}, your order from ${settings.businessName} is on its way to you.`, `${items}.`, `Delivering to: ${o.deliveryAddress}`, o.riderName ? `Your rider: ${o.riderName}${o.riderPhone ? `, ${formatPhoneDisplay(o.riderPhone)}` : ''}` : '', payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n')
       : [`Hi ${first}, your order from ${settings.businessName} is ready for pick-up.`, `${items}.`, `Collect it from: ${where || (shops.length > 1 ? `${settings.businessName}, ${locName(shop)}` : settings.businessName)}`, payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n');
@@ -3041,14 +3041,39 @@ function XorlaApp() {
   const removeZone = async (z) => {
     try { await sbRest(`delivery_zones?id=eq.${z.id}`, { method: 'PATCH', accessToken: session.access_token, body: { active: false } }); await reloadDelivery(); } catch (e) { brandAlert(e.message); }
   };
+  // Delivery money: paid online, or a transfer staff confirmed, counts as paid; otherwise what's still owed
+  const deliveryPaid = (o) => o.payStatus === 'paid' || !!o.deliveryPaidAt;
+  const deliveryOwing = (o) => (o.payStatus === 'paid' ? Math.max(0, orderMoney(o).total - orderMoney(o).paidOnline) : o.deliveryPaidAt ? 0 : orderMoney(o).total);
+  const bankLine = () => (settings.bankAccountNumber ? `${settings.bankName ? `${settings.bankName}, ` : ''}${settings.bankAccountNumber}${settings.bankAccountName ? ` (${settings.bankAccountName})` : ''}` : '');
+  const payFirstMessage = (o) => {
+    const first = String(o.customerName || '').split(' ')[0] || 'there';
+    const total = orderMoney(o).total;
+    return [`Hi ${first}, ${settings.businessName} has confirmed your order: ${packageOf(o)}.`, `Total: ${fmt(total)}${o.deliveryFee > 0 ? ` (including ${fmt(o.deliveryFee)} delivery to ${o.deliveryAddress})` : ''}.`,
+      bankLine() ? `Please pay to ${bankLine()}, then send us your receipt here.` : 'Please send the payment, then send us your receipt here.',
+      "As soon as it's in, we'll send it out with our rider and share their number with you.", orderLinkOf(o) ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n');
+  };
+  const sendRider = async (o) => {
+    try {
+      await sbRpc('mark_rider_sent', session.access_token, { p_order: o.id });
+      const fresh = (await refreshOrder(o.id)) || { ...o, riderSentAt: new Date().toISOString() };
+      const brief = riderBriefMessage(fresh);
+      await offerWhatsApp(fresh.riderPhone, brief, `Sending ${fresh.riderName}`, `Send ${String(fresh.riderName).split(' ')[0]} the pick-up details on WhatsApp? They'll see:\n\n"${brief}"`);
+    } catch (e) { brandAlert(e.message); }
+  };
+  const confirmTransfer = async (o) => {
+    if (!(await brandConfirm(`Confirm ${String(o.customerName).split(' ')[0]} has paid ${fmt(orderMoney(o).total)} and the money is in your account?`, { title: 'Payment received?', confirm: "Yes, it's in" }))) return;
+    try { await sbRpc('set_delivery_pay', session.access_token, { p_order: o.id, p_pay: 'paid' }); const fresh = await refreshOrder(o.id); if (fresh?.riderId && !fresh.riderSentAt) sendRider(fresh); }
+    catch (e) { brandAlert(e.message); }
+  };
   const pickupPointOf = (o) => { const sh = locationsAll.find((x) => x.id === (o.shopId || mainShopId)); return sh?.address || settings.businessAddress || (shops.length > 1 ? `${settings.businessName}, ${locName(sh)}` : settings.businessName); };
   const packageOf = (o) => o.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${it.description}`).join(', ');
   const riderAskMessage = (r, o) => `Hello ${String(r.name).split(' ')[0]}, delivery request from ${settings.businessName}.\n\nPick up: ${pickupPointOf(o)}\nDrop off: ${o.deliveryAddress}\nPackage: ${packageOf(o)}\n\nHow much, and how soon can you come?`;
   const riderBriefMessage = (o) => {
     const owing = o.payStatus === 'paid' ? Math.max(0, orderMoney(o).total - orderMoney(o).paidOnline) : orderMoney(o).total;
-    return [`Hi ${String(o.riderName).split(' ')[0]}, please pick up a delivery from ${settings.businessName}.`, `Pick up: ${pickupPointOf(o)}`, `Deliver to: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}\n${o.deliveryAddress}`, `Package: ${packageOf(o)}`, o.riderFee != null ? `Your fee: ${fmt(o.riderFee)}` : '', owing > 0 ? `Collect ${fmt(owing)} from the customer.` : 'The customer has already paid.', `Map: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`].filter(Boolean).join('\n\n');
+    const paidAlready = deliveryPaid(o) || owing <= 0;
+    return [`Hi ${String(o.riderName).split(' ')[0]}, please pick up a delivery from ${settings.businessName}.`, `Pick up: ${pickupPointOf(o)}`, `Deliver to: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}\n${o.deliveryAddress}`, `Package: ${packageOf(o)}`, o.riderFee != null ? `Your fee: ${fmt(o.riderFee)}` : '', paidAlready ? "The customer has already paid. Don't collect any money." : `Collect ${fmt(owing)} from the customer (cash, or transfer to ${settings.businessName}${settings.bankAccountNumber ? `: ${settings.bankName ? `${settings.bankName} ` : ''}${settings.bankAccountNumber}` : ''}).`, `Map: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`].filter(Boolean).join('\n\n');
   };
-  const openRiders = (o) => setRiderFor({ order: o, quotes: Object.fromEntries((Array.isArray(o.riderQuotes) ? o.riderQuotes : []).map((q) => [q.id, String(q.fee)])), chosen: o.riderId || '', customerFee: o.deliveryZone || o.deliveryFee ? String(o.deliveryFee || '') : '', busy: false, error: '' });
+  const openRiders = (o) => setRiderFor({ order: o, quotes: Object.fromEntries((Array.isArray(o.riderQuotes) ? o.riderQuotes : []).map((q) => [q.id, String(q.fee)])), chosen: o.riderId || '', customerFee: o.deliveryZone || o.deliveryFee ? String(o.deliveryFee || '') : '', pay: deliveryPaid(o) ? 'paid' : (o.deliveryPay || ''), busy: false, error: '' });
   const saveRider = async () => {
     const f = riderFor; if (!f || f.busy) return;
     const o = f.order; const r = riders.find((x) => x.id === f.chosen);
@@ -3056,15 +3081,22 @@ function XorlaApp() {
     if (!r) { setRiderFor({ ...f, error: 'Choose the rider to send.' }); return; }
     if (!Number.isFinite(rFee) || rFee < 0 || String(f.quotes[f.chosen] || '').trim() === '') { setRiderFor({ ...f, error: `Enter ${r.name}'s price.` }); return; }
     if (!Number.isFinite(cFee) || cFee < 0 || String(f.customerFee || '').trim() === '') { setRiderFor({ ...f, error: 'Enter what the customer pays for delivery.' }); return; }
+    if (!f.pay) { setRiderFor({ ...f, error: `Choose how ${String(o.customerName).split(' ')[0]} will pay.` }); return; }
     setRiderFor({ ...f, busy: true, error: '' });
     try {
       const quotes = riders.filter((x) => String(f.quotes[x.id] || '').trim() !== '').map((x) => ({ id: x.id, rider: x.name, fee: Number(parseNumInput(f.quotes[x.id])) }));
       await sbRpc('set_order_rider', session.access_token, { p_order: o.id, p_rider: r.id, p_rider_fee: rFee, p_customer_fee: cFee, p_quotes: quotes });
       const fresh = (await refreshOrder(o.id)) || { ...o, riderId: r.id, riderName: r.name, riderPhone: r.phone, riderFee: rFee, deliveryFee: cFee };
+      const first = String(fresh.customerName).split(' ')[0];
+      if (f.pay === 'paid') { setRiderFor(null); await sendRider(fresh); return; }
+      await sbRpc('set_delivery_pay', session.access_token, { p_order: o.id, p_pay: f.pay });
+      if (f.pay === 'on_delivery') { setRiderFor(null); await sendRider({ ...fresh, deliveryPay: 'on_delivery' }); return; }
+      // Pay first: the customer gets the payment link (online) or your account details; the rider waits for the money
+      if (settings.payout && fresh.payToken && fresh.payStatus !== 'requested') await sbRpc('request_order_payment', session.access_token, { p_order: o.id, p_delivery_fee: cFee });
+      const latest = (await refreshOrder(o.id)) || fresh;
       setRiderFor(null);
-      const brief = riderBriefMessage(fresh);
-      await offerWhatsApp(r.phone, brief, `${r.name} is taking it`, `Send ${String(r.name).split(' ')[0]} the pick-up details on WhatsApp? They'll see:\n\n"${brief}"`);
-      if (settings.payout && !fresh.payStatus && fresh.payToken) setPayAsk({ order: fresh, fee: String(cFee), busy: false, error: '' });
+      const msg = settings.payout && latest.payToken ? payMessage(latest, latest.payAmount ?? orderMoney(latest).total, latest.deliveryFee) : payFirstMessage(latest);
+      await offerWhatsApp(latest.customerPhone, msg, `Waiting for ${first} to pay`, `${r.name} goes as soon as ${first} has paid. Send ${first} ${settings.payout ? 'the payment link' : bankLine() ? 'your account details' : 'the payment request'} on WhatsApp? They'll see:\n\n"${msg}"`);
     } catch (e) { setRiderFor((x) => x && { ...x, busy: false, error: e.message }); }
   };
   const renderRiderSheet = () => {
@@ -3103,8 +3135,23 @@ function XorlaApp() {
               {chosenFee > 0 && cFee > 0 && <div className="text-[11.5px] mt-1.5" style={{ color: cFee >= chosenFee ? C.sage : C.rust }}>{cFee > chosenFee ? `You keep ${fmt(cFee - chosenFee)} on this delivery.` : cFee === chosenFee ? 'The customer pays exactly what the rider charges.' : `You pay ${fmt(chosenFee - cFee)} of the delivery yourself.`}</div>}
               {o.payStatus === 'paid' && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Already paid online, so the customer's fee stays at {fmt(o.deliveryFee)}.</div>}
             </div>
+            <div className="mt-3">
+              <div className="text-[12.5px] font-semibold mb-1.5">How will {String(o.customerName).split(' ')[0]} pay?</div>
+              {f.pay === 'paid' ? (
+                <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.sageSoft, color: C.sage }}>Already paid. {riders.find((x) => x.id === f.chosen)?.name || 'The rider'} won't collect any money.</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {[['on_delivery', 'Pay on delivery', `${String(riders.find((x) => x.id === f.chosen)?.name || 'The rider').split(' ')[0]} collects ${fmt(orderMoney(o).total - (o.deliveryFee || 0) + cFee)}. Sent now.`], ['before', 'Pay before we send it', settings.payout ? 'They pay online with a link. The rider goes once it\'s paid.' : bankLine() ? 'They transfer to your account. The rider goes once it\'s in.' : 'They pay you first. The rider goes once it\'s in.']].map(([v, l, d]) => (
+                    <button key={v} type="button" onClick={() => set({ pay: v })} className="rounded-xl px-3 py-2.5 text-left" style={{ background: f.pay === v ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${f.pay === v ? C.copper : C.line}` }}>
+                      <span className="block text-[12.5px] font-semibold" style={{ color: C.ink }}>{l}</span><span className="block text-[11px] mt-0.5 leading-snug" style={{ color: C.inkFaint }}>{d}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {f.pay === 'before' && !settings.payout && !bankLine() && <div className="text-[11px] mt-1.5" style={{ color: C.copper }}>Tip: add your bank account in Settings → Deposits so the message tells them where to pay.</div>}
+            </div>
             {f.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
-            <button onClick={saveRider} disabled={f.busy} className="w-full mt-3 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : f.chosen ? `Send ${riders.find((x) => x.id === f.chosen)?.name || 'rider'}` : 'Choose a rider'}</button>
+            <button onClick={saveRider} disabled={f.busy} className="w-full mt-3 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : !f.chosen ? 'Choose a rider' : f.pay === 'before' ? `Ask ${String(o.customerName).split(' ')[0]} to pay first` : `Send ${riders.find((x) => x.id === f.chosen)?.name || 'rider'}`}</button>
           </>
         )}
       </Sheet>
@@ -4569,6 +4616,22 @@ function XorlaApp() {
                           {o.riderPhone && <a href={`tel:${String(o.riderPhone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Phone size={14} /></a>}
                           {o.status === 'pending' && <button onClick={() => openRiders(o)} className="shrink-0 text-[11.5px] font-semibold" style={{ color: C.copper }}>Change</button>}
                         </div>
+                      ) : null}
+                      {o.riderName && o.status === 'pending' ? (() => {
+                        const first = String(o.customerName).split(' ')[0]; const rFirst = String(o.riderName).split(' ')[0];
+                        const waiting = o.deliveryPay === 'before' && !deliveryPaid(o);
+                        if (waiting) return (
+                          <div className="mt-2 rounded-lg px-2.5 py-2" style={{ background: C.copperSoft }}>
+                            <div className="font-semibold" style={{ color: C.copper }}>Waiting for {first} to pay {fmt(deliveryOwing(o))}</div>
+                            <div className="text-[11.5px] mt-0.5" style={{ color: C.inkDim }}>{rFirst} goes once it's in.{o.payStatus === 'requested' ? ' If they pay online, you\'ll get a notification.' : ''}</div>
+                            {o.customerPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(o.payStatus === 'requested' && o.payToken ? payMessage(o, o.payAmount ?? orderMoney(o).total, o.deliveryFee) : payFirstMessage(o))}`} target="_blank" rel="noopener noreferrer" className="inline-block mt-1 text-[11.5px] font-semibold" style={{ color: C.copper }}>Remind {first} on WhatsApp</a>}
+                          </div>
+                        );
+                        if (!o.riderSentAt) return <div className="mt-2 text-[11.5px] font-semibold" style={{ color: C.sage }}>{deliveryPaid(o) ? `Paid${o.deliveryPaidBy ? ` (confirmed by ${o.deliveryPaidBy})` : ''}. Send ${rFirst} the pick-up details.` : `${rFirst} collects ${fmt(deliveryOwing(o))} on delivery. Send them the pick-up details.`}</div>;
+                        return <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>Pick-up details sent to {rFirst} at {new Date(o.riderSentAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })} · {deliveryPaid(o) ? 'paid, nothing to collect' : `collects ${fmt(deliveryOwing(o))}`}</div>;
+                      })() : null}
+                      {o.riderName ? (
+                        null
                       ) : o.status === 'pending' && (
                         <button onClick={() => openRiders(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copper, color: C.bg }}><Truck size={14} /> Get rider prices</button>
                       )}
@@ -4680,7 +4743,11 @@ function XorlaApp() {
                       }
                       primary = { label: T.tracksStock ? 'Fulfill' : 'Mark done', onClick: () => fulfillOrder(o) };
                       // Pick-up and delivery: first tell the customer it's ready / on its way, then close it when they have it
-                      if ((o.fulfilMode === 'pickup' || o.fulfilMode === 'delivery') && o.payStatus !== 'refund_due') {
+                      if (o.fulfilMode === 'delivery' && o.riderId && !o.riderSentAt && o.payStatus !== 'refund_due') {
+                        // A rider is chosen: get paid first if that was agreed, then send the rider the pick-up details
+                        if (o.deliveryPay === 'before' && !deliveryPaid(o)) primary = { label: 'Payment received', onClick: () => confirmTransfer(o) };
+                        else primary = { label: `Send ${String(o.riderName).split(' ')[0]}`, onClick: () => sendRider(o) };
+                      } else if ((o.fulfilMode === 'pickup' || o.fulfilMode === 'delivery') && o.payStatus !== 'refund_due') {
                         if (!o.readyAt) primary = { label: o.fulfilMode === 'delivery' ? 'Out for delivery' : 'Ready for pick-up', onClick: () => markReady(o) };
                         else {
                           if (o.customerPhone) sec.push({ label: 'Message', tone: 'accent', href: `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(readyMessage(o))}` });
@@ -15234,9 +15301,11 @@ function CustomerOrder({ token }) {
     : od.status === 'fulfilled' ? ['#DFF6EE', '#0E7A5F', 'Completed', `Thank you for ${noun === 'order' ? 'ordering from' : 'choosing'} ${od.business}.`]
     : od.status === 'cancelled' ? ['#FDECEA', '#B42318', 'Cancelled', `${od.business} couldn't take this ${noun}${od.cancel_reason ? `: ${od.cancel_reason}` : ''}.`]
     : od.ready_at && od.fulfil_mode === 'pickup' ? ['#DFF6EE', '#0E7A5F', 'Ready for pick-up', `Your ${noun} is ready. Collect it from ${od.address || od.business}.${od.pay_status === 'requested' && od.online ? ' Pay below first, or when you collect it.' : ''}`]
-    : od.ready_at && od.fulfil_mode === 'delivery' ? ['#DFF6EE', '#0E7A5F', 'On its way', `Your ${noun} is on its way to ${od.delivery_address}.${od.rider_name ? ` Your rider is ${od.rider_name}${od.rider_phone ? ` (${formatPhoneDisplay(od.rider_phone)})` : ''}.` : ''}`]
+    : od.ready_at && od.fulfil_mode === 'delivery' ? ['#DFF6EE', '#0E7A5F', 'On its way', `Your ${noun} is on its way to ${od.delivery_address}.${od.rider_name ? ` Your rider is ${od.rider_name}${od.rider_phone ? ` (${formatPhoneDisplay(od.rider_phone)})` : ''}.` : ''}${od.delivery_pay === 'on_delivery' && od.pay_status !== 'paid' && !od.delivery_paid ? ` Please have ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} ready for them.` : ''}`]
     : od.pay_status === 'paid' ? ['#DFF6EE', '#0E7A5F', 'Paid', `Thanks, ${first}! ${od.business} has your payment and is getting your ${noun} ready.`]
     : od.pay_status === 'requested' ? ['#DFF6EE', '#0E7A5F', 'Confirmed: ready to pay', `${od.business} has everything for your ${noun}.${od.online ? ' Pay below to complete it.' : ''}`]
+    : od.fulfil_mode === 'delivery' && od.delivery_pay === 'before' && !od.delivery_paid ? ['#FFF4D6', '#8A5A00', 'Confirmed: waiting for your payment', `Pay ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} as ${od.business} asked on WhatsApp. They'll send it out with their rider as soon as it's in.`]
+    : od.fulfil_mode === 'delivery' && od.delivery_pay === 'on_delivery' ? ['#DFF6EE', '#0E7A5F', 'Confirmed', `You'll pay ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} to the rider when it arrives (cash or transfer). You'll get a message when it's on its way.`]
     : od.accepted ? ['#DFF6EE', '#0E7A5F', 'Confirmed', `${od.business} has confirmed your ${noun}${od.fulfil_mode === 'pickup' ? ". You'll get a message when it's ready to collect." : od.fulfil_mode === 'delivery' ? ". You'll get a message when it's on its way." : ` and will contact you about payment${noun === 'order' ? ' and pickup or delivery' : ''}.`}`]
     : ['#FFF4D6', '#8A5A00', 'Waiting for confirmation', `${od.business} is checking your ${noun}.${od.fulfil_mode === 'pickup' ? " You'll get a message when it's ready to collect." : od.fulfil_mode === 'delivery' ? " They'll confirm the delivery fee, then send it." : ''}${od.online ? ` Once they confirm, you can pay here online.` : od.fulfil_mode ? '' : ` They'll contact you to confirm and arrange payment.`}`];
   const row = (l, v, strong, color) => <div className="flex items-baseline justify-between gap-4 py-1.5"><span style={{ color: color || S.muted }}>{l}</span><span className={strong ? 'font-bold' : 'font-medium'} style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right', color }}>{v}</span></div>;
