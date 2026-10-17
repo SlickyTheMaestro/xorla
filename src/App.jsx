@@ -5357,7 +5357,7 @@ function XorlaApp() {
           {(
             <div className="grid gap-2 mb-4" style={{ gridTemplateColumns: starterList ? '1fr 1fr' : '1fr' }}>
               <button onClick={() => { setImportOpen(false); openScan(); }} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
-                <Camera size={16} style={{ color: C.copper }} className="shrink-0" /><span className="text-[12.5px] font-semibold leading-tight" style={{ color: C.copper }}>{staysScan ? 'Have a rate card? Upload a photo or PDF' : 'On paper? Snap a photo'}</span>
+                <Camera size={16} style={{ color: C.copper }} className="shrink-0" /><span className="text-[12.5px] font-semibold leading-tight" style={{ color: C.copper }}>{staysScan ? 'On paper? Upload a photo or PDF of your rates or extras list' : 'On paper? Snap a photo'}</span>
               </button>
               {starterList && <button onClick={() => { setImportOpen(false); openStarter(); }} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.22)' }}>
                 <Sparkles size={16} style={{ color: C.sage }} className="shrink-0" /><span className="text-[12.5px] font-semibold leading-tight" style={{ color: C.sage }}>Pick from common items</span>
@@ -8150,12 +8150,12 @@ function XorlaApp() {
         <div className="w-full sm:max-w-xl rounded-t-[28px] sm:rounded-[28px] flex flex-col max-h-[94vh] xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.lineStrong}` }} onClick={(e) => e.stopPropagation()}>
           <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-3">
             <div>
-              <div className="text-[22px] font-extrabold leading-tight" style={{ fontFamily: HEAD, letterSpacing: '-0.025em' }}>{t.source === 'starter' ? `Pick from common ${T.catalog.toLowerCase()}` : t.stage === 'review' ? (staysScan ? `Oga found ${t.items.filter((x) => x.group === 'room').length} room type${t.items.filter((x) => x.group === 'room').length !== 1 ? 's' : ''}${t.items.some((x) => x.group !== 'room') ? ` and ${t.items.filter((x) => x.group !== 'room').length} more` : ''}` : `Oga found ${t.items.length} item${t.items.length !== 1 ? 's' : ''}`) : staysScan ? 'Upload your rate card' : 'Snap your price list'}</div>
+              <div className="text-[22px] font-extrabold leading-tight" style={{ fontFamily: HEAD, letterSpacing: '-0.025em' }}>{t.source === 'starter' ? `Pick from common ${T.catalog.toLowerCase()}` : t.stage === 'review' ? (staysScan && !t.items.some((x) => x.group === 'room') ? `Oga found ${t.items.length} item${t.items.length !== 1 ? 's' : ''}` : staysScan ? `Oga found ${t.items.filter((x) => x.group === 'room').length} room type${t.items.filter((x) => x.group === 'room').length !== 1 ? 's' : ''}${t.items.some((x) => x.group !== 'room') ? ` and ${t.items.filter((x) => x.group !== 'room').length} more` : ''}` : `Oga found ${t.items.length} item${t.items.length !== 1 ? 's' : ''}`) : staysScan ? 'Upload your price list' : 'Snap your price list'}</div>
               <div className="text-[13.5px] leading-relaxed mt-1" style={{ color: C.inkDim }}>
                 {t.source === 'starter' ? `${starterList?.title || ''}. Tick what you offer and type your price. Nothing is added until you say so.`
                   : t.stage === 'review' && staysScan ? `Check each line is the right kind (room type, hall or extra)${serviceKind === 'accommodation' ? ' and how many rooms you have of each' : ''}. You can name the rooms afterwards.${unsureCount ? ` ${unsureCount} marked in amber need a second look.` : ''}`
                   : t.stage === 'review' ? (unsureCount ? `${unsureCount} need${unsureCount === 1 ? 's' : ''} a second look, marked in amber. Fix anything that's wrong, then add.` : 'Check the names and prices, fix anything that is wrong, then add.')
-                  : t.stage === 'reading' ? 'This takes about 20 seconds.' : staysScan ? 'A photo of your rate card, a screenshot, or a PDF. Oga reads your room types, halls and extras with their prices, and you check everything before it is added.' : 'A handwritten list, printed menu or wall board all work. Oga reads it and you check everything before it is added.'}
+                  : t.stage === 'reading' ? 'This takes about 20 seconds.' : staysScan ? 'Your room rates, your extras (bar, kitchen, laundry, pickup…), or both: a photo, screenshot or PDF. Oga sorts each line into room types, halls and extras with their prices, and you check everything before it is added.' : 'A handwritten list, printed menu or wall board all work. Oga reads it and you check everything before it is added.'}
               </div>
             </div>
             <button onClick={close} aria-label="Close" className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><X size={17} /></button>
@@ -10576,7 +10576,7 @@ function XorlaApp() {
                   )}
                   {isOwnerRole && (
                     <div className="col-span-2 -mt-1 grid grid-cols-2 gap-2">
-                      <button onClick={openScan} className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.copper, border: `1px dashed rgba(255,176,32,0.45)` }}><Camera size={14} /> Upload rate card</button>
+                      <button onClick={openScan} className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.copper, border: `1px dashed rgba(255,176,32,0.45)` }}><Camera size={14} /> Upload a price list</button>
                       <button onClick={openImport} className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Paste a list</button>
                     </div>
                   )}
