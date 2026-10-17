@@ -762,7 +762,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '' };
 }
 
 function staticMessage(inv, settings) {
@@ -3017,12 +3017,144 @@ function XorlaApp() {
       </div>
     );
   };
-  const cancelOrder = async (id) => {
-    const ord = ordersAll.find((o) => o.id === id);
-    const paidNow = ord ? orderMoney(ord).paidOnline : 0;
-    if (ord && ord.payStatus === 'paid' && paidNow > 0 && !(await brandConfirm(`${ord.customerName} has paid ${fmt(paidNow)} online. If you cancel, you'll need to send it back to them. Their order page will ask where to send it.`, { title: 'Cancel a paid order?', confirm: 'Cancel and refund', cancel: 'Keep the order', danger: true }))) return;
-    try { if (isOwnerRole) await sbRest(`orders?id=eq.${id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'cancelled' } }); else await sbRpc('set_order_status', session.access_token, { p_order: id, p_status: 'cancelled' }); setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status: 'cancelled' } : o)); }
+  // Cancelling always asks why: the customer sees the reason on their order page, and can be told on WhatsApp
+  const [cancelAsk, setCancelAsk] = useState(null); // { order, reason, busy, error, done }
+  const cancelOrder = (id, reason = '') => { const ord = ordersAll.find((o) => o.id === id); if (ord) setCancelAsk({ order: ord, reason, busy: false, error: '', done: false }); };
+  const customLinesOf = (o) => (o.items || []).map((it, i) => ({ ...it, idx: i })).filter((it) => String(it.custom || '').trim());
+  const firstName = (o) => String(o.customerName || '').split(' ')[0] || 'there';
+  const cancelMessage = (o, reason) => {
+    const paid = orderMoney(o).paidOnline;
+    return [`Hello ${firstName(o)}, this is ${settings.businessName}. We're sorry, we've had to cancel your order (${packageOf(o)}).`, `Reason: ${reason}`,
+      paid > 0 ? `You paid ${fmt(paid)} online, so we'll send it back to you. Please put your bank details on your order page${orderLinkOf(o) ? `: ${orderLinkOf(o)}` : '.'}` : '',
+      'We hope to serve you another time.'].filter(Boolean).join('\n\n');
+  };
+  const confirmCancel = async () => {
+    const c = cancelAsk; if (!c || c.busy) return;
+    const reason = String(c.reason || '').trim();
+    if (reason.length < 3) { setCancelAsk({ ...c, error: 'Say why, so the customer understands.' }); return; }
+    setCancelAsk({ ...c, busy: true, error: '' });
+    try {
+      try { await sbRpc('cancel_order', session.access_token, { p_order: c.order.id, p_reason: reason }); }
+      catch (e) {
+        if (!/cancel_order|does not exist|schema cache/i.test(e.message || '')) throw e;
+        if (isOwnerRole) await sbRest(`orders?id=eq.${c.order.id}`, { method: 'PATCH', accessToken: session.access_token, body: { status: 'cancelled', cancel_reason: reason } });
+        else await sbRpc('set_order_status', session.access_token, { p_order: c.order.id, p_status: 'cancelled' });
+      }
+      const fresh = await refreshOrder(c.order.id);
+      if (!fresh) setOrders((prev) => prev.map((o) => (o.id === c.order.id ? { ...o, status: 'cancelled', cancelReason: reason } : o)));
+      setCancelAsk({ ...c, reason, busy: false, done: true, order: fresh || c.order });
+    } catch (e) { setCancelAsk((x) => x && { ...x, busy: false, error: e.message }); }
+  };
+  const renderCancelSheet = () => {
+    const c = cancelAsk; if (!c) return null;
+    const o = c.order; const paid = orderMoney(o).paidOnline;
+    const own = customLinesOf(o);
+    const chips = [...own.map((it) => `We can't make it in ${it.custom}`), 'Out of stock', 'Customer asked to cancel', "Couldn't reach the customer", "We can't deliver to that area"];
+    const close = () => setCancelAsk(null);
+    if (c.done) return (
+      <Sheet onClose={close} title={<div className="text-[16px] font-semibold cx-display">Order cancelled</div>}>
+        <div className="space-y-3.5">
+          <div className="text-[13px] leading-relaxed" style={{ color: C.inkDim }}>{firstName(o)}'s order page now says it's cancelled, with your reason: <strong style={{ color: C.ink }}>{c.reason}</strong>.{paid > 0 ? ` It also asks where to send back the ${fmt(paid)} they paid.` : ''}</div>
+          {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(cancelMessage(o, c.reason))}`} target="_blank" rel="noopener noreferrer" onClick={() => setTimeout(close, 300)} className="w-full rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><MessageCircle size={16} /> Tell {firstName(o)} on WhatsApp</a>
+            : <div className="text-[12px]" style={{ color: C.inkFaint }}>No phone number on this order, so they'll see it on their order page.</div>}
+          <button onClick={close} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Done</button>
+        </div>
+      </Sheet>
+    );
+    return (
+      <Sheet onClose={() => !c.busy && close()} title={<><div className="text-[16px] font-semibold cx-display">Cancel this order?</div><div className="text-[12.5px] mt-0.5 truncate" style={{ color: C.inkDim }}>{o.customerName} · {packageOf(o)}</div></>}>
+        <div className="space-y-3.5">
+          {paid > 0 && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px] leading-relaxed" style={{ background: C.rustSoft, color: C.rust }}>{firstName(o)} has paid {fmt(paid)} online. If you cancel, you'll need to send it back. Their order page will ask where to send it.</div>}
+          <div>
+            <div className={fieldLabel} style={{ color: C.inkFaint }}>WHY? {firstName(o).toUpperCase()} WILL SEE THIS</div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {chips.map((t) => <button key={t} type="button" onClick={() => setCancelAsk({ ...c, reason: t, error: '' })} className="px-3 py-1.5 rounded-full text-[12px] font-medium text-left" style={c.reason === t ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t}</button>)}
+            </div>
+            <textarea rows={2} maxLength={200} placeholder="Or write it in your own words" value={c.reason} onChange={(e) => setCancelAsk({ ...c, reason: e.target.value, error: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
+          </div>
+          {c.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{c.error}</div>}
+          <button onClick={confirmCancel} disabled={c.busy} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.rust, color: '#fff', opacity: c.busy || String(c.reason || '').trim().length < 3 ? 0.55 : 1 }}>{c.busy ? 'Cancelling…' : paid > 0 ? 'Cancel and refund' : 'Cancel the order'}</button>
+          <button onClick={close} disabled={c.busy} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Keep the order</button>
+        </div>
+      </Sheet>
+    );
+  };
+
+  // A customer asked for their own colour/size: say yes (and how long), suggest what you have, or cancel with the reason
+  const [customAsk, setCustomAsk] = useState(null); // { order, mode: 'confirm' | 'suggest', note, picks, busy, error, done }
+  const customProductOf = (it) => productsAll.find((p) => p.id === it.productId);
+  const customYesMessage = (o, note) => `Hello ${firstName(o)}, this is ${settings.businessName}. Good news: we can make ${customLinesOf(o).map((it) => `your ${customProductOf(it)?.name || it.description} in ${it.custom}`).join(' and ')}.${note ? ` ${/^ready|^it|^we/i.test(note) ? note : `It will be ready in about ${note.replace(/^(about|in)\s+/i, '')}`}${/[.!?]$/.test(note) ? '' : '.'}` : ''}${orderLinkOf(o) ? `\n\nYour order: ${orderLinkOf(o)}` : ''}`;
+  const customSuggestMessage = (o, picks, note) => `Hello ${firstName(o)}, this is ${settings.businessName}. Thank you for your order. We can't do ${customLinesOf(o).map((it) => it.custom).join(' or ')} right now, but we have: ${picks.join(', ')}.${note ? ` ${note}` : ''}\n\nWhich would you like? Just reply here.${orderLinkOf(o) ? `\n\nYour order: ${orderLinkOf(o)}` : ''}`;
+  const openCustom = (o, mode) => {
+    const it = customLinesOf(o)[0]; const p = it && customProductOf(it);
+    setCustomAsk({ order: o, mode, note: mode === 'confirm' ? (p?.leadTime || '') : '', picks: [], other: '', busy: false, error: '', done: false });
+  };
+  const saveCustom = async () => {
+    const c = customAsk; if (!c || c.busy) return;
+    const picks = [...c.picks, ...String(c.other || '').split(',').map((x) => x.trim()).filter(Boolean)];
+    if (c.mode === 'suggest' && !picks.length) { setCustomAsk({ ...c, error: 'Pick at least one to suggest.' }); return; }
+    setCustomAsk({ ...c, busy: true, error: '' });
+    try {
+      await sbRpc('answer_custom', session.access_token, { p_order: c.order.id, p_answer: c.mode, p_note: String(c.note || '').trim(), p_suggest: c.mode === 'suggest' ? picks : [] });
+      const fresh = await refreshOrder(c.order.id);
+      setCustomAsk({ ...c, busy: false, done: true, picks, order: fresh || c.order });
+    } catch (e) { setCustomAsk((x) => x && { ...x, busy: false, error: e.message }); }
+  };
+  const chooseCustom = async (o, value, line) => {
+    if (!(await brandConfirm(`${firstName(o)} chose ${value}? The order changes to ${value}.`, { title: 'Change the order?', confirm: `Yes, ${value}` }))) return;
+    try { await sbRpc('choose_custom', session.access_token, { p_order: o.id, p_value: value, ...(line !== undefined ? { p_line: line } : {}) }); await refreshOrder(o.id); }
     catch (e) { brandAlert(e.message); }
+  };
+  const renderCustomSheet = () => {
+    const c = customAsk; if (!c) return null;
+    const o = c.order; const close = () => setCustomAsk(null);
+    const lines = customLinesOf(o);
+    if (c.done) {
+      const msg = c.mode === 'confirm' ? customYesMessage(o, String(c.note || '').trim()) : customSuggestMessage(o, c.picks, String(c.note || '').trim());
+      return (
+        <Sheet onClose={close} title={<div className="text-[16px] font-semibold cx-display">{c.mode === 'confirm' ? 'Confirmed' : 'Suggestions saved'}</div>}>
+          <div className="space-y-3.5">
+            <div className="text-[13px] leading-relaxed" style={{ color: C.inkDim }}>{c.mode === 'confirm' ? `${firstName(o)}'s order page now says you can make it.` : `${firstName(o)}'s order page shows ${c.picks.join(', ')}. When they choose, tap their choice on the order.`}</div>
+            <div className="rounded-xl px-3.5 py-3 text-[12.5px] whitespace-pre-line leading-relaxed" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>{msg}</div>
+            {o.customerPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener noreferrer" onClick={() => setTimeout(close, 300)} className="w-full rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><MessageCircle size={16} /> Send on WhatsApp</a>}
+            <button onClick={close} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Done</button>
+          </div>
+        </Sheet>
+      );
+    }
+    const listed = [...new Set(lines.flatMap((it) => { const p = customProductOf(it); return p ? optionCombos(p.options) : []; }))];
+    const leftOf = (v) => { const it = lines.find((x) => { const p = customProductOf(x); return p && optionCombos(p.options).includes(v); }); const p = it && customProductOf(it); return p && countsByOption(p) ? optionAt(p.id, o.shopId || mainShopId, v) : null; };
+    return (
+      <Sheet onClose={() => !c.busy && close()} title={<><div className="text-[16px] font-semibold cx-display">{c.mode === 'confirm' ? 'You can make it' : 'Suggest what you have'}</div><div className="text-[12.5px] mt-0.5 truncate" style={{ color: C.inkDim }}>{o.customerName} asked for {lines.map((it) => it.custom).join(', ')}</div></>}>
+        <div className="space-y-3.5">
+          {c.mode === 'confirm' ? (
+            <div>
+              <div className={fieldLabel} style={{ color: C.inkFaint }}>READY IN (OPTIONAL)</div>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {['2 days', '3 days', '5 days', '1 week', '2 weeks'].map((d) => <button key={d} type="button" onClick={() => setCustomAsk({ ...c, note: c.note === d ? '' : d })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={c.note === d ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{d}</button>)}
+              </div>
+              <input type="text" maxLength={120} placeholder="Or type it, e.g. 10 days, after you send measurements" value={c.note} onChange={(e) => setCustomAsk({ ...c, note: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+            </div>
+          ) : (
+            <>
+              <div>
+                <div className={fieldLabel} style={{ color: C.inkFaint }}>WHAT CAN YOU OFFER INSTEAD?</div>
+                {listed.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {listed.map((v) => { const on = c.picks.includes(v); const n = leftOf(v); const none = n !== null && n <= 0;
+                      return <button key={v} type="button" disabled={none} onClick={() => setCustomAsk({ ...c, error: '', picks: on ? c.picks.filter((x) => x !== v) : [...c.picks, v] })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={on ? { background: C.sage, color: C.bg } : { color: none ? C.inkFaint : C.inkDim, border: `1px solid ${C.line}`, opacity: none ? 0.5 : 1 }}>{v}{n !== null ? ` · ${n > 0 ? `${n} here` : 'none'}` : ''}</button>; })}
+                  </div>
+                ) : <div className="text-[12px]" style={{ color: C.inkFaint }}>This product has no listed options. Type what you can offer below.</div>}
+              </div>
+              <input type="text" maxLength={120} placeholder="Something else? Type it (e.g. Forest green, Olive)" value={c.other || ''} onChange={(e) => setCustomAsk({ ...c, other: e.target.value, error: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+              <input type="text" maxLength={200} placeholder="A short note (optional), e.g. Wine is very close to what you asked" value={c.note} onChange={(e) => setCustomAsk({ ...c, note: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+            </>
+          )}
+          {c.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{c.error}</div>}
+          <button onClick={saveCustom} disabled={c.busy} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: c.busy ? 0.6 : 1 }}>{c.busy ? 'Saving…' : c.mode === 'confirm' ? 'Confirm we can make it' : 'Save and tell the customer'}</button>
+        </div>
+      </Sheet>
+    );
   };
   // Online payment for storefront orders: the business confirms the order (adding delivery if any), then the customer pays on their order page
   const [payAsk, setPayAsk] = useState(null); // { order, fee, busy, error }
@@ -4848,6 +4980,31 @@ function XorlaApp() {
                       </div>
                     )}
                   </div>
+                  {o.customState && o.status === 'pending' && (() => {
+                    const lines = customLinesOf(o);
+                    if (o.customState === 'confirmed') return <div className="rounded-xl px-3 py-2 mb-3 text-[12px] flex items-center gap-1.5" style={{ background: C.sageSoft, color: C.sage }}><Check size={13} /> Own choice confirmed{o.customNote ? ` · ${o.customNote}` : ''}</div>;
+                    return (
+                      <div className="rounded-xl p-3 mb-3" style={{ background: C.copperSoft, border: `1px solid ${C.copper}` }}>
+                        <div className="text-[12.5px] font-semibold" style={{ color: C.copper }}>{o.customState === 'suggested' ? `Waiting for ${firstName(o)} to choose` : `${firstName(o)} wants something not on your list`}</div>
+                        <div className="text-[12.5px] mt-0.5" style={{ color: C.ink }}>{lines.map((it) => `${customProductOf(it)?.name || it.description}: ${it.custom}`).join(' · ')}</div>
+                        {o.customState === 'suggested' ? (
+                          <>
+                            <div className="text-[11.5px] mt-1.5 mb-2" style={{ color: C.inkDim }}>You suggested {o.customSuggest.join(', ')}. When they answer, tap what they chose:</div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {o.customSuggest.map((v) => <button key={v} onClick={() => chooseCustom(o, v, lines[0]?.idx)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>{firstName(o)} chose {v}</button>)}
+                              <button onClick={() => openCustom(o, 'suggest')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Suggest again</button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-1.5 mt-2.5">
+                            <button onClick={() => openCustom(o, 'confirm')} className="h-9 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>We can make it</button>
+                            <button onClick={() => openCustom(o, 'suggest')} className="h-9 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}`, background: C.bg }}>Suggest another</button>
+                            <button onClick={() => cancelOrder(o.id, `We can't make it in ${lines.map((it) => it.custom).join(' or ')}`)} className="h-9 rounded-lg text-[12px] font-semibold" style={{ color: C.rust, border: `1px solid ${C.line}`, background: C.bg }}>Can't make it</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {o.payStatus && (() => {
                     const paidNet = orderMoney(o).paidOnline;
                     const t = (x) => new Date(x).toLocaleString('en-GB', { ...LAGOS_TIME, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
@@ -5036,6 +5193,8 @@ function XorlaApp() {
                         }
                       }
                     }
+                    // An own-choice request is answered first (above); then the order carries on as usual
+                    if (pending && !o.startAt && (o.customState === 'asked' || o.customState === 'suggested')) { primary = null; note = o.customState === 'asked' ? 'Answer the own-choice request above first' : `Waiting for ${firstName(o)} to choose`; }
                     const secBtn = (b, i) => {
                       const cls = 'h-10 px-2 rounded-xl text-[12.5px] font-semibold whitespace-nowrap flex items-center justify-center min-w-0 transition-opacity active:opacity-70';
                       const st = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: b.tone === 'danger' ? C.rust : b.tone === 'accent' ? C.copper : C.ink };
@@ -7464,7 +7623,7 @@ function XorlaApp() {
         {renderReceiptModal()}
         {renderStockPanel()}
         {renderBookingPanels()}
-        {renderFulfilPanel()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
+        {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
         {renderApptPanel()}
         <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-5 lg:pt-7 pb-28 lg:pb-12">
           <div className="lg:hidden mb-4 flex items-baseline justify-between gap-3">
@@ -11126,7 +11285,7 @@ function XorlaApp() {
       {renderListTool()}
       {renderPastImport()}
       {renderHelp()}{renderSupportToast()}{renderSpotlight()}
-      {renderFulfilPanel()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
+      {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
       {renderApptPanel()}
       {renderNotifPanel()}
       {renderLimitPrompt()}{renderAddLocations()}
@@ -15981,6 +16140,37 @@ function CustomerOrder({ token }) {
           <div className="text-[15px] font-bold" style={{ color: st[1] }}>{st[2]}</div>
           <div className="text-[13.5px] mt-1 leading-relaxed" style={{ color: S.ink }}>{st[3]}</div>
         </div>
+
+        {od.status === 'pending' && od.custom_state && (() => {
+          // The customer's own colour/size: waiting, a choice of what the business has, or confirmed
+          const own = items.filter((it) => String(it.custom || '').trim());
+          const wanted = own.map((it) => it.custom).join(', ');
+          const wa = (txt) => (od.phone ? `https://wa.me/${toWhatsAppNumber(od.phone)}?text=${encodeURIComponent(txt)}` : null);
+          if (od.custom_state === 'suggested') return (
+            <div className="rounded-2xl p-4 mb-4" style={{ background: '#FFF4E5' }}>
+              <div className="text-[15px] font-bold" style={{ color: '#B54708' }}>Please choose</div>
+              <div className="text-[13.5px] mt-1 leading-relaxed">{od.business} can't do {wanted || 'your choice'} right now, but has:{od.custom_note ? ` ${od.custom_note}` : ''}</div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {(od.custom_suggest || []).map((v) => { const href = wa(`Hello ${od.business}, for my order I'd like ${v}, please. (${od.customer_name})`); return href
+                  ? <a key={v} href={href} target="_blank" rel="noopener noreferrer" className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: S.ink, color: '#fff' }}>I'd like {v}</a>
+                  : <span key={v} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold" style={{ background: '#fff' }}>{v}</span>; })}
+              </div>
+              <div className="text-[12.5px] mt-2.5" style={{ color: S.muted }}>{od.phone ? 'Tapping one sends your choice on WhatsApp.' : `Tell ${od.business} which one you'd like.`}</div>
+            </div>
+          );
+          if (od.custom_state === 'confirmed') return (
+            <div className="rounded-2xl p-4 mb-4" style={{ background: '#DFF6EE' }}>
+              <div className="text-[15px] font-bold" style={{ color: '#0E7A5F' }}>{own.length ? `${wanted}: confirmed` : 'Your choice is confirmed'}</div>
+              <div className="text-[13.5px] mt-1 leading-relaxed">{od.business} can make it for you.{od.custom_note ? ` ${/^ready|^it|^we/i.test(od.custom_note) ? od.custom_note : `Ready in about ${od.custom_note.replace(/^(about|in)\s+/i, '')}`}${/[.!?]$/.test(od.custom_note) ? '' : '.'}` : ''}</div>
+            </div>
+          );
+          return (
+            <div className="rounded-2xl p-4 mb-4" style={{ background: S.tile }}>
+              <div className="text-[15px] font-bold">Checking your choice</div>
+              <div className="text-[13.5px] mt-1 leading-relaxed">{od.business} is checking they can make {wanted || 'it'} for you, and will confirm here and on WhatsApp.</div>
+            </div>
+          );
+        })()}
 
         <div className="rounded-2xl p-4 mb-4 text-[14px]" style={{ background: S.tile }}>
           {items.map((it, i) => row(`${it.description}${Number(it.quantity) > 1 ? ` × ${it.quantity}` : ''}`, fmt(Number(it.quantity) * Number(it.unitPrice)), false, S.ink))}
