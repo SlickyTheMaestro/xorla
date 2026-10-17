@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -283,7 +283,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule', 'orderModes'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule', 'orderModes', 'waBookingConfirm'];
 const SETTINGS_DESCRIPTIONS = {
   plan: 'What your plan includes, and renewing it.',
   notifications: 'Alerts on this device for new orders, requests and staff.',
@@ -731,7 +731,25 @@ const OPTION_KIND_SUGGESTIONS = ['Colour', 'Size', 'Length', 'Material', 'Style'
 function cleanOptions(raw) {
   if (!Array.isArray(raw)) return [];
   return raw.filter((g) => g && String(g.name || '').trim() && Array.isArray(g.values) && g.values.some((v) => String(v).trim()))
-    .slice(0, 2).map((g) => ({ name: String(g.name).trim(), values: g.values.map((v) => String(v).trim()).filter(Boolean) }));
+    .slice(0, 2).map((g) => {
+      const values = g.values.map((v) => String(v).trim()).filter(Boolean);
+      const prices = Object.fromEntries(Object.entries(g.prices && typeof g.prices === 'object' ? g.prices : {}).map(([k, a]) => [k, Math.round(Number(a) || 0)]).filter(([k, a]) => a && values.includes(k)));
+      return { name: String(g.name).trim(), values, ...(Object.keys(prices).length ? { prices } : {}) };
+    });
+}
+// The extra price of a choice: "Gold / XXL" → Gold's extra + XXL's extra (an own choice like "Emerald / XXL" counts what's listed)
+function optionAddon(options, variant) {
+  const o = cleanOptions(options); if (!o.length || !variant) return 0;
+  const parts = String(variant).split(' / ');
+  return o.reduce((a, g, i) => a + (Number((g.prices || {})[String(parts[i] || '').trim()]) || 0), 0);
+}
+// Cheapest and dearest a product can be with its extras
+function optionPriceRange(p, base) {
+  const o = cleanOptions(p?.options); const b = Number(base ?? p?.sellingPrice) || 0;
+  if (!o.length || !o.some((g) => g.prices)) return [b, b];
+  const lo = o.reduce((a, g) => a + Math.min(0, ...g.values.map((v) => Number((g.prices || {})[v]) || 0)), 0);
+  const hi = o.reduce((a, g) => a + Math.max(0, ...g.values.map((v) => Number((g.prices || {})[v]) || 0)), 0);
+  return [Math.max(0, b + lo), Math.max(0, b + hi)];
 }
 function optionCombos(options) {
   const o = cleanOptions(options);
@@ -2222,6 +2240,7 @@ function XorlaApp() {
       approveManagerPrices: !!business.approve_manager_prices,
       checkoutTime: String(business.checkout_time || '12:00').slice(0, 5),
       earlyLeaveRule: business.early_leave_rule || 'stayed',
+      waBookingConfirm: business.wa_booking_confirm !== false,
       orderModes: Array.isArray(business.order_modes) ? business.order_modes : null,
       storeSlug: business.store_slug || '',
       closeTime: String(business.close_time || '18:00').slice(0, 5),
@@ -3523,7 +3542,7 @@ function XorlaApp() {
 
   // ---- Colours, sizes and made to order, in the product form ----
   const splitOptionText = (t) => String(t || '').split(/[,\n]/).map((x) => x.trim().replace(/\s*\/\s*/g, '-').slice(0, 30)).filter(Boolean);
-  const formOptionGroups = () => cleanOptions((productForm.options || []).map((g) => ({ name: String(g.name || '').trim().slice(0, 20), values: [...(g.values || []), ...splitOptionText(g.draft)].filter((v, i, a) => a.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i).slice(0, 30) })));
+  const formOptionGroups = () => cleanOptions((productForm.options || []).map((g) => ({ name: String(g.name || '').trim().slice(0, 20), values: [...(g.values || []), ...splitOptionText(g.draft)].filter((v, i, a) => a.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i).slice(0, 30), prices: g.showPrices ? Object.fromEntries(Object.entries(g.prices || {}).map(([k, a]) => [k, Number(parseNumInput(String(a))) || 0])) : {} })));
   const setOptionGroup = (i, patch) => setProductForm((f) => ({ ...f, options: (f.options || []).map((g, j) => (j === i ? { ...g, ...patch } : g)) }));
   const addOptionValues = (i) => setProductForm((f) => ({ ...f, options: (f.options || []).map((g, j) => {
     if (j !== i) return g;
@@ -3564,6 +3583,21 @@ function XorlaApp() {
                   ))}
                 </div>
               )}
+              {(g.values || []).length > 0 && (g.showPrices ? (
+                <div className="rounded-lg p-2.5 space-y-1.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  <div className="flex items-center justify-between gap-2"><span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Extra on the price</span><button type="button" onClick={() => setOptionGroup(i, { showPrices: false, prices: {} })} className="text-[11.5px] font-semibold" style={{ color: C.inkDim }}>Same price for all</button></div>
+                  {(g.values || []).map((v) => (
+                    <div key={v} className="flex items-center gap-2">
+                      <span className="flex-1 min-w-0 truncate text-[12.5px]">{v}</span>
+                      <span className="text-[12px]" style={{ color: C.inkFaint }}>+₦</span>
+                      <input type="text" inputMode="numeric" placeholder="0" value={formatNumInput(String((g.prices || {})[v] ?? ''))} aria-label={`Extra for ${v}`} onChange={(e) => setOptionGroup(i, { prices: { ...(g.prices || {}), [v]: parseNumInput(e.target.value) } })} className="w-24 rounded-lg px-2 py-1.5 text-[12.5px] text-right outline-none cx-mono" style={field} />
+                    </div>
+                  ))}
+                  <div className="text-[11px]" style={{ color: C.inkFaint }}>Leave 0 for the normal price. E.g. XXL +2,000 means XXL sells for {productForm.sellingPrice ? fmt(Number(productForm.sellingPrice) + 2000) : 'your price + ₦2,000'}.</div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setOptionGroup(i, { showPrices: true })} className="text-[12px] font-semibold" style={{ color: C.sage }}>Some {String(g.name || 'of these').toLowerCase()} cost more?</button>
+              ))}
               <div className="flex gap-2">
                 <input type="text" placeholder={/size/i.test(g.name || '') ? 'e.g. S, M, L, XL' : /colou?r/i.test(g.name || '') ? 'e.g. Red, Navy blue, Black' : 'Type one or more, with commas'} value={g.draft || ''}
                   onChange={(e) => setOptionGroup(i, { draft: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOptionValues(i); } }} onBlur={() => String(g.draft || '').includes(',') && addOptionValues(i)}
@@ -3650,7 +3684,7 @@ function XorlaApp() {
         {label && <div className={`${small ? 'text-[9.5px]' : 'text-[10.5px]'} font-semibold mb-1 uppercase tracking-wide`} style={{ color: C.inkFaint }}>{optionWords(product.options)}</div>}
         <BrandSelect value={value || ''} onChange={(e) => onChange(e.target.value)} aria-label={`Choose ${optionWords(product.options)}`} className={`w-full min-w-0 rounded-lg ${small ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-sm'} outline-none`} style={{ ...field, colorScheme: 'dark', ...(countsByOption(product) && !value ? { border: `1.5px solid ${C.copper}` } : {}) }}>
           <option value="">Choose {optionWords(product.options)}…</option>
-          {optionCombos(product.options).map((v) => { const n = counted ? optionAt(product.id, shopId, v) : null; return <option key={v} value={v} disabled={counted && n <= 0}>{v}{counted ? (n > 0 ? ` — ${n} here` : ' — none here') : ''}</option>; })}
+          {optionCombos(product.options).map((v) => { const n = counted ? optionAt(product.id, shopId, v) : null; const ex = optionAddon(product.options, v); return <option key={v} value={v} disabled={counted && n <= 0}>{v}{ex ? ` (${ex > 0 ? '+' : '−'}${fmt(Math.abs(ex))})` : ''}{counted ? (n > 0 ? ` — ${n} here` : ' — none here') : ''}</option>; })}
         </BrandSelect>
       </div>
     );
@@ -3670,7 +3704,7 @@ function XorlaApp() {
       variant,
       quantity: qtyRaw,
       item: qty > 1 ? `${label} ×${qty}` : label,
-      amount: (Number(product.sellingPrice) * qty).toString(),
+      amount: (Math.max(0, Number(product.sellingPrice) + optionAddon(product.options, variant)) * qty).toString(),
       cost: (kindOf(product, settings.businessType) === 'service' ? 0 : Number(product.costPrice) * qty).toString(),
     }));
   };
@@ -3746,6 +3780,7 @@ function XorlaApp() {
       if ('checkoutTime' in patch) bizPatch.checkout_time = patch.checkoutTime;
       if ('earlyLeaveRule' in patch) bizPatch.early_leave_rule = patch.earlyLeaveRule;
       if ('orderModes' in patch) bizPatch.order_modes = patch.orderModes;
+      if ('waBookingConfirm' in patch) bizPatch.wa_booking_confirm = !!patch.waBookingConfirm;
       if ('closeTime' in patch) bizPatch.close_time = patch.closeTime;
       if ('openDays' in patch) bizPatch.open_days = patch.openDays;
       if ('apptCapacity' in patch) bizPatch.appt_capacity = Number(patch.apptCapacity);
@@ -5319,10 +5354,10 @@ function XorlaApp() {
             <button onClick={close} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
           </div>
           <div className="text-[12.5px] leading-relaxed mb-4" style={{ color: C.inkDim }}>Add everything at once instead of one by one. Copy rows straight from Excel, Google Sheets or your phone notes, and paste them below.</div>
-          {!['accommodation', 'rentals'].includes(serviceKind) && (
+          {(
             <div className="grid gap-2 mb-4" style={{ gridTemplateColumns: starterList ? '1fr 1fr' : '1fr' }}>
               <button onClick={() => { setImportOpen(false); openScan(); }} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
-                <Camera size={16} style={{ color: C.copper }} className="shrink-0" /><span className="text-[12.5px] font-semibold leading-tight" style={{ color: C.copper }}>On paper? Snap a photo</span>
+                <Camera size={16} style={{ color: C.copper }} className="shrink-0" /><span className="text-[12.5px] font-semibold leading-tight" style={{ color: C.copper }}>{staysScan ? 'Have a rate card? Upload a photo or PDF' : 'On paper? Snap a photo'}</span>
               </button>
               {starterList && <button onClick={() => { setImportOpen(false); openStarter(); }} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.22)' }}>
                 <Sparkles size={16} style={{ color: C.sage }} className="shrink-0" /><span className="text-[12.5px] font-semibold leading-tight" style={{ color: C.sage }}>Pick from common items</span>
@@ -5816,7 +5851,8 @@ function XorlaApp() {
           const rows = await sbRest('bookings', { accessToken: session.access_token, query: `?select=*&id=eq.${newId}` });
           const nb = rows[0]; if (!nb || !nb.manage_token) return;
           const msg = confirmedMessage(nb, Number(parseNumInput(f.paid)) || 0);
-          offerWhatsApp(nb.customer_phone, msg, 'Booking saved', `Send ${String(nb.customer_name).split(' ')[0]} their confirmation and booking link on WhatsApp? It's their proof of booking. They'll see:\n\n"${msg}"`, () => markLinkSent(nb));
+          const manual = () => offerWhatsApp(nb.customer_phone, msg, 'Booking saved', `Send ${String(nb.customer_name).split(' ')[0]} their confirmation and booking link on WhatsApp? It's their proof of booking. They'll see:\n\n"${msg}"`, () => markLinkSent(nb));
+          if (nb.status === 'confirmed') afterConfirmed(nb.id, nb.customer_phone, manual); else manual();
         } catch (e) { /* the booking is saved either way */ }
       });
   };
@@ -5936,8 +5972,29 @@ function XorlaApp() {
     ].filter(Boolean);
     return lines.join('\n\n');
   };
+  // Automatic WhatsApp confirmation: Xorla sends it the moment the booking is confirmed. If it went out, just say so;
+  // if not (switched off, free plan, not connected, wrong number), offer the usual WhatsApp message instead.
+  const afterConfirmed = (bookingId, phone, fallback) => {
+    if (!phone || settings.waBookingConfirm === false || (planKnown && effPlan === 'free')) { fallback(); return; }
+    setTimeout(async () => {
+      try {
+        const rows = await sbRest('bookings', { accessToken: session.access_token, query: `?select=*&id=eq.${bookingId}` });
+        const nb = rows[0];
+        if (nb) setBookingsAll((prev) => prev.map((x) => (x.id === nb.id ? { ...x, ...nb } : x)));
+        if (nb && nb.wa_confirm_status === 'sent') { showAiNotice(`Confirmation sent to ${String(nb.customer_name).split(' ')[0]} on WhatsApp.`); return; }
+      } catch (e) { /* fall back below */ }
+      fallback();
+    }, 3500);
+  };
+  const resendConfirmation = async (b) => {
+    try {
+      await sbRpc('resend_booking_confirmation', session.access_token, { p_booking: b.id });
+      setBookingsAll((prev) => prev.map((x) => (x.id === b.id ? { ...x, wa_confirm_status: 'sending' } : x)));
+      afterConfirmed(b.id, b.customer_phone, () => shareGuestLink(b));
+    } catch (e) { brandAlert(e.message); }
+  };
   const quickConfirm = (b) => runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: b.id, p_action: 'confirm' }),
-    () => { const msg = confirmedMessage(b, 0); offerWhatsApp(b.customer_phone, msg, 'Booking confirmed', `Let ${b.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`, guestLinkOf(b) ? () => markLinkSent(b) : null); });
+    () => afterConfirmed(b.id, b.customer_phone, () => { const msg = confirmedMessage(b, 0); offerWhatsApp(b.customer_phone, msg, 'Booking confirmed', `Let ${b.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`, guestLinkOf(b) ? () => markLinkSent(b) : null); }));
   const shareGuestLink = async (b) => {
     const link = guestLinkOf(b); if (!link) return;
     const first = String(b.customer_name || '').split(' ')[0] || 'there';
@@ -5993,7 +6050,13 @@ function XorlaApp() {
               </span>}
               {b.manage_token && ['requested', 'confirmed'].includes(b.status) && <button type="button" onClick={() => shareGuestLink(b)} aria-label={`Send ${b.customer_name} their booking link`} title="Booking link" className={`${b.customer_phone ? '' : 'ml-auto '}w-8 h-8 shrink-0 rounded-lg flex items-center justify-center`} style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Link2 size={14} /></button>}
             </div>
-            {b.status === 'confirmed' && b.manage_token && b.customer_phone && !b.link_sent_at && (
+            {b.status === 'confirmed' && b.customer_phone && b.wa_confirm_status === 'sent' && (
+              <div className="mt-2 text-[11.5px] flex items-center gap-1.5" style={{ color: C.sage }}><Check size={13} /> Confirmation sent on WhatsApp{b.wa_confirm_at ? ` · ${new Date(b.wa_confirm_at).toLocaleString('en-GB', { ...LAGOS_TIME, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}` : ''}</div>
+            )}
+            {b.status === 'confirmed' && b.customer_phone && b.wa_confirm_status === 'failed' && (
+              <div className="mt-2 text-[11.5px] flex items-center gap-1.5 flex-wrap" style={{ color: C.rust }}>The automatic WhatsApp didn't go through{b.wa_confirm_error ? ` (${String(b.wa_confirm_error).slice(0, 60)})` : ''}. <button type="button" onClick={() => resendConfirmation(b)} className="font-semibold underline underline-offset-2">Try again</button></div>
+            )}
+            {b.status === 'confirmed' && b.manage_token && b.customer_phone && !b.link_sent_at && b.wa_confirm_status !== 'sent' && (
               <button type="button" onClick={() => shareGuestLink(b)} className="mt-2.5 w-full rounded-xl px-3 py-2.5 flex items-center gap-2.5 text-left" style={{ background: 'rgba(37,211,102,0.10)', border: '1px solid rgba(37,211,102,0.35)' }}>
                 <MessageCircle size={16} style={{ color: '#25D366' }} className="shrink-0" />
                 <span className="flex-1 min-w-0 text-[12.5px] leading-snug"><strong style={{ color: C.ink }}>Send {String(b.customer_name).split(' ')[0]} their booking link</strong><span className="block" style={{ color: C.inkDim }}>Their proof of booking, and where they can pay or cancel</span></span>
@@ -7529,7 +7592,7 @@ function XorlaApp() {
                             {saleProducts.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                           </BrandSelect>
                         )}
-                        {(() => { const cp = it.productId && products.find((p) => p.id === it.productId); return cp && hasOptions(cp) ? renderOptionPick(cp, it.variant, (v) => { const items = [...cartItems]; items[idx] = { ...items[idx], variant: v, description: v ? `${cp.name} (${v})` : cp.name }; setCartItems(items); }, targetShopId, { small: true, label: false }) : null; })()}
+                        {(() => { const cp = it.productId && products.find((p) => p.id === it.productId); return cp && hasOptions(cp) ? renderOptionPick(cp, it.variant, (v) => { const items = [...cartItems]; items[idx] = { ...items[idx], variant: v, description: v ? `${cp.name} (${v})` : cp.name, unitPrice: String(Math.max(0, Number(cp.sellingPrice) + optionAddon(cp.options, v))) }; setCartItems(items); }, targetShopId, { small: true, label: false }) : null; })()}
                         <div className="flex gap-1.5 items-center">
                           <input type="text" placeholder="Item" value={it.description} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], description: e.target.value }; setCartItems(items); }} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={field} />
                           <input type="number" min="1" placeholder="Qty" value={it.quantity} onChange={(e) => { const items = [...cartItems]; items[idx] = { ...items[idx], quantity: e.target.value }; setCartItems(items); }} className="w-14 rounded-lg px-2 py-2 text-[12.5px] text-center outline-none cx-mono" style={field} />
@@ -8008,11 +8071,12 @@ function XorlaApp() {
   const starterList = settings.businessType === 'products' ? STARTER_LISTS._products : (['accommodation', 'rentals'].includes(serviceKind) ? null : STARTER_LISTS[serviceKind] || null);
   const itemKindFor = (k) => (settings.businessType === 'products' ? 'product' : settings.businessType === 'services' ? 'service' : (k === 'service' ? 'service' : 'product'));
   const haveNames = new Set(productsAll.map((p) => p.name.trim().toLowerCase()));
+  const staysScan = ['accommodation', 'rentals'].includes(serviceKind);
   const openScan = () => setListTool({ source: 'photo', stage: 'pick', files: [], items: [], error: '', busy: false });
   const openStarter = () => starterList && setListTool({ source: 'starter', stage: 'review', files: [], error: '', busy: false,
     items: starterList.items.map(([name, duration, category]) => ({ name, price: '', kind: itemKindFor(settings.businessType === 'products' ? 'product' : 'service'), duration, category, unsure: false, note: '', on: false, exists: haveNames.has(name.toLowerCase()) })).sort((a, b) => Number(a.exists) - Number(b.exists)) });
   const addScanFiles = (e) => {
-    const picked = [...(e.target.files || [])].filter((f) => /^image\//.test(f.type));
+    const picked = [...(e.target.files || [])].filter((f) => /^image\//.test(f.type) || f.type === 'application/pdf');
     e.target.value = '';
     setListTool((t) => t && { ...t, error: '', files: [...t.files, ...picked.map((file) => ({ file, url: URL.createObjectURL(file) }))].slice(0, 3) });
   };
@@ -8021,11 +8085,15 @@ function XorlaApp() {
     setListTool({ ...t, stage: 'reading', error: '' });
     try {
       const what = settings.businessType === 'products' ? 'a shop' : (SERVICE_KINDS[serviceKind]?.hint || 'a service business').toLowerCase();
-      const res = await scanPriceListPhotos(t.files.map((x) => x.file), { type: settings.businessType, what });
+      const res = await scanPriceListPhotos(t.files.map((x) => x.file), { type: settings.businessType, what: staysScan ? (serviceKind === 'accommodation' ? 'a hotel' : 'a rentals business') : what, ...(staysScan ? { stays: serviceKind } : {}) });
       const items = (res.items || []).map((it) => {
         const exists = haveNames.has(it.name.trim().toLowerCase());
-        return { name: it.name, price: it.price > 0 ? String(it.price) : '', kind: itemKindFor(it.kind), duration: cleanDuration(it.duration), category: it.category || '', unsure: !!it.unsure, note: it.note || '', exists, on: !exists && it.price > 0 };
+        const group = staysScan ? (['room', 'hall'].includes(it.group) ? it.group : 'extra') : null;
+        return { name: it.name, price: it.price > 0 ? String(it.price) : '', kind: staysScan ? 'service' : itemKindFor(it.kind), duration: cleanDuration(it.duration), category: it.category || '', unsure: !!it.unsure, note: it.note || '', exists, on: !exists && it.price > 0,
+          ...(staysScan ? { group, units: String(it.rooms > 0 ? it.rooms : 1), hourPrice: it.hour_price > 0 ? String(it.hour_price) : '' } : {}) };
       });
+      // Rooms first, then halls, then extras
+      if (staysScan) items.sort((a, b) => ['room', 'hall', 'extra'].indexOf(a.group) - ['room', 'hall', 'extra'].indexOf(b.group));
       items.sort((a, b) => Number(a.exists) - Number(b.exists));
       if (!res.readable || !items.length) { setListTool((x) => x && { ...x, stage: 'pick', error: "Oga couldn't find prices in that photo. Try again closer up, in good light, with the whole list in the frame." }); return; }
       setListTool((x) => x && { ...x, stage: 'review', items });
@@ -8047,8 +8115,15 @@ function XorlaApp() {
       for (let i = 0; i < list.length; i += 100) {
         const rows = await sbRest('products', { method: 'POST', accessToken: session.access_token, body: list.slice(i, i + 100).map((it) => {
           const svc = it.kind === 'service';
-          return { business_id: settings.businessId, name: it.name.trim().slice(0, 80), selling_price: Number(parseNumInput(it.price)), cost_price: 0, track_stock: false, low_stock_threshold: 5,
+          const base = { business_id: settings.businessId, name: it.name.trim().slice(0, 80), selling_price: Number(parseNumInput(it.price)), cost_price: 0, track_stock: false, low_stock_threshold: 5,
             category: (it.category || '').trim().slice(0, 40), kind: svc ? 'service' : 'product', units: 1, price_unit: svc ? unit : 'fixed', duration: svc ? cleanDuration(it.duration) : '', description: '' };
+          // Hotels and rentals: room types are booked by the night (or day), halls by the day, extras sold as they are.
+          // (Every row carries the same fields, as the database needs for adding many at once.)
+          if (staysScan) Object.assign(base, { is_space: false, hour_price: null });
+          if (staysScan && it.group === 'room') return { ...base, kind: 'service', price_unit: serviceKind === 'accommodation' ? 'night' : 'day', units: Math.max(1, Math.min(500, Number(it.units) || 1)), duration: '' };
+          if (staysScan && it.group === 'hall') return { ...base, kind: 'service', price_unit: 'day', is_space: true, hour_price: Number(parseNumInput(it.hourPrice || '')) > 0 ? Number(parseNumInput(it.hourPrice)) : null, category: base.category || 'Halls & spaces', duration: '' };
+          if (staysScan) return { ...base, kind: 'service', price_unit: 'fixed', category: base.category || 'Extras', duration: '' };
+          return base;
         }) });
         created.push(...rows);
       }
@@ -8075,11 +8150,12 @@ function XorlaApp() {
         <div className="w-full sm:max-w-xl rounded-t-[28px] sm:rounded-[28px] flex flex-col max-h-[94vh] xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.lineStrong}` }} onClick={(e) => e.stopPropagation()}>
           <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-3">
             <div>
-              <div className="text-[22px] font-extrabold leading-tight" style={{ fontFamily: HEAD, letterSpacing: '-0.025em' }}>{t.source === 'starter' ? `Pick from common ${T.catalog.toLowerCase()}` : t.stage === 'review' ? `Oga found ${t.items.length} item${t.items.length !== 1 ? 's' : ''}` : 'Snap your price list'}</div>
+              <div className="text-[22px] font-extrabold leading-tight" style={{ fontFamily: HEAD, letterSpacing: '-0.025em' }}>{t.source === 'starter' ? `Pick from common ${T.catalog.toLowerCase()}` : t.stage === 'review' ? (staysScan ? `Oga found ${t.items.filter((x) => x.group === 'room').length} room type${t.items.filter((x) => x.group === 'room').length !== 1 ? 's' : ''}${t.items.some((x) => x.group !== 'room') ? ` and ${t.items.filter((x) => x.group !== 'room').length} more` : ''}` : `Oga found ${t.items.length} item${t.items.length !== 1 ? 's' : ''}`) : staysScan ? 'Upload your rate card' : 'Snap your price list'}</div>
               <div className="text-[13.5px] leading-relaxed mt-1" style={{ color: C.inkDim }}>
                 {t.source === 'starter' ? `${starterList?.title || ''}. Tick what you offer and type your price. Nothing is added until you say so.`
+                  : t.stage === 'review' && staysScan ? `Check each line is the right kind (room type, hall or extra)${serviceKind === 'accommodation' ? ' and how many rooms you have of each' : ''}. You can name the rooms afterwards.${unsureCount ? ` ${unsureCount} marked in amber need a second look.` : ''}`
                   : t.stage === 'review' ? (unsureCount ? `${unsureCount} need${unsureCount === 1 ? 's' : ''} a second look, marked in amber. Fix anything that's wrong, then add.` : 'Check the names and prices, fix anything that is wrong, then add.')
-                  : t.stage === 'reading' ? 'This takes about 20 seconds.' : 'A handwritten list, printed menu or wall board all work. Oga reads it and you check everything before it is added.'}
+                  : t.stage === 'reading' ? 'This takes about 20 seconds.' : staysScan ? 'A photo of your rate card, a screenshot, or a PDF. Oga reads your room types, halls and extras with their prices, and you check everything before it is added.' : 'A handwritten list, printed menu or wall board all work. Oga reads it and you check everything before it is added.'}
               </div>
             </div>
             <button onClick={close} aria-label="Close" className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><X size={17} /></button>
@@ -8092,7 +8168,9 @@ function XorlaApp() {
                   <div className="grid grid-cols-3 gap-2.5">
                     {t.files.map((x, k) => (
                       <div key={x.url} className="relative rounded-2xl overflow-hidden" style={{ aspectRatio: '3 / 4', background: C.surfaceRaised }}>
-                        <img src={x.url} alt={`Photo ${k + 1}`} className="w-full h-full object-cover" />
+                        {x.file?.type === 'application/pdf'
+                          ? <div className="w-full h-full flex flex-col items-center justify-center gap-2 px-2 text-center"><FileText size={30} style={{ color: C.copper }} /><span className="text-[11px] break-all" style={{ color: C.inkDim }}>{x.file.name}</span></div>
+                          : <img src={x.url} alt={`Photo ${k + 1}`} className="w-full h-full object-cover" />}
                         <button onClick={() => setListTool((y) => y && { ...y, files: y.files.filter((_, j) => j !== k) })} aria-label="Remove photo" className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}><X size={14} /></button>
                       </div>
                     ))}
@@ -8101,11 +8179,11 @@ function XorlaApp() {
                 {t.files.length < 3 && (
                   <div className="rounded-3xl p-6 text-center" style={{ background: 'linear-gradient(160deg, rgba(255,176,32,0.10), rgba(255,176,32,0.02))', border: `1.5px dashed rgba(255,176,32,0.35)` }}>
                     <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: C.copper }}><Camera size={24} style={{ color: C.bg }} /></div>
-                    <div className="text-[15px] font-semibold">{t.files.length ? 'Add another page' : 'Take a photo of your list'}</div>
+                    <div className="text-[15px] font-semibold">{t.files.length ? 'Add another page' : staysScan ? 'Your rate card or price list' : 'Take a photo of your list'}</div>
                     <div className="text-[12.5px] mt-1 mb-4" style={{ color: C.inkDim }}>Up to 3 photos for a long list.</div>
                     <div className="grid grid-cols-2 gap-2.5 max-w-sm mx-auto">
                       <label className="h-11 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-2 cursor-pointer" style={{ background: C.copper, color: C.bg }}><Camera size={16} /> Take photo<input type="file" accept="image/*" capture="environment" className="hidden" onChange={addScanFiles} /></label>
-                      <label className="h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2 cursor-pointer" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.lineStrong}`, color: C.ink }}><ImagePlus size={16} /> From gallery<input type="file" accept="image/*" multiple className="hidden" onChange={addScanFiles} /></label>
+                      <label className="h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2 cursor-pointer" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.lineStrong}`, color: C.ink }}><ImagePlus size={16} /> {staysScan ? 'Photo or PDF' : 'From gallery'}<input type="file" accept={staysScan ? 'image/*,application/pdf' : 'image/*'} multiple className="hidden" onChange={addScanFiles} /></label>
                     </div>
                   </div>
                 )}
@@ -8119,7 +8197,7 @@ function XorlaApp() {
             {t.stage === 'reading' && (
               <div className="py-4">
                 <div className="relative mx-auto rounded-3xl overflow-hidden" style={{ width: 'min(260px, 70vw)', aspectRatio: '3 / 4', background: C.surfaceRaised, boxShadow: '0 30px 60px -30px rgba(0,0,0,0.8)' }}>
-                  {t.files[0] && <img src={t.files[0].url} alt="" className="w-full h-full object-cover" style={{ filter: 'saturate(0.6) brightness(0.8)' }} />}
+                  {t.files[0] && (t.files[0].file?.type === 'application/pdf' ? <div className="w-full h-full flex items-center justify-center"><FileText size={56} style={{ color: C.inkFaint }} /></div> : <img src={t.files[0].url} alt="" className="w-full h-full object-cover" style={{ filter: 'saturate(0.6) brightness(0.8)' }} />)}
                   <div className="absolute left-0 right-0 h-16 -translate-y-1/2 pointer-events-none" style={{ animation: 'xorlaScan 2.4s ease-in-out infinite', background: 'linear-gradient(180deg, transparent, rgba(255,176,32,0.35) 48%, rgba(255,200,90,0.9) 50%, rgba(255,176,32,0.35) 52%, transparent)' }} />
                 </div>
                 <div className="text-center mt-6"><div className="text-[16px] font-bold" style={{ fontFamily: HEAD }}>Oga is reading your list…</div><div className="text-[12.5px] mt-1" style={{ color: C.inkFaint }}>Names, prices and sections</div></div>
@@ -8142,11 +8220,29 @@ function XorlaApp() {
                           <input inputMode="decimal" placeholder="Price" value={formatNumInput(it.price)} disabled={it.exists} onChange={(e) => setItem(k, { price: parseNumInput(e.target.value), on: true })} className="w-full rounded-xl pl-7 pr-3 h-10 text-[14px] outline-none tabular-nums" style={{ ...fieldS, ...(it.on && !(Number(parseNumInput(it.price)) > 0) ? { borderColor: C.copper } : {}) }} aria-label="Price" />
                         </div>
                       </div>
-                      {(it.exists || (it.unsure && it.note) || (showDur && it.kind === 'service') || it.category) && (
+                      {staysScan && !it.exists && (
+                        <div className="flex items-center flex-wrap gap-1.5 mt-2 pl-[34px]">
+                          {[['room', serviceKind === 'accommodation' ? 'Room type' : 'Rented by the day'], ['hall', 'Hall'], ['extra', 'Extra']].map(([g, l]) => (
+                            <button key={g} type="button" onClick={() => setItem(k, { group: g })} className="px-2.5 h-7 rounded-full text-[11.5px] font-semibold" style={it.group === g ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>
+                          ))}
+                          <span className="text-[11.5px]" style={{ color: C.inkFaint }}>{it.group === 'room' ? (serviceKind === 'accommodation' ? 'per night' : 'per day') : it.group === 'hall' ? 'per day' : 'each'}</span>
+                          {it.group === 'room' && serviceKind === 'accommodation' && (
+                            <label className="flex items-center gap-1.5 text-[11.5px]" style={{ color: C.inkDim }}>· How many
+                              <input type="number" min="1" max="500" value={it.units || ''} onChange={(e) => setItem(k, { units: e.target.value })} aria-label={`How many ${it.name} rooms`} className="w-14 rounded-lg px-2 h-7 text-[12px] text-center outline-none cx-mono" style={fieldS} />
+                            </label>
+                          )}
+                          {it.group === 'hall' && (
+                            <label className="flex items-center gap-1.5 text-[11.5px]" style={{ color: C.inkDim }}>· Per hour ₦
+                              <input inputMode="decimal" placeholder="optional" value={formatNumInput(it.hourPrice || '')} onChange={(e) => setItem(k, { hourPrice: parseNumInput(e.target.value) })} aria-label={`${it.name} price per hour`} className="w-24 rounded-lg px-2 h-7 text-[12px] outline-none cx-mono" style={fieldS} />
+                            </label>
+                          )}
+                        </div>
+                      )}
+                      {(it.exists || (it.unsure && it.note) || (showDur && it.kind === 'service' && !staysScan) || it.category) && (
                         <div className="flex items-center flex-wrap gap-2 mt-2 pl-[34px]">
                           {it.exists && <span className="text-[11.5px] font-semibold" style={{ color: C.inkFaint }}>Already in your list</span>}
                           {!it.exists && it.unsure && <span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.copperSoft, color: C.copper }}>Check this{it.note ? `: ${it.note}` : ''}</span>}
-                          {!it.exists && showDur && it.kind === 'service' && (
+                          {!it.exists && showDur && it.kind === 'service' && !staysScan && (
                             <BrandSelect value={it.duration || ''} onChange={(e) => setItem(k, { duration: e.target.value })} className="rounded-lg px-2.5 h-8 text-[12px]" style={{ ...fieldS, color: it.duration ? C.ink : C.copper }} aria-label="How long it takes">
                               <option value="">How long it takes</option>
                               {[...new Set([...(it.duration && !SCAN_DURATIONS.includes(it.duration) ? [it.duration] : []), ...SCAN_DURATIONS])].map((d) => <option key={d} value={d}>{d}</option>)}
@@ -8173,7 +8269,7 @@ function XorlaApp() {
             {t.stage === 'review' && (
               <div className="flex gap-2.5">
                 {t.source === 'photo' && <button onClick={() => setListTool({ ...t, stage: 'pick', items: [], error: '' })} disabled={t.busy} className="h-[52px] px-5 rounded-2xl text-[13.5px] font-semibold" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.inkDim }}>Retake</button>}
-                <button onClick={saveListTool} disabled={t.busy || !onCount} className="flex-1 h-[52px] rounded-2xl text-[15px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: t.busy || !onCount ? 0.45 : 1 }}>{t.busy ? 'Adding…' : onCount ? `Add ${onCount} ${onCount === 1 ? T.item : T.catalog.toLowerCase()}` : 'Tick what you offer'}</button>
+                <button onClick={saveListTool} disabled={t.busy || !onCount} className="flex-1 h-[52px] rounded-2xl text-[15px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: t.busy || !onCount ? 0.45 : 1 }}>{t.busy ? 'Adding…' : onCount ? `Add ${onCount} ${staysScan ? (onCount === 1 ? 'item' : 'items') : onCount === 1 ? T.item : T.catalog.toLowerCase()}` : 'Tick what you offer'}</button>
               </div>
             )}
           </div>
@@ -8442,7 +8538,17 @@ function XorlaApp() {
               </div>
             )}
             {isHotel
-              ? tile(BedDouble, [C.copperSoft, C.copper], n ? 'Add another room type' : 'Add a room type', 'Standard, Deluxe, Suite: the price per night and how many you have.', () => pause(() => openCatalogForm('room')))
+              ? (
+                <>
+                  {!n && (
+                    <div className="relative">
+                      {tile(Camera, [C.copper, C.bg], 'Upload your rate card', 'A photo, screenshot or PDF of your room rates. Oga reads the room types, halls and extras, and you check them.', openScan)}
+                      <span className="absolute -top-2 right-4 text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: C.copper, color: C.bg }}>Fastest</span>
+                    </div>
+                  )}
+                  {tile(BedDouble, [C.copperSoft, C.copper], n ? 'Add another room type' : 'Add a room type', 'Standard, Deluxe, Suite: the price per night and how many you have.', () => pause(() => openCatalogForm('room')))}
+                </>
+              )
               : (
                 <>
                   <div className="relative">
@@ -8768,7 +8874,7 @@ function XorlaApp() {
                   { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
                 ])}
                 {!isManager && navGroup('Customers', [
-                  { id: 'automation', Icon: Bell, label: 'Automatic WhatsApp', value: draft.autoReminders || draft.summaryFrequency !== 'off' ? 'On' : 'Off', valueColor: draft.autoReminders || draft.summaryFrequency !== 'off' ? C.sage : undefined },
+                  { id: 'automation', Icon: Bell, label: 'Automatic WhatsApp', value: draft.autoReminders || draft.summaryFrequency !== 'off' || (['accommodation', 'rentals'].includes(serviceKind) && draft.waBookingConfirm !== false) ? 'On' : 'Off', valueColor: draft.autoReminders || draft.summaryFrequency !== 'off' || (['accommodation', 'rentals'].includes(serviceKind) && draft.waBookingConfirm !== false) ? C.sage : undefined },
                   { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
                 ])}
                 {navGroup('Team', [
@@ -9435,12 +9541,23 @@ function XorlaApp() {
                   <span className="mt-1 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: waConnected === null ? C.inkFaint : waConnected ? C.sage : C.copper }} />
                   <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
                     {waConnected === null ? 'Checking connection…' : waConnected
-                      ? <><strong style={{ color: C.ink }}>Connected.</strong> Xorla sends automatic messages every morning at 9am.</>
+                      ? <><strong style={{ color: C.ink }}>Connected.</strong> {['accommodation', 'rentals'].includes(serviceKind) ? 'Booking confirmations go out straight away; reminders and summaries every morning at 9am.' : 'Xorla sends automatic messages every morning at 9am.'}</>
                       : <><strong style={{ color: C.ink }}>Being connected.</strong> Choose your settings now; messages start automatically as soon as Xorla's WhatsApp line is live.</>}
                   </div>
                 </div>
 
                 <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                  {['accommodation', 'rentals'].includes(serviceKind) && (
+                    <button onClick={() => setDraft({ ...draft, waBookingConfirm: draft.waBookingConfirm === false })} role="switch" aria-checked={draft.waBookingConfirm !== false} className="w-full flex items-start gap-3 px-4 py-4 text-left" style={{ borderBottom: `1px solid ${C.line}` }}>
+                      <div className="flex-1">
+                        <div className="text-[14.5px] font-semibold mb-1">Booking confirmations</div>
+                        <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>The moment a booking is confirmed (or booked in at the desk), the guest gets a WhatsApp message with what they booked, the dates, the total and a link to their booking page. Each booking shows whether it was sent.</div>
+                      </div>
+                      <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.waBookingConfirm !== false ? C.sage : C.line }}>
+                        <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: draft.waBookingConfirm !== false ? '24px' : '4px' }} />
+                      </span>
+                    </button>
+                  )}
                   <button onClick={() => setDraft({ ...draft, autoReminders: !draft.autoReminders })} role="switch" aria-checked={draft.autoReminders} className="w-full flex items-start gap-3 px-4 py-4 text-left">
                     <div className="flex-1">
                       <div className="text-[14.5px] font-semibold mb-1">Automatic payment reminders</div>
@@ -9485,7 +9602,7 @@ function XorlaApp() {
                       {waLog.map((m, i) => (
                         <div key={i} className="flex items-center justify-between gap-3 px-4 py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                           <div className="min-w-0">
-                            <div className="text-[13px] font-medium">{m.kind === 'reminder' ? 'Payment reminder' : m.kind === 'summary' ? 'Business summary' : 'Test summary'}</div>
+                            <div className="text-[13px] font-medium">{m.kind === 'reminder' ? 'Payment reminder' : m.kind === 'booking_confirm' ? 'Booking confirmation' : m.kind === 'summary' ? 'Business summary' : 'Test summary'}</div>
                             <div className="text-[11px] truncate" style={{ color: C.inkFaint }}>{formatPhoneDisplay(m.to_phone)} · {new Date(m.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
                           </div>
                           <span className="shrink-0 text-[11px] font-semibold" title={m.error || ''} style={{ color: m.status === 'sent' ? C.sage : C.rust }}>{m.status === 'sent' ? 'Sent' : 'Failed'}</span>
@@ -10457,7 +10574,12 @@ function XorlaApp() {
                       <Building2 size={18} className="shrink-0" style={{ color: C.copper }} /><span><span className="block text-[14px] font-semibold">Add a hall or event space</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>Event centre, conference hall, boardroom: booked by the day or hour</span></span>
                     </button>
                   )}
-                  {isOwnerRole && <button onClick={openImport} className="col-span-2 -mt-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Import a list of extras</button>}
+                  {isOwnerRole && (
+                    <div className="col-span-2 -mt-1 grid grid-cols-2 gap-2">
+                      <button onClick={openScan} className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.copper, border: `1px dashed rgba(255,176,32,0.45)` }}><Camera size={14} /> Upload rate card</button>
+                      <button onClick={openImport} className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Paste a list</button>
+                    </div>
+                  )}
                 </div>
               ) : (
               <button onClick={() => { setEditingProductId(null); setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null, photos: [] }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
@@ -10747,7 +10869,7 @@ function XorlaApp() {
                       {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !p.madeToOrder && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockOpts({}); setRestockCost(''); }, C.sage)}
                         {canRun && allLiveLocations.length > 1 && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
-                        {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: p.isSpace ? 'space' : T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, hourPrice: p.hourPrice == null ? '' : String(p.hourPrice), capacity: p.capacity == null ? '' : String(p.capacity), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null, photos: [p.imageUrl, ...(p.images || [])].filter(Boolean).map((url) => ({ url, preview: url })), options: (p.options || []).map((g) => ({ name: g.name, values: [...g.values], draft: '' })), madeToOrder: !!p.madeToOrder, customChoice: !!p.customChoice, leadTime: p.leadTime || '', countsTouched: false, optionCounts: countsByOption(p) ? Object.fromEntries(optionCombos(p.options).filter((v) => variantStock.some((r) => r.product_id === p.id && r.shop_id === targetShopId && r.variant === v)).map((v) => [v, String(optionAt(p.id, targetShopId, v))])) : {} }); setShowProductForm(true); })}
+                        {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: p.isSpace ? 'space' : T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, hourPrice: p.hourPrice == null ? '' : String(p.hourPrice), capacity: p.capacity == null ? '' : String(p.capacity), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null, photos: [p.imageUrl, ...(p.images || [])].filter(Boolean).map((url) => ({ url, preview: url })), options: (p.options || []).map((g) => ({ name: g.name, values: [...g.values], draft: '', prices: { ...(g.prices || {}) }, showPrices: !!g.prices })), madeToOrder: !!p.madeToOrder, customChoice: !!p.customChoice, leadTime: p.leadTime || '', countsTouched: false, optionCounts: countsByOption(p) ? Object.fromEntries(optionCombos(p.options).filter((v) => variantStock.some((r) => r.product_id === p.id && r.shop_id === targetShopId && r.variant === v)).map((v) => [v, String(optionAt(p.id, targetShopId, v))])) : {} }); setShowProductForm(true); })}
                         {canRun && p.stockQuantity !== null && !isPausedLocation(activeShopId) && pill('Fix count', C.inkDim, () => { setCorrectingId(correctingId === p.id ? null : p.id); setRestockingId(null); setCorrectQty(''); setCorrectOpts({}); setCorrectShopId(activeShopId || mainShopId); })}
                         {isOwnerRole && <button onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} className="ml-auto h-8 w-8 rounded-lg flex items-center justify-center" style={{ color: C.inkFaint, border: `1px solid ${C.line}` }}><Trash2 size={14} /></button>}
                       </>); })()}
@@ -11550,7 +11672,9 @@ function Storefront({ businessCode }) {
     if (variant && product.variantStock) return Math.max(0, Number(product.variantStock[variant]) || 0);
     return product.stockQuantity !== null ? product.stockQuantity : Infinity;
   };
-  const cartTotal = cartList.reduce((a, c) => a + c.product.sellingPrice * c.qty, 0);
+  // A line's price: the product's price here, plus any extra for the colour/size chosen
+  const linePrice = (c) => Math.max(0, Number(c.product.sellingPrice) + optionAddon(c.product.options, c.variant || c.custom));
+  const cartTotal = cartList.reduce((a, c) => a + linePrice(c) * c.qty, 0);
   const cartCount = cartList.reduce((a, c) => a + c.qty, 0);
   const discountOff = discount ? Math.min(cartTotal, Number(discount.amount) || 0) : 0;
   const payable = cartTotal - discountOff;
@@ -11562,7 +11686,7 @@ function Storefront({ businessCode }) {
     if (!cartList.length) return;
     setCodeBusy(true); if (!quiet) setCodeError('');
     try {
-      const r = await sbRpc('check_discount', SB_KEY, { p_business_code: businessCode, p_code: code, p_items: cartList.map((c) => ({ productId: c.product.id, quantity: c.qty })), p_shop_id: business?.shop_id || null, p_phone: customerPhone.trim() || null });
+      const r = await sbRpc('check_discount', SB_KEY, { p_business_code: businessCode, p_code: code, p_items: cartList.map((c) => ({ productId: c.product.id, quantity: c.qty, ...(c.variant ? { variant: c.variant } : {}), ...(c.custom ? { custom: c.custom } : {}) })), p_shop_id: business?.shop_id || null, p_phone: customerPhone.trim() || null });
       if (r && r.error) { setDiscount(null); setCodeError(r.error); }
       else if (r) { setDiscount({ code: r.code, amount: Number(r.amount) || 0, perCustomer: r.per_customer || null }); setCodeError(''); setCodeInput(r.code); }
     } catch (e) { setDiscount(null); setCodeError(e.message || "Couldn't check that code. Try again."); }
@@ -11642,7 +11766,7 @@ function Storefront({ businessCode }) {
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
-        const lines = cartList.map((c) => `• ${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${lineQtyText(c)} — ${fmt(c.product.sellingPrice * c.qty)}`).join('\n');
+        const lines = cartList.map((c) => `• ${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${lineQtyText(c)} — ${fmt(linePrice(c) * c.qty)}`).join('\n');
         const extra = `${askHow && fulfilMode === 'delivery' ? `\nDeliver to: ${orderArgs.p_address}` : askHow && fulfilMode === 'room' ? `\nRoom: ${guestRoom.trim()}` : askHow && fulfilMode === 'pickup' ? '\nPick-up' : ''}${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
         const shopLabel = storeShops.length > 1 ? ` for ${displayLocationName(currentStoreShop, locationWords(business?.business_type, business?.service_kind))}` : '';
         const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}${discountOff ? `\n\nSubtotal: ${fmt(cartTotal)}\nDiscount (${discount.code}): ${fmt(-discountOff)}` : ''}\n\nTotal: ${fmt(payable)}${extra}`;
@@ -11985,7 +12109,7 @@ function Storefront({ businessCode }) {
         </button>
         <button type="button" onClick={() => openItem(p)} className={`text-left ${focusRing}`}>
           <div className="text-[14px] font-semibold leading-snug line-clamp-2" style={{ color: isOut ? S.muted : S.ink }}>{p.name}</div>
-          {!svc && <div className="text-[15px] font-bold mt-1" style={{ fontVariantNumeric: 'tabular-nums', color: isOut ? S.muted : S.ink }}>{fmt(p.sellingPrice)}</div>}
+          {!svc && (() => { const [lo, hi] = optionPriceRange(p); return <div className="text-[15px] font-bold mt-1" style={{ fontVariantNumeric: 'tabular-nums', color: isOut ? S.muted : S.ink }}>{lo !== hi ? <><span className="text-[12px] font-medium" style={{ color: S.muted }}>From </span>{fmt(lo)}</> : fmt(p.sellingPrice)}</div>; })()}
           {opts && (
             <div className="flex items-center gap-1.5 mt-1.5 min-w-0">
               {colours && colours.values.some((v) => swatchFor(v))
@@ -12061,8 +12185,12 @@ function Storefront({ businessCode }) {
       : svc ? (p.priceUnit === 'hour' ? 24 : 1) : p.madeToOrder ? Math.max(0, 99 - inCart) : p.stockQuantity !== null ? Math.max(0, p.stockQuantity - inCart) : 99;
     const step = (d) => setViewQty((q) => Math.max(1, Math.min(Math.max(1, max), q + d)));
     const add = () => { if (isOut || max <= 0) return; changeQty(p, Math.min(viewQty, max), variant, custom); closeItem(); };
+    // Price shown: the product's price plus the extras of what's picked so far
+    const pickedAddon = opts.reduce((a, g, i) => a + (i === 0 && otherOn ? 0 : Number((g.prices || {})[viewSel[i]]) || 0), 0);
+    const unitNow = Math.max(0, Number(p.sellingPrice) + pickedAddon);
+    const [loP, hiP] = optionPriceRange(p);
     const pickOption = (gi, v) => { setViewSel((cur) => ({ ...cur, [gi]: cur[gi] === v && !(gi === 0 && otherOn) ? undefined : v })); if (gi === 0) setViewOtherOn(false); setViewQty(1); };
-    const ask = business.owner_phone ? `https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(`Hello ${business.name}, I'm interested in "${p.name}"${variant || custom ? ` (${variant || custom})` : ''} (${fmt(p.sellingPrice)}) on your store.`)}` : null;
+    const ask = business.owner_phone ? `https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(`Hello ${business.name}, I'm interested in "${p.name}"${variant || custom ? ` (${variant || custom})` : ''} (${fmt(unitNow)}) on your store.`)}` : null;
     return (
       <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-6" style={{ background: 'rgba(23,25,26,0.55)' }} onClick={closeItem}>
         <div className="w-full md:max-w-4xl max-h-[94vh] md:max-h-[88vh] overflow-y-auto rounded-t-3xl md:rounded-3xl sf-rise md:grid md:grid-cols-[1.1fr_1fr]" style={{ background: '#fff', color: S.ink }} onClick={(e) => e.stopPropagation()}>
@@ -12091,7 +12219,7 @@ function Storefront({ businessCode }) {
             <div className="hidden md:flex justify-end -mt-2 -mr-2 mb-2"><button onClick={closeItem} aria-label="Close" className={`w-10 h-10 rounded-full flex items-center justify-center ${focusRing}`} style={{ background: S.tile }}><X size={18} /></button></div>
             {p.category && <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: S.muted }}>{p.category}</div>}
             <h2 className="text-[24px] md:text-[28px] font-extrabold leading-tight" style={{ letterSpacing: '-0.02em' }}>{p.name}</h2>
-            <div className="text-[22px] font-bold mt-2" style={{ fontVariantNumeric: 'tabular-nums' }}>{svc ? priceLabel(p) : fmt(p.sellingPrice)}</div>
+            <div className="text-[22px] font-bold mt-2" style={{ fontVariantNumeric: 'tabular-nums' }}>{svc ? priceLabel(p) : loP !== hiP && !resolved && !pickedAddon ? <><span className="text-[15px] font-semibold" style={{ color: S.muted }}>From </span>{fmt(loP)}</> : fmt(unitNow)}</div>
             {!svc && p.madeToOrder && <div className="text-[13px] mt-1.5 font-medium" style={{ color: '#0E7A5F' }}>Made to order{p.leadTime ? ` · ready in about ${p.leadTime.replace(/^(about|in)\s+/i, '')}` : ''}</div>}
             {!svc && !p.madeToOrder && !opts.length && p.stockQuantity !== null && <div className="text-[13px] mt-1.5 font-medium" style={{ color: isOut ? '#B42318' : p.stockQuantity <= 3 ? '#B54708' : '#0E7A5F' }}>{isOut ? 'Sold out at this branch' : p.stockQuantity <= 3 ? `Only ${p.stockQuantity} left` : 'In stock'}</div>}
             {!svc && !p.madeToOrder && opts.length > 0 && counted && (
@@ -12114,6 +12242,7 @@ function Storefront({ businessCode }) {
                         style={{ border: `1.5px solid ${on ? S.ink : S.line}`, background: on ? S.ink : '#fff', color: on ? '#fff' : gone ? S.soldOut : S.ink }}>
                         {sw && <span className="w-4 h-4 rounded-full shrink-0" style={{ background: sw, border: `1px solid ${on ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.15)'}` }} />}
                         <span style={{ textDecoration: gone && !on ? 'line-through' : 'none' }}>{v}</span>
+                        {Number((g.prices || {})[v]) ? <span className="text-[12px] font-medium" style={{ color: on ? 'rgba(255,255,255,0.8)' : S.muted }}>{Number(g.prices[v]) > 0 ? '+' : '−'}{fmt(Math.abs(Number(g.prices[v])))}</span> : null}
                       </button>
                     );
                   })}
@@ -12142,7 +12271,7 @@ function Storefront({ businessCode }) {
                   </div>
                 ) : null}
                 <button onClick={add} disabled={max <= 0} className={`flex-1 h-12 rounded-xl text-[15px] font-semibold flex items-center justify-center gap-2 ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: max <= 0 ? 0.4 : 1 }}>
-                  {missing ? (missing === opts[0] && otherOn ? `Type your ${missing.name.toLowerCase()}` : `Choose ${missing.name.toLowerCase()}`) : max <= 0 ? (svc ? 'Already in your request' : lineLeft === 0 && !custom ? 'Sold out — choose another' : 'All in your order') : <><ShoppingBag size={17} /> {svc ? 'Add to request' : `Add to order · ${fmt(p.sellingPrice * (svc && p.priceUnit !== 'hour' ? 1 : viewQty))}`}</>}
+                  {missing ? (missing === opts[0] && otherOn ? `Type your ${missing.name.toLowerCase()}` : `Choose ${missing.name.toLowerCase()}`) : max <= 0 ? (svc ? 'Already in your request' : lineLeft === 0 && !custom ? 'Sold out — choose another' : 'All in your order') : <><ShoppingBag size={17} /> {svc ? 'Add to request' : `Add to order · ${fmt(unitNow * (svc && p.priceUnit !== 'hour' ? 1 : viewQty))}`}</>}
                 </button>
               </div>
             )}
@@ -12196,7 +12325,7 @@ function Storefront({ businessCode }) {
                 <div className="flex-1 min-w-0">
                   <div className="text-[13.5px] font-semibold truncate">{c.product.name}</div>
                   {lineLabel(c) && <div className="text-[12.5px] truncate" style={{ color: S.ink }}>{lineLabel(c)}</div>}
-                  <div className="text-[12.5px]" style={{ color: S.muted, fontVariantNumeric: 'tabular-nums' }}>{storeKind(c.product) === 'service' ? (c.product.priceUnit === 'hour' ? `${c.qty} hr${c.qty !== 1 ? 's' : ''} × ${fmt(c.product.sellingPrice)}` : priceLabel(c.product)) : `${c.qty} × ${fmt(c.product.sellingPrice)}`}</div>
+                  <div className="text-[12.5px]" style={{ color: S.muted, fontVariantNumeric: 'tabular-nums' }}>{storeKind(c.product) === 'service' ? (c.product.priceUnit === 'hour' ? `${c.qty} hr${c.qty !== 1 ? 's' : ''} × ${fmt(c.product.sellingPrice)}` : priceLabel(c.product)) : `${c.qty} × ${fmt(linePrice(c))}`}</div>
                 </div>
                 <div className="flex items-center gap-1">
                   <button onClick={() => changeQty(c.product, -1, c.variant, c.custom)} aria-label={`Remove one ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile }}>−</button>
@@ -14775,9 +14904,11 @@ async function scanPriceListPhotos(files, context) {
   if (!AI_ACCESS_TOKEN) throw new Error('Please log in again to use Oga.');
   const images = [];
   for (const f of files.slice(0, 3)) {
-    const blob = await resizeImageToBlob(f, 1500, 0.82);
+    const pdf = f.type === 'application/pdf';
+    if (pdf && f.size > 5 * 1024 * 1024) throw new Error('That PDF is too large (over 5 MB). Try a photo or screenshot of the price page instead.');
+    const blob = pdf ? f : await resizeImageToBlob(f, 1500, 0.82);
     const data = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(',')[1] || ''); r.onerror = reject; r.readAsDataURL(blob); });
-    images.push({ media_type: 'image/jpeg', data });
+    images.push({ media_type: pdf ? 'application/pdf' : 'image/jpeg', data });
   }
   let response;
   try {
