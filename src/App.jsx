@@ -14258,7 +14258,7 @@ function CacAdmin({ call, token }) {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
             {[['cac_fee', 'CAC + agent fee (₦)'], ['service_fee', 'Xorla charge (₦)']].map(([k, l]) => (
               <label key={k} className="text-[11.5px]" style={{ color: C.inkFaint }}>{l}
-                <input defaultValue={st[k]} inputMode="numeric" onBlur={(e) => Number(e.target.value) !== Number(st[k]) && saveSettings({ [k]: Number(String(e.target.value).replace(/[^0-9.]/g, '')) || 0 })} className="w-full mt-1 rounded-lg px-3 py-2 text-[13px] outline-none cx-mono" style={field} />
+                <input defaultValue={formatNumInput(st[k])} inputMode="numeric" placeholder="0" onInput={(e) => { e.target.value = formatNumInput(String(e.target.value).replace(/[^0-9]/g, '')); }} onBlur={(e) => { const v = Number(parseNumInput(e.target.value)) || 0; if (v !== Number(st[k])) saveSettings({ [k]: v }); }} className="w-full mt-1 rounded-lg px-3 py-2 text-[13px] outline-none cx-mono" style={field} />
               </label>
             ))}
             <label className="text-[11.5px] col-span-2" style={{ color: C.inkFaint }}>How long it takes
