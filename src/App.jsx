@@ -1884,6 +1884,8 @@ function XorlaApp() {
   const [pendingServiceKind, setPendingServiceKind] = useState(null);
   const toggleSection = (id) => setOpenSections((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [previousTab, setPreviousTab] = useState('overview');
+  const [cacHome, setCacHome] = useState(null);   // the owner's business-name registration, for the notice on Overview and the sidebar
+  const [cacHidden, setCacHidden] = useState(false);
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [savingSale, setSavingSale] = useState(false);
@@ -2410,6 +2412,47 @@ function XorlaApp() {
       await sbRest(`shops?id=eq.${loc.id}`, { method: 'PATCH', accessToken: session.access_token, body: { archived: false } });
       setShops((prev) => prev.map((s) => (s.id === loc.id ? { ...s, archived: false } : s)));
     } catch (e) { if (isLocationLimitError(e)) openLocationLimit(loc); else brandAlert(e.message); }
+  };
+  // Business-name registration: shown as a notice until it's done (or the owner hides it)
+  useEffect(() => {
+    if (!session?.access_token || settings.role !== 'owner' || !settings.businessId) return;
+    try { setCacHidden(localStorage.getItem(`xorla:cac-promo-hidden:${settings.businessId}`) === '1'); } catch (e) {}
+    if (tab === 'settings') return;
+    sbRest('cac_requests', { accessToken: session.access_token, query: '?select=status,name_1,bn_number&order=created_at.desc&limit=1' })
+      .then((rows) => setCacHome(rows && rows[0] ? rows[0] : { status: 'none' })).catch(() => setCacHome(null));
+  }, [session?.access_token, settings.role, settings.businessId, tab === 'settings']);
+  const openCac = () => { setDraft({ ...settings }); setPreviousTab(tab === 'settings' ? 'overview' : tab); setSettingsPage('cac'); setTab('settings'); };
+  const hideCacPromo = (e) => { e?.stopPropagation?.(); setCacHidden(true); try { localStorage.setItem(`xorla:cac-promo-hidden:${settings.businessId}`, '1'); } catch (er) {} };
+  const renderCacPromo = (where) => {
+    if (settings.role !== 'owner' || !cacHome) return null;
+    const st = cacHome.status;
+    if (['registered', 'rejected'].includes(st)) return null;
+    const going = ['submitted', 'paid', 'filed', 'query'].includes(st);
+    if (!going && cacHidden) return null;
+    const words = { draft: ['Finish your registration', 'Your details are saved. Pick up where you stopped.', 'Continue'], submitted: ['Registration: pay to start', `${cacHome.name_1} is ready to send to CAC.`, 'Open'], paid: ['Registration: being checked', `${cacHome.name_1} is with Xorla's team.`, 'See progress'], filed: ['Registration: with CAC', `${cacHome.name_1} has been filed.`, 'See progress'], query: ['Registration needs a fix', 'Tap to see what to change.', 'Fix it'] }[st]
+      || ['Make your business official', 'Register your business name with CAC, right here in Xorla.', 'Register now'];
+    const tone = st === 'query' ? C.rust : C.sage;
+    if (where === 'side') return (
+      <div className="relative rounded-2xl p-4 mb-6 overflow-hidden" style={{ background: 'linear-gradient(150deg, rgba(31,217,196,0.14), rgba(31,217,196,0.04))', border: '1px solid rgba(31,217,196,0.22)' }}>
+        <span aria-hidden className="absolute -right-5 -bottom-6 opacity-[0.12]"><ShieldCheck size={84} style={{ color: tone }} /></span>
+        {!going && <button onClick={hideCacPromo} aria-label="Hide" className="absolute top-2.5 right-2.5 w-6 h-6 rounded-full flex items-center justify-center" style={{ color: C.inkFaint }}><X size={13} /></button>}
+        <ShieldCheck size={16} style={{ color: tone }} className="mb-2" />
+        <div className="relative text-[12.5px] font-semibold mb-1 pr-4">{words[0]}</div>
+        <div className="relative text-[11px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{words[1]}</div>
+        <button onClick={openCac} className="relative w-full rounded-lg py-2 text-[11.5px] font-semibold" style={{ background: tone, color: C.bg }}>{words[2]}</button>
+      </div>
+    );
+    return (
+      <div role="button" tabIndex={0} onClick={openCac} onKeyDown={(e) => e.key === 'Enter' && openCac()} className="lg:hidden relative w-full flex items-center gap-3 rounded-2xl p-4 mb-5 xorla-fade-up text-left cursor-pointer overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(31,217,196,0.16), rgba(31,217,196,0.04))', border: `1px solid ${st === 'query' ? 'rgba(226,98,75,0.4)' : 'rgba(31,217,196,0.25)'}` }}>
+        <span className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: tone }}><ShieldCheck size={20} style={{ color: C.bg }} /></span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[14px] font-semibold cx-display">{words[0]}</span>
+          <span className="block text-[12px] leading-snug mt-0.5" style={{ color: C.inkDim }}>{words[1]}</span>
+        </span>
+        {going ? <ChevronRight size={18} style={{ color: tone }} className="shrink-0" />
+          : <button onClick={hideCacPromo} aria-label="Hide this" className="shrink-0 w-8 h-8 -mr-1 rounded-full flex items-center justify-center" style={{ color: C.inkFaint }}><X size={15} /></button>}
+      </div>
+    );
   };
   // Talks to the billing backend. Defined early: the after-payment check runs even while the PIN lock screen is showing.
   const callBilling = async (action, extra = {}) => {
@@ -8951,7 +8994,7 @@ function XorlaApp() {
       <div className="min-h-screen cx-body lg:flex lg:h-screen lg:overflow-hidden" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
         <aside className="hidden lg:flex flex-col w-[380px] xl:w-[400px] shrink-0 h-screen overflow-y-auto" style={{ background: 'linear-gradient(180deg, #0D2622 0%, #091C19 100%)', borderRight: `1px solid ${C.line}` }}>
-          <div className="px-5 pt-5 pb-4 flex items-center justify-between">
+          <div className="sticky top-0 z-10 px-5 pt-5 pb-4 flex items-center justify-between" style={{ background: '#0D2622', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
             <button onClick={leaveSettings} className="flex items-center gap-1.5 text-[13px] font-semibold px-2.5 py-1.5 -ml-2.5 rounded-lg hover:bg-white/[0.04]" style={{ color: C.inkDim }}><ChevronLeft size={17} /> Back to Xorla</button>
             <XorlaMark size={22} />
           </div>
@@ -9890,12 +9933,13 @@ function XorlaApp() {
           ))}
         </nav>
 
-        <div className="rounded-2xl p-4 mb-6" style={{ background: C.copperSoft, border: `1px solid rgba(255,176,32,0.18)` }}>
+        {renderCacPromo('side')}
+        {!renderCacPromo('side') && <div className="rounded-2xl p-4 mb-6" style={{ background: C.copperSoft, border: `1px solid rgba(255,176,32,0.18)` }}>
           <Sparkles size={16} style={{ color: C.copper }} className="mb-2" />
           <div className="text-[12.5px] font-semibold mb-1">Let AI chase for you</div>
           <div className="text-[11px] leading-relaxed mb-3" style={{ color: C.inkDim }}>Reminders that sound like you, in the language your customers speak.</div>
           <button onClick={() => setTab('invoices')} className="w-full rounded-lg py-2 text-[11.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Try it</button>
-        </div>
+        </div>}
         </div>
 
         <div className="pt-3 space-y-1 shrink-0" style={{ borderTop: `1px solid ${C.line}` }}>
@@ -9986,6 +10030,7 @@ function XorlaApp() {
           {tab === 'overview' && (
             <>
               {renderChecklist()}
+              {renderCacPromo('mobile')}
               {canRun && pendingRequests.length > 0 && (
                 <button onClick={() => setTab('products')} className="w-full flex items-center justify-between rounded-2xl p-4 mb-5 xorla-fade-up text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
                   <div className="flex items-center gap-3">
@@ -13593,6 +13638,33 @@ const CAC_STATUS = {
   registered: ['Registered', C.sage], rejected: ["Didn't go through", C.rust], cancelled: ['Cancelled', C.inkFaint], draft: ['Not sent yet', C.inkFaint],
 };
 
+// A certificate-style card: a preview while registering, and the real details once registered (the actual certificate is downloaded)
+function CacCertificate({ name, bn, preview = false, compact = false }) {
+  const nm = String(name || '').trim() || 'Your Business Name';
+  return (
+    <div className={`relative rounded-2xl ${compact ? 'p-4' : 'p-5 sm:p-6'} overflow-hidden`} style={{ background: 'linear-gradient(160deg, #FBF6EA 0%, #F3EBD7 100%)', color: '#1F2A26', boxShadow: '0 24px 50px -24px rgba(0,0,0,0.65), inset 0 0 0 1px rgba(120,90,30,0.18)' }}>
+      <div className="absolute inset-2 rounded-xl pointer-events-none" style={{ border: '1.5px solid rgba(150,110,40,0.35)' }} />
+      <div className="absolute inset-[13px] rounded-lg pointer-events-none" style={{ border: '1px solid rgba(150,110,40,0.2)' }} />
+      <div className="relative text-center">
+        <div className="text-[9.5px] font-bold tracking-[0.22em] uppercase" style={{ color: '#8A6A2A' }}>Certificate of registration</div>
+        <div className="text-[10px] tracking-[0.14em] uppercase mt-0.5" style={{ color: '#8A6A2A', opacity: 0.8 }}>Business name</div>
+        <div className={`${compact ? 'text-[19px] mt-3' : 'text-[22px] sm:text-[24px] mt-4'} font-extrabold leading-tight`} style={{ fontFamily: "Georgia, 'Times New Roman', serif", letterSpacing: '-0.01em', overflowWrap: 'anywhere' }}>{nm}</div>
+        <div className="mx-auto mt-3 h-px w-24" style={{ background: 'rgba(150,110,40,0.4)' }} />
+        <div className="mt-3 flex items-center justify-center gap-4">
+          <div className="text-left">
+            <div className="text-[8.5px] font-bold tracking-[0.18em] uppercase" style={{ color: '#8A6A2A' }}>Reg. number</div>
+            <div className="text-[13px] font-bold cx-mono" style={{ color: bn ? '#1F2A26' : 'rgba(31,42,38,0.35)' }}>{bn || 'BN ••• ••••'}</div>
+          </div>
+          <svg width="46" height="46" viewBox="0 0 46 46" aria-hidden className="shrink-0">
+            <circle cx="23" cy="23" r="21" fill="#0F6B5A" /><circle cx="23" cy="23" r="17.5" fill="none" stroke="#F6E7B8" strokeWidth="1" strokeDasharray="2 2" />
+            <path d="M15.5 23.5l5 5 10-11" fill="none" stroke="#F6E7B8" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+      </div>
+      {preview && <div className="relative mt-3 text-center"><span className="text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: 'rgba(15,107,90,0.12)', color: '#0F6B5A' }}>Preview with your name</span></div>}
+    </div>
+  );
+}
 function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEmail, ownerName, callBilling }) {
   const [offer, setOffer] = useState(null);
   const [req, setReq] = useState(undefined);       // undefined loading, null none yet
@@ -13724,10 +13796,16 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
     return (
       <div className="space-y-4">
         <div>
-          <div className="flex gap-1.5">{CAC_STEPS.map((s, i) => <span key={s[0]} className="flex-1 h-1 rounded-full" style={{ background: i < step ? C.sage : i === step ? C.copper : 'rgba(255,255,255,0.08)' }} />)}</div>
-          <div className="text-[12px] mt-2" style={{ color: C.inkFaint }}>Step {step + 1} of {CAC_STEPS.length}: {CAC_STEPS[step][1]}</div>
+          <div className="flex gap-1.5">{CAC_STEPS.map((s, i) => <span key={s[0]} className="flex-1 h-1.5 rounded-full transition-all duration-500" style={{ background: i < step ? C.sage : i === step ? C.copper : 'rgba(255,255,255,0.08)' }} />)}</div>
+          <div className="text-[12px] mt-2 flex items-center justify-between" style={{ color: C.inkFaint }}><span>Step {step + 1} of {CAC_STEPS.length}</span><span className="hidden sm:inline">{CAC_STEPS.map((x) => x[1]).join('  ·  ')}</span></div>
         </div>
-        <div className="rounded-[20px] p-4 space-y-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+        <div className="rounded-[22px] p-4 sm:p-5 space-y-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+          {(() => { const [Ic, t, d] = { names: [Store, 'Your business', 'The name you want, and what the business does.'], place: [MapPin, 'Where it is', 'The address CAC records for the business.'], owner: [Users, 'About you', 'The owner. Must match your ID exactly.'], docs: [Camera, 'Documents', 'Clear photos. They stay private.'], review: [ShieldCheck, 'Check and send', 'Make sure everything is right before it goes to CAC.'] }[id]; return (
+            <div className="flex items-center gap-3 pb-1">
+              <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})` }}><Ic size={19} style={{ color: C.bg }} /></span>
+              <span className="min-w-0"><span className="block text-[17px] font-bold leading-tight">{t}</span><span className="block text-[12px] mt-0.5" style={{ color: C.inkFaint }}>{d}</span></span>
+            </div>
+          ); })()}
           {id === 'names' && (<>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>Business name, first choice</span>
@@ -13885,6 +13963,7 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
     const stages = [['Details sent', !!req.submitted_at], ['Paid', !!req.paid_at], ['Filed with CAC', ['filed', 'registered'].includes(status)], ['Registered', status === 'registered']];
     return (
       <div className="space-y-4">
+        {status === 'registered' && <div className="max-w-md mx-auto w-full pt-1 pb-2"><CacCertificate name={req.registered_name || req.name_1} bn={req.bn_number} /></div>}
         <div className="rounded-[22px] p-5" style={{ background: status === 'registered' ? 'linear-gradient(150deg, #174339, #0F2C27)' : C.surfaceRaised, border: `1px solid ${status === 'registered' ? 'rgba(31,217,196,0.35)' : C.line}` }}>
           <div className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: tone }}>{word}</div>
           <div className="text-[21px] font-extrabold mt-1 leading-tight" style={{ letterSpacing: '-0.02em', overflowWrap: 'anywhere' }}>{status === 'registered' ? (req.registered_name || req.name_1) : req.name_1}</div>
@@ -13940,24 +14019,53 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
   }
 
   // ---- Start ----
+  const stepsHow = [[FileText, 'Fill in', 'About 10 minutes'], [Lock, 'Pay securely', offer.open && price > 0 ? fmt(price) : 'When it opens'], [Send, 'We file it', 'Accredited agent'], [Download, 'Certificate', `Usually ${String(offer.turnaround || '').replace(/ working days?/, ' days')}`]];
+  const needs = [[Store, 'Two name choices'], [ShieldCheck, 'Your NIN'], [Camera, 'Photo of your ID'], [Users, 'Passport photograph'], [Receipt, 'Your signature']];
   return (
-    <div className="space-y-4">
-      <div className="rounded-[22px] p-5 relative overflow-hidden" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 55%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
-        <div className="text-[20px] font-extrabold leading-tight" style={{ letterSpacing: '-0.02em' }}>Make your business official</div>
-        <div className="text-[13.5px] mt-1.5 leading-relaxed" style={{ color: C.inkDim }}>Register your business name with the Corporate Affairs Commission (CAC) without leaving Xorla. An accredited agent files it for you, and you follow every step here.</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4">
+    <div className="space-y-5">
+      <div className="relative rounded-[26px] overflow-hidden" style={{ background: 'radial-gradient(120% 90% at 0% 0%, #1B4A40 0%, #10302A 50%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <span aria-hidden className="absolute -right-16 -top-16 w-64 h-64 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.18), transparent 65%)' }} />
+        <div className="relative p-5 sm:p-7 grid gap-6 sm:grid-cols-[1.15fr_1fr] items-center">
+          <div>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full" style={{ background: 'rgba(31,217,196,0.12)', color: C.sage }}><ShieldCheck size={12} /> CAC registration</span>
+            <div className="text-[25px] sm:text-[28px] font-extrabold leading-[1.1] mt-3" style={{ letterSpacing: '-0.03em' }}>Make your business official</div>
+            <div className="text-[14px] mt-2.5 leading-relaxed" style={{ color: C.inkDim }}>Register your business name with the Corporate Affairs Commission without leaving Xorla. An accredited agent files it, and you follow every step here.</div>
+            {offer.open && price > 0
+              ? <div className="mt-4 flex items-baseline gap-2"><span className="text-[26px] font-extrabold cx-mono" style={{ color: C.copper }}>{fmt(price)}</span><span className="text-[12.5px]" style={{ color: C.inkFaint }}>all in, CAC's fee included</span></div>
+              : <div className="mt-4 inline-flex items-center gap-2 text-[12.5px] font-semibold px-3 py-1.5 rounded-full" style={{ background: C.copperSoft, color: C.copper }}><Clock size={13} /> Opening soon. Fill in now, pay later.</div>}
+          </div>
+          <div className="sm:pl-2" style={{ transform: 'rotate(-2deg)' }}><CacCertificate name={f.name_1 || businessName} preview /></div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        {stepsHow.map(([Ic, a, b], i) => (
+          <div key={a} className="relative rounded-2xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: i === 3 ? C.sage : 'rgba(255,255,255,0.06)' }}><Ic size={17} style={{ color: i === 3 ? C.bg : C.copper }} /></span>
+              <span className="text-[11px] font-bold cx-mono" style={{ color: C.inkFaint }}>0{i + 1}</span>
+            </div>
+            <div className="text-[13.5px] font-semibold">{a}</div>
+            <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{b}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+        <div className="text-[12px] font-semibold uppercase tracking-wide mb-3" style={{ color: C.inkFaint }}>Have these ready</div>
+        <div className="flex flex-wrap gap-2">
+          {needs.map(([Ic, l]) => <span key={l} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-[12.5px] font-medium" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Ic size={14} style={{ color: C.sage }} /> {l}</span>)}
+        </div>
+        <div className="grid sm:grid-cols-3 gap-2 mt-4">
           {[['Open a business bank account', 'in your business name'], ['Look trusted', 'customers and suppliers can check you'], ['Qualify for more', 'loans, grants and contracts ask for it']].map(([a, b]) => (
-            <div key={a} className="rounded-xl px-3 py-2.5" style={{ background: 'rgba(0,0,0,0.18)' }}><div className="text-[12.5px] font-semibold">{a}</div><div className="text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{b}</div></div>
+            <div key={a} className="flex items-start gap-2"><Check size={15} className="shrink-0 mt-0.5" style={{ color: C.sage }} /><span className="text-[12.5px] leading-snug"><strong className="font-semibold">{a}</strong> <span style={{ color: C.inkFaint }}>{b}</span></span></div>
           ))}
         </div>
       </div>
-      <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
-        {[['What you need', 'Two name choices, your NIN, a photo of your ID, a passport photograph and your signature. About 10 minutes.'], ['Cost', offer.open && price > 0 ? `${priceLine}. Paid online by card, transfer or USSD.` : 'Opening soon. Fill in your details now; you only pay when registration opens.'], ['How long', `Usually ${offer.turnaround} after payment.`]].map(([k, v], i) => (
-          <div key={k} className="px-4 py-3.5" style={i ? { borderTop: `1px solid ${C.line}` } : {}}><div className="text-[13.5px] font-semibold">{k}</div><div className="text-[12.5px] mt-0.5 leading-relaxed" style={{ color: C.inkDim }}>{v}</div></div>
-        ))}
-      </div>
-      <button onClick={() => { setStep(0); setError(''); }} className="w-full h-12 rounded-xl text-[14.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>{req ? 'Continue where I stopped' : 'Start registration'}</button>
-      <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>This registers a business name (sole proprietor). For a limited company (Ltd), message Xorla support.</div>
+
+      <button onClick={() => { setStep(0); setError(''); }} className="w-full h-[54px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, boxShadow: '0 12px 28px -14px rgba(255,176,32,0.7)' }}>{req ? 'Continue where I stopped' : 'Start registration'} <ArrowRight size={17} /></button>
+      <div className="flex items-center justify-center gap-1.5 text-[11.5px] text-center" style={{ color: C.inkFaint }}><Lock size={12} /> Your documents are private, seen only by you and Xorla's registration team.</div>
+      <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>This registers a business name (sole owner). For a limited company (Ltd), message Xorla support.</div>
     </div>
   );
 }
