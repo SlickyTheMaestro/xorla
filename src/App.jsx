@@ -7107,6 +7107,8 @@ function XorlaApp() {
     else if (go === 'updates') setHelpOpen({ view: 'updates' });
     else if (go === 'support') setHelpOpen({});
     else if (['sales', 'products', 'settings'].includes(go)) { setSettingsPage(null); setTab(go); }
+    else if (go === 'vault') openVault();
+    else if (go === 'cac') openCac();
   };
   const renderSpotlight = () => spotlight && createPortal(
     <XorlaSpotlight spot={spotlight} canPlan={isOwnerRole} onClose={closeSpotlight} />, document.body
@@ -8101,6 +8103,7 @@ function XorlaApp() {
       { id: 'logo', label: 'Add your logo', why: 'It shows on receipts, invoices, your storefront and posters.', done: !!settings.logoUrl, go: () => openSettingsPage('branding') },
       { id: 'storefront', label: 'Turn on your storefront', why: `A free page where customers see your ${T.catalog.toLowerCase()} and ${actWord} without calling you.`, done: !!settings.storefrontEnabled, go: () => openSettingsPage('storefront') },
       { id: 'history', label: 'Bring in your past sales', why: 'Optional. Selling before Xorla? Add your old records from Excel so your reports show your whole history.', done: steps.includes('history'), go: () => openPastImport({ fromChecklist: true }), optional: true },
+      { id: 'vault', label: 'Keep your important papers safe', why: 'Optional. Save your CAC certificate, TIN and permits in your document vault. Share them in a tap, and get reminded before they expire.', done: (vaultInfo?.count || 0) > 0 || steps.includes('vault'), go: () => openSettingsPage('vault'), optional: true },
       { id: 'team', label: 'Invite your staff', why: 'Optional. Staff record sales on their own phones; you see everything.', done: settings.staffList.length > 0 || steps.includes('team'), go: () => openSettingsPage('team'), optional: true },
     ];
     return items;
@@ -13401,13 +13404,19 @@ const SPOT_TONES = {
   success: { from: '#0B6B4F', to: '#0A2A22', glow: 'rgba(52,230,160,0.55)', accent: '#34E6A0', Icon: Sparkles, eyebrow: 'Good news' },
   update: { from: '#7A4A0C', to: '#0F2B26', glow: 'rgba(255,176,32,0.5)', accent: C.copper, Icon: Gift, eyebrow: 'New in Xorla' },
 };
-const SPOT_CTA = { plan: 'See plans', updates: "See what's new", support: 'Message support', sales: 'Go to sales', products: 'Go to products', settings: 'Open settings' };
+const SPOT_CTA = { plan: 'See plans', updates: "See what's new", support: 'Message support', sales: 'Go to sales', products: 'Go to products', settings: 'Open settings', vault: 'Open my document vault', cac: 'Register my business' };
+// Ready-made announcements the founder can send in one tap (and edit first)
+const ANN_TEMPLATES = [
+  { key: 'vault', label: 'Document vault', title: 'Keep your important papers safe', message: 'Save your CAC certificate, TIN, permits and tenancy in your document vault. Share them with your bank or a supplier in one tap, and Xorla reminds you before anything expires.', tone: 'info', cta: 'vault', audience: 'owners' },
+  { key: 'cac', label: 'Register your business', title: 'Make your business official', message: 'Register your business name with CAC right here in Xorla. Fill it in once, pay securely, and follow every step until your certificate arrives.', tone: 'success', cta: 'cac', audience: 'owners' },
+  { key: 'vault-due', label: 'Renewal reminder', title: 'Is anything about to expire?', message: 'Add the expiry date of your permits, fire certificate or insurance in your document vault, and Xorla will remind you before they run out.', tone: 'info', cta: 'vault', audience: 'owners' },
+];
 const UPDATE_KIND = { new: 'New', improved: 'Improved', fixed: 'Fixed', tip: 'Tip' };
 function XorlaSpotlight({ spot, canPlan = true, onClose, preview = false }) {
   const isAnn = spot.kind === 'ann';
   const it = spot.item || {};
   const tone = SPOT_TONES[isAnn ? (it.tone || 'info') : 'update'] || SPOT_TONES.info;
-  const cta = isAnn ? (it.cta && it.cta !== 'none' && (it.cta !== 'plan' || canPlan) ? it.cta : null) : 'updates';
+  const cta = isAnn ? (it.cta && it.cta !== 'none' && (!['plan', 'cac', 'vault'].includes(it.cta) || canPlan) ? it.cta : null) : 'updates';
   const title = isAnn ? (it.title || (it.tone === 'warning' ? 'Please note' : it.tone === 'success' ? 'Good news' : 'A message from Xorla')) : it.title;
   const body = isAnn ? it.message : it.body;
   const Ic = tone.Icon;
@@ -13532,15 +13541,19 @@ function SupportPublishing({ call }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-4 [&>*]:min-w-0 self-start">
         <div className="rounded-2xl p-4 lg:p-5" style={box} onFocusCapture={() => setPreviewOf('ann')}>
           <div className="flex items-center gap-2 mb-1"><Megaphone size={17} style={{ color: C.copper }} /><div className="text-[15px] font-semibold">Announcement</div></div>
-          <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>For offers, planned maintenance or holidays. It pops up once, then stays as a banner on their home screen until they dismiss it.</div>
+          <div className="text-[12.5px] mb-3" style={{ color: C.inkDim }}>For offers, planned maintenance or holidays. It pops up once, then stays as a banner on their home screen until they dismiss it.</div>
+          <div className="mb-3">
+            <div className="text-[11.5px] font-semibold mb-1.5" style={{ color: C.inkFaint }}>Ready-made: tap to fill in, then edit</div>
+            <div className="flex flex-wrap gap-1.5">{ANN_TEMPLATES.map((t) => <button key={t.key} type="button" onClick={() => setAn({ ...an, title: t.title, message: t.message, tone: t.tone, cta: t.cta, audience: t.audience })} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={an.title === t.title ? { background: C.sageSoft, color: C.sage, border: '1px solid rgba(31,217,196,0.35)' } : { border: `1px dashed ${C.line}`, color: C.inkDim }}>{t.cta === 'vault' ? <Lock size={12} /> : <ShieldCheck size={12} />} {t.label}</button>)}</div>
+          </div>
           <input value={an.title} maxLength={70} onChange={(e) => setAn({ ...an, title: e.target.value })} placeholder="Headline (optional), e.g. Sallah offer" className="w-full rounded-xl px-3.5 py-3 text-[14px] font-semibold outline-none mb-2" style={field} />
           <textarea value={an.message} rows={3} maxLength={280} onChange={(e) => setAn({ ...an, message: e.target.value })} placeholder="e.g. Pay for a year this week and get 2 months free." className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-y mb-1" style={field} />
           <div className="text-right text-[11px]" style={{ color: C.inkFaint }}>{an.message.length}/280</div>
           {lbl('Style')}
           {seg(an.tone, [['info', 'Information'], ['warning', 'Important'], ['success', 'Good news']], (k) => setAn({ ...an, tone: k }))}
           {lbl('Button')}
-          {seg(an.cta, [['none', 'Just "Got it"'], ['plan', 'See plans'], ['updates', "What's new"], ['support', 'Message support'], ['sales', 'Sales'], ['products', 'Products']], (k) => setAn({ ...an, cta: k }))}
-          {an.cta === 'plan' && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Only owners see the plans button; staff just get "Got it".</div>}
+          {seg(an.cta, [['none', 'Just "Got it"'], ['plan', 'See plans'], ['updates', "What's new"], ['support', 'Message support'], ['sales', 'Sales'], ['products', 'Products'], ['vault', 'Document vault'], ['cac', 'Register business']], (k) => setAn({ ...an, cta: k }))}
+          {['plan', 'vault', 'cac'].includes(an.cta) && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Only owners see this button; staff just get "Got it".</div>}
           {lbl('Who sees it')}
           {seg(an.audience, [['all', 'Everyone'], ['owners', 'Owners'], ['free', 'Free plan'], ['trial', 'On trial'], ['paying', 'Paying']], (k) => setAn({ ...an, audience: k }))}
           {reachBox(an.audience)}
@@ -14405,6 +14418,18 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
   }, [docs]);
 
   const uploads = (docs || []).filter((d) => d.source === 'upload').length;
+  // Papers from each registration through Xorla, kept together
+  const regs = Object.values((docs || []).filter((d) => d.source === 'cac' && d.cac_request_id).reduce((m, d) => {
+    const g = m[d.cac_request_id] || (m[d.cac_request_id] = { id: d.cac_request_id, docs: [], name: '', bn: '', forWho: '' });
+    g.docs.push(d);
+    const t = String(d.title || '').split(': ').slice(1).join(': ');
+    const fm = t.match(/^(.*) \(for (.*)\)$/);
+    if (!g.name) g.name = (fm ? fm[1] : t) || 'Business name';
+    if (fm && !g.forWho) g.forWho = fm[2];
+    if (d.kind !== 'tin' && d.number && !g.bn) g.bn = d.number;
+    return m;
+  }, {})).map((g) => ({ ...g, docs: g.docs.sort((a, b) => ['cac_certificate', 'cac_report', 'tin'].indexOf(a.kind) - ['cac_certificate', 'cac_report', 'tin'].indexOf(b.kind)) }));
+  const regIds = new Set(regs.flatMap((g) => g.docs.map((d) => d.id)));
   const freeFull = plan === 'free' && uploads >= 3;
   const due = (docs || []).filter((d) => vaultExpiry(d)?.urgent).sort((a, b) => vaultDaysLeft(a) - vaultDaysLeft(b));
 
@@ -14556,9 +14581,42 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
         </div>
       ) : <div className="rounded-2xl p-6 text-center text-[13px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>Nothing here yet. The owner chooses which papers managers can see.</div>)}
 
+      {/* Business names registered through Xorla: one card each, with its papers inside */}
+      {regs.length > 0 && (
+        <div>
+          <div className="text-[12px] font-semibold uppercase tracking-wide mb-2 px-1" style={{ color: C.inkFaint }}>Registered through Xorla</div>
+          <div className="space-y-2.5">
+            {regs.map((g) => { const on = g.docs.every((d) => picked.includes(d.id)); return (
+              <div key={g.id} className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(150deg, rgba(31,217,196,0.10), rgba(31,217,196,0.02))', border: `1px solid ${picking && on ? C.sage : 'rgba(31,217,196,0.25)'}` }}>
+                <div className="flex items-center gap-3 p-3.5">
+                  {picking ? <button onClick={() => setPicked((p) => (on ? p.filter((x) => !g.docs.some((d) => d.id === x)) : [...new Set([...p, ...g.docs.map((d) => d.id)])]))} className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: on ? C.sage : 'transparent', border: `2px solid ${on ? C.sage : C.inkFaint}` }} aria-label="Choose all">{on && <Check size={13} style={{ color: C.bg }} />}</button> : null}
+                  <span className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><BadgeCheck size={21} style={{ color: C.bg }} /></span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[14.5px] font-bold truncate">{g.name}</span>
+                    <span className="block text-[11.5px] mt-0.5 truncate" style={{ color: C.inkDim }}>{g.bn ? <span className="cx-mono font-semibold" style={{ color: C.sage }}>{g.bn}</span> : 'Business name'}{g.forWho ? ` · for ${g.forWho}` : ''} · {g.docs.length} paper{g.docs.length === 1 ? '' : 's'}</span>
+                  </span>
+                  {isOwner && !picking && <button onClick={() => setShare({ ids: g.docs.map((d) => d.id), days: 7, label: '', link: '' })} className="shrink-0 px-3 py-2 rounded-xl text-[12px] font-bold inline-flex items-center gap-1.5" style={{ background: C.sage, color: C.bg }}><Share2 size={13} /> Share all</button>}
+                </div>
+                <div style={{ borderTop: '1px solid rgba(31,217,196,0.15)' }}>
+                  {g.docs.map((d, i) => { const on1 = picked.includes(d.id); const [kl, Ic] = VAULT_KINDS[d.kind] || VAULT_KINDS.other; return (
+                    <button key={d.id} onClick={() => (picking ? setPicked((p) => (on1 ? p.filter((x) => x !== d.id) : [...p, d.id])) : setOpen(d))} className="w-full text-left flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                      {picking && <span className="w-4 h-4 rounded shrink-0 flex items-center justify-center" style={{ background: on1 ? C.sage : 'transparent', border: `2px solid ${on1 ? C.sage : C.inkFaint}` }}>{on1 && <Check size={10} style={{ color: C.bg }} />}</span>}
+                      <Ic size={16} className="shrink-0" style={{ color: C.sage }} />
+                      <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">{kl}</span>
+                      <span className="shrink-0 text-[11.5px] cx-mono" style={{ color: C.inkFaint }}>{d.kind === 'tin' ? d.number : d.file_path ? (d.file_type === 'pdf' ? 'PDF' : 'Photo') : ''}</span>
+                      {!picking && <ChevronRight size={14} className="shrink-0" style={{ color: C.inkFaint }} />}
+                    </button>
+                  ); })}
+                </div>
+              </div>
+            ); })}
+          </div>
+        </div>
+      )}
+
       {/* The papers, by group */}
       {VAULT_GROUPS.map(([g, title]) => {
-        const list = docs.filter((d) => (VAULT_KINDS[d.kind] || VAULT_KINDS.other)[3] === g);
+        const list = docs.filter((d) => !regIds.has(d.id) && (VAULT_KINDS[d.kind] || VAULT_KINDS.other)[3] === g);
         if (!list.length) return null;
         return (
           <div key={g}>
@@ -14841,7 +14899,7 @@ const CAC_SUGGEST = {
   ],
 };
 const cacAgentLink = (tok) => `${typeof window !== 'undefined' ? window.location.origin : 'https://xorla.vercel.app'}/agent/${tok}`;
-function CacAdmin({ call, token, isFounder = true, initialId = null }) {
+function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts }) {
   const [list, setList] = useState(null);
   const [filter, setFilter] = useState('');
   const [open, setOpen] = useState(null);      // the full request
@@ -14853,6 +14911,22 @@ function CacAdmin({ call, token, isFounder = true, initialId = null }) {
   const loadList = useCallback(async (s = filter) => { try { setList(await call('admin_cac_list', { p_status: s })); } catch (e) { setList([]); } }, [call, filter]);
   useEffect(() => { loadList(filter); }, [filter]);
   useEffect(() => { call('admin_cac_settings', {}).then(setSt).catch(() => {}); if (initialId) show(initialId); }, []);
+  const counts = useCallback(() => { if (onCounts) call('admin_cac_counts', {}).then(onCounts).catch(() => {}); }, [call, onCounts]);
+  // Stay up to date by itself: every 30 seconds while this page is on screen, and when you come back to it
+  const openRef = useRef(null); const actRef = useRef(act);
+  useEffect(() => { openRef.current = open; actRef.current = act; });
+  useEffect(() => {
+    const tick = async () => {
+      if (document.visibilityState !== 'visible') return;
+      loadList(); counts();
+      const o = openRef.current;
+      if (o && !actRef.current.mode && !actRef.current.busy) { try { const r = await call('admin_cac_get', { p_id: o.id }); setOpen((cur) => (cur && cur.id === r.id ? { ...cur, ...r } : cur)); } catch (e) { /* try again next time */ } }
+    };
+    const t = setInterval(tick, 30000);
+    const onVis = () => { if (document.visibilityState === 'visible') tick(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, [loadList, counts]);
   const [emailFor, setEmailFor] = useState(null);   // { subject, body } while choosing how to send the email
   const show = async (id) => {
     try {
@@ -14863,19 +14937,21 @@ function CacAdmin({ call, token, isFounder = true, initialId = null }) {
   const saveSettings = async (patch) => { try { setSt(await call('admin_cac_settings', { p: patch })); } catch (e) { brandAlert(e.message); } };
   // Send the agent their private page for this registration: every detail, the documents, and buttons to post updates
   const [sending, setSending] = useState('');
-  const sendToAgent = async (r, how) => {
+  const sendToAgent = async (r, how, fixed = false) => {
     const win = how === 'whatsapp' ? window.open('', '_blank') : null;   // opened now so the browser doesn't block it
     setSending(how);
     try {
       const tok = await call('admin_cac_agent_link', { p_id: r.id });
       const link = cacAgentLink(tok);
       const hi = `Hello${st?.agent_name ? ` ${st.agent_name.split(' ')[0]}` : ''},`;
-      const body = `${hi}\n\nA new business name registration from Xorla: ${r.name_1}${r.owner_name ? ` (${r.owner_name})` : ''}.\n\nEverything you need is on this page: the details, the ID, passport photograph and signature. You can also tell us when it's filed, if CAC needs a fix, and upload the certificate there when it's approved:\n${link}\n\nThank you.`;
+      const body = fixed
+        ? `${hi}\n\nThe owner has fixed ${r.name_1}${(r.fixed_fields || []).length ? `. What changed: ${r.fixed_fields.join(', ')}` : ''}.\n\nThe updated details are on the same page (changes are marked):\n${link}\n\nPlease file it again and update the page. Thank you.`
+        : `${hi}\n\nA new business name registration from Xorla: ${r.name_1}${r.owner_name ? ` (${r.owner_name})` : ''}.\n\nEverything you need is on this page: the details, the ID, passport photograph and signature. You can also tell us when it's filed, if CAC needs a fix, and upload the certificate there when it's approved:\n${link}\n\nThank you.`;
       if (how === 'whatsapp') { const url = `https://wa.me/${toWhatsAppNumber(st.agent_phone)}?text=${encodeURIComponent(body)}`; if (win) win.location.href = url; else window.open(url, '_blank'); }
       else if (how === 'copy') { try { await navigator.clipboard.writeText(link); } catch (e) { /* older phones */ } setCopied('link'); setTimeout(() => setCopied(false), 2000); }
-      else setEmailFor({ to: st.agent_email, subject: `Business name registration: ${r.name_1}${r.owner_name ? ` (${r.owner_name})` : ''}`, body });
+      else setEmailFor({ to: st.agent_email, subject: `${fixed ? 'Fixed: ' : ''}Business name registration: ${r.name_1}${r.owner_name ? ` (${r.owner_name})` : ''}`, body });
       setOpen((o) => (o && o.id === r.id ? { ...o, sent_to_agent_at: new Date().toISOString(), agent_link: tok } : o));
-      loadList();
+      loadList(); counts();
     } catch (e) { if (win) win.close(); brandAlert(e.message); }
     setSending('');
   };
@@ -14897,7 +14973,7 @@ function CacAdmin({ call, token, isFounder = true, initialId = null }) {
       if (act.mode === 'registered' && act.cert) cert = await cacUpload(token(), r.business_id, act.cert, 'certificate');
       const report = act.mode === 'registered' && act.report ? await cacUpload(token(), r.business_id, act.report, 'status-report') : null;
       await call('admin_cac_update', { p_id: r.id, p_status: act.mode, p_message: act.message, p_bn: act.bn || null, p_registered_name: act.name || null, p_certificate: cert, p_status_report: report, p_tin: act.tin || null });
-      await show(r.id); loadList();
+      await show(r.id); loadList(); counts();
     } catch (e) { setAct((a) => ({ ...a, busy: false, error: e.message })); }
   };
   const chips = [['', 'All'], ['submitted', 'Not paid'], ['paid', 'To check'], ['filed', 'With CAC'], ['query', 'Waiting on owner'], ['registered', 'Registered'], ['rejected', 'Rejected']];
@@ -14940,7 +15016,8 @@ function CacAdmin({ call, token, isFounder = true, initialId = null }) {
           {list.map((r) => { const [w, t] = CAC_STATUS[r.status] || ['', C.inkDim]; return (
             <button key={r.id} onClick={() => show(r.id)} className="w-full text-left rounded-xl px-4 py-3 flex items-center gap-3" style={{ background: C.surface, border: `1px solid ${open?.id === r.id ? C.copper : C.line}` }}>
               <div className="flex-1 min-w-0"><div className="text-[14px] font-semibold truncate">{r.name_1}</div><div className="text-[12px] truncate" style={{ color: C.inkFaint }}>{r.business} · {r.for_other ? `for ${r.owner_name || "someone else"}` : r.owner_name} · {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</div></div>
-              {r.status === 'paid' && !r.sent_to_agent_at && <span className="shrink-0 hidden sm:inline text-[11px] font-semibold" style={{ color: C.copper }}>Not sent to agent</span>}
+              {r.status === 'paid' && !r.sent_to_agent_at && <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: C.bg, background: C.copper }}>New</span>}
+              {r.status === 'paid' && r.sent_to_agent_at && r.fixed_at && new Date(r.fixed_at) > new Date(r.sent_to_agent_at) && <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: C.bg, background: C.copper }}>Fixed</span>}
               <span className="shrink-0 text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ color: t, background: 'rgba(255,255,255,0.05)' }}>{w}</span>
             </button>
           ); })}
@@ -14961,6 +15038,16 @@ function CacAdmin({ call, token, isFounder = true, initialId = null }) {
               </a>
             ))}
           </div>
+          {open.status === 'paid' && open.fixed_at && open.sent_to_agent_at && new Date(open.fixed_at) > new Date(open.sent_to_agent_at) && (
+            <div className="rounded-xl p-3.5" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.35)' }}>
+              <div className="text-[13.5px] font-semibold" style={{ color: C.copper }}>{open.owner_name || 'The owner'} fixed it. Tell the agent.</div>
+              {(open.fixed_fields || []).length > 0 && <div className="text-[12.5px] mt-1" style={{ color: C.ink }}>Changed: {open.fixed_fields.join(', ')}</div>}
+              <div className="flex flex-wrap gap-2 mt-2.5">
+                {st?.agent_phone && <button onClick={() => sendToAgent(open, 'whatsapp', true)} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-bold inline-flex items-center gap-1.5" style={{ background: C.copper, color: C.bg }}><MessageCircle size={14} /> Tell the agent on WhatsApp</button>}
+                {st?.agent_email && <button onClick={() => sendToAgent(open, 'email', true)} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ border: '1px solid rgba(255,176,32,0.4)', color: C.ink }}><Send size={14} /> Email the agent</button>}
+              </div>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {open.paid_at ? (<>
               {st?.agent_phone && <button onClick={() => sendToAgent(open, 'whatsapp')} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ background: C.sage, color: C.bg, opacity: sending ? 0.6 : 1 }}><MessageCircle size={14} /> {sending === 'whatsapp' ? 'Preparing…' : 'WhatsApp the agent'}</button>}
@@ -15082,9 +15169,9 @@ function CacAgentPage({ token }) {
   const [word, tone] = CAC_STATUS[r.status] || [r.status, C.inkDim];
   const date = (x) => (x ? new Date(x + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
   const sections = [
-    ['Business name', [['First choice', r.name_1], ['Second choice', r.name_2]]],
-    ['The business', [['Nature of business', r.nature], ['Type', r.sub_category], ['Description', r.description], ['Date of commencement', date(r.commencement_date)], ['Number of staff', r.staff_size], ['Source of funds', r.fund_source]]],
-    ['Business address', [['State', r.biz_state], ['Local government', r.biz_lga], ['Full address', r.biz_address]]],
+    ['Business name', [['First name choice', r.name_1], ['Second name choice', r.name_2]]],
+    ['The business', [['Nature of business', r.nature], ['Type of business', r.sub_category], ['Description', r.description], ['Date of commencement', date(r.commencement_date)], ['Number of staff', r.staff_size], ['Source of funds', r.fund_source]]],
+    ['Business address', [['State', r.biz_state], ['Local government', r.biz_lga], ['Business address', r.biz_address]]],
     ['Proprietor', [['Full name', r.owner_name], ['Date of birth', date(r.owner_dob)], ['Gender', r.owner_gender], ['Nationality', r.owner_nationality || 'Nigerian'], ['Occupation', r.owner_occupation], ['Phone', r.owner_phone], ['Email', r.owner_email], ['NIN', r.owner_nin], ['Residential address', r.owner_address], ['ID type', r.id_type]]],
   ];
   const closed = ['registered', 'rejected', 'cancelled'].includes(r.status);
@@ -15098,6 +15185,7 @@ function CacAgentPage({ token }) {
         <div className="text-[13px] mt-1.5" style={{ color: C.inkDim }}>Business name registration for {r.owner_name}{v.agent_name ? `. Sent to ${v.agent_name}` : ''}.</div>
         {r.bn_number && <div className="mt-3 inline-flex px-3 py-1.5 rounded-xl text-[14px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}>{r.bn_number}</div>}
         {r.status === 'query' && r.message && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.ink }}><strong style={{ color: C.rust }}>Waiting for the owner to fix:</strong> {r.message}</div>}
+        {r.status === 'paid' && (r.fixed_fields || []).length > 0 && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.copperSoft, color: C.ink, border: '1px solid rgba(255,176,32,0.35)' }}><strong style={{ color: C.copper }}>The owner fixed it{r.fixed_at ? ` on ${new Date(r.fixed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}.</strong> Changed: {r.fixed_fields.join(', ')}. Marked below. Please file it again.</div>}
       </div>
 
       <div className="mt-4">
@@ -15109,7 +15197,7 @@ function CacAgentPage({ token }) {
                 {d[k] ? (d[k].pdf ? <FileText size={26} style={{ color: C.copper }} /> : <img src={d[k].view} alt={l} className="w-full h-full object-cover" />) : <span className="text-[11px]" style={{ color: C.inkFaint }}>Not added</span>}
               </a>
               <div className="px-2.5 py-2">
-                <div className="text-[11.5px] font-semibold truncate">{l}</div>
+                <div className="text-[11.5px] font-semibold truncate" style={{ color: r.status === 'paid' && (r.fixed_fields || []).includes({ id_doc: 'ID', passport_doc: 'Passport photograph', signature_doc: 'Signature' }[k]) ? C.copper : C.ink }}>{l}{r.status === 'paid' && (r.fixed_fields || []).includes({ id_doc: 'ID', passport_doc: 'Passport photograph', signature_doc: 'Signature' }[k]) ? ' · new' : ''}</div>
                 {d[k] && <a href={d[k].download} className="inline-flex items-center gap-1 text-[11.5px] font-semibold mt-0.5" style={{ color: C.copper }}><Download size={12} /> Download</a>}
               </div>
             </div>
@@ -15121,13 +15209,13 @@ function CacAgentPage({ token }) {
         <div key={title} className="mt-4">
           <div className="text-[12px] font-semibold uppercase tracking-wide mb-2 px-1" style={{ color: C.inkFaint }}>{title}</div>
           <div className="rounded-2xl overflow-hidden" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-            {rows.filter(([, val]) => val).map(([k, val], i) => (
-              <div key={k} className="flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
-                <span className="w-32 sm:w-40 shrink-0 text-[12px]" style={{ color: C.inkFaint }}>{k}</span>
+            {rows.filter(([, val]) => val).map(([k, val], i) => { const changed = r.status === 'paid' && (r.fixed_fields || []).includes(k); return (
+              <div key={k} className="flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', background: changed ? 'rgba(255,176,32,0.10)' : 'transparent' }}>
+                <span className="w-32 sm:w-40 shrink-0 text-[12px]" style={{ color: changed ? C.copper : C.inkFaint }}>{k}{changed && <span className="block text-[10px] font-bold uppercase tracking-wide">Changed</span>}</span>
                 <span className={`flex-1 min-w-0 text-[13.5px] ${k === 'NIN' ? 'cx-mono' : ''}`} style={{ overflowWrap: 'anywhere' }}>{val}</span>
                 <button onClick={() => copy(val, title + k)} className="shrink-0 text-[11.5px] font-semibold px-2 py-1 rounded-lg" style={{ color: copied === title + k ? C.sage : C.copper }}>{copied === title + k ? 'Copied' : 'Copy'}</button>
               </div>
-            ))}
+            ); })}
           </div>
         </div>
       ))}
@@ -15183,6 +15271,7 @@ function AdminDashboard() {
   const [ticketFromLink] = useState(() => { try { return new URLSearchParams(window.location.search).get('ticket') || null; } catch (e) { return null; } });
   const [supportCounts, setSupportCounts] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [cacCounts, setCacCounts] = useState(null);   // registrations waiting for the team
   const [refreshKey, setRefreshKey] = useState(0);   // bumps to reload whichever section is open
   const [justUpdated, setJustUpdated] = useState(false);
   const [login, setLogin] = useState({ email: '', password: '', confirm: '', create: false, busy: false, error: '' });
@@ -15247,16 +15336,32 @@ function AdminDashboard() {
         setMfa({ factorId: f.id, qr, secret, uri, code: '', busy: false, error: '', copied: false });
         setState({ phase: 'mfa-setup', error: '' }); return;
       }
-      if (!access.admin) { setUpdated(new Date()); setState({ phase: 'ready', error: '' }); call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {}); return; }
+      if (!access.admin) { setUpdated(new Date()); setState({ phase: 'ready', error: '' }); call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {}); call('admin_cac_counts', {}).then(setCacCounts).catch(() => {}); return; }
       const o = await call('admin_overview');
       try { o.deposits = await call('admin_deposit_earnings'); } catch (e) { o.deposits = null; }
       try { o.revenue = await call('admin_revenue'); } catch (e) { o.revenue = null; }
       setOv(o); setUpdated(new Date()); setState({ phase: 'ready', error: '' });
       loadList(search, filter);
       call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {});
+      call('admin_cac_counts', {}).then(setCacCounts).catch(() => {});
     } catch (e) { setState({ phase: /not allowed/i.test(e.message) ? 'denied' : 'error', error: e.message }); }
   }, [call, freshToken, loadList, search, filter]);
   useEffect(() => { loadAll(); }, []);
+  // Keep the numbers fresh by themselves: every minute while the page is on screen, and when you come back to it
+  const sectionRef = useRef(section); sectionRef.current = section;
+  useEffect(() => {
+    if (state.phase !== 'ready') return undefined;
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return;
+      call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {});
+      call('admin_cac_counts', {}).then(setCacCounts).catch(() => {});
+      if (sectionRef.current === 'overview' && role === 'founder') loadAll();
+    };
+    const t = setInterval(tick, 60000);
+    const onVis = () => { if (document.visibilityState === 'visible') tick(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, [state.phase, role]);
   // Refresh: fetch the numbers again and reload the open section, with something to see while it works
   const refreshNow = async () => {
     if (refreshing) return;
@@ -15321,7 +15426,7 @@ function AdminDashboard() {
           {state.phase === 'ready' && (
             <nav className="hidden md:flex items-center gap-1 p-1 rounded-xl" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
               {(role === 'founder' ? [['overview', 'Overview'], ['support', 'Support'], ['cac', 'CAC'], ['publish', "What's new"], ['team', 'Support team']] : [['support', 'Support'], ['cac', 'CAC registrations']]).map(([k, l]) => (
-                <button key={k} onClick={() => setSection(k)} className="relative px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{k === 'support' && supportCounts?.open ? <span className="ml-1.5 px-1.5 rounded-full text-[10.5px]" style={{ background: section === k ? C.bg : C.copper, color: section === k ? C.copper : C.bg }}>{supportCounts.open}</span> : null}</button>
+                <button key={k} onClick={() => setSection(k)} className="relative px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{(k === 'support' ? supportCounts?.open : k === 'cac' ? cacCounts?.todo : 0) ? <span className="ml-1.5 px-1.5 rounded-full text-[10.5px]" style={{ background: section === k ? C.bg : C.copper, color: section === k ? C.copper : C.bg }}>{k === 'support' ? supportCounts.open : cacCounts.todo}</span> : null}</button>
               ))}
             </nav>
           )}
@@ -15343,7 +15448,7 @@ function AdminDashboard() {
         <div className="md:hidden max-w-6xl mx-auto px-5 pt-4">
           <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
             {(role === 'founder' ? [['overview', 'Overview'], ['support', 'Support'], ['cac', 'CAC'], ['publish', "What's new"], ['team', 'Team']] : [['support', 'Support'], ['cac', 'CAC registrations']]).map(([k, l]) => (
-              <button key={k} onClick={() => setSection(k)} className="flex-1 shrink-0 px-3 py-2 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{k === 'support' && supportCounts?.open ? ` ${supportCounts.open}` : ''}</button>
+              <button key={k} onClick={() => setSection(k)} className="flex-1 shrink-0 px-3 py-2 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{k === 'support' && supportCounts?.open ? ` ${supportCounts.open}` : ''}{k === 'cac' && cacCounts?.todo ? ` ${cacCounts.todo}` : ''}</button>
             ))}
           </div>
         </div>
@@ -15450,7 +15555,7 @@ function AdminDashboard() {
         {(section === 'support' || section === 'overview') && <SupportInbox key={`inbox-${refreshKey}`} call={call} token={tokenRef.current} agentName={agentName} initialTicket={ticketFromLink} onCounts={setSupportCounts} />}
         {section === 'publish' && role === 'founder' && <SupportPublishing key={`pub-${refreshKey}`} call={call} />}
         {section === 'team' && role === 'founder' && <SupportTeamAdmin key={`team-${refreshKey}`} call={call} />}
-        {section === 'cac' && <CacAdmin key={`cac-${refreshKey}`} call={call} token={() => tokenRef.current} isFounder={role === 'founder'} initialId={refreshKey === 0 ? cacFromLink : null} />}
+        {section === 'cac' && <CacAdmin key={`cac-${refreshKey}`} call={call} token={() => tokenRef.current} isFounder={role === 'founder'} initialId={refreshKey === 0 ? cacFromLink : null} onCounts={setCacCounts} />}
       </>
     );
   }
@@ -15500,6 +15605,7 @@ function AdminDashboard() {
   const TYPE_COLORS = [C.sage, C.copper, '#7FB3FF', '#C792EA', '#F78C6C', '#89DDFF', '#FFCB6B', '#A3BE8C', '#E2A090', '#8A9A96'];
   const attention = [
     supportCounts?.open ? { Icon: Headphones, tone: 'copper', title: `${n(supportCounts.open)} support message${supportCounts.open > 1 ? 's' : ''} waiting`, sub: 'Billing and complaints first', go: () => setSection('support') } : null,
+    cacCounts?.todo ? { Icon: ShieldCheck, tone: 'copper', title: `${n(cacCounts.todo)} registration${cacCounts.todo > 1 ? 's' : ''} to send to the agent`, sub: 'Paid, or fixed by the owner', go: () => setSection('cac') } : null,
     Number(ov.renewals_at_risk) ? { Icon: AlertCircle, tone: 'rust', title: `${n(ov.renewals_at_risk)} renewal${ov.renewals_at_risk > 1 ? 's' : ''} at risk`, sub: 'Paying, auto-renew off, ending this week', go: () => document.getElementById('xa-risk')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) } : null,
     Number(ov.trials_ending_7d) ? { Icon: Clock, tone: 'copper', title: `${n(ov.trials_ending_7d)} trial${ov.trials_ending_7d > 1 ? 's' : ''} ending this week`, sub: 'A friendly message now helps them stay', go: () => { setFilter('ending'); document.getElementById('xa-biz')?.scrollIntoView({ behavior: 'smooth' }); } } : null,
   ].filter(Boolean);
