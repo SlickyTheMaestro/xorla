@@ -1886,6 +1886,7 @@ function XorlaApp() {
   const [previousTab, setPreviousTab] = useState('overview');
   const [cacHome, setCacHome] = useState(null);   // the owner's business-name registration, for the notice on Overview and the sidebar
   const [cacHidden, setCacHidden] = useState(false);
+  const [cacToast, setCacToast] = useState(false);   // "It's still in Settings" after hiding the notice
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [savingSale, setSavingSale] = useState(false);
@@ -2418,11 +2419,31 @@ function XorlaApp() {
     if (!session?.access_token || settings.role !== 'owner' || !settings.businessId) return;
     try { setCacHidden(localStorage.getItem(`xorla:cac-promo-hidden:${settings.businessId}`) === '1'); } catch (e) {}
     if (tab === 'settings') return;
-    sbRest('cac_requests', { accessToken: session.access_token, query: '?select=status,name_1,bn_number&order=created_at.desc&limit=1' })
-      .then((rows) => setCacHome(rows && rows[0] ? rows[0] : { status: 'none' })).catch(() => setCacHome(null));
+    // With several registrations, the notice follows the one that needs the owner most
+    sbRest('cac_requests', { accessToken: session.access_token, query: '?select=status,name_1,bn_number&status=neq.cancelled&order=created_at.desc&limit=20' })
+      .then((rows) => {
+        const list = rows || [];
+        const pick = ['query', 'submitted', 'draft', 'paid', 'filed'].map((st) => list.find((r) => r.status === st)).find(Boolean) || list[0];
+        setCacHome(pick || { status: 'none' });
+      }).catch(() => setCacHome(null));
   }, [session?.access_token, settings.role, settings.businessId, tab === 'settings']);
   const openCac = () => { setDraft({ ...settings }); setPreviousTab(tab === 'settings' ? 'overview' : tab); setSettingsPage('cac'); setTab('settings'); };
-  const hideCacPromo = (e) => { e?.stopPropagation?.(); setCacHidden(true); try { localStorage.setItem(`xorla:cac-promo-hidden:${settings.businessId}`, '1'); } catch (er) {} };
+  const hideCacPromo = (e) => {
+    e?.stopPropagation?.(); setCacHidden(true); setCacToast(true);
+    try { localStorage.setItem(`xorla:cac-promo-hidden:${settings.businessId}`, '1'); } catch (er) {}
+    clearTimeout(window.__xorlaCacToast); window.__xorlaCacToast = setTimeout(() => setCacToast(false), 7000);
+  };
+  const undoHideCac = () => { setCacHidden(false); setCacToast(false); try { localStorage.removeItem(`xorla:cac-promo-hidden:${settings.businessId}`); } catch (er) {} };
+  const renderCacToast = () => cacToast && createPortal(
+    <div className="fixed left-0 right-0 z-[95] flex justify-center px-3 pointer-events-none" style={{ bottom: 'max(20px, calc(env(safe-area-inset-bottom) + 84px))' }}>
+      <div role="status" className="pointer-events-auto w-full max-w-md rounded-2xl pl-3.5 pr-2 py-2.5 flex items-center gap-3 xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(31,217,196,0.35)', boxShadow: '0 18px 40px -12px rgba(0,0,0,0.75)' }}>
+        <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.14)' }}><Settings size={17} style={{ color: C.sage }} /></span>
+        <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold">Hidden. It's always in Settings</span><span className="block text-[11.5px] leading-snug" style={{ color: C.inkDim }}>Settings → Register your business (CAC)</span></span>
+        <button onClick={undoHideCac} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-bold" style={{ color: C.copper }}>Undo</button>
+        <button onClick={() => { setCacToast(false); openCac(); }} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-bold" style={{ background: C.sage, color: C.bg }}>Open</button>
+      </div>
+    </div>, document.body
+  );
   const renderCacPromo = (where) => {
     if (settings.role !== 'owner' || !cacHome) return null;
     const st = cacHome.status;
@@ -2432,25 +2453,39 @@ function XorlaApp() {
     const words = { draft: ['Finish your registration', 'Your details are saved. Pick up where you stopped.', 'Continue'], submitted: ['Registration: pay to start', `${cacHome.name_1} is ready to send to CAC.`, 'Open'], paid: ['Registration: being checked', `${cacHome.name_1} is with Xorla's team.`, 'See progress'], filed: ['Registration: with CAC', `${cacHome.name_1} has been filed.`, 'See progress'], query: ['Registration needs a fix', 'Tap to see what to change.', 'Fix it'] }[st]
       || ['Make your business official', 'Register your business name with CAC, right here in Xorla.', 'Register now'];
     const tone = st === 'query' ? C.rust : C.sage;
+    const certName = cacHome.name_1 || settings.businessName;
+    const bg = { background: 'radial-gradient(130% 110% at 100% 0%, #22604F 0%, #143C33 45%, #0C2521 100%)', border: `1px solid ${st === 'query' ? 'rgba(226,98,75,0.5)' : 'rgba(255,176,32,0.4)'}`, boxShadow: '0 18px 34px -20px rgba(255,176,32,0.55)' };
+    const pill = going ? <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: st === 'query' ? C.rustSoft : 'rgba(31,217,196,0.14)', color: tone }}><ShieldCheck size={10} /> CAC</span>
+      : <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: C.copper, color: C.bg }}><Sparkles size={10} /> New</span>;
     if (where === 'side') return (
-      <div className="relative rounded-2xl p-4 mb-6 overflow-hidden" style={{ background: 'linear-gradient(150deg, rgba(31,217,196,0.14), rgba(31,217,196,0.04))', border: '1px solid rgba(31,217,196,0.22)' }}>
-        <span aria-hidden className="absolute -right-5 -bottom-6 opacity-[0.12]"><ShieldCheck size={84} style={{ color: tone }} /></span>
-        {!going && <button onClick={hideCacPromo} aria-label="Hide" className="absolute top-2.5 right-2.5 w-6 h-6 rounded-full flex items-center justify-center" style={{ color: C.inkFaint }}><X size={13} /></button>}
-        <ShieldCheck size={16} style={{ color: tone }} className="mb-2" />
-        <div className="relative text-[12.5px] font-semibold mb-1 pr-4">{words[0]}</div>
-        <div className="relative text-[11px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{words[1]}</div>
-        <button onClick={openCac} className="relative w-full rounded-lg py-2 text-[11.5px] font-semibold" style={{ background: tone, color: C.bg }}>{words[2]}</button>
+      <div className="relative rounded-2xl mb-6 overflow-hidden" style={bg}>
+        <span aria-hidden className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.32), transparent 65%)' }} />
+        {!going && <button onClick={hideCacPromo} aria-label="Hide" title="Hide (it stays in Settings)" className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.3)', color: C.inkDim }}><X size={12} /></button>}
+        <div className="absolute top-2.5 left-3 z-10">{pill}</div>
+        <div className="relative h-[104px] flex items-end justify-end pr-4 overflow-hidden">
+          <span aria-hidden className="absolute bottom-0 right-6 w-28 h-6 rounded-full blur-md" style={{ background: 'rgba(0,0,0,0.35)' }} />
+          <div className="translate-y-2"><CacMiniCert name={certName} width={124} tilt={-7} /></div>
+        </div>
+        <div className="relative px-4 pb-4 pt-3" style={{ background: 'linear-gradient(180deg, rgba(12,37,33,0.0), rgba(12,37,33,0.65) 30%)' }}>
+          <div className="text-[13px] font-bold mb-1 leading-snug">{words[0]}</div>
+          <div className="text-[11px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{words[1]}</div>
+          <button onClick={openCac} className="w-full rounded-lg py-2 text-[11.5px] font-bold flex items-center justify-center gap-1" style={{ background: going ? tone : `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>{words[2]} <ArrowRight size={13} /></button>
+        </div>
       </div>
     );
     return (
-      <div role="button" tabIndex={0} onClick={openCac} onKeyDown={(e) => e.key === 'Enter' && openCac()} className="lg:hidden relative w-full flex items-center gap-3 rounded-2xl p-4 mb-5 xorla-fade-up text-left cursor-pointer overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(31,217,196,0.16), rgba(31,217,196,0.04))', border: `1px solid ${st === 'query' ? 'rgba(226,98,75,0.4)' : 'rgba(31,217,196,0.25)'}` }}>
-        <span className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: tone }}><ShieldCheck size={20} style={{ color: C.bg }} /></span>
-        <span className="flex-1 min-w-0">
-          <span className="block text-[14px] font-semibold cx-display">{words[0]}</span>
-          <span className="block text-[12px] leading-snug mt-0.5" style={{ color: C.inkDim }}>{words[1]}</span>
-        </span>
-        {going ? <ChevronRight size={18} style={{ color: tone }} className="shrink-0" />
-          : <button onClick={hideCacPromo} aria-label="Hide this" className="shrink-0 w-8 h-8 -mr-1 rounded-full flex items-center justify-center" style={{ color: C.inkFaint }}><X size={15} /></button>}
+      <div role="button" tabIndex={0} onClick={openCac} onKeyDown={(e) => e.key === 'Enter' && openCac()} className="lg:hidden relative w-full rounded-2xl mb-5 xorla-fade-up text-left cursor-pointer overflow-hidden" style={bg}>
+        <span aria-hidden className="absolute -right-8 -top-10 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.3), transparent 65%)' }} />
+        {!going && <button onClick={hideCacPromo} aria-label="Hide this" className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.32)', color: C.inkDim }}><X size={14} /></button>}
+        <div className="relative flex items-center gap-2 pl-4 pr-1 py-4">
+          <div className="flex-1 min-w-0">
+            {pill}
+            <div className="text-[16px] font-bold cx-display leading-tight mt-2">{words[0]}</div>
+            <div className="text-[12px] leading-snug mt-1" style={{ color: C.inkDim }}>{words[1]}</div>
+            <span className="inline-flex items-center gap-1 mt-3 px-3 py-1.5 rounded-lg text-[12.5px] font-bold" style={{ background: going ? tone : `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>{words[2]} <ArrowRight size={13} /></span>
+          </div>
+          <div className="shrink-0 w-[112px] pt-5 -mr-3"><CacMiniCert name={certName} width={112} tilt={7} /></div>
+        </div>
       </div>
     );
   };
@@ -7744,7 +7779,7 @@ function XorlaApp() {
             {!showShopSwitcher && <div className="text-[12px] shrink-0" style={{ color: C.inkFaint }}>{shopNameOf(activeShopId || targetShopId)}</div>}
           </div>
           {renderXorlaNotices()}
-          {renderHelp()}{renderSupportToast()}{renderSpotlight()}
+          {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderSpotlight()}
           {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} ${L.many}`,
             `Check the ${L.one} shown at the top before recording. That's where your ${T.sale} is saved.`)}
           {staffTab === 'bookings' && <div className="rounded-2xl p-4 lg:p-6 mb-5" style={card}>{renderBookingDesk()}</div>}
@@ -9882,7 +9917,7 @@ function XorlaApp() {
         {renderReadyCheck()}
         {renderSetup()}
         {renderPastImport()}
-        {renderHelp()}{renderSupportToast()}{renderSpotlight()}
+        {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderSpotlight()}
       </div>
     );
   }
@@ -11464,7 +11499,7 @@ function XorlaApp() {
       {renderImportPanel()}
       {renderListTool()}
       {renderPastImport()}
-      {renderHelp()}{renderSupportToast()}{renderSpotlight()}
+      {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderSpotlight()}
       {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
       {renderApptPanel()}
       {renderNotifPanel()}
@@ -13665,9 +13700,28 @@ function CacCertificate({ name, bn, preview = false, compact = false }) {
     </div>
   );
 }
+// A small certificate picture for notices and lists
+function CacMiniCert({ name, width = 132, tilt = -6 }) {
+  const u = width / 132;
+  return (
+    <div aria-hidden className="relative" style={{ width, transform: `rotate(${tilt}deg)`, background: 'linear-gradient(160deg, #FBF6EA 0%, #EEE2C4 100%)', borderRadius: 10 * u, padding: `${10 * u}px ${9 * u}px ${8 * u}px`, color: '#1F2A26', boxShadow: '0 16px 30px -12px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(120,90,30,0.22)' }}>
+      <div className="absolute pointer-events-none" style={{ inset: 4 * u, borderRadius: 7 * u, border: '1px solid rgba(150,110,40,0.38)' }} />
+      <div className="text-center font-bold uppercase" style={{ fontSize: 6.6 * u, letterSpacing: '0.2em', color: '#8A6A2A' }}>Certificate</div>
+      <div className="text-center uppercase" style={{ fontSize: 5.4 * u, letterSpacing: '0.14em', color: '#8A6A2A', opacity: 0.8, marginTop: 1 }}>Business name</div>
+      <div className="text-center font-extrabold truncate" style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 13 * u, lineHeight: 1.15, marginTop: 6 * u }}>{String(name || '').trim() || 'Your Business'}</div>
+      <div style={{ height: 1, width: '42%', margin: `${6 * u}px auto 0`, background: 'rgba(150,110,40,0.45)' }} />
+      <div className="flex items-center justify-between" style={{ marginTop: 6 * u }}>
+        <div className="cx-mono font-bold" style={{ fontSize: 7.5 * u, color: 'rgba(31,42,38,0.4)' }}>BN ••• ••••</div>
+        <svg width={24 * u} height={24 * u} viewBox="0 0 46 46"><circle cx="23" cy="23" r="21" fill="#0F6B5A" /><circle cx="23" cy="23" r="17.5" fill="none" stroke="#F6E7B8" strokeWidth="1.2" strokeDasharray="2 2" /><path d="M15.5 23.5l5 5 10-11" fill="none" stroke="#F6E7B8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </div>
+    </div>
+  );
+}
 function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEmail, ownerName, callBilling }) {
   const [offer, setOffer] = useState(null);
-  const [req, setReq] = useState(undefined);       // undefined loading, null none yet
+  const [all, setAll] = useState(undefined);       // every registration this business has started (not withdrawn)
+  const [cur, setCur] = useState(null);            // the one open: an id, 'new' for a fresh one, or null (the list)
+  const idRef = useRef(null);
   const [f, setF] = useState({});
   const [step, setStep] = useState(null);           // index into CAC_STEPS while filling in
   const [busy, setBusy] = useState('');
@@ -13675,26 +13729,49 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
   const [preview, setPreview] = useState({});       // doc kind → url to show
   const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
   const label = 'block text-[11px] font-semibold uppercase tracking-wide mb-1.5';
+  const req = all === undefined ? undefined : cur === 'new' ? null : cur ? (all.find((r) => r.id === cur) || null) : all.length === 1 ? all[0] : null;
+  idRef.current = req?.id || null;
+  const blank = (forOther) => (forOther ? { for_other: true, owner_nationality: 'Nigerian' } : { for_other: false, owner_phone: ownerPhone || '', owner_email: ownerEmail || '', owner_name: ownerName || '', name_1: businessName || '', owner_nationality: 'Nigerian' });
+  const fromRow = (r) => ({ ...r, owner_dob: r.owner_dob || '' });
+  const put = (r) => { idRef.current = r.id; setAll((a) => [r, ...(a || []).filter((x) => x.id !== r.id)]); setCur(r.id); return r; };
   const load = useCallback(async () => {
     try {
-      const [o, rows] = await Promise.all([sbRpc('cac_offer', token, {}).catch(() => null), sbRest('cac_requests', { accessToken: token, query: '?select=*&order=created_at.desc&limit=1' }).catch(() => [])]);
+      const [o, rows] = await Promise.all([sbRpc('cac_offer', token, {}).catch(() => null), sbRest('cac_requests', { accessToken: token, query: '?select=*&status=neq.cancelled&order=created_at.desc&limit=40' }).catch(() => [])]);
       setOffer(o || { open: false, total: 0, turnaround: '5 to 10 working days' });
-      const r = rows && rows[0] && rows[0].status !== 'cancelled' ? rows[0] : null;
-      setReq(r);
-      setF(r ? { ...r, owner_dob: r.owner_dob || '' } : { owner_phone: ownerPhone || '', owner_email: ownerEmail || '', owner_name: ownerName || '', name_1: businessName || '', owner_nationality: 'Nigerian' });
-      return r;
-    } catch (e) { setReq(null); return null; }
+      const list = rows || [];
+      setAll(list);
+      return list;
+    } catch (e) { setAll([]); return []; }
   }, [token]);
+  // Keep the form in step with whichever registration is open
+  useEffect(() => { if (all !== undefined && cur !== 'new') setF(req ? fromRow(req) : blank(false)); }, [all === undefined, req?.id, req?.status, req?.updated_at]);
   useEffect(() => {
     (async () => {
-      const r = await load();
+      const list = await load();
       // Back from Paystack (or a transfer that finished later): confirm the payment ourselves
       let ref = ''; try { ref = localStorage.getItem('xorla:cac-ref') || ''; } catch (e) {}
-      if (ref && r && r.status === 'submitted') {
-        try { await callBilling('verify', { reference: ref }); try { localStorage.removeItem('xorla:cac-ref'); } catch (e) {} await load(); } catch (e) { /* not paid yet */ }
-      } else if (ref && r && r.paid_at) { try { localStorage.removeItem('xorla:cac-ref'); } catch (e) {} }
+      if (!ref) return;
+      let rid = ''; try { rid = localStorage.getItem('xorla:cac-ref-id') || ''; } catch (e) {}
+      const r = list.find((x) => x.id === rid) || list.find((x) => x.status === 'submitted');
+      if (r) setCur(r.id);
+      const clear = () => { try { localStorage.removeItem('xorla:cac-ref'); localStorage.removeItem('xorla:cac-ref-id'); } catch (e) {} };
+      if (r && r.status === 'submitted') {
+        try { await callBilling('verify', { reference: ref }); clear(); await load(); } catch (e) { /* not paid yet */ }
+      } else if (!r || r.paid_at) clear();
     })();
   }, [load]);
+  const startNew = (forOther = false) => { idRef.current = null; setCur('new'); setF(blank(forOther)); setPreview({}); setError(''); setStep(0); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const openReq = (r) => { setCur(r.id); setF(fromRow(r)); setPreview({}); setError(''); setStep(r.status === 'draft' ? 0 : null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const backToList = () => { setCur(null); setStep(null); setError(''); };
+  // "Who is this for?" Switching clears the owner details we filled in from your account
+  const setWho = (other) => setF((x) => {
+    if (!!x.for_other === other) return x;
+    const mine = blank(false);
+    const n = { ...x, for_other: other, attest: false };
+    if (other) ['owner_phone', 'owner_email', 'owner_name', 'name_1'].forEach((k) => { if (mine[k] && x[k] === mine[k]) n[k] = ''; });
+    else ['owner_phone', 'owner_email', 'owner_name', 'name_1'].forEach((k) => { if (!String(x[k] || '').trim()) n[k] = mine[k]; });
+    return n;
+  });
   useEffect(() => {   // show the documents already uploaded
     ['id_doc', 'passport_doc', 'signature_doc'].forEach((k) => {
       if (f[k] && !preview[k]) cacDocUrl(token, f[k]).then((url) => setPreview((p) => ({ ...p, [k]: url }))).catch(() => {});
@@ -13703,10 +13780,10 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
 
   const set = (k, v) => { setF((x) => ({ ...x, [k]: v, ...(k !== 'attest' ? { attest: false } : {}) })); setError(''); };
   const save = async (patch = f) => {
-    const keys = ['name_1', 'name_2', 'nature', 'sub_category', 'description', 'commencement_date', 'staff_size', 'fund_source', 'owner_nationality', 'owner_occupation', 'biz_state', 'biz_lga', 'biz_address', 'owner_name', 'owner_dob', 'owner_gender', 'owner_phone', 'owner_email', 'owner_nin', 'owner_address', 'id_type', 'id_doc', 'passport_doc', 'signature_doc'];
+    const keys = ['for_other', 'name_1', 'name_2', 'nature', 'sub_category', 'description', 'commencement_date', 'staff_size', 'fund_source', 'owner_nationality', 'owner_occupation', 'biz_state', 'biz_lga', 'biz_address', 'owner_name', 'owner_dob', 'owner_gender', 'owner_phone', 'owner_email', 'owner_nin', 'owner_address', 'id_type', 'id_doc', 'passport_doc', 'signature_doc'];
     const body = Object.fromEntries(keys.filter((k) => patch[k] !== undefined && patch[k] !== null).map((k) => [k, patch[k]]));
-    const r = await sbRpc('cac_save', token, { p: body });
-    setReq(r); return r;
+    const r = await sbRpc('cac_save', token, { p: body, p_id: idRef.current });
+    return put(r);
   };
   const stepCheck = (i) => {
     const id = CAC_STEPS[i][0];
@@ -13723,17 +13800,18 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
     }
     if (id === 'place' && (!f.biz_state || String(f.biz_address || '').trim().length < 8)) return 'Add the state and the full business address.';
     if (id === 'owner') {
-      if (String(f.owner_name || '').trim().split(/\s+/).length < 2) return 'Type your full name as it is on your ID (first name and surname).';
-      if (!f.owner_dob) return 'Add your date of birth.';
-      if (!f.owner_gender) return 'Choose your gender.';
-      if (!String(f.owner_nationality ?? 'Nigerian').trim()) return 'Add your nationality.';
-      if (String(f.owner_occupation || '').trim().length < 3) return 'Add your occupation.';
-      if (String(f.owner_phone || '').replace(/\D/g, '').length < 10) return 'Add your phone number.';
+      const yr = f.for_other ? "the owner's" : 'your';
+      if (String(f.owner_name || '').trim().split(/\s+/).length < 2) return `Type ${yr} full name as it is on the ID (first name and surname).`;
+      if (!f.owner_dob) return `Add ${yr} date of birth.`;
+      if (!f.owner_gender) return `Choose ${yr} gender.`;
+      if (!String(f.owner_nationality ?? 'Nigerian').trim()) return `Add ${yr} nationality.`;
+      if (String(f.owner_occupation || '').trim().length < 3) return `Add ${yr} occupation.`;
+      if (String(f.owner_phone || '').replace(/\D/g, '').length < 10) return `Add ${yr} phone number.`;
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(f.owner_email || '').trim())) return 'Add a working email. CAC sends updates there.';
-      if (String(f.owner_nin || '').replace(/\D/g, '').length !== 11) return 'Your NIN has 11 digits.';
-      if (String(f.owner_address || '').trim().length < 8) return 'Add your home address.';
+      if (String(f.owner_nin || '').replace(/\D/g, '').length !== 11) return 'A NIN has 11 digits.';
+      if (String(f.owner_address || '').trim().length < 8) return `Add ${yr} home address.`;
     }
-    if (id === 'docs' && (!f.id_type || !f.id_doc || !f.passport_doc || !f.signature_doc)) return 'Add your ID, passport photograph and signature.';
+    if (id === 'docs' && (!f.id_type || !f.id_doc || !f.passport_doc || !f.signature_doc)) return f.for_other ? "Add the owner's ID, passport photograph and signature." : 'Add your ID, passport photograph and signature.';
     return '';
   };
   const next = async () => {
@@ -13745,13 +13823,13 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
   const submit = async () => {
     setBusy('send'); setError('');
     if (!f.attest) { setError('Tick the declaration to confirm your details are true.'); setBusy(''); return; }
-    try { await save(); await sbRpc('cac_save', token, { p: { attest: true } }); const r = await sbRpc('cac_submit', token, {}); setReq(r); setStep(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    try { const r0 = await save(); await sbRpc('cac_save', token, { p: { attest: true }, p_id: r0.id }); const r = await sbRpc('cac_submit', token, { p_id: r0.id }); put(r); setStep(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     catch (e) { setError(e.message); }
     setBusy('');
   };
   const pay = async () => {
     setBusy('pay'); setError('');
-    try { const d = await callBilling('cac_checkout'); try { localStorage.setItem('xorla:cac-ref', d.reference); } catch (e) {} window.location.href = d.url; }
+    try { const d = await callBilling('cac_checkout', { requestId: req.id }); try { localStorage.setItem('xorla:cac-ref', d.reference); localStorage.setItem('xorla:cac-ref-id', req.id); } catch (e) {} window.location.href = d.url; }
     catch (e) { setError(e.message); setBusy(''); }
   };
   const upload = async (kind, e) => {
@@ -13762,16 +13840,20 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
     setBusy('');
   };
   const cancel = async () => {
-    if (!(await brandConfirm('Withdraw this registration? Your details are kept if you start again.', { title: 'Withdraw?', confirm: 'Withdraw', danger: true }))) return;
-    try { await sbRpc('cac_cancel', token, {}); await load(); } catch (e) { brandAlert(e.message); }
+    if (!(await brandConfirm(`Withdraw the registration for ${req.name_1 || 'this business'}? Nothing has been paid, so nothing is lost.`, { title: 'Withdraw?', confirm: 'Withdraw', danger: true }))) return;
+    try { await sbRpc('cac_cancel', token, { p_id: req.id }); setCur(null); await load(); } catch (e) { brandAlert(e.message); }
   };
   const openDoc = async (path) => { try { window.open(await cacDocUrl(token, path), '_blank'); } catch (e) { brandAlert(e.message); } };
 
-  if (req === undefined || !offer) return <div className="py-16 flex justify-center"><Loader2 className="animate-spin" size={20} style={{ color: C.inkFaint }} /></div>;
+  if (all === undefined || !offer) return <div className="py-16 flex justify-center"><Loader2 className="animate-spin" size={20} style={{ color: C.inkFaint }} /></div>;
   const price = Number(offer.total) || 0;
   const priceLine = offer.open && price > 0 ? `${fmt(price)} in total, CAC's fee included` : 'Price shown before you pay';
   const filling = step !== null;
   const status = req?.status || 'none';
+  const other = !!f.for_other;
+  const yr = other ? "the owner's" : 'your';
+  const many = (all || []).length > 1 || ((all || []).length === 1 && cur === 'new');
+  const backLink = many && <button onClick={backToList} className="inline-flex items-center gap-1 text-[12.5px] font-semibold -mt-1" style={{ color: C.inkDim }}><ChevronLeft size={15} /> All registrations</button>;
 
   // ---- Filling in, one step at a time ----
   if (filling) {
@@ -13795,18 +13877,32 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
     );
     return (
       <div className="space-y-4">
+        {backLink}
+        {other && <div className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: 'rgba(31,217,196,0.12)', color: C.sage }}><Users size={12} /> For someone else{String(f.owner_name || '').trim() ? `: ${String(f.owner_name).trim()}` : ''}</div>}
         <div>
           <div className="flex gap-1.5">{CAC_STEPS.map((s, i) => <span key={s[0]} className="flex-1 h-1.5 rounded-full transition-all duration-500" style={{ background: i < step ? C.sage : i === step ? C.copper : 'rgba(255,255,255,0.08)' }} />)}</div>
           <div className="text-[12px] mt-2 flex items-center justify-between" style={{ color: C.inkFaint }}><span>Step {step + 1} of {CAC_STEPS.length}</span><span className="hidden sm:inline">{CAC_STEPS.map((x) => x[1]).join('  ·  ')}</span></div>
         </div>
         <div className="rounded-[22px] p-4 sm:p-5 space-y-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
-          {(() => { const [Ic, t, d] = { names: [Store, 'Your business', 'The name you want, and what the business does.'], place: [MapPin, 'Where it is', 'The address CAC records for the business.'], owner: [Users, 'About you', 'The owner. Must match your ID exactly.'], docs: [Camera, 'Documents', 'Clear photos. They stay private.'], review: [ShieldCheck, 'Check and send', 'Make sure everything is right before it goes to CAC.'] }[id]; return (
+          {(() => { const [Ic, t, d] = { names: [Store, 'Your business', 'The name you want, and what the business does.'], place: [MapPin, 'Where it is', 'The address CAC records for the business.'], owner: [Users, other ? 'About the owner' : 'About you', other ? 'The person the business belongs to. Must match their ID exactly.' : 'The owner. Must match your ID exactly.'], docs: [Camera, 'Documents', other ? "The owner's ID, photo and signature. They stay private." : 'Clear photos. They stay private.'], review: [ShieldCheck, 'Check and send', 'Make sure everything is right before it goes to CAC.'] }[id]; return (
             <div className="flex items-center gap-3 pb-1">
               <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})` }}><Ic size={19} style={{ color: C.bg }} /></span>
               <span className="min-w-0"><span className="block text-[17px] font-bold leading-tight">{t}</span><span className="block text-[12px] mt-0.5" style={{ color: C.inkFaint }}>{d}</span></span>
             </div>
           ); })()}
           {id === 'names' && (<>
+            <div>
+              <span className={label} style={{ color: C.inkFaint }}>Who is this for?</span>
+              <div className="grid grid-cols-2 gap-2">
+                {[[false, 'My business', 'I am the owner'], [true, "Someone else's", 'A relative, friend or customer']].map(([v, a, b]) => (
+                  <button key={a} type="button" onClick={() => setWho(v)} className="text-left rounded-xl px-3 py-2.5" style={other === v ? { background: 'rgba(31,217,196,0.12)', border: `1.5px solid ${C.sage}` } : { ...field }}>
+                    <span className="flex items-center gap-1.5 text-[13.5px] font-semibold" style={{ color: C.ink }}>{v ? <Users size={14} style={{ color: other === v ? C.sage : C.inkFaint }} /> : <Store size={14} style={{ color: other === v ? C.sage : C.inkFaint }} />}{a}</span>
+                    <span className="block text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{b}</span>
+                  </button>
+                ))}
+              </div>
+              {other && <div className="text-[11.5px] mt-2 leading-relaxed" style={{ color: C.inkFaint }}>You fill this in for them, using their details and their ID. The certificate is in their name, and you follow its progress here.</div>}
+            </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>Business name, first choice</span>
               <input value={f.name_1 || ''} onChange={(e) => set('name_1', e.target.value)} maxLength={80} placeholder="e.g. Amaka Fashion Ventures" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
@@ -13868,9 +13964,9 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
             </div>
           </>)}
           {id === 'owner' && (<>
-            <div className="text-[12.5px] leading-relaxed rounded-xl px-3.5 py-2.5" style={{ background: C.copperSoft, color: C.ink }}>The person who owns the business. Everything must match your ID exactly.</div>
+            <div className="text-[12.5px] leading-relaxed rounded-xl px-3.5 py-2.5" style={{ background: C.copperSoft, color: C.ink }}>{other ? "The person who will own this business, not you. Use their details, exactly as on their ID. CAC may contact them on this phone and email." : 'The person who owns the business. Everything must match your ID exactly.'}</div>
             <div>
-              <span className={label} style={{ color: C.inkFaint }}>Full name, as on your ID</span>
+              <span className={label} style={{ color: C.inkFaint }}>Full name, as on {other ? 'their' : 'your'} ID</span>
               <input value={f.owner_name || ''} onChange={(e) => set('owner_name', e.target.value)} maxLength={100} placeholder="First name, middle name, surname" autoComplete="name" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
             </div>
             <div className="grid grid-cols-2 gap-2.5">
@@ -13900,13 +13996,13 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
               </div>
               <div>
                 <span className={label} style={{ color: C.inkFaint }}>Email</span>
-                <input type="email" inputMode="email" value={f.owner_email || ''} onChange={(e) => set('owner_email', e.target.value)} maxLength={120} placeholder="you@example.com" autoComplete="email" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
+                <input type="email" inputMode="email" value={f.owner_email || ''} onChange={(e) => set('owner_email', e.target.value)} maxLength={120} placeholder={other ? 'them@example.com' : 'you@example.com'} autoComplete={other ? 'off' : 'email'} className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
               </div>
             </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>NIN (National Identification Number)</span>
               <input inputMode="numeric" value={f.owner_nin || ''} onChange={(e) => set('owner_nin', e.target.value.replace(/[^0-9]/g, '').slice(0, 11))} placeholder="11 digits" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none cx-mono tracking-wider" style={field} />
-              <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>Dial *346# on the phone line you registered with NIMC if you don't know it.</div>
+              <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>{other ? 'They can dial *346# on the phone line they registered with NIMC to see it.' : "Dial *346# on the phone line you registered with NIMC if you don't know it."}</div>
             </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>Home address</span>
@@ -13915,18 +14011,19 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
           </>)}
           {id === 'docs' && (<>
             <div>
-              <span className={label} style={{ color: C.inkFaint }}>Which ID are you using?</span>
+              <span className={label} style={{ color: C.inkFaint }}>{other ? 'Which ID is the owner using?' : 'Which ID are you using?'}</span>
               <div className="flex flex-wrap gap-1.5">{CAC_ID_TYPES.map((t) => <button key={t} type="button" onClick={() => set('id_type', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.id_type === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
             </div>
-            {docTile('id_doc', 'Your ID', 'A clear photo of the front, with all four corners showing. A PDF works too.', 'image/*,application/pdf')}
-            {docTile('passport_doc', 'Passport photograph', 'Your face, looking straight at the camera, against a plain white or light background.', 'image/*')}
-            {docTile('signature_doc', 'Your signature', 'Sign on plain white paper with a dark pen, then take a close photo of it.', 'image/*')}
-            <div className="text-[11.5px] leading-relaxed flex items-start gap-1.5" style={{ color: C.inkFaint }}><Lock size={13} className="shrink-0 mt-0.5" /> Your documents are private. Only you and Xorla's registration team can open them, and they are used only for this registration.</div>
+            {docTile('id_doc', other ? "The owner's ID" : 'Your ID', 'A clear photo of the front, with all four corners showing. A PDF works too.', 'image/*,application/pdf')}
+            {docTile('passport_doc', 'Passport photograph', other ? 'Their face, looking straight at the camera, against a plain white or light background.' : 'Your face, looking straight at the camera, against a plain white or light background.', 'image/*')}
+            {docTile('signature_doc', other ? "The owner's signature" : 'Your signature', other ? 'Their own signature on plain white paper in dark pen. Not yours.' : 'Sign on plain white paper with a dark pen, then take a close photo of it.', 'image/*')}
+            <div className="text-[11.5px] leading-relaxed flex items-start gap-1.5" style={{ color: C.inkFaint }}><Lock size={13} className="shrink-0 mt-0.5" /> {other ? "These documents are private. Only your business and Xorla's registration team can open them, and they are used only for this registration." : "Your documents are private. Only you and Xorla's registration team can open them, and they are used only for this registration."}</div>
           </>)}
           {id === 'review' && (
             <div className="space-y-3 text-[13.5px]">
               {[['Names', `${f.name_1}  ·  ${f.name_2}`, 0], ['Business', `${f.nature}, ${f.sub_category}: ${f.description}`, 0],
                 ['Started', `${f.commencement_date ? new Date(f.commencement_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : ''} · ${f.staff_size} · ${f.fund_source}`, 0], ['Address', `${f.biz_address}, ${f.biz_lga ? `${f.biz_lga}, ` : ''}${f.biz_state}`, 1],
+                ...(other ? [['For', 'Someone else (not you)', 0]] : []),
                 ['Owner', `${f.owner_name}, ${f.owner_gender}, ${f.owner_nationality || 'Nigerian'}, ${f.owner_occupation}, born ${f.owner_dob ? new Date(f.owner_dob + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}`, 2],
                 ['Contact', `${f.owner_phone} · ${f.owner_email}`, 2], ['NIN', String(f.owner_nin || '').replace(/(\d{3})(\d{4})(\d{4})/, '$1 $2 $3'), 2], ['Home', f.owner_address, 2], ['Documents', `${f.id_type}, passport photograph, signature`, 3]].map(([k, v, s]) => (
                 <div key={k} className="flex items-start gap-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
@@ -13937,7 +14034,7 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
               ))}
               <button type="button" onClick={() => set('attest', !f.attest)} role="checkbox" aria-checked={!!f.attest} className="w-full text-left flex items-start gap-3 rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1.5px solid ${f.attest ? C.sage : C.line}` }}>
                 <span className="mt-0.5 w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: f.attest ? C.sage : 'transparent', border: `2px solid ${f.attest ? C.sage : C.inkFaint}` }}>{f.attest && <Check size={13} style={{ color: C.bg }} />}</span>
-                <span className="text-[12.5px] leading-relaxed" style={{ color: C.ink }}>I declare that these details are true and belong to me, and I agree to Xorla and its accredited agent filing this registration with CAC on my behalf.</span>
+                <span className="text-[12.5px] leading-relaxed" style={{ color: C.ink }}>{other ? `I confirm these details are true and belong to ${String(f.owner_name || '').trim() || 'the owner'}, that I have their permission to register this business name for them, and that Xorla and its accredited agent may file it with CAC on their behalf.` : 'I declare that these details are true and belong to me, and I agree to Xorla and its accredited agent filing this registration with CAC on my behalf.'}</span>
               </button>
               <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed" style={{ background: C.surfaceRaised, color: C.inkDim }}>
                 {offer.open && price > 0 ? <>You'll pay <strong style={{ color: C.ink }}>{fmt(price)}</strong> next. It usually takes {offer.turnaround}.</> : <>Registration through Xorla opens soon. Send your details now and we'll tell you the moment it opens. You won't pay anything until then.</>}
@@ -13947,7 +14044,7 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
         </div>
         {error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{error}</div>}
         <div className="flex gap-2.5">
-          <button onClick={() => (step === 0 ? setStep(null) : setStep(step - 1))} disabled={!!busy} className="h-12 px-5 rounded-xl text-[13.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>{step === 0 ? 'Close' : 'Back'}</button>
+          <button onClick={() => { if (step > 0) { setStep(step - 1); return; } setStep(null); if (!req) setCur(null); else if (req.status === 'draft' && many) setCur(null); }} disabled={!!busy} className="h-12 px-5 rounded-xl text-[13.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>{step === 0 ? 'Close' : 'Back'}</button>
           {id === 'review'
             ? <button onClick={submit} disabled={!!busy} className="flex-1 h-12 rounded-xl text-[14.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: busy ? 0.6 : 1 }}>{busy === 'send' ? 'Sending…' : status === 'query' ? 'Send the fix' : 'Send my details'}</button>
             : <button onClick={next} disabled={!!busy} className="flex-1 h-12 rounded-xl text-[14.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: busy ? 0.6 : 1 }}>{busy === 'save' ? 'Saving…' : 'Continue'}</button>}
@@ -13963,9 +14060,10 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
     const stages = [['Details sent', !!req.submitted_at], ['Paid', !!req.paid_at], ['Filed with CAC', ['filed', 'registered'].includes(status)], ['Registered', status === 'registered']];
     return (
       <div className="space-y-4">
+        {backLink}
         {status === 'registered' && <div className="max-w-md mx-auto w-full pt-1 pb-2"><CacCertificate name={req.registered_name || req.name_1} bn={req.bn_number} /></div>}
         <div className="rounded-[22px] p-5" style={{ background: status === 'registered' ? 'linear-gradient(150deg, #174339, #0F2C27)' : C.surfaceRaised, border: `1px solid ${status === 'registered' ? 'rgba(31,217,196,0.35)' : C.line}` }}>
-          <div className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: tone }}>{word}</div>
+          <div className="flex items-center gap-2 flex-wrap"><span className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: tone }}>{word}</span>{req.for_other && <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.07)', color: C.inkDim }}>For {req.owner_name || 'someone else'}</span>}</div>
           <div className="text-[21px] font-extrabold mt-1 leading-tight" style={{ letterSpacing: '-0.02em', overflowWrap: 'anywhere' }}>{status === 'registered' ? (req.registered_name || req.name_1) : req.name_1}</div>
           {status !== 'registered' && <div className="text-[12.5px] mt-0.5" style={{ color: C.inkFaint }}>Second choice: {req.name_2}</div>}
           {status === 'registered' && req.bn_number && <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-[14px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}><BadgeCheckIcon /> {req.bn_number}</div>}
@@ -13989,7 +14087,7 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
         {status === 'submitted' && (offer.open && price > 0 ? (
           <div className="rounded-2xl p-4" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.3)' }}>
             <div className="text-[14px] font-semibold">Pay to start your registration</div>
-            <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>{fmt(price)} in total, CAC's fee included. Pay by card, transfer or USSD. It usually takes {offer.turnaround} after payment.</div>
+            <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>{fmt(price)} in total, CAC's fee included. Pay by card, transfer or USSD. It usually takes {offer.turnaround} after payment.{req.for_other ? ' If they are paying you back, collect it before you pay.' : ''}</div>
             <button onClick={pay} disabled={busy === 'pay'} className="mt-3 w-full h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: busy === 'pay' ? 0.6 : 1 }}>{busy === 'pay' ? 'Opening Paystack…' : <><Lock size={15} /> Pay {fmt(price)}</>}</button>
           </div>
         ) : (
@@ -14009,11 +14107,41 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
         {error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{error}</div>}
         {['submitted'].includes(status) && (
           <div className="flex gap-2.5">
-            <button onClick={() => setStep(0)} className="flex-1 h-11 rounded-xl text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink }}>Change my details</button>
+            <button onClick={() => setStep(0)} className="flex-1 h-11 rounded-xl text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink }}>{req.for_other ? 'Change the details' : 'Change my details'}</button>
             <button onClick={cancel} className="h-11 px-4 rounded-xl text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkFaint }}>Withdraw</button>
           </div>
         )}
-        {['registered', 'rejected'].includes(status) && <button onClick={async () => { await sbRpc('cac_save', token, { p: {} }).catch(() => {}); await load(); setStep(0); }} className="w-full h-11 rounded-xl text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Register another business name</button>}
+        {!many && <button onClick={() => startNew(false)} className="w-full h-11 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}><Plus size={15} /> Register another business name</button>}
+      </div>
+    );
+  }
+
+  // ---- Several registrations: the list ----
+  if (!req && cur !== 'new' && (all || []).length > 1) {
+    return (
+      <div className="space-y-4">
+        <div className="relative rounded-[22px] p-5 overflow-hidden" style={{ background: 'radial-gradient(120% 90% at 0% 0%, #1B4A40 0%, #10302A 55%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <span aria-hidden className="absolute -right-6 -top-2 opacity-90 hidden sm:block"><CacMiniCert name={all[0].registered_name || all[0].name_1 || businessName} width={120} tilt={8} /></span>
+          <div className="relative sm:pr-36">
+            <div className="text-[20px] font-extrabold leading-tight" style={{ letterSpacing: '-0.02em' }}>Your registrations</div>
+            <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>Business names you're registering with CAC through Xorla, for your business or for other people.</div>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {all.map((r) => { const [w, tn] = CAC_STATUS[r.status] || ['', C.inkFaint]; return (
+            <button key={r.id} onClick={() => openReq(r)} className="w-full text-left rounded-2xl p-3.5 flex items-center gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${r.status === 'query' ? 'rgba(226,98,75,0.4)' : C.line}` }}>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: r.status === 'registered' ? C.sage : 'rgba(255,255,255,0.06)' }}>{r.for_other ? <Users size={17} style={{ color: r.status === 'registered' ? C.bg : C.copper }} /> : <Store size={17} style={{ color: r.status === 'registered' ? C.bg : C.copper }} />}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[14px] font-semibold truncate">{r.registered_name || r.name_1 || 'Not named yet'}</span>
+                <span className="block text-[11.5px] mt-0.5 truncate" style={{ color: C.inkFaint }}>{r.for_other ? `For ${r.owner_name || 'someone else'}` : 'Your business'}{r.bn_number ? ` · ${r.bn_number}` : ''}</span>
+              </span>
+              <span className="text-[11px] font-semibold px-2 py-1 rounded-full shrink-0" style={{ background: 'rgba(255,255,255,0.05)', color: tn }}>{w}</span>
+              <ChevronRight size={16} className="shrink-0" style={{ color: C.inkFaint }} />
+            </button>
+          ); })}
+        </div>
+        <button onClick={() => startNew(false)} className="w-full h-12 rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><Plus size={16} /> Register another business name</button>
+        <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>You can register for yourself, or for a relative, friend or customer with their permission.</div>
       </div>
     );
   }
@@ -14063,8 +14191,14 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
         </div>
       </div>
 
-      <button onClick={() => { setStep(0); setError(''); }} className="w-full h-[54px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, boxShadow: '0 12px 28px -14px rgba(255,176,32,0.7)' }}>{req ? 'Continue where I stopped' : 'Start registration'} <ArrowRight size={17} /></button>
+      {backLink}
+      <button onClick={() => { if (req) { setStep(0); setError(''); } else startNew(false); }} className="w-full h-[54px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, boxShadow: '0 12px 28px -14px rgba(255,176,32,0.7)' }}>{req ? 'Continue where I stopped' : 'Start registration'} <ArrowRight size={17} /></button>
       <div className="flex items-center justify-center gap-1.5 text-[11.5px] text-center" style={{ color: C.inkFaint }}><Lock size={12} /> Your documents are private, seen only by you and Xorla's registration team.</div>
+      {<button onClick={() => startNew(true)} className="w-full rounded-2xl p-3.5 flex items-center gap-3 text-left" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
+        <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.12)' }}><Users size={18} style={{ color: C.sage }} /></span>
+        <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">Registering for someone else?</span><span className="block text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>A relative, friend or customer. Use their details and ID, with their permission.</span></span>
+        <ChevronRight size={16} className="shrink-0" style={{ color: C.inkFaint }} />
+      </button>}
       <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>This registers a business name (sole owner). For a limited company (Ltd), message Xorla support.</div>
     </div>
   );
