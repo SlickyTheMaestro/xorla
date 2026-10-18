@@ -13650,6 +13650,46 @@ function SupportTeamAdmin({ call }) {
 // ---------- Register a business name with CAC, through Xorla ----------
 const NG_STATES = ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT (Abuja)', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'];
 // Business category → type, like CAC's own classification
+// Local government areas, by state (774)
+const NG_LGAS = Object.fromEntries(Object.entries({
+  'Abia': 'Aba North|Aba South|Arochukwu|Bende|Ikwuano|Isiala Ngwa North|Isiala Ngwa South|Isuikwuato|Obi Ngwa|Ohafia|Osisioma|Ugwunagbo|Ukwa East|Ukwa West|Umuahia North|Umuahia South|Umu Nneochi',
+  'Adamawa': 'Demsa|Fufure|Ganye|Gayuk|Gombi|Grie|Hong|Jada|Lamurde|Madagali|Maiha|Mayo Belwa|Michika|Mubi North|Mubi South|Numan|Shelleng|Song|Toungo|Yola North|Yola South',
+  'Akwa Ibom': 'Abak|Eastern Obolo|Eket|Esit Eket|Essien Udim|Etim Ekpo|Etinan|Ibeno|Ibesikpo Asutan|Ibiono-Ibom|Ika|Ikono|Ikot Abasi|Ikot Ekpene|Ini|Itu|Mbo|Mkpat-Enin|Nsit-Atai|Nsit-Ibom|Nsit-Ubium|Obot Akara|Okobo|Onna|Oron|Oruk Anam|Udung-Uko|Ukanafun|Uruan|Urue-Offong/Oruko|Uyo',
+  'Anambra': 'Aguata|Anambra East|Anambra West|Anaocha|Awka North|Awka South|Ayamelum|Dunukofia|Ekwusigo|Idemili North|Idemili South|Ihiala|Njikoka|Nnewi North|Nnewi South|Ogbaru|Onitsha North|Onitsha South|Orumba North|Orumba South|Oyi',
+  'Bauchi': "Alkaleri|Bauchi|Bogoro|Damban|Darazo|Dass|Gamawa|Ganjuwa|Giade|Itas/Gadau|Jama'are|Katagum|Kirfi|Misau|Ningi|Shira|Tafawa Balewa|Toro|Warji|Zaki",
+  'Bayelsa': 'Brass|Ekeremor|Kolokuma/Opokuma|Nembe|Ogbia|Sagbama|Southern Ijaw|Yenagoa',
+  'Benue': 'Ado|Agatu|Apa|Buruku|Gboko|Guma|Gwer East|Gwer West|Katsina-Ala|Konshisha|Kwande|Logo|Makurdi|Obi|Ogbadibo|Ohimini|Oju|Okpokwu|Otukpo|Tarka|Ukum|Ushongo|Vandeikya',
+  'Borno': 'Abadam|Askira/Uba|Bama|Bayo|Biu|Chibok|Damboa|Dikwa|Gubio|Guzamala|Gwoza|Hawul|Jere|Kaga|Kala/Balge|Konduga|Kukawa|Kwaya Kusar|Mafa|Magumeri|Maiduguri|Marte|Mobbar|Monguno|Ngala|Nganzai|Shani',
+  'Cross River': 'Abi|Akamkpa|Akpabuyo|Bakassi|Bekwarra|Biase|Boki|Calabar Municipal|Calabar South|Etung|Ikom|Obanliku|Obubra|Obudu|Odukpani|Ogoja|Yakuur|Yala',
+  'Delta': 'Aniocha North|Aniocha South|Bomadi|Burutu|Ethiope East|Ethiope West|Ika North East|Ika South|Isoko North|Isoko South|Ndokwa East|Ndokwa West|Okpe|Oshimili North|Oshimili South|Patani|Sapele|Udu|Ughelli North|Ughelli South|Ukwuani|Uvwie|Warri North|Warri South|Warri South West',
+  'Ebonyi': 'Abakaliki|Afikpo North|Afikpo South|Ebonyi|Ezza North|Ezza South|Ikwo|Ishielu|Ivo|Izzi|Ohaozara|Ohaukwu|Onicha',
+  'Edo': 'Akoko-Edo|Egor|Esan Central|Esan North-East|Esan South-East|Esan West|Etsako Central|Etsako East|Etsako West|Igueben|Ikpoba-Okha|Oredo|Orhionmwon|Ovia North-East|Ovia South-West|Owan East|Owan West|Uhunmwonde',
+  'Ekiti': 'Ado-Ekiti|Efon|Ekiti East|Ekiti South-West|Ekiti West|Emure|Gbonyin|Ido-Osi|Ijero|Ikere|Ikole|Ilejemeje|Irepodun/Ifelodun|Ise/Orun|Moba|Oye',
+  'Enugu': 'Aninri|Awgu|Enugu East|Enugu North|Enugu South|Ezeagu|Igbo Etiti|Igbo Eze North|Igbo Eze South|Isi Uzo|Nkanu East|Nkanu West|Nsukka|Oji River|Udenu|Udi|Uzo-Uwani',
+  'FCT (Abuja)': 'Abaji|Abuja Municipal (AMAC)|Bwari|Gwagwalada|Kuje|Kwali',
+  'Gombe': 'Akko|Balanga|Billiri|Dukku|Funakaye|Gombe|Kaltungo|Kwami|Nafada|Shongom|Yamaltu/Deba',
+  'Imo': 'Aboh Mbaise|Ahiazu Mbaise|Ehime Mbano|Ezinihitte|Ideato North|Ideato South|Ihitte/Uboma|Ikeduru|Isiala Mbano|Isu|Mbaitoli|Ngor Okpala|Njaba|Nkwerre|Nwangele|Obowo|Oguta|Ohaji/Egbema|Okigwe|Onuimo|Orlu|Orsu|Oru East|Oru West|Owerri Municipal|Owerri North|Owerri West',
+  'Jigawa': 'Auyo|Babura|Biriniwa|Birnin Kudu|Buji|Dutse|Gagarawa|Garki|Gumel|Guri|Gwaram|Gwiwa|Hadejia|Jahun|Kafin Hausa|Kaugama|Kazaure|Kiri Kasama|Kiyawa|Maigatari|Malam Madori|Miga|Ringim|Roni|Sule Tankarkar|Taura|Yankwashi',
+  'Kaduna': "Birnin Gwari|Chikun|Giwa|Igabi|Ikara|Jaba|Jema'a|Kachia|Kaduna North|Kaduna South|Kagarko|Kajuru|Kaura|Kauru|Kubau|Kudan|Lere|Makarfi|Sabon Gari|Sanga|Soba|Zangon Kataf|Zaria",
+  'Kano': 'Ajingi|Albasu|Bagwai|Bebeji|Bichi|Bunkure|Dala|Dambatta|Dawakin Kudu|Dawakin Tofa|Doguwa|Fagge|Gabasawa|Garko|Garun Mallam|Gaya|Gezawa|Gwale|Gwarzo|Kabo|Kano Municipal|Karaye|Kibiya|Kiru|Kumbotso|Kunchi|Kura|Madobi|Makoda|Minjibir|Nasarawa|Rano|Rimin Gado|Rogo|Shanono|Sumaila|Takai|Tarauni|Tofa|Tsanyawa|Tudun Wada|Ungogo|Warawa|Wudil',
+  'Katsina': "Bakori|Batagarawa|Batsari|Baure|Bindawa|Charanchi|Dan Musa|Dandume|Danja|Daura|Dutsi|Dutsin Ma|Faskari|Funtua|Ingawa|Jibia|Kafur|Kaita|Kankara|Kankia|Katsina|Kurfi|Kusada|Mai'Adua|Malumfashi|Mani|Mashi|Matazu|Musawa|Rimi|Sabuwa|Safana|Sandamu|Zango",
+  'Kebbi': 'Aleiro|Arewa Dandi|Argungu|Augie|Bagudo|Birnin Kebbi|Bunza|Dandi|Fakai|Gwandu|Jega|Kalgo|Koko/Besse|Maiyama|Ngaski|Sakaba|Shanga|Suru|Wasagu/Danko|Yauri|Zuru',
+  'Kogi': 'Adavi|Ajaokuta|Ankpa|Bassa|Dekina|Ibaji|Idah|Igalamela-Odolu|Ijumu|Kabba/Bunu|Kogi|Lokoja|Mopa-Muro|Ofu|Ogori/Magongo|Okehi|Okene|Olamaboro|Omala|Yagba East|Yagba West',
+  'Kwara': 'Asa|Baruten|Edu|Ekiti|Ifelodun|Ilorin East|Ilorin South|Ilorin West|Irepodun|Isin|Kaiama|Moro|Offa|Oke Ero|Oyun|Pategi',
+  'Lagos': 'Agege|Ajeromi-Ifelodun|Alimosho|Amuwo-Odofin|Apapa|Badagry|Epe|Eti-Osa|Ibeju-Lekki|Ifako-Ijaiye|Ikeja|Ikorodu|Kosofe|Lagos Island|Lagos Mainland|Mushin|Ojo|Oshodi-Isolo|Shomolu|Surulere',
+  'Nasarawa': 'Akwanga|Awe|Doma|Karu|Keana|Keffi|Kokona|Lafia|Nasarawa|Nasarawa Egon|Obi|Toto|Wamba',
+  'Niger': 'Agaie|Agwara|Bida|Borgu|Bosso|Chanchaga|Edati|Gbako|Gurara|Katcha|Kontagora|Lapai|Lavun|Magama|Mariga|Mashegu|Mokwa|Munya|Paikoro|Rafi|Rijau|Shiroro|Suleja|Tafa|Wushishi',
+  'Ogun': 'Abeokuta North|Abeokuta South|Ado-Odo/Ota|Ewekoro|Ifo|Ijebu East|Ijebu North|Ijebu North East|Ijebu Ode|Ikenne|Imeko Afon|Ipokia|Obafemi Owode|Odeda|Odogbolu|Ogun Waterside|Remo North|Shagamu|Yewa North|Yewa South',
+  'Ondo': 'Akoko North-East|Akoko North-West|Akoko South-East|Akoko South-West|Akure North|Akure South|Ese Odo|Idanre|Ifedore|Ilaje|Ile Oluji/Okeigbo|Irele|Odigbo|Okitipupa|Ondo East|Ondo West|Ose|Owo',
+  'Osun': 'Aiyedaade|Aiyedire|Atakumosa East|Atakumosa West|Boluwaduro|Boripe|Ede North|Ede South|Egbedore|Ejigbo|Ife Central|Ife East|Ife North|Ife South|Ifedayo|Ifelodun|Ila|Ilesa East|Ilesa West|Irepodun|Irewole|Isokan|Iwo|Obokun|Odo Otin|Ola Oluwa|Olorunda|Oriade|Orolu|Osogbo',
+  'Oyo': 'Afijio|Akinyele|Atiba|Atisbo|Egbeda|Ibadan North|Ibadan North-East|Ibadan North-West|Ibadan South-East|Ibadan South-West|Ibarapa Central|Ibarapa East|Ibarapa North|Ido|Irepo|Iseyin|Itesiwaju|Iwajowa|Kajola|Lagelu|Ogbomosho North|Ogbomosho South|Ogo Oluwa|Olorunsogo|Oluyole|Ona Ara|Orelope|Ori Ire|Oyo East|Oyo West|Saki East|Saki West|Surulere',
+  'Plateau': "Barkin Ladi|Bassa|Bokkos|Jos East|Jos North|Jos South|Kanam|Kanke|Langtang North|Langtang South|Mangu|Mikang|Pankshin|Qua'an Pan|Riyom|Shendam|Wase",
+  'Rivers': 'Abua/Odual|Ahoada East|Ahoada West|Akuku-Toru|Andoni|Asari-Toru|Bonny|Degema|Eleme|Emohua|Etche|Gokana|Ikwerre|Khana|Obio/Akpor|Ogba/Egbema/Ndoni|Ogu/Bolo|Okrika|Omuma|Opobo/Nkoro|Oyigbo|Port Harcourt|Tai',
+  'Sokoto': 'Binji|Bodinga|Dange Shuni|Gada|Goronyo|Gudu|Gwadabawa|Illela|Isa|Kebbe|Kware|Rabah|Sabon Birni|Shagari|Silame|Sokoto North|Sokoto South|Tambuwal|Tangaza|Tureta|Wamako|Wurno|Yabo',
+  'Taraba': 'Ardo Kola|Bali|Donga|Gashaka|Gassol|Ibi|Jalingo|Karim Lamido|Kurmi|Lau|Sardauna|Takum|Ussa|Wukari|Yorro|Zing',
+  'Yobe': 'Bade|Bursari|Damaturu|Fika|Fune|Geidam|Gujba|Gulani|Jakusko|Karasuwa|Machina|Nangere|Nguru|Potiskum|Tarmuwa|Yunusari|Yusufari',
+  'Zamfara': 'Anka|Bakura|Birnin Magaji/Kiyaw|Bukkuyum|Bungudu|Gummi|Gusau|Kaura Namoda|Maradun|Maru|Shinkafi|Talata Mafara|Tsafe|Zurmi',
+}).map(([k, v]) => [k, v.split('|')]));
 const CAC_NATURES = {
   'Trading and retail': ['Provisions and foodstuff', 'Clothing and shoes', 'Phones and electronics', 'Building materials', 'Cosmetics and toiletries', 'Auto parts', 'General merchandise'],
   'Fashion and textiles': ['Tailoring', 'Fashion design', 'Textile and fabrics', 'Shoes and bags making'],
@@ -13759,6 +13799,8 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [preview, setPreview] = useState({});       // doc kind → url to show
+  const [lgaOther, setLgaOther] = useState(false);   // local government not in the list: typed instead
+  const [typeOther, setTypeOther] = useState(false); // business type not in the list: typed instead
   const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
   const label = 'block text-[11px] font-semibold uppercase tracking-wide mb-1.5';
   const req = all === undefined ? undefined : cur === 'new' ? null : cur ? (all.find((r) => r.id === cur) || null) : all.length === 1 ? all[0] : null;
@@ -13823,14 +13865,17 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
       if (String(f.name_1 || '').trim().length < 3 || String(f.name_2 || '').trim().length < 3) return 'Give two name choices, in case the first is taken.';
       if (String(f.name_1).trim().toLowerCase() === String(f.name_2).trim().toLowerCase()) return 'Make your two name choices different.';
       if ([f.name_1, f.name_2].some((x) => cacNameIssues(x).some((i) => i.tone === 'bad'))) return 'One of your names has a word CAC refuses. Change it first.';
-      if (!f.nature || !f.sub_category) return 'Choose the kind and type of business.';
+      if (!f.nature) return 'Choose what kind of business it is.';
+      if (String(f.sub_category || '').trim().length < 3) return typeOther ? 'Type the kind of business (at least 3 letters).' : 'Choose the type of business, or Other to type it.';
       const dl = String(f.description || '').trim().length;
       if (dl < 30) return `Describe what the business does in at least 30 characters (${dl} so far).`;
       if (!f.commencement_date) return 'Add the date the business started (or will start).';
       if (!f.staff_size) return 'Choose how many people work in the business.';
       if (!f.fund_source) return 'Choose where the money for the business comes from.';
     }
-    if (id === 'place' && (!f.biz_state || String(f.biz_address || '').trim().length < 8)) return 'Add the state and the full business address.';
+    if (id === 'place' && !f.biz_state) return 'Choose the state.';
+    if (id === 'place' && String(f.biz_lga || '').trim().length < 2) return 'Choose the local government area.';
+    if (id === 'place' && String(f.biz_address || '').trim().length < 8) return 'Add the full business address.';
     if (id === 'owner') {
       const yr = f.for_other ? "the owner's" : 'your';
       if (String(f.owner_name || '').trim().split(/\s+/).length < 2) return `Type ${yr} full name as it is on the ID (first name and surname).`;
@@ -13948,17 +13993,25 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
             </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>What kind of business</span>
-              <BrandSelect value={f.nature || ''} onChange={(e) => { set('nature', e.target.value); set('sub_category', (CAC_NATURES[e.target.value] || []).length === 1 ? CAC_NATURES[e.target.value][0] : ''); }} className="w-full rounded-xl px-3.5 py-3 text-[15px]" style={field}>
+              <BrandSelect value={f.nature || ''} onChange={(e) => { set('nature', e.target.value); set('sub_category', (CAC_NATURES[e.target.value] || []).length === 1 ? CAC_NATURES[e.target.value][0] : ''); setTypeOther(false); }} className="w-full rounded-xl px-3.5 py-3 text-[15px]" style={field}>
                 <option value="">Choose…</option>
                 {Object.keys(CAC_NATURES).map((n) => <option key={n} value={n}>{n}</option>)}
               </BrandSelect>
             </div>
-            {f.nature && (CAC_NATURES[f.nature] || []).length > 1 && (
-              <div>
-                <span className={label} style={{ color: C.inkFaint }}>Type</span>
-                <div className="flex flex-wrap gap-1.5">{CAC_NATURES[f.nature].map((t) => <button key={t} type="button" onClick={() => set('sub_category', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.sub_category === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
-              </div>
-            )}
+            {f.nature && (() => {
+              const types = CAC_NATURES[f.nature] || [];
+              const other = typeOther || (f.sub_category && !types.includes(f.sub_category));
+              return (
+                <div>
+                  <span className={label} style={{ color: C.inkFaint }}>Type</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {types.map((t) => <button key={t} type="button" onClick={() => { setTypeOther(false); set('sub_category', t); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={!other && f.sub_category === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}
+                    <button type="button" onClick={() => { setTypeOther(true); set('sub_category', ''); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1" style={other ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim, borderStyle: 'dashed' }}><Plus size={13} /> Other</button>
+                  </div>
+                  {other && <input autoFocus value={f.sub_category || ''} onChange={(e) => set('sub_category', e.target.value)} maxLength={60} placeholder="Type what kind, e.g. Hair extensions sales" className="w-full mt-2 rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />}
+                </div>
+              );
+            })()}
             <div>
               <span className={label} style={{ color: C.inkFaint }}>What the business does</span>
               <textarea rows={3} maxLength={160} value={f.description || ''} onChange={(e) => set('description', e.target.value)} placeholder="e.g. Sewing and selling ready-made native wear and Ankara dresses" className="w-full rounded-xl px-3.5 py-3 text-[14.5px] outline-none resize-none" style={field} />
@@ -13981,14 +14034,26 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
           {id === 'place' && (<>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>State</span>
-              <BrandSelect value={f.biz_state || ''} onChange={(e) => set('biz_state', e.target.value)} className="w-full rounded-xl px-3.5 py-3 text-[15px]" style={field}>
+              <BrandSelect value={f.biz_state || ''} onChange={(e) => { const st = e.target.value; setF((x) => ({ ...x, biz_state: st, biz_lga: (NG_LGAS[st] || []).includes(x.biz_lga) ? x.biz_lga : '', attest: false })); setLgaOther(false); setError(''); }} className="w-full rounded-xl px-3.5 py-3 text-[15px]" style={field}>
                 <option value="">Choose your state…</option>
                 {NG_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
               </BrandSelect>
             </div>
             <div>
-              <span className={label} style={{ color: C.inkFaint }}>Local government area or city</span>
-              <input value={f.biz_lga || ''} onChange={(e) => set('biz_lga', e.target.value)} maxLength={60} placeholder="e.g. Aba South" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
+              <span className={label} style={{ color: C.inkFaint }}>Local government area</span>
+              {(() => {
+                const list = NG_LGAS[f.biz_state] || [];
+                const other = lgaOther || (f.biz_lga && !list.includes(f.biz_lga));
+                if (!f.biz_state) return <div className="w-full rounded-xl px-3.5 py-3 text-[14px]" style={{ ...field, color: C.inkFaint }}>Choose the state first</div>;
+                return (<>
+                  <BrandSelect value={other ? '__other' : (f.biz_lga || '')} onChange={(e) => { if (e.target.value === '__other') { setLgaOther(true); set('biz_lga', ''); } else { setLgaOther(false); set('biz_lga', e.target.value); } }} className="w-full rounded-xl px-3.5 py-3 text-[15px]" style={field}>
+                    <option value="">Choose the local government…</option>
+                    {list.map((l) => <option key={l} value={l}>{l}</option>)}
+                    <option value="__other">Not listed, I'll type it</option>
+                  </BrandSelect>
+                  {other && <input autoFocus value={f.biz_lga || ''} onChange={(e) => set('biz_lga', e.target.value)} maxLength={60} placeholder="Type the local government area" className="w-full mt-2 rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />}
+                </>);
+              })()}
             </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>Full business address</span>
@@ -14753,7 +14818,30 @@ function VaultShared({ token }) {
 }
 
 // ---------- Xorla's team: registration requests, the agent and the price ----------
-function CacAdmin({ call, token }) {
+// Ready-made notes for the owner, so the team (and the agent) don't type the same thing every time
+const CAC_SUGGEST = {
+  query: [
+    'Your first business name is already taken. Send us another name choice.',
+    'Both names are too close to businesses already registered. Send two new name choices.',
+    'Your ID photo is not clear. Upload a clearer photo with all four corners showing.',
+    'Your passport photograph needs a plain white background. Upload a new one.',
+    'Your signature is not clear. Sign on plain white paper with a dark pen and upload it again.',
+    'Your NIN does not match your name or date of birth. Check it and correct it.',
+    'Describe what the business does more clearly, for example "Sale of ready-made clothes and shoes".',
+    'The business address is not complete. Add the shop number, street and town.',
+  ],
+  rejected: [
+    'CAC did not accept this name because it uses a restricted word. Your payment will be refunded within 5 working days.',
+    'We could not confirm your identity with the details given. Your payment will be refunded within 5 working days.',
+    'You asked us to cancel. Your payment will be refunded within 5 working days.',
+  ],
+  registered: [
+    'Congratulations! Your business name is registered. Download your certificate and status report below.',
+    'Congratulations! Your business name is registered. Your TIN will follow in a few days, and we will add it here.',
+  ],
+};
+const cacAgentLink = (tok) => `${typeof window !== 'undefined' ? window.location.origin : 'https://xorla.vercel.app'}/agent/${tok}`;
+function CacAdmin({ call, token, isFounder = true, initialId = null }) {
   const [list, setList] = useState(null);
   const [filter, setFilter] = useState('');
   const [open, setOpen] = useState(null);      // the full request
@@ -14764,7 +14852,8 @@ function CacAdmin({ call, token }) {
   const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
   const loadList = useCallback(async (s = filter) => { try { setList(await call('admin_cac_list', { p_status: s })); } catch (e) { setList([]); } }, [call, filter]);
   useEffect(() => { loadList(filter); }, [filter]);
-  useEffect(() => { call('admin_cac_settings', {}).then(setSt).catch(() => {}); }, []);
+  useEffect(() => { call('admin_cac_settings', {}).then(setSt).catch(() => {}); if (initialId) show(initialId); }, []);
+  const [emailFor, setEmailFor] = useState(null);   // { subject, body } while choosing how to send the email
   const show = async (id) => {
     try {
       const r = await call('admin_cac_get', { p_id: id }); setOpen(r); setDocs({}); setAct({ mode: '', message: '', bn: '', name: r.name_1, tin: '', cert: null, report: null, busy: false, error: '' });
@@ -14772,18 +14861,21 @@ function CacAdmin({ call, token }) {
     } catch (e) { brandAlert(e.message); }
   };
   const saveSettings = async (patch) => { try { setSt(await call('admin_cac_settings', { p: patch })); } catch (e) { brandAlert(e.message); } };
-  // Send everything to the agent: the details plus links to the documents (the links work for 3 days)
+  // Send the agent their private page for this registration: every detail, the documents, and buttons to post updates
   const [sending, setSending] = useState('');
   const sendToAgent = async (r, how) => {
     const win = how === 'whatsapp' ? window.open('', '_blank') : null;   // opened now so the browser doesn't block it
     setSending(how);
     try {
-      const docs = [['ID', r.id_doc], ['Passport photograph', r.passport_doc], ['Signature', r.signature_doc]].filter(([, d]) => d);
-      const links = await Promise.all(docs.map(async ([l, d]) => `${l}: ${await cacDocUrl(token(), d, 3 * 86400)}`));
-      const hi = `Hello${st?.agent_name ? ` ${st.agent_name.split(' ')[0]}` : ''}, a new business name registration from Xorla.`;
-      const body = `${hi}\n\n${agentText(r)}\n\nDocuments (links work for 3 days):\n${links.join('\n')}\n\nPlease file it and send me the certificate and status report when it's approved. Thank you.`;
+      const tok = await call('admin_cac_agent_link', { p_id: r.id });
+      const link = cacAgentLink(tok);
+      const hi = `Hello${st?.agent_name ? ` ${st.agent_name.split(' ')[0]}` : ''},`;
+      const body = `${hi}\n\nA new business name registration from Xorla: ${r.name_1}${r.owner_name ? ` (${r.owner_name})` : ''}.\n\nEverything you need is on this page: the details, the ID, passport photograph and signature. You can also tell us when it's filed, if CAC needs a fix, and upload the certificate there when it's approved:\n${link}\n\nThank you.`;
       if (how === 'whatsapp') { const url = `https://wa.me/${toWhatsAppNumber(st.agent_phone)}?text=${encodeURIComponent(body)}`; if (win) win.location.href = url; else window.open(url, '_blank'); }
-      else window.location.href = `mailto:${st.agent_email}?subject=${encodeURIComponent(`Business name registration: ${r.name_1}${r.owner_name ? ` (${r.owner_name})` : ''}`)}&body=${encodeURIComponent(body)}`;
+      else if (how === 'copy') { try { await navigator.clipboard.writeText(link); } catch (e) { /* older phones */ } setCopied('link'); setTimeout(() => setCopied(false), 2000); }
+      else setEmailFor({ to: st.agent_email, subject: `Business name registration: ${r.name_1}${r.owner_name ? ` (${r.owner_name})` : ''}`, body });
+      setOpen((o) => (o && o.id === r.id ? { ...o, sent_to_agent_at: new Date().toISOString(), agent_link: tok } : o));
+      loadList();
     } catch (e) { if (win) win.close(); brandAlert(e.message); }
     setSending('');
   };
@@ -14811,7 +14903,14 @@ function CacAdmin({ call, token }) {
   const chips = [['', 'All'], ['submitted', 'Not paid'], ['paid', 'To check'], ['filed', 'With CAC'], ['query', 'Waiting on owner'], ['registered', 'Registered'], ['rejected', 'Rejected']];
   return (
     <div className="space-y-5">
-      {st && (
+      {st && !isFounder && (
+        <div className="rounded-2xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.inkDim }}>
+          <span><strong style={{ color: C.ink }}>Agent:</strong> {st.agent_name || 'not set'}{st.agent_phone ? ` · ${st.agent_phone}` : ''}{st.agent_email ? ` · ${st.agent_email}` : ''}</span>
+          <span>Owners pay <strong className="cx-mono" style={{ color: C.ink }}>{fmt(Number(st.cac_fee) + Number(st.service_fee))}</strong></span>
+          <span style={{ color: C.inkFaint }}>Only the founder changes these.</span>
+        </div>
+      )}
+      {st && isFounder && (
         <div className="rounded-2xl p-4 space-y-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
           <div className="flex items-center justify-between gap-3">
             <div><div className="text-[14px] font-semibold">Business name registration</div><div className="text-[12px]" style={{ color: C.inkFaint }}>{st.open ? 'Open: owners can pay and send requests.' : 'Closed: owners can fill in details and are told it opens soon.'}</div></div>
@@ -14841,6 +14940,7 @@ function CacAdmin({ call, token }) {
           {list.map((r) => { const [w, t] = CAC_STATUS[r.status] || ['', C.inkDim]; return (
             <button key={r.id} onClick={() => show(r.id)} className="w-full text-left rounded-xl px-4 py-3 flex items-center gap-3" style={{ background: C.surface, border: `1px solid ${open?.id === r.id ? C.copper : C.line}` }}>
               <div className="flex-1 min-w-0"><div className="text-[14px] font-semibold truncate">{r.name_1}</div><div className="text-[12px] truncate" style={{ color: C.inkFaint }}>{r.business} · {r.for_other ? `for ${r.owner_name || "someone else"}` : r.owner_name} · {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</div></div>
+              {r.status === 'paid' && !r.sent_to_agent_at && <span className="shrink-0 hidden sm:inline text-[11px] font-semibold" style={{ color: C.copper }}>Not sent to agent</span>}
               <span className="shrink-0 text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ color: t, background: 'rgba(255,255,255,0.05)' }}>{w}</span>
             </button>
           ); })}
@@ -14862,13 +14962,27 @@ function CacAdmin({ call, token }) {
             ))}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => { navigator.clipboard?.writeText(agentText(open)); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink }}>{copied ? 'Copied' : 'Copy details for the agent'}</button>
-            {st?.agent_phone && <button onClick={() => sendToAgent(open, 'whatsapp')} disabled={sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: sending ? 0.6 : 1 }}>{sending === 'whatsapp' ? 'Preparing…' : 'WhatsApp the agent'}</button>}
-            {st?.agent_email && <button onClick={() => sendToAgent(open, 'email')} disabled={sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: st?.agent_phone ? 'transparent' : C.sage, color: st?.agent_phone ? C.ink : C.bg, border: st?.agent_phone ? `1px solid ${C.line}` : 'none', opacity: sending ? 0.6 : 1 }}>{sending === 'email' ? 'Preparing…' : 'Email the agent'}</button>}
-            {!st?.agent_phone && !st?.agent_email && <span className="px-1 py-2 text-[12px]" style={{ color: C.inkFaint }}>Add your agent's WhatsApp or email above to send this in one tap.</span>}
+            {open.paid_at ? (<>
+              {st?.agent_phone && <button onClick={() => sendToAgent(open, 'whatsapp')} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ background: C.sage, color: C.bg, opacity: sending ? 0.6 : 1 }}><MessageCircle size={14} /> {sending === 'whatsapp' ? 'Preparing…' : 'WhatsApp the agent'}</button>}
+              {st?.agent_email && <button onClick={() => sendToAgent(open, 'email')} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.ink, opacity: sending ? 0.6 : 1 }}><Send size={14} /> {sending === 'email' ? 'Preparing…' : 'Email the agent'}</button>}
+              <button onClick={() => sendToAgent(open, 'copy')} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: copied === 'link' ? C.sage : C.ink }}><Link2 size={14} /> {copied === 'link' ? 'Link copied' : "Copy the agent's link"}</button>
+              {!st?.agent_phone && !st?.agent_email && <span className="px-1 py-2 text-[12px]" style={{ color: C.inkFaint }}>{isFounder ? "Add your agent's WhatsApp or email above to send this in one tap." : 'The founder has not added the agent yet.'}</span>}
+            </>) : <span className="px-1 py-2 text-[12px]" style={{ color: C.inkFaint }}>It goes to the agent once it's paid.</span>}
+            <button onClick={() => { navigator.clipboard?.writeText(agentText(open)); setCopied('text'); setTimeout(() => setCopied(false), 2000); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>{copied === 'text' ? 'Copied' : 'Copy the details'}</button>
             {open.owner_phone && <a href={`https://wa.me/${toWhatsAppNumber(open.owner_phone)}`} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>WhatsApp the owner</a>}
           </div>
-          <div className="text-[12.5px]" style={{ color: C.inkDim }}>Status: <strong style={{ color: (CAC_STATUS[open.status] || [])[1] }}>{(CAC_STATUS[open.status] || [open.status])[0]}</strong>{open.paid_at ? ` · paid ${fmt(open.amount)} on ${new Date(open.paid_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · not paid'}{open.bn_number ? ` · ${open.bn_number}` : ''}</div>
+          <div className="text-[12.5px]" style={{ color: C.inkDim }}>Status: <strong style={{ color: (CAC_STATUS[open.status] || [])[1] }}>{(CAC_STATUS[open.status] || [open.status])[0]}</strong>{open.paid_at ? ` · paid ${fmt(open.amount)} on ${new Date(open.paid_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · not paid'}{open.bn_number ? ` · ${open.bn_number}` : ''}{open.sent_to_agent_at ? ` · sent to the agent ${new Date(open.sent_to_agent_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</div>
+          {(open.events || []).length > 0 && (
+            <div className="rounded-xl p-3 space-y-2" style={{ background: C.bg }}>
+              <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>What's happened</div>
+              {open.events.map((e, i) => { const [w, tone] = CAC_STATUS[e.status] || [e.status, C.inkDim]; const who = { agent: e.by_name ? `${e.by_name} (agent)` : 'The agent', team: e.by_name || 'Xorla', owner: e.by_name || 'The owner', payment: 'Paystack' }[e.by] || e.by; return (
+                <div key={i} className="flex items-start gap-2.5 text-[12.5px]">
+                  <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: tone }} />
+                  <span className="flex-1 min-w-0"><strong style={{ color: C.ink }}>{w}</strong> <span style={{ color: C.inkFaint }}>by {who} · {new Date(e.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span>{e.message ? <span className="block mt-0.5" style={{ color: C.inkDim }}>{e.message}</span> : null}</span>
+                </div>
+              ); })}
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5">
             {[['filed', 'Filed with CAC'], ['query', 'Ask the owner to fix'], ['registered', 'Registered'], ['rejected', 'Reject']].map(([m, l]) => (
               <button key={m} onClick={() => setAct({ ...act, mode: act.mode === m ? '' : m, error: '' })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={act.mode === m ? { background: m === 'rejected' ? C.rust : C.copper, color: C.bg } : { border: `1px solid ${C.line}`, color: C.ink }}>{l}</button>
@@ -14885,6 +14999,9 @@ function CacAdmin({ call, token }) {
                   <label className="sm:col-span-2 flex items-center gap-2 rounded-xl px-3 py-2.5 text-[13px] cursor-pointer" style={field}><Upload size={14} /> {act.cert ? act.cert.name : 'Upload the certificate (PDF or photo)'}<input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => setAct({ ...act, cert: e.target.files?.[0] || null })} /></label>
                 </div>
               )}
+              {CAC_SUGGEST[act.mode] && (
+                <div className="flex flex-wrap gap-1.5">{CAC_SUGGEST[act.mode].map((t) => <button key={t} type="button" onClick={() => setAct({ ...act, message: t })} className="text-left px-2.5 py-1.5 rounded-lg text-[11.5px] leading-snug" style={act.message === t ? { background: C.copperSoft, color: C.copper, border: `1px solid rgba(255,176,32,0.4)` } : { border: `1px solid ${C.line}`, color: C.inkDim }}>{t}</button>)}</div>
+              )}
               {act.mode !== 'filed' && <textarea rows={3} value={act.message} onChange={(e) => setAct({ ...act, message: e.target.value })} placeholder={act.mode === 'query' ? 'What should the owner fix? e.g. Your ID photo is blurry. Please upload a clearer one.' : act.mode === 'rejected' ? "Why, and whether they'll get their money back" : 'A note for the owner (optional)'} className="w-full rounded-xl px-3 py-2.5 text-[13px] outline-none resize-none" style={field} />}
               {act.error && <div className="text-[12.5px]" style={{ color: C.rust }}>{act.error}</div>}
               <button onClick={update} disabled={act.busy} className="w-full h-11 rounded-xl text-[13.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: act.busy ? 0.6 : 1 }}>{act.busy ? 'Saving…' : 'Save and notify the owner'}</button>
@@ -14892,7 +15009,160 @@ function CacAdmin({ call, token }) {
           )}
         </div>
       )}
+      {emailFor && (
+        <Sheet onClose={() => setEmailFor(null)} title="Email the agent">
+          <div className="space-y-2.5">
+            <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>To <strong style={{ color: C.ink }}>{emailFor.to}</strong>. Choose how to send it:</div>
+            <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(emailFor.to)}&su=${encodeURIComponent(emailFor.subject)}&body=${encodeURIComponent(emailFor.body)}`} target="_blank" rel="noopener noreferrer" onClick={() => setTimeout(() => setEmailFor(null), 300)} className="w-full h-12 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><Send size={16} /> Open in Gmail</a>
+            <a href={`mailto:${emailFor.to}?subject=${encodeURIComponent(emailFor.subject)}&body=${encodeURIComponent(emailFor.body)}`} onClick={() => setTimeout(() => setEmailFor(null), 300)} className="w-full h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ border: `1px solid ${C.line}`, color: C.ink }}>Open my email app</a>
+            <button onClick={async () => { try { await navigator.clipboard.writeText(`${emailFor.subject}\n\n${emailFor.body}`); } catch (e) { /* older phones */ } setCopied('email'); setTimeout(() => setCopied(false), 2000); }} className="w-full h-11 rounded-xl text-[13.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: copied === 'email' ? C.sage : C.inkDim }}>{copied === 'email' ? 'Copied. Paste it into any email' : 'Copy the message'}</button>
+          </div>
+        </Sheet>
+      )}
     </div>
+  );
+}
+
+// ---------- The CAC agent's page: everything for one registration, and buttons to post updates ----------
+async function cacAgentCall(body) {
+  const res = await fetch(`${SB_URL}/functions/v1/cac-agent`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || d.error) throw new Error(d.error || 'Something went wrong. Check your connection and try again.');
+  return d;
+}
+function CacAgentPage({ token }) {
+  const [v, setV] = useState(undefined);
+  const [copied, setCopied] = useState('');
+  const [act, setAct] = useState({ mode: '', message: '', bn: '', name: '', tin: '', cert: null, report: null, busy: false, error: '', done: '' });
+  const load = useCallback(async () => {
+    try { const d = await cacAgentCall({ action: 'open', token }); setV(d); if (d.request) setAct((a) => ({ ...a, name: a.name || d.request.registered_name || d.request.name_1 || '' })); }
+    catch (e) { setV({ state: 'error', error: e.message }); }
+  }, [token]);
+  useEffect(() => { document.title = 'Business name registration · Xorla'; load(); }, [load]);
+  const copy = async (text, key) => { try { await navigator.clipboard.writeText(String(text || '')); } catch (e) { /* older phones */ } setCopied(key); setTimeout(() => setCopied(''), 1500); };
+  const upload = async (file, kind) => {
+    const pdf = file.type === 'application/pdf';
+    if (pdf && file.size > 5.5 * 1024 * 1024) throw new Error('That PDF is too large. Use one under 5 MB.');
+    const blob = pdf ? file : await resizeImageToBlob(file, 2000, 0.9);
+    const { path, url } = await cacAgentCall({ action: 'upload', token, kind, type: pdf ? 'pdf' : 'image' });
+    const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': pdf ? 'application/pdf' : 'image/jpeg', 'x-upsert': 'true' }, body: blob });
+    if (!res.ok) throw new Error("That file didn't upload. Try again.");
+    return path;
+  };
+  const send = async () => {
+    setAct((a) => ({ ...a, busy: true, error: '' }));
+    try {
+      const cert = act.mode === 'registered' && act.cert ? await upload(act.cert, 'certificate') : null;
+      const report = act.mode === 'registered' && act.report ? await upload(act.report, 'status-report') : null;
+      await cacAgentCall({ action: 'update', token, status: act.mode, message: act.message, bn: act.bn, registered_name: act.name, tin: act.tin, certificate: cert, status_report: report });
+      const done = act.mode;
+      setAct({ mode: '', message: '', bn: '', name: '', tin: '', cert: null, report: null, busy: false, error: '', done });
+      await load(); window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) { setAct((a) => ({ ...a, busy: false, error: e.message })); }
+  };
+  const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+  const shell = (body) => (
+    <div className="min-h-screen" style={{ background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <div className="max-w-2xl mx-auto px-4 pb-16" style={{ paddingTop: 'max(18px, env(safe-area-inset-top))' }}>
+        <div className="flex items-center gap-2 mb-4"><XorlaMark size={22} /><span className="text-[15px] font-extrabold">Xorla</span><span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.copperSoft, color: C.copper }}>For the CAC agent</span></div>
+        {body}
+      </div>
+    </div>
+  );
+  if (v === undefined) return shell(<div className="py-24 flex justify-center"><Loader2 className="animate-spin" size={22} style={{ color: C.inkFaint }} /></div>);
+  if (v.state !== 'ok') return shell(
+    <div className="text-center py-20">
+      <div className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.surfaceRaised }}><Lock size={24} style={{ color: C.inkFaint }} /></div>
+      <div className="text-[19px] font-bold">{v.state === 'expired' ? 'This link has expired' : v.state === 'revoked' ? 'This link was stopped' : v.state === 'error' ? "Couldn't open this page" : "This link doesn't work"}</div>
+      <div className="text-[13.5px] mt-2 max-w-sm mx-auto leading-relaxed" style={{ color: C.inkDim }}>{v.state === 'error' ? v.error : 'Ask Xorla to send you a new link.'}</div>
+      {v.state === 'error' && <button onClick={() => { setV(undefined); load(); }} className="mt-5 px-5 py-2.5 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Try again</button>}
+    </div>
+  );
+  const r = v.request; const d = v.docs || {};
+  const [word, tone] = CAC_STATUS[r.status] || [r.status, C.inkDim];
+  const date = (x) => (x ? new Date(x + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+  const sections = [
+    ['Business name', [['First choice', r.name_1], ['Second choice', r.name_2]]],
+    ['The business', [['Nature of business', r.nature], ['Type', r.sub_category], ['Description', r.description], ['Date of commencement', date(r.commencement_date)], ['Number of staff', r.staff_size], ['Source of funds', r.fund_source]]],
+    ['Business address', [['State', r.biz_state], ['Local government', r.biz_lga], ['Full address', r.biz_address]]],
+    ['Proprietor', [['Full name', r.owner_name], ['Date of birth', date(r.owner_dob)], ['Gender', r.owner_gender], ['Nationality', r.owner_nationality || 'Nigerian'], ['Occupation', r.owner_occupation], ['Phone', r.owner_phone], ['Email', r.owner_email], ['NIN', r.owner_nin], ['Residential address', r.owner_address], ['ID type', r.id_type]]],
+  ];
+  const closed = ['registered', 'rejected', 'cancelled'].includes(r.status);
+  const doneText = { filed: 'Marked as filed. The owner and Xorla have been told.', query: 'Sent. The owner has been asked to fix it, and Xorla has been told.', registered: 'Done! The owner can now download the certificate in Xorla.' }[act.done];
+  return shell(
+    <>
+      {doneText && <div className="rounded-2xl px-4 py-3 mb-4 flex items-center gap-2.5 text-[13.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage, border: '1px solid rgba(31,217,196,0.3)' }}><Check size={17} /> {doneText}</div>}
+      <div className="rounded-[22px] p-5" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: tone }}>{word}</div>
+        <div className="text-[23px] font-extrabold leading-tight mt-1" style={{ letterSpacing: '-0.02em', overflowWrap: 'anywhere' }}>{r.registered_name || r.name_1}</div>
+        <div className="text-[13px] mt-1.5" style={{ color: C.inkDim }}>Business name registration for {r.owner_name}{v.agent_name ? `. Sent to ${v.agent_name}` : ''}.</div>
+        {r.bn_number && <div className="mt-3 inline-flex px-3 py-1.5 rounded-xl text-[14px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}>{r.bn_number}</div>}
+        {r.status === 'query' && r.message && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.ink }}><strong style={{ color: C.rust }}>Waiting for the owner to fix:</strong> {r.message}</div>}
+      </div>
+
+      <div className="mt-4">
+        <div className="text-[12px] font-semibold uppercase tracking-wide mb-2 px-1" style={{ color: C.inkFaint }}>Documents</div>
+        <div className="grid grid-cols-3 gap-2">
+          {[['id_doc', r.id_type || 'ID'], ['passport_doc', 'Passport photograph'], ['signature_doc', 'Signature']].map(([k, l]) => (
+            <div key={k} className="rounded-2xl overflow-hidden" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <a href={d[k]?.view || undefined} target="_blank" rel="noopener noreferrer" className="block aspect-[4/3] flex items-center justify-center" style={{ background: C.bg }}>
+                {d[k] ? (d[k].pdf ? <FileText size={26} style={{ color: C.copper }} /> : <img src={d[k].view} alt={l} className="w-full h-full object-cover" />) : <span className="text-[11px]" style={{ color: C.inkFaint }}>Not added</span>}
+              </a>
+              <div className="px-2.5 py-2">
+                <div className="text-[11.5px] font-semibold truncate">{l}</div>
+                {d[k] && <a href={d[k].download} className="inline-flex items-center gap-1 text-[11.5px] font-semibold mt-0.5" style={{ color: C.copper }}><Download size={12} /> Download</a>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {sections.map(([title, rows]) => (
+        <div key={title} className="mt-4">
+          <div className="text-[12px] font-semibold uppercase tracking-wide mb-2 px-1" style={{ color: C.inkFaint }}>{title}</div>
+          <div className="rounded-2xl overflow-hidden" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            {rows.filter(([, val]) => val).map(([k, val], i) => (
+              <div key={k} className="flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                <span className="w-32 sm:w-40 shrink-0 text-[12px]" style={{ color: C.inkFaint }}>{k}</span>
+                <span className={`flex-1 min-w-0 text-[13.5px] ${k === 'NIN' ? 'cx-mono' : ''}`} style={{ overflowWrap: 'anywhere' }}>{val}</span>
+                <button onClick={() => copy(val, title + k)} className="shrink-0 text-[11.5px] font-semibold px-2 py-1 rounded-lg" style={{ color: copied === title + k ? C.sage : C.copper }}>{copied === title + k ? 'Copied' : 'Copy'}</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {!closed && (
+        <div className="mt-6 rounded-[22px] p-4 sm:p-5 space-y-3" style={{ background: C.surface, border: `1px solid ${C.lineStrong || C.line}` }}>
+          <div className="text-[16px] font-bold">Update Xorla and the owner</div>
+          <div className="text-[12.5px] -mt-1.5" style={{ color: C.inkDim }}>They're notified straight away.</div>
+          <div className="grid grid-cols-3 gap-2">
+            {[['filed', 'Filed with CAC', Send], ['query', 'CAC needs a fix', AlertCircle], ['registered', 'Registered', BadgeCheck]].map(([m, l, Ic]) => (
+              <button key={m} onClick={() => setAct({ ...act, mode: act.mode === m ? '' : m, error: '', message: m === act.mode ? act.message : '' })} disabled={m === 'filed' && r.status === 'filed'} className="rounded-xl px-2 py-3 text-[12.5px] font-semibold flex flex-col items-center gap-1.5" style={act.mode === m ? { background: m === 'query' ? C.rust : m === 'registered' ? C.sage : C.copper, color: C.bg } : { ...field, opacity: m === 'filed' && r.status === 'filed' ? 0.4 : 1 }}><Ic size={17} /> {l}</button>
+            ))}
+          </div>
+          {act.mode === 'query' && (<>
+            <div className="flex flex-wrap gap-1.5">{CAC_SUGGEST.query.map((t) => <button key={t} type="button" onClick={() => setAct({ ...act, message: t })} className="text-left px-2.5 py-1.5 rounded-lg text-[11.5px] leading-snug" style={act.message === t ? { background: C.copperSoft, color: C.copper, border: '1px solid rgba(255,176,32,0.4)' } : { border: `1px solid ${C.line}`, color: C.inkDim }}>{t}</button>)}</div>
+            <textarea rows={3} value={act.message} onChange={(e) => setAct({ ...act, message: e.target.value })} placeholder="What should the owner fix? Write it for them." className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none resize-none" style={field} />
+          </>)}
+          {act.mode === 'registered' && (
+            <div className="space-y-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input value={act.bn} onChange={(e) => setAct({ ...act, bn: e.target.value })} placeholder="BN number, e.g. BN 1234567" className="rounded-xl px-3.5 py-3 text-[14px] outline-none cx-mono" style={field} />
+                <input value={act.name} onChange={(e) => setAct({ ...act, name: e.target.value })} placeholder="Name as registered" className="rounded-xl px-3.5 py-3 text-[14px] outline-none" style={field} />
+                <input value={act.tin} onChange={(e) => setAct({ ...act, tin: e.target.value })} placeholder="TIN (if issued)" className="rounded-xl px-3.5 py-3 text-[14px] outline-none cx-mono" style={field} />
+                <label className="flex items-center gap-2 rounded-xl px-3.5 py-3 text-[13.5px] cursor-pointer min-w-0" style={field}><Upload size={15} className="shrink-0" style={{ color: C.copper }} /> <span className="truncate">{act.report ? act.report.name : 'Status report (optional)'}</span><input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => setAct({ ...act, report: e.target.files?.[0] || null })} /></label>
+              </div>
+              <label className="flex items-center gap-2 rounded-xl px-3.5 py-3.5 text-[13.5px] font-semibold cursor-pointer" style={{ ...field, border: `1.5px dashed ${act.cert ? C.sage : C.copper}` }}><Upload size={16} style={{ color: act.cert ? C.sage : C.copper }} /> {act.cert ? act.cert.name : 'Upload the certificate (PDF or photo)'}<input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => setAct({ ...act, cert: e.target.files?.[0] || null })} /></label>
+              <input value={act.message} onChange={(e) => setAct({ ...act, message: e.target.value })} placeholder="A note for the owner (optional)" className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none" style={field} />
+            </div>
+          )}
+          {act.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{act.error}</div>}
+          {act.mode && <button onClick={send} disabled={act.busy} className="w-full h-12 rounded-xl text-[14.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: act.busy ? 0.6 : 1 }}>{act.busy ? 'Sending…' : act.mode === 'filed' ? 'Confirm: filed with CAC' : act.mode === 'query' ? 'Send to the owner' : 'Confirm: registered'}</button>}
+        </div>
+      )}
+      <div className="mt-6 flex items-center justify-center gap-1.5 text-[11.5px] text-center" style={{ color: C.inkFaint }}><Lock size={12} /> Private page. Please don't share this link.</div>
+    </>
   );
 }
 
@@ -14908,7 +15178,8 @@ function AdminDashboard() {
   const [detail, setDetail] = useState(null);   // { b, data }
   const [role, setRole] = useState('founder');    // founder sees everything; a support person sees only the inbox
   const [agentName, setAgentName] = useState('');
-  const [section, setSection] = useState(() => { try { return new URLSearchParams(window.location.search).get('ticket') ? 'support' : 'overview'; } catch (e) { return 'overview'; } });
+  const [section, setSection] = useState(() => { try { const q = new URLSearchParams(window.location.search); return q.get('ticket') ? 'support' : q.get('cac') ? 'cac' : 'overview'; } catch (e) { return 'overview'; } });
+  const [cacFromLink] = useState(() => { try { return new URLSearchParams(window.location.search).get('cac') || null; } catch (e) { return null; } });
   const [ticketFromLink] = useState(() => { try { return new URLSearchParams(window.location.search).get('ticket') || null; } catch (e) { return null; } });
   const [supportCounts, setSupportCounts] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -14958,7 +15229,7 @@ function AdminDashboard() {
       catch (e) { if (!/jwt|expired|token/i.test(e.message)) throw e; await freshToken(); access = await ask(); }
       if (!access?.admin && !access?.agent) { setState({ phase: 'denied', error: '' }); return; }
       setRole(access.admin ? 'founder' : 'agent'); setAgentName(access.name || '');
-      if (!access.admin) setSection('support');
+      if (!access.admin) setSection((x) => (x === 'cac' ? 'cac' : 'support'));
       if (!access.verified) {
         const user = await sbAuthReq('/user', tokenRef.current);
         const verified = (user.factors || []).find((f) => f.factor_type === 'totp' && f.status === 'verified');
@@ -15047,9 +15318,9 @@ function AdminDashboard() {
       <header className="sticky top-0 z-20" style={{ background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}`, paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="max-w-6xl mx-auto px-5 py-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span><span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: role === 'agent' ? C.sageSoft : C.copperSoft, color: role === 'agent' ? C.sage : C.copper }}>{role === 'agent' ? 'Support' : 'Founder'}</span></div>
-          {state.phase === 'ready' && role === 'founder' && (
+          {state.phase === 'ready' && (
             <nav className="hidden md:flex items-center gap-1 p-1 rounded-xl" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-              {[['overview', 'Overview'], ['support', 'Support'], ['cac', 'CAC'], ['publish', "What's new"], ['team', 'Support team']].map(([k, l]) => (
+              {(role === 'founder' ? [['overview', 'Overview'], ['support', 'Support'], ['cac', 'CAC'], ['publish', "What's new"], ['team', 'Support team']] : [['support', 'Support'], ['cac', 'CAC registrations']]).map(([k, l]) => (
                 <button key={k} onClick={() => setSection(k)} className="relative px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{k === 'support' && supportCounts?.open ? <span className="ml-1.5 px-1.5 rounded-full text-[10.5px]" style={{ background: section === k ? C.bg : C.copper, color: section === k ? C.copper : C.bg }}>{supportCounts.open}</span> : null}</button>
               ))}
             </nav>
@@ -15068,10 +15339,10 @@ function AdminDashboard() {
           )}
         </div>
       </header>
-      {state.phase === 'ready' && role === 'founder' && (
+      {state.phase === 'ready' && (
         <div className="md:hidden max-w-6xl mx-auto px-5 pt-4">
           <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-            {[['overview', 'Overview'], ['support', 'Support'], ['cac', 'CAC'], ['publish', "What's new"], ['team', 'Team']].map(([k, l]) => (
+            {(role === 'founder' ? [['overview', 'Overview'], ['support', 'Support'], ['cac', 'CAC'], ['publish', "What's new"], ['team', 'Team']] : [['support', 'Support'], ['cac', 'CAC registrations']]).map(([k, l]) => (
               <button key={k} onClick={() => setSection(k)} className="flex-1 shrink-0 px-3 py-2 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{k === 'support' && supportCounts?.open ? ` ${supportCounts.open}` : ''}</button>
             ))}
           </div>
@@ -15179,7 +15450,7 @@ function AdminDashboard() {
         {(section === 'support' || section === 'overview') && <SupportInbox key={`inbox-${refreshKey}`} call={call} token={tokenRef.current} agentName={agentName} initialTicket={ticketFromLink} onCounts={setSupportCounts} />}
         {section === 'publish' && role === 'founder' && <SupportPublishing key={`pub-${refreshKey}`} call={call} />}
         {section === 'team' && role === 'founder' && <SupportTeamAdmin key={`team-${refreshKey}`} call={call} />}
-        {section === 'cac' && role === 'founder' && <CacAdmin key={`cac-${refreshKey}`} call={call} token={() => tokenRef.current} />}
+        {section === 'cac' && <CacAdmin key={`cac-${refreshKey}`} call={call} token={() => tokenRef.current} isFounder={role === 'founder'} initialId={refreshKey === 0 ? cacFromLink : null} />}
       </>
     );
   }
@@ -17838,7 +18109,8 @@ export default function Root() {
   const guestMatch = path.match(/^\/booking\/([a-f0-9]{20,64})/);
   const orderMatch = path.match(/^\/order\/([a-f0-9]{20,64})/);
   const docsMatch = path.match(/^\/docs\/([a-f0-9]{32})/);
-  const page = docsMatch ? <VaultShared token={docsMatch[1]} /> : offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : guestMatch ? <GuestBooking token={guestMatch[1]} /> : orderMatch ? <CustomerOrder token={orderMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
+  const agentMatch = path.match(/^\/agent\/([a-f0-9]{64})/);
+  const page = agentMatch ? <CacAgentPage token={agentMatch[1]} /> : docsMatch ? <VaultShared token={docsMatch[1]} /> : offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : guestMatch ? <GuestBooking token={guestMatch[1]} /> : orderMatch ? <CustomerOrder token={orderMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
     : clean === '/pricing' ? <PricingPage />
     : clean === '/privacy' ? <LegalPage kind="privacy" />
     : clean === '/terms' ? <LegalPage kind="terms" />
