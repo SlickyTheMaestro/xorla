@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -303,8 +303,9 @@ const SETTINGS_DESCRIPTIONS = {
   promote: 'A poster for your shop, pictures for WhatsApp Status, and discount codes.',
   payments: 'Let customers pay you online by card, transfer or USSD, straight into your bank.',
   cac: 'With the Corporate Affairs Commission (CAC), filed for you by an accredited agent.',
+  vault: 'CAC certificate, TIN, permits and more. Share with a link, get reminded before they expire.',
 };
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Your team', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business', payments: 'Online payments', delivery: 'Delivery & riders', cac: 'Register your business name' };
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Your team', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business', payments: 'Online payments', delivery: 'Delivery & riders', cac: 'Register your business name', vault: 'Document vault' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -1886,7 +1887,8 @@ function XorlaApp() {
   const [previousTab, setPreviousTab] = useState('overview');
   const [cacHome, setCacHome] = useState(null);   // the owner's business-name registration, for the notice on Overview and the sidebar
   const [cacHidden, setCacHidden] = useState(false);
-  const [cacToast, setCacToast] = useState(false);   // "It's still in Settings" after hiding the notice
+  const [cacToast, setCacToast] = useState(false);
+  const [vaultInfo, setVaultInfo] = useState(null);   // { count, due, list } for the menu and the Overview reminder   // "It's still in Settings" after hiding the notice
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [savingSale, setSavingSale] = useState(false);
@@ -2427,6 +2429,28 @@ function XorlaApp() {
         setCacHome(pick || { status: 'none' });
       }).catch(() => setCacHome(null));
   }, [session?.access_token, settings.role, settings.businessId, tab === 'settings']);
+  // Document vault: how many papers, and which need renewing
+  useEffect(() => {
+    if (!session?.access_token || !['owner', 'manager'].includes(settings.role) || !settings.businessId) return;
+    sbRest('vault_docs', { accessToken: session.access_token, query: '?select=id,title,kind,expires_on,remind_days&order=expires_on.asc.nullslast' })
+      .then((list) => setVaultInfo({ count: (list || []).length, due: (list || []).filter((d) => vaultExpiry(d)?.urgent).length, list: list || [] })).catch(() => setVaultInfo(null));
+  }, [session?.access_token, settings.role, settings.businessId]);
+  const openVault = () => { setDraft({ ...settings }); setPreviousTab(tab === 'settings' ? 'overview' : tab); setSettingsPage('vault'); setTab('settings'); };
+  const renderVaultDue = () => {
+    const list = (vaultInfo?.list || []).filter((d) => vaultExpiry(d)?.urgent);
+    if (!list.length) return null;
+    const first = list[0]; const ex = vaultExpiry(first); const late = list.some((d) => vaultDaysLeft(d) < 0);
+    return (
+      <button onClick={openVault} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-5 xorla-fade-up text-left" style={{ background: late ? C.rustSoft : C.copperSoft, border: `1px solid ${late ? 'rgba(226,98,75,0.35)' : 'rgba(255,176,32,0.3)'}` }}>
+        <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: late ? C.rust : C.copper }}><Clock size={18} style={{ color: C.bg }} /></span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[14px] font-semibold truncate">{list.length === 1 ? `${first.title}: ${ex.text.toLowerCase()}` : `${list.length} documents need renewing`}</span>
+          <span className="block text-[12px] mt-0.5 truncate" style={{ color: C.inkDim }}>{list.length === 1 ? 'Renew it in time so you are never caught without it.' : list.slice(0, 3).map((d) => d.title).join(', ')}</span>
+        </span>
+        <ChevronRight size={18} className="shrink-0" style={{ color: late ? C.rust : C.copper }} />
+      </button>
+    );
+  };
   const openCac = () => { setDraft({ ...settings }); setPreviousTab(tab === 'settings' ? 'overview' : tab); setSettingsPage('cac'); setTab('settings'); };
   const hideCacPromo = (e) => {
     e?.stopPropagation?.(); setCacHidden(true); setCacToast(true);
@@ -8943,6 +8967,9 @@ function XorlaApp() {
                   ...(isOwnerRole ? [{ id: 'export', Icon: FileSpreadsheet, label: 'Your records', value: 'Bring in, download' }] : []),
                   { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
                 ])}
+                {(isOwnerRole || isManager) && navGroup('Documents', [
+                  { id: 'vault', Icon: Lock, label: 'Document vault', value: vaultInfo ? (vaultInfo.due ? `${vaultInfo.due} to renew` : vaultInfo.count ? `${vaultInfo.count} saved` : isOwnerRole ? 'CAC, TIN, permits' : 'Nothing shared yet') : '', valueColor: vaultInfo?.due ? C.copper : undefined },
+                ])}
                 {isOwnerRole && navGroup('Grow', [
                   { id: 'cac', Icon: ShieldCheck, label: 'Register your business (CAC)', value: '' },
                 ])}
@@ -9472,8 +9499,12 @@ function XorlaApp() {
                 </div>
               </div>
             )}
+            {settingsPage === 'vault' && (isOwnerRole || isManager) && (
+              <VaultPage token={session.access_token} businessId={settings.businessId} businessName={settings.businessName} isOwner={isOwnerRole} plan={planKnown ? effPlan : 'business'}
+                onUpgrade={() => setSettingsPage('plan')} onChanged={(list) => setVaultInfo({ count: list.length, due: list.filter((d) => vaultExpiry(d)?.urgent).length, list })} />
+            )}
             {settingsPage === 'cac' && isOwnerRole && (
-              <CacRegistration token={session.access_token} businessId={settings.businessId} businessName={settings.businessName} ownerPhone={settings.ownerPhone} ownerEmail={settings.businessEmail} ownerName={settings.myName || ''} callBilling={callBilling} />
+              <CacRegistration onOpenVault={() => setSettingsPage('vault')} token={session.access_token} businessId={settings.businessId} businessName={settings.businessName} ownerPhone={settings.ownerPhone} ownerEmail={settings.businessEmail} ownerName={settings.myName || ''} callBilling={callBilling} />
             )}
             {settingsPage === 'delivery' && (
               <div className="space-y-4">
@@ -10066,6 +10097,7 @@ function XorlaApp() {
             <>
               {renderChecklist()}
               {renderCacPromo('mobile')}
+              {renderVaultDue()}
               {canRun && pendingRequests.length > 0 && (
                 <button onClick={() => setTab('products')} className="w-full flex items-center justify-between rounded-2xl p-4 mb-5 xorla-fade-up text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
                   <div className="flex items-center gap-3">
@@ -13717,7 +13749,7 @@ function CacMiniCert({ name, width = 132, tilt = -6 }) {
     </div>
   );
 }
-function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEmail, ownerName, callBilling }) {
+function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPhone, ownerEmail, ownerName, callBilling }) {
   const [offer, setOffer] = useState(null);
   const [all, setAll] = useState(undefined);       // every registration this business has started (not withdrawn)
   const [cur, setCur] = useState(null);            // the one open: an id, 'new' for a fresh one, or null (the list)
@@ -14101,6 +14133,11 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
             {req.status_report_doc && <button onClick={() => openDoc(req.status_report_doc)} className="w-full h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Download the status report</button>}
             {req.tin && <div className="rounded-xl px-3.5 py-3 flex items-center justify-between gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}><span className="text-[12.5px]" style={{ color: C.inkDim }}>Tax ID (TIN)</span><span className="text-[14px] font-bold cx-mono">{req.tin}</span></div>}
             {req.message && <div className="text-[12.5px] leading-relaxed px-1 whitespace-pre-line" style={{ color: C.inkDim }}>{req.message}</div>}
+            {onOpenVault && <button onClick={onOpenVault} className="w-full rounded-2xl p-3.5 flex items-center gap-3 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Lock size={17} style={{ color: C.copper }} /></span>
+              <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">Saved in your document vault</span><span className="block text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>Share it with your bank in one tap, with a link that expires</span></span>
+              <ChevronRight size={16} className="shrink-0" style={{ color: C.inkFaint }} />
+            </button>}
             <div className="text-[12px] leading-relaxed px-1" style={{ color: C.inkFaint }}>With your certificate you can open a business bank account in the business name, and show customers you're registered. Renew it with CAC every year.</div>
           </div>
         )}
@@ -14204,6 +14241,516 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
   );
 }
 const BadgeCheckIcon = () => <ShieldCheck size={15} />;
+
+// ---------- Document vault: a business's important papers, shareable with a link that expires ----------
+const VAULT_KINDS = {
+  cac_certificate: ['CAC certificate', BadgeCheck, '#1FD9C4', 'reg'],
+  cac_report: ['CAC status report', ScrollText, '#1FD9C4', 'reg'],
+  tin: ['Tax ID (TIN)', Hash, '#7FB3FF', 'reg'],
+  cac_annual: ['CAC annual return', CalendarClock, '#7FB3FF', 'reg'],
+  nafdac: ['NAFDAC', Pill, '#C792EA', 'lic'],
+  son: ['SON / MANCAP', Award, '#C792EA', 'lic'],
+  permit: ['Permit or licence', FileBadge, '#FFB020', 'lic'],
+  fire: ['Fire certificate', Flame, '#F78C6C', 'lic'],
+  tenancy: ['Tenancy agreement', Home, '#A3BE8C', 'prop'],
+  insurance: ['Insurance', Umbrella, '#A3BE8C', 'prop'],
+  bank: ['Bank letter', Landmark, '#89DDFF', 'other'],
+  id: ["Owner's ID", Users, '#89DDFF', 'other'],
+  other: ['Other', FileText, '#8A9A96', 'other'],
+};
+const VAULT_GROUPS = [['reg', 'Registration & tax'], ['lic', 'Licences & permits'], ['prop', 'Property & cover'], ['other', 'Other papers']];
+const vaultDaysLeft = (d) => (d?.expires_on ? Math.round((new Date(d.expires_on + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000) : null);
+const vaultExpiry = (d) => {
+  const left = vaultDaysLeft(d);
+  if (left === null) return null;
+  if (left < 0) return { text: `Expired ${new Date(d.expires_on + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`, tone: C.rust, bg: C.rustSoft, urgent: true };
+  if (left === 0) return { text: 'Expires today', tone: C.rust, bg: C.rustSoft, urgent: true };
+  if (left <= Math.max(7, Number(d.remind_days ?? 30))) return { text: `Expires in ${left} day${left === 1 ? '' : 's'}`, tone: C.copper, bg: C.copperSoft, urgent: true };
+  return { text: `Valid till ${new Date(d.expires_on + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`, tone: C.sage, bg: C.sageSoft, urgent: false };
+};
+async function vaultUpload(token, businessId, file) {
+  const pdf = file.type === 'application/pdf';
+  if (!pdf && !/^image\//.test(file.type)) throw new Error('Choose a photo or a PDF.');
+  if (pdf && file.size > 9.5 * 1024 * 1024) throw new Error('That PDF is too large. Use one under 10 MB, or take a photo.');
+  const blob = pdf ? file : await resizeImageToBlob(file, 2000, 0.88);
+  const path = `${businessId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${pdf ? 'pdf' : 'jpg'}`;
+  const res = await fetch(`${SB_URL}/storage/v1/object/vault/${path}`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${token}`, 'Content-Type': pdf ? 'application/pdf' : 'image/jpeg' }, body: blob });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.message || "That file didn't upload. Check your connection and try again."); }
+  return { path, type: pdf ? 'pdf' : 'image' };
+}
+async function vaultFileUrl(token, bucket, path, download = false) {
+  const res = await fetch(`${SB_URL}/storage/v1/object/sign/${bucket}/${path}`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 600 }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || !d.signedURL) throw new Error("Couldn't open that file. If the link was shared with you, it may have stopped working.");
+  return `${SB_URL}/storage/v1${d.signedURL}${download ? `&download=${encodeURIComponent(download === true ? '' : download)}` : ''}`;
+}
+const vaultLink = (token) => `${typeof window !== 'undefined' ? window.location.origin : 'https://xorla.vercel.app'}/docs/${token}`;
+
+// A small stack of papers, used as the vault's picture
+function VaultArt({ size = 1 }) {
+  const card = (rot, x, y, bg, children, z) => (
+    <div className="absolute rounded-xl" style={{ width: 92 * size, height: 118 * size, left: x * size, top: y * size, transform: `rotate(${rot}deg)`, background: bg, boxShadow: '0 16px 30px -12px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(0,0,0,0.08)', zIndex: z, padding: 9 * size }}>{children}</div>
+  );
+  const lines = (c, n = 4) => Array.from({ length: n }, (_, i) => <div key={i} style={{ height: 3 * size, width: `${[86, 70, 92, 55][i % 4]}%`, background: c, borderRadius: 4, marginTop: 6 * size }} />);
+  return (
+    <div aria-hidden className="relative" style={{ width: 170 * size, height: 140 * size }}>
+      {card(-12, 4, 18, 'linear-gradient(160deg, #DCE9FF, #B9D0F5)', <><div style={{ height: 6 * size, width: '55%', background: '#5B83C7', borderRadius: 4 }} />{lines('rgba(40,70,120,0.28)')}</>, 1)}
+      {card(9, 70, 10, 'linear-gradient(160deg, #DFF7EE, #B8E8D6)', <><div style={{ height: 6 * size, width: '48%', background: '#2C9C7B', borderRadius: 4 }} />{lines('rgba(20,90,70,0.28)')}</>, 2)}
+      {card(-2, 36, 4, 'linear-gradient(160deg, #FBF6EA, #EEE2C4)', <>
+        <div className="text-center font-bold uppercase" style={{ fontSize: 6 * size, letterSpacing: '0.18em', color: '#8A6A2A' }}>Certificate</div>
+        <div className="mx-auto" style={{ marginTop: 6 * size, height: 5 * size, width: '70%', background: '#1F2A26', borderRadius: 3 }} />
+        {lines('rgba(150,110,40,0.35)', 2)}
+        <svg width={20 * size} height={20 * size} viewBox="0 0 46 46" style={{ position: 'absolute', right: 8 * size, bottom: 8 * size }}><circle cx="23" cy="23" r="21" fill="#0F6B5A" /><path d="M15.5 23.5l5 5 10-11" fill="none" stroke="#F6E7B8" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </>, 3)}
+      <div className="absolute rounded-2xl flex items-center justify-center" style={{ zIndex: 4, width: 44 * size, height: 44 * size, right: 2 * size, bottom: 0, background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, boxShadow: '0 10px 20px -8px rgba(255,176,32,0.8)' }}><Lock size={20 * size} style={{ color: C.bg }} /></div>
+    </div>
+  );
+}
+
+function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, onChanged }) {
+  const [docs, setDocs] = useState(undefined);
+  const [shares, setShares] = useState([]);
+  const [edit, setEdit] = useState(null);          // the form being filled in
+  const [open, setOpen] = useState(null);          // the paper being looked at
+  const [picking, setPicking] = useState(false);   // choosing papers to share
+  const [picked, setPicked] = useState([]);
+  const [share, setShare] = useState(null);        // { ids, days, label, link, busy }
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [preview, setPreview] = useState({});
+  const [copied, setCopied] = useState('');
+  const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+  const label = 'block text-[11px] font-semibold uppercase tracking-wide mb-1.5';
+
+  const load = useCallback(async () => {
+    try {
+      const [d, s] = await Promise.all([
+        sbRest('vault_docs', { accessToken: token, query: '?select=*&order=kind.asc,created_at.desc' }),
+        isOwner ? sbRest('vault_shares', { accessToken: token, query: `?select=*&revoked=eq.false&expires_at=gt.${new Date().toISOString()}&order=created_at.desc&limit=30` }).catch(() => []) : Promise.resolve([]),
+      ]);
+      setDocs(d || []); setShares(s || []);
+      onChanged && onChanged(d || []);
+    } catch (e) { setDocs([]); }
+  }, [token, isOwner]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {   // little pictures of photos
+    (docs || []).filter((d) => d.file_path && d.file_type === 'image' && !preview[d.id]).slice(0, 40).forEach((d) => {
+      vaultFileUrl(token, d.bucket, d.file_path).then((u) => setPreview((p) => ({ ...p, [d.id]: u }))).catch(() => {});
+    });
+  }, [docs]);
+
+  const uploads = (docs || []).filter((d) => d.source === 'upload').length;
+  const freeFull = plan === 'free' && uploads >= 3;
+  const due = (docs || []).filter((d) => vaultExpiry(d)?.urgent).sort((a, b) => vaultDaysLeft(a) - vaultDaysLeft(b));
+
+  const startAdd = (kind = '') => {
+    if (freeFull) { setError(''); onUpgrade && onUpgrade(); return; }
+    setEdit({ kind, title: kind ? VAULT_KINDS[kind][0] : '', number: '', issued_on: '', expires_on: '', remind_days: 30, managers_can_see: false, note: '', file_path: '', file_type: '', expires: false });
+    setError('');
+  };
+  const startEdit = (d) => { setOpen(null); setEdit({ ...d, number: d.number || '', note: d.note || '', issued_on: d.issued_on || '', expires_on: d.expires_on || '', expires: !!d.expires_on }); setError(''); };
+  const pickFile = async (e) => {
+    const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
+    setBusy('upload'); setError('');
+    try {
+      const up = await vaultUpload(token, businessId, file);
+      setEdit((x) => ({ ...x, file_path: up.path, file_type: up.type, _local: up.type === 'image' ? URL.createObjectURL(file) : 'pdf', _name: file.name }));
+    } catch (er) { setError(er.message); }
+    setBusy('');
+  };
+  const save = async () => {
+    const f = edit; setError('');
+    if (!f.kind) { setError('Choose what kind of document it is.'); return; }
+    if (String(f.title || '').trim().length < 2) { setError('Give the document a name.'); return; }
+    if (!f.file_path && !String(f.number || '').trim()) { setError('Add a photo or PDF, or at least the number.'); return; }
+    if (f.expires && !f.expires_on) { setError('Add the expiry date, or choose "Doesn\'t expire".'); return; }
+    setBusy('save');
+    try {
+      const body = { kind: f.kind, title: f.title, number: f.number, issued_on: f.issued_on || '', expires_on: f.expires ? f.expires_on : '', remind_days: Number(f.remind_days) || 0, managers_can_see: !!f.managers_can_see, note: f.note };
+      if (f.source !== 'cac') { body.file_path = f.file_path || ''; body.file_type = f.file_type || ''; }
+      await sbRpc('vault_save', token, { p: body, p_id: f.id || null });
+      setEdit(null); await load();
+    } catch (e) { setError(e.message); }
+    setBusy('');
+  };
+  const remove = async (d) => {
+    if (!(await brandConfirm(d.source === 'cac' ? 'It leaves your vault. Your certificate stays safe in Register your business (CAC).' : 'The file is deleted, and any shared link stops showing it.', { title: `Remove ${d.title}?`, confirm: 'Remove', danger: true }))) return;
+    try {
+      const file = await sbRpc('vault_delete', token, { p_id: d.id });
+      if (file) fetch(`${SB_URL}/storage/v1/object/vault/${file}`, { method: 'DELETE', headers: { apikey: SB_KEY, Authorization: `Bearer ${token}` } }).catch(() => {});
+      setOpen(null); await load();
+    } catch (e) { brandAlert(e.message); }
+  };
+  const viewFile = async (d, download) => {
+    const win = window.open('', '_blank');
+    try { const u = await vaultFileUrl(token, d.bucket, d.file_path, download ? `${d.title}.${d.file_type === 'pdf' ? 'pdf' : 'jpg'}` : false); if (win) win.location.href = u; else window.location.href = u; }
+    catch (e) { if (win) win.close(); brandAlert(e.message); }
+  };
+  const toggleManagers = async (d) => {
+    try { await sbRpc('vault_save', token, { p: { managers_can_see: !d.managers_can_see }, p_id: d.id }); setOpen({ ...d, managers_can_see: !d.managers_can_see }); load(); } catch (e) { brandAlert(e.message); }
+  };
+  const makeLink = async () => {
+    setShare((s) => ({ ...s, busy: true, error: '' }));
+    try { const s = await sbRpc('vault_share', token, { p_docs: share.ids, p_days: share.days, p_label: share.label || null }); setShare((x) => ({ ...x, busy: false, link: vaultLink(s.token), expires_at: s.expires_at })); load(); }
+    catch (e) { setShare((x) => ({ ...x, busy: false, error: e.message })); }
+  };
+  const stopShare = async (s) => {
+    if (!(await brandConfirm('Anyone with the link will no longer be able to open these papers.', { title: 'Stop sharing?', confirm: 'Stop sharing', danger: true }))) return;
+    try { await sbRpc('vault_revoke', token, { p_id: s.id }); load(); } catch (e) { brandAlert(e.message); }
+  };
+  const copy = async (text, key) => { try { await navigator.clipboard.writeText(text); } catch (e) { /* older phones */ } setCopied(key); setTimeout(() => setCopied(''), 1800); };
+  const shareText = (sh) => {
+    const names = (docs || []).filter((d) => sh.ids.includes(d.id)).map((d) => d.title);
+    return `Hello${sh.label ? ` ${sh.label}` : ''}, here ${names.length === 1 ? 'is' : 'are'} ${businessName ? `${businessName}'s ` : 'our '}${names.length === 1 ? names[0] : `documents (${names.join(', ')})`}:\n${sh.link}\n\nThe link works for ${sh.days === 1 ? '1 day' : `${sh.days} days`}.`;
+  };
+  const daysLeftText = (iso) => { const h = Math.max(0, Math.round((new Date(iso) - Date.now()) / 3600000)); return h < 24 ? `${h} hour${h === 1 ? '' : 's'} left` : `${Math.round(h / 24)} days left`; };
+
+  if (docs === undefined) return <div className="py-16 flex justify-center"><Loader2 className="animate-spin" size={20} style={{ color: C.inkFaint }} /></div>;
+
+  const kindTile = (kind, sz = 40) => { const [, Ic, col] = VAULT_KINDS[kind] || VAULT_KINDS.other; return <span className="rounded-xl flex items-center justify-center shrink-0" style={{ width: sz, height: sz, background: `${col}22`, border: `1px solid ${col}44` }}><Ic size={Math.round(sz * 0.45)} style={{ color: col }} /></span>; };
+  const docCard = (d) => {
+    const ex = vaultExpiry(d); const on = picked.includes(d.id);
+    return (
+      <button key={d.id} onClick={() => (picking ? setPicked((p) => (on ? p.filter((x) => x !== d.id) : [...p, d.id])) : setOpen(d))} className="w-full text-left rounded-2xl p-3 flex items-center gap-3 transition-colors" style={{ background: on ? 'rgba(31,217,196,0.08)' : C.surfaceRaised, border: `1px solid ${on ? C.sage : ex?.urgent ? (ex.tone === C.rust ? 'rgba(226,98,75,0.4)' : 'rgba(255,176,32,0.35)') : C.line}` }}>
+        {picking && <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: on ? C.sage : 'transparent', border: `2px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.bg }} />}</span>}
+        {preview[d.id] ? <span className="w-11 h-11 rounded-xl overflow-hidden shrink-0" style={{ border: `1px solid ${C.line}` }}><img src={preview[d.id]} alt="" className="w-full h-full object-cover" onError={() => setPreview((p) => ({ ...p, [d.id]: '' }))} /></span> : kindTile(d.kind, 44)}
+        <span className="flex-1 min-w-0">
+          <span className="block text-[14px] font-semibold truncate">{d.title}</span>
+          <span className="flex items-center gap-1.5 mt-0.5 text-[11.5px] min-w-0" style={{ color: C.inkFaint }}>
+            {d.number && <span className="cx-mono truncate">{d.number}</span>}
+            {d.number && (d.file_path || d.source === 'cac') && <span>·</span>}
+            {d.file_path ? <span className="shrink-0">{d.file_type === 'pdf' ? 'PDF' : 'Photo'}</span> : !d.number ? <span>No file</span> : null}
+            {d.source === 'cac' && <span className="shrink-0 px-1.5 rounded-full text-[10px] font-semibold" style={{ background: C.sageSoft, color: C.sage }}>Via Xorla</span>}
+            {isOwner && d.managers_can_see && <Eye size={11} className="shrink-0" title="Managers can see this" />}
+          </span>
+        </span>
+        {ex && <span className="shrink-0 text-[10.5px] font-semibold px-2 py-1 rounded-full hidden sm:inline" style={{ background: ex.bg, color: ex.tone }}>{ex.text}</span>}
+        {ex?.urgent && <span className="sm:hidden w-2 h-2 rounded-full shrink-0" style={{ background: ex.tone }} />}
+        {!picking && <ChevronRight size={16} className="shrink-0" style={{ color: C.inkFaint }} />}
+      </button>
+    );
+  };
+
+  return (
+    <div className="space-y-4 pb-24">
+      {/* The vault */}
+      <div className="relative rounded-[26px] overflow-hidden" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <span aria-hidden className="absolute -right-10 -top-14 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.22), transparent 65%)' }} />
+        <div className="relative p-5 sm:p-6 flex items-center gap-4">
+          <div className="flex-1 min-w-0">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full" style={{ background: 'rgba(31,217,196,0.12)', color: C.sage }}><Lock size={11} /> Private</span>
+            <div className="text-[22px] sm:text-[26px] font-extrabold leading-tight mt-2.5" style={{ letterSpacing: '-0.03em' }}>Your important papers, in one safe place</div>
+            <div className="text-[13px] mt-2 leading-relaxed max-w-md" style={{ color: C.inkDim }}>{isOwner ? 'Share them with a bank, supplier or landlord in one tap, with a link that stops working when you choose. Xorla reminds you before anything expires.' : 'Papers the owner has shared with managers.'}</div>
+            <div className="flex flex-wrap gap-1.5 mt-3.5">
+              <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: 'rgba(0,0,0,0.25)', color: C.ink }}>{docs.length} document{docs.length === 1 ? '' : 's'}</span>
+              {due.length > 0 && <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: C.copperSoft, color: C.copper }}>{due.length} need{due.length === 1 ? 's' : ''} renewing</span>}
+              {isOwner && shares.length > 0 && <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: C.sageSoft, color: C.sage }}>{shares.length} live link{shares.length === 1 ? '' : 's'}</span>}
+            </div>
+          </div>
+          <div className="shrink-0 hidden min-[400px]:block -mr-2"><VaultArt size={0.82} /></div>
+        </div>
+        {isOwner && docs.length > 0 && (
+          <div className="relative px-5 sm:px-6 pb-5 flex gap-2">
+            <button onClick={() => startAdd()} className="flex-1 sm:flex-none h-11 px-3 sm:px-4 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-1.5 whitespace-nowrap" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><Plus size={16} /> Add document</button>
+            <button onClick={() => { setPicking(!picking); setPicked([]); }} className="flex-1 sm:flex-none h-11 px-3 sm:px-4 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap" style={picking ? { background: C.sage, color: C.bg } : { background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.12)', color: C.ink }}><Share2 size={15} /> {picking ? 'Cancel' : 'Share papers'}</button>
+          </div>
+        )}
+      </div>
+
+      {plan === 'free' && isOwner && (
+        <div className="rounded-2xl px-4 py-3 flex items-center gap-3 text-[12.5px]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+          <span className="flex-1" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>{Math.min(uploads, 3)} of 3</strong> on the free plan. Papers from a registration through Xorla don't count.</span>
+          <button onClick={onUpgrade} className="shrink-0 font-semibold" style={{ color: C.copper }}>Keep more</button>
+        </div>
+      )}
+
+      {picking && <div className="rounded-2xl px-4 py-3 text-[12.5px]" style={{ background: C.sageSoft, color: C.ink, border: '1px solid rgba(31,217,196,0.25)' }}>Tap the papers to send together, for example your CAC certificate, TIN and ID for a bank.</div>}
+
+      {/* Needs renewing */}
+      {!picking && due.length > 0 && (
+        <div className="rounded-2xl p-4" style={{ background: due.some((d) => vaultDaysLeft(d) <= 0) ? C.rustSoft : C.copperSoft, border: `1px solid ${due.some((d) => vaultDaysLeft(d) <= 0) ? 'rgba(226,98,75,0.35)' : 'rgba(255,176,32,0.3)'}` }}>
+          <div className="text-[13.5px] font-semibold flex items-center gap-2"><Clock size={15} style={{ color: due.some((d) => vaultDaysLeft(d) <= 0) ? C.rust : C.copper }} /> Renew soon</div>
+          <div className="mt-2 space-y-1.5">{due.map((d) => <button key={d.id} onClick={() => setOpen(d)} className="w-full flex items-center justify-between gap-3 text-left text-[12.5px]"><span className="truncate">{d.title}</span><span className="shrink-0 font-semibold" style={{ color: vaultExpiry(d).tone }}>{vaultExpiry(d).text}</span></button>)}</div>
+        </div>
+      )}
+
+      {/* Empty vault */}
+      {docs.length === 0 && (isOwner ? (
+        <div className="space-y-3">
+          <div className="text-[12px] font-semibold uppercase tracking-wide px-1" style={{ color: C.inkFaint }}>Start with these</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {['cac_certificate', 'tin', 'permit', 'tenancy', 'insurance', 'id'].map((k) => { const [l, Ic, col] = VAULT_KINDS[k]; return (
+              <button key={k} onClick={() => startAdd(k)} className="rounded-2xl p-3.5 text-left" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${col}22` }}><Ic size={17} style={{ color: col }} /></span>
+                <span className="block text-[13px] font-semibold mt-2.5">{l}</span>
+                <span className="flex items-center gap-1 text-[11.5px] mt-0.5" style={{ color: C.copper }}><Plus size={12} /> Add</span>
+              </button>
+            ); })}
+          </div>
+          <button onClick={() => startAdd()} className="w-full h-12 rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><Plus size={16} /> Add a document</button>
+        </div>
+      ) : <div className="rounded-2xl p-6 text-center text-[13px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>Nothing here yet. The owner chooses which papers managers can see.</div>)}
+
+      {/* The papers, by group */}
+      {VAULT_GROUPS.map(([g, title]) => {
+        const list = docs.filter((d) => (VAULT_KINDS[d.kind] || VAULT_KINDS.other)[3] === g);
+        if (!list.length) return null;
+        return (
+          <div key={g}>
+            <div className="text-[12px] font-semibold uppercase tracking-wide mb-2 px-1" style={{ color: C.inkFaint }}>{title}</div>
+            <div className="space-y-2">{list.map(docCard)}</div>
+          </div>
+        );
+      })}
+
+      {/* Links that are still open */}
+      {isOwner && shares.length > 0 && !picking && (
+        <div>
+          <div className="text-[12px] font-semibold uppercase tracking-wide mb-2 px-1" style={{ color: C.inkFaint }}>Shared links still open</div>
+          <div className="space-y-2">
+            {shares.map((s) => (
+              <div key={s.id} className="rounded-2xl p-3 flex items-center gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Link2 size={17} style={{ color: C.sage }} /></span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[13.5px] font-semibold truncate">{s.label ? `For ${s.label}` : `${s.doc_ids.length} paper${s.doc_ids.length === 1 ? '' : 's'}`}</span>
+                  <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{s.label ? `${s.doc_ids.length} paper${s.doc_ids.length === 1 ? '' : 's'} · ` : ''}{daysLeftText(s.expires_at)} · {s.views ? `opened ${s.views} time${s.views === 1 ? '' : 's'}` : 'not opened yet'}</span>
+                </span>
+                <button onClick={() => copy(vaultLink(s.token), s.id)} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: copied === s.id ? C.sage : C.ink, border: `1px solid ${C.line}` }}>{copied === s.id ? 'Copied' : 'Copy'}</button>
+                <button onClick={() => stopShare(s)} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.rust }}>Stop</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Share bar while choosing */}
+      {picking && createPortal(
+        <div className="fixed left-0 right-0 bottom-0 z-[80] px-4 pt-3 flex justify-center" style={{ paddingBottom: 'max(14px, env(safe-area-inset-bottom))', background: 'linear-gradient(180deg, transparent, rgba(5,18,16,0.95) 35%)' }}>
+          <button disabled={!picked.length} onClick={() => setShare({ ids: picked, days: 7, label: '', link: '' })} className="w-full max-w-md h-12 rounded-2xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: picked.length ? C.sage : C.surfaceRaised, color: picked.length ? C.bg : C.inkFaint, boxShadow: '0 12px 28px -12px rgba(0,0,0,0.8)', fontFamily: "'Inter', sans-serif" }}><Share2 size={16} /> {picked.length ? `Share ${picked.length} paper${picked.length === 1 ? '' : 's'}` : 'Choose papers to share'}</button>
+        </div>, document.body)}
+
+      {/* Looking at one paper */}
+      {open && (() => { const d = docs.find((x) => x.id === open.id) || open; const ex = vaultExpiry(d); const [kl] = VAULT_KINDS[d.kind] || VAULT_KINDS.other; return (
+        <Sheet onClose={() => setOpen(null)} title={<div className="flex items-center gap-3">{kindTile(d.kind, 40)}<span className="min-w-0"><span className="block text-[16px] font-semibold cx-display truncate">{d.title}</span>{(kl !== d.title || d.source === 'cac') && <span className="block text-[12px]" style={{ color: C.inkFaint }}>{kl !== d.title ? kl : ''}{d.source === 'cac' ? `${kl !== d.title ? ' · ' : ''}registered through Xorla` : ''}</span>}</span></div>}>
+          <div className="space-y-3">
+            {d.file_path && (d.file_type === 'image' && preview[d.id]
+              ? <button onClick={() => viewFile(d)} className="block w-full rounded-2xl overflow-hidden" style={{ border: `1px solid ${C.line}`, background: C.bg }}><img src={preview[d.id]} alt={d.title} className="w-full max-h-72 object-contain" onError={() => setPreview((p) => ({ ...p, [d.id]: '' }))} /></button>
+              : <button onClick={() => viewFile(d)} className="w-full rounded-2xl p-5 flex items-center gap-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><FileText size={28} style={{ color: C.copper }} /><span className="text-left"><span className="block text-[14px] font-semibold">Open the {d.file_type === 'pdf' ? 'PDF' : 'file'}</span><span className="block text-[12px]" style={{ color: C.inkFaint }}>Opens in a new tab</span></span></button>)}
+            <div className="rounded-2xl divide-y" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, borderColor: C.line }}>
+              {[[d.number ? 'Number' : null, d.number, true], [d.issued_on ? 'Issued' : null, d.issued_on && new Date(d.issued_on + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })], ['Expiry', ex ? ex.text : "Doesn't expire"], [d.note ? 'Note' : null, d.note]].filter(([k]) => k).map(([k, v, mono]) => (
+                <div key={k} className="flex items-center justify-between gap-3 px-3.5 py-2.5" style={{ borderColor: C.line }}>
+                  <span className="text-[12px]" style={{ color: C.inkFaint }}>{k}</span>
+                  <span className={`text-[13.5px] text-right min-w-0 ${mono ? 'cx-mono font-semibold' : ''}`} style={{ color: k === 'Expiry' && ex ? ex.tone : C.ink, overflowWrap: 'anywhere' }}>{v}</span>
+                  {mono && <button onClick={() => copy(d.number, 'num')} className="shrink-0 text-[11.5px] font-semibold" style={{ color: copied === 'num' ? C.sage : C.copper }}>{copied === 'num' ? 'Copied' : 'Copy'}</button>}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {d.file_path && <button onClick={() => viewFile(d, true)} className="h-11 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Download</button>}
+              {isOwner && <button onClick={() => { setOpen(null); setShare({ ids: [d.id], days: 7, label: '', link: '' }); }} className="h-11 rounded-xl text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><Share2 size={15} /> Share</button>}
+            </div>
+            {isOwner && (
+              <>
+                <button onClick={() => toggleManagers(d)} role="switch" aria-checked={!!d.managers_can_see} className="w-full flex items-center justify-between gap-3 rounded-xl px-3.5 py-3 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  <span><span className="block text-[13.5px] font-semibold">Managers can see this</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>Staff never see the vault</span></span>
+                  <span className="w-11 h-6 rounded-full relative shrink-0 transition-colors" style={{ background: d.managers_can_see ? C.sage : 'rgba(255,255,255,0.12)' }}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: d.managers_can_see ? 22 : 2 }} /></span>
+                </button>
+                <div className="flex gap-2">
+                  <button onClick={() => startEdit(d)} className="flex-1 h-11 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Pencil size={14} /> Change</button>
+                  <button onClick={() => remove(d)} className="h-11 px-4 rounded-xl text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.rust }}>Remove</button>
+                </div>
+              </>
+            )}
+          </div>
+        </Sheet>
+      ); })()}
+
+      {/* Adding or changing */}
+      {edit && (
+        <Sheet onClose={() => setEdit(null)} busy={busy === 'save'} title={edit.id ? 'Change document' : 'Add a document'}>
+          <div className="space-y-4">
+            {edit.source !== 'cac' && (
+              <div>
+                <span className={label} style={{ color: C.inkFaint }}>What is it?</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(VAULT_KINDS).map(([k, [l, Ic, col]]) => (
+                    <button key={k} type="button" onClick={() => setEdit((x) => ({ ...x, kind: k, title: !x.title || Object.values(VAULT_KINDS).some((v) => v[0] === x.title) ? (k === 'other' ? '' : l) : x.title, expires: x.expires || ['cac_annual', 'nafdac', 'son', 'permit', 'fire', 'tenancy', 'insurance'].includes(k) }))} className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[12.5px] font-semibold" style={edit.kind === k ? { background: `${col}26`, border: `1.5px solid ${col}`, color: C.ink } : { ...field, color: C.inkDim }}>
+                      <Ic size={13} style={{ color: col }} /> {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <span className={label} style={{ color: C.inkFaint }}>Name</span>
+              <input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} maxLength={80} placeholder="e.g. Shop tenancy, 12 Faulks Road" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
+            </div>
+            <div>
+              <span className={label} style={{ color: C.inkFaint }}>Number (if it has one)</span>
+              <input value={edit.number} onChange={(e) => setEdit({ ...edit, number: e.target.value })} maxLength={60} placeholder={edit.kind === 'tin' ? 'e.g. 12345678-0001' : edit.kind === 'nafdac' ? 'e.g. A1-1234' : 'e.g. BN 1234567'} className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none cx-mono" style={field} />
+            </div>
+            {edit.source !== 'cac' && (
+              <div>
+                <span className={label} style={{ color: C.inkFaint }}>Photo or PDF</span>
+                {edit.file_path ? (
+                  <div className="rounded-2xl p-3 flex items-center gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.sage}` }}>
+                    <span className="w-14 h-14 rounded-xl overflow-hidden flex items-center justify-center shrink-0" style={{ background: C.bg }}>{edit._local && edit._local !== 'pdf' ? <img src={edit._local} alt="" className="w-full h-full object-cover" /> : preview[edit.id] && edit.file_type === 'image' ? <img src={preview[edit.id]} alt="" className="w-full h-full object-cover" /> : <FileText size={22} style={{ color: C.sage }} />}</span>
+                    <span className="flex-1 min-w-0 text-[13px]"><span className="flex items-center gap-1.5 font-semibold">Added <Check size={14} style={{ color: C.sage }} /></span><span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{edit._name || (edit.file_type === 'pdf' ? 'PDF' : 'Photo')}</span></span>
+                    <label className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-semibold cursor-pointer" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>{busy === 'upload' ? <Loader2 size={13} className="animate-spin" /> : 'Change'}<input type="file" accept="image/*,application/pdf" className="hidden" onChange={pickFile} disabled={!!busy} /></label>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="h-20 rounded-2xl flex flex-col items-center justify-center gap-1 text-[12.5px] font-semibold cursor-pointer" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}`, color: C.ink }}>{busy === 'upload' ? <Loader2 size={18} className="animate-spin" /> : <Camera size={19} style={{ color: C.copper }} />} Take a photo<input type="file" accept="image/*" capture="environment" className="hidden" onChange={pickFile} disabled={!!busy} /></label>
+                    <label className="h-20 rounded-2xl flex flex-col items-center justify-center gap-1 text-[12.5px] font-semibold cursor-pointer" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}`, color: C.ink }}>{busy === 'upload' ? <Loader2 size={18} className="animate-spin" /> : <Upload size={19} style={{ color: C.copper }} />} Choose a file<input type="file" accept="image/*,application/pdf" className="hidden" onChange={pickFile} disabled={!!busy} /></label>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="min-w-0">
+                <span className={label} style={{ color: C.inkFaint }}>Issued on</span>
+                <input type="date" value={edit.issued_on || ''} onChange={(e) => setEdit({ ...edit, issued_on: e.target.value })} className="w-full min-w-0 rounded-xl px-3 py-3 text-[14.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+              </div>
+              <div className="min-w-0">
+                <span className={label} style={{ color: C.inkFaint }}>Expires</span>
+                <div className="flex gap-1.5">{[[false, 'Never'], [true, 'Yes']].map(([v, l]) => <button key={l} type="button" onClick={() => setEdit({ ...edit, expires: v })} className="flex-1 py-3 rounded-xl text-[13.5px] font-semibold" style={edit.expires === v ? { background: C.sage, color: C.bg } : field}>{l}</button>)}</div>
+              </div>
+            </div>
+            {edit.expires && (
+              <div className="rounded-2xl p-3.5 space-y-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                <div>
+                  <span className={label} style={{ color: C.inkFaint }}>Expiry date</span>
+                  <input type="date" value={edit.expires_on || ''} onChange={(e) => setEdit({ ...edit, expires_on: e.target.value })} className="w-full rounded-xl px-3 py-3 text-[14.5px] outline-none" style={{ ...field, background: C.bg, colorScheme: 'dark' }} />
+                </div>
+                <div>
+                  <span className={label} style={{ color: C.inkFaint }}>Remind me</span>
+                  <div className="flex flex-wrap gap-1.5">{[[14, '2 weeks before'], [30, '1 month before'], [60, '2 months before'], [90, '3 months before']].map(([v, l]) => <button key={v} type="button" onClick={() => setEdit({ ...edit, remind_days: v })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={Number(edit.remind_days) === v ? { background: C.sage, color: C.bg } : { ...field, background: C.bg, color: C.inkDim }}>{l}</button>)}</div>
+                  <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>Then again a week before, the day before, and on the day.</div>
+                </div>
+              </div>
+            )}
+            <button type="button" onClick={() => setEdit({ ...edit, managers_can_see: !edit.managers_can_see })} role="switch" aria-checked={!!edit.managers_can_see} className="w-full flex items-center justify-between gap-3 rounded-xl px-3.5 py-3 text-left" style={field}>
+              <span><span className="block text-[13.5px] font-semibold">Managers can see this</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>Off: only you. Staff never see the vault.</span></span>
+              <span className="w-11 h-6 rounded-full relative shrink-0" style={{ background: edit.managers_can_see ? C.sage : 'rgba(255,255,255,0.12)' }}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white" style={{ left: edit.managers_can_see ? 22 : 2 }} /></span>
+            </button>
+            <div>
+              <span className={label} style={{ color: C.inkFaint }}>Note (optional)</span>
+              <input value={edit.note} onChange={(e) => setEdit({ ...edit, note: e.target.value })} maxLength={300} placeholder="e.g. Original is in the office safe" className="w-full rounded-xl px-3.5 py-3 text-[14.5px] outline-none" style={field} />
+            </div>
+            {error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{error}</div>}
+            <button onClick={save} disabled={!!busy} className="w-full h-12 rounded-xl text-[14.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: busy ? 0.6 : 1 }}>{busy === 'save' ? 'Saving…' : busy === 'upload' ? 'Uploading…' : edit.id ? 'Save changes' : 'Save to my vault'}</button>
+            <div className="flex items-center justify-center gap-1.5 text-[11.5px]" style={{ color: C.inkFaint }}><Lock size={12} /> Private. Only you{edit.managers_can_see ? ' and your managers' : ''} can open it, unless you share a link.</div>
+          </div>
+        </Sheet>
+      )}
+
+      {/* Sharing */}
+      {share && (
+        <Sheet onClose={() => { setShare(null); if (share.link) { setPicking(false); setPicked([]); } }} busy={share.busy} title={share.link ? 'Your link is ready' : `Share ${share.ids.length === 1 ? 'this paper' : `${share.ids.length} papers`}`}>
+          {!share.link ? (
+            <div className="space-y-4">
+              <div className="space-y-1.5">{(docs || []).filter((d) => share.ids.includes(d.id)).map((d) => <div key={d.id} className="flex items-center gap-2.5 text-[13px]">{kindTile(d.kind, 28)}<span className="truncate">{d.title}</span></div>)}</div>
+              <div>
+                <span className={label} style={{ color: C.inkFaint }}>Who is it for? (optional)</span>
+                <input value={share.label} onChange={(e) => setShare({ ...share, label: e.target.value })} maxLength={60} placeholder="e.g. Access Bank, Mr Okafor" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
+              </div>
+              <div>
+                <span className={label} style={{ color: C.inkFaint }}>The link works for</span>
+                <div className="grid grid-cols-4 gap-1.5">{[[1, '1 day'], [3, '3 days'], [7, '1 week'], [30, '1 month']].map(([v, l]) => <button key={v} type="button" onClick={() => setShare({ ...share, days: v })} className="py-2.5 rounded-xl text-[12.5px] font-semibold" style={share.days === v ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{l}</button>)}</div>
+                <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>After that it stops working. You can also stop it any time.</div>
+              </div>
+              {share.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{share.error}</div>}
+              <button onClick={makeLink} disabled={share.busy} className="w-full h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg, opacity: share.busy ? 0.6 : 1 }}>{share.busy ? 'Making the link…' : <><Link2 size={16} /> Make the link</>}</button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-xl px-3.5 py-3 flex items-center gap-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                <span className="flex-1 min-w-0 text-[13px] cx-mono truncate">{share.link.replace(/^https?:\/\//, '')}</span>
+                <button onClick={() => copy(share.link, 'link')} className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-bold" style={{ background: copied === 'link' ? C.sage : C.copperSoft, color: copied === 'link' ? C.bg : C.copper }}>{copied === 'link' ? 'Copied' : 'Copy'}</button>
+              </div>
+              <a href={`https://wa.me/?text=${encodeURIComponent(shareText(share))}`} target="_blank" rel="noopener noreferrer" className="w-full h-12 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: '#25D366', color: '#062B1E' }}><MessageCircle size={17} /> Send on WhatsApp</a>
+              <a href={`mailto:?subject=${encodeURIComponent(`${businessName || 'Our'} documents`)}&body=${encodeURIComponent(shareText(share))}`} className="w-full h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Send size={15} /> Send by email</a>
+              <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>Works for {share.days === 1 ? '1 day' : `${share.days} days`}. You'll see how many times it's opened under "Shared links still open".</div>
+            </div>
+          )}
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+// The page someone opens from a shared link (no login needed)
+function VaultShared({ token }) {
+  const [v, setV] = useState(undefined);
+  const [thumbs, setThumbs] = useState({});
+  useEffect(() => {
+    document.title = 'Shared documents · Xorla';
+    sbRpc('vault_open', SB_KEY, { p_token: token }).then((d) => setV(d || { state: 'missing' })).catch(() => setV({ state: 'error' }));
+  }, [token]);
+  useEffect(() => {
+    if (v?.state !== 'ok') return;
+    if (v.business) document.title = `${v.business} · Shared documents`;
+    v.docs.filter((d) => d.file_path && d.file_type === 'image').forEach((d) => vaultFileUrl(SB_KEY, d.bucket, d.file_path).then((u) => setThumbs((t) => ({ ...t, [d.id]: u }))).catch(() => {}));
+  }, [v]);
+  const openDoc = async (d, download) => {
+    const win = window.open('', '_blank');
+    try { const u = await vaultFileUrl(SB_KEY, d.bucket, d.file_path, download ? `${d.title}.${d.file_type === 'pdf' ? 'pdf' : 'jpg'}` : false); if (win) win.location.href = u; else window.location.href = u; }
+    catch (e) { if (win) win.close(); brandAlert(e.message); }
+  };
+  const shell = (body) => (
+    <div className="min-h-screen" style={{ background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <div className="max-w-xl mx-auto px-4 pb-16" style={{ paddingTop: 'max(20px, env(safe-area-inset-top))' }}>
+        {body}
+        <div className="mt-10 flex items-center justify-center gap-2 text-[12px]" style={{ color: C.inkFaint }}><XorlaMark size={16} /> Shared securely with Xorla</div>
+      </div>
+    </div>
+  );
+  if (v === undefined) return shell(<div className="py-24 flex justify-center"><Loader2 className="animate-spin" size={22} style={{ color: C.inkFaint }} /></div>);
+  if (v.state !== 'ok') return shell(
+    <div className="text-center py-20">
+      <div className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.surfaceRaised }}><Lock size={24} style={{ color: C.inkFaint }} /></div>
+      <div className="text-[19px] font-bold">{v.state === 'expired' ? 'This link has expired' : v.state === 'revoked' ? 'This link was stopped' : 'This link doesn\'t work'}</div>
+      <div className="text-[13.5px] mt-2 leading-relaxed max-w-sm mx-auto" style={{ color: C.inkDim }}>{v.business ? `Ask ${v.business} to send you a new link.` : 'Check the link, or ask the business to send it again.'}</div>
+    </div>
+  );
+  return shell(
+    <>
+      <div className="relative rounded-[24px] overflow-hidden mt-2" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className="relative p-5 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: C.sage }}>Shared with you{v.label ? `, ${v.label}` : ''}</div>
+            <div className="text-[22px] font-extrabold leading-tight mt-1.5" style={{ letterSpacing: '-0.02em', overflowWrap: 'anywhere' }}>{v.business}</div>
+            <div className="text-[12.5px] mt-1.5" style={{ color: C.inkDim }}>{v.docs.length} document{v.docs.length === 1 ? '' : 's'} · link works until {new Date(v.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}</div>
+          </div>
+          <div className="shrink-0 -mr-3 hidden min-[380px]:block"><VaultArt size={0.62} /></div>
+        </div>
+      </div>
+      <div className="mt-4 space-y-2.5">
+        {v.docs.map((d) => { const [kl, Ic, col] = VAULT_KINDS[d.kind] || VAULT_KINDS.other; const ex = vaultExpiry(d); return (
+          <div key={d.id} className="rounded-2xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center gap-3">
+              {thumbs[d.id] ? <button onClick={() => openDoc(d)} className="w-14 h-14 rounded-xl overflow-hidden shrink-0" style={{ border: `1px solid ${C.line}` }}><img src={thumbs[d.id]} alt="" className="w-full h-full object-cover" onError={() => setThumbs((t) => ({ ...t, [d.id]: '' }))} /></button>
+                : <span className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${col}22` }}><Ic size={22} style={{ color: col }} /></span>}
+              <div className="flex-1 min-w-0">
+                <div className="text-[14.5px] font-semibold" style={{ overflowWrap: 'anywhere' }}>{d.title}</div>
+                {kl !== d.title && <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{kl}</div>}
+                {d.number && <div className="text-[13px] font-semibold cx-mono mt-1">{d.number}</div>}
+                {ex && <div className="text-[11.5px] mt-1 font-semibold" style={{ color: ex.tone }}>{ex.text}</div>}
+              </div>
+            </div>
+            {d.file_path && (
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <button onClick={() => openDoc(d)} className="h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><Eye size={15} /> View</button>
+                <button onClick={() => openDoc(d, true)} className="h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Download</button>
+              </div>
+            )}
+          </div>
+        ); })}
+      </div>
+      {v.phone && <a href={`https://wa.me/${toWhatsAppNumber(v.phone)}`} target="_blank" rel="noopener noreferrer" className="mt-4 w-full h-11 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}><MessageCircle size={15} /> Message {v.business}</a>}
+    </>
+  );
+}
 
 // ---------- Xorla's team: registration requests, the agent and the price ----------
 function CacAdmin({ call, token }) {
@@ -17290,7 +17837,8 @@ export default function Root() {
   const storeSub = STORE_ROOT_DOMAIN && host.endsWith(`.${STORE_ROOT_DOMAIN}`) && clean === '' ? host.slice(0, -STORE_ROOT_DOMAIN.length - 1).toLowerCase().replace(/^(www|app)$/, '') : '';
   const guestMatch = path.match(/^\/booking\/([a-f0-9]{20,64})/);
   const orderMatch = path.match(/^\/order\/([a-f0-9]{20,64})/);
-  const page = offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : guestMatch ? <GuestBooking token={guestMatch[1]} /> : orderMatch ? <CustomerOrder token={orderMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
+  const docsMatch = path.match(/^\/docs\/([a-f0-9]{32})/);
+  const page = docsMatch ? <VaultShared token={docsMatch[1]} /> : offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : guestMatch ? <GuestBooking token={guestMatch[1]} /> : orderMatch ? <CustomerOrder token={orderMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
     : clean === '/pricing' ? <PricingPage />
     : clean === '/privacy' ? <LegalPage kind="privacy" />
     : clean === '/terms' ? <LegalPage kind="terms" />
