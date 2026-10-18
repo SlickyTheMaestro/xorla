@@ -13662,8 +13662,8 @@ async function cacUpload(token, businessId, file, kind) {
   if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.message || "That file didn't upload. Check your connection and try again."); }
   return path;
 }
-async function cacDocUrl(token, path) {
-  const res = await fetch(`${SB_URL}/storage/v1/object/sign/cac-docs/${path}`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 900 }) });
+async function cacDocUrl(token, path, expiresIn = 900) {
+  const res = await fetch(`${SB_URL}/storage/v1/object/sign/cac-docs/${path}`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn }) });
   const d = await res.json().catch(() => ({}));
   if (!res.ok || !d.signedURL) throw new Error("Couldn't open that file.");
   return `${SB_URL}/storage/v1${d.signedURL}`;
@@ -14225,6 +14225,21 @@ function CacAdmin({ call, token }) {
     } catch (e) { brandAlert(e.message); }
   };
   const saveSettings = async (patch) => { try { setSt(await call('admin_cac_settings', { p: patch })); } catch (e) { brandAlert(e.message); } };
+  // Send everything to the agent: the details plus links to the documents (the links work for 3 days)
+  const [sending, setSending] = useState('');
+  const sendToAgent = async (r, how) => {
+    const win = how === 'whatsapp' ? window.open('', '_blank') : null;   // opened now so the browser doesn't block it
+    setSending(how);
+    try {
+      const docs = [['ID', r.id_doc], ['Passport photograph', r.passport_doc], ['Signature', r.signature_doc]].filter(([, d]) => d);
+      const links = await Promise.all(docs.map(async ([l, d]) => `${l}: ${await cacDocUrl(token(), d, 3 * 86400)}`));
+      const hi = `Hello${st?.agent_name ? ` ${st.agent_name.split(' ')[0]}` : ''}, a new business name registration from Xorla.`;
+      const body = `${hi}\n\n${agentText(r)}\n\nDocuments (links work for 3 days):\n${links.join('\n')}\n\nPlease file it and send me the certificate and status report when it's approved. Thank you.`;
+      if (how === 'whatsapp') { const url = `https://wa.me/${toWhatsAppNumber(st.agent_phone)}?text=${encodeURIComponent(body)}`; if (win) win.location.href = url; else window.open(url, '_blank'); }
+      else window.location.href = `mailto:${st.agent_email}?subject=${encodeURIComponent(`Business name registration: ${r.name_1}${r.owner_name ? ` (${r.owner_name})` : ''}`)}&body=${encodeURIComponent(body)}`;
+    } catch (e) { if (win) win.close(); brandAlert(e.message); }
+    setSending('');
+  };
   const agentText = (r) => [
     `Business name registration: ${r.name_1} (second choice: ${r.name_2})`,
     `Nature of business: ${r.nature} / ${r.sub_category}. ${r.description}`,
@@ -14301,7 +14316,9 @@ function CacAdmin({ call, token }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => { navigator.clipboard?.writeText(agentText(open)); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink }}>{copied ? 'Copied' : 'Copy details for the agent'}</button>
-            {st?.agent_phone && <a href={`https://wa.me/${toWhatsAppNumber(st.agent_phone)}?text=${encodeURIComponent(`Hello ${st.agent_name || ''}, a new business name registration from Xorla:\n\n${agentText(open)}\n\nI'll send the ID, passport photo and signature next.`)}`} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: 'rgba(37,211,102,0.12)', color: '#25D366' }}>Send to {st.agent_name || 'agent'} on WhatsApp</a>}
+            {st?.agent_phone && <button onClick={() => sendToAgent(open, 'whatsapp')} disabled={sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: sending ? 0.6 : 1 }}>{sending === 'whatsapp' ? 'Preparing…' : 'WhatsApp the agent'}</button>}
+            {st?.agent_email && <button onClick={() => sendToAgent(open, 'email')} disabled={sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: st?.agent_phone ? 'transparent' : C.sage, color: st?.agent_phone ? C.ink : C.bg, border: st?.agent_phone ? `1px solid ${C.line}` : 'none', opacity: sending ? 0.6 : 1 }}>{sending === 'email' ? 'Preparing…' : 'Email the agent'}</button>}
+            {!st?.agent_phone && !st?.agent_email && <span className="px-1 py-2 text-[12px]" style={{ color: C.inkFaint }}>Add your agent's WhatsApp or email above to send this in one tap.</span>}
             {open.owner_phone && <a href={`https://wa.me/${toWhatsAppNumber(open.owner_phone)}`} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>WhatsApp the owner</a>}
           </div>
           <div className="text-[12.5px]" style={{ color: C.inkDim }}>Status: <strong style={{ color: (CAC_STATUS[open.status] || [])[1] }}>{(CAC_STATUS[open.status] || [open.status])[0]}</strong>{open.paid_at ? ` · paid ${fmt(open.amount)} on ${new Date(open.paid_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · not paid'}{open.bn_number ? ` · ${open.bn_number}` : ''}</div>
