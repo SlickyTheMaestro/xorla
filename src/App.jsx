@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText } from 'lucide-react';
+import { Plus, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -14278,7 +14278,7 @@ function CacAdmin({ call, token }) {
         <div className="space-y-2">
           {list.map((r) => { const [w, t] = CAC_STATUS[r.status] || ['', C.inkDim]; return (
             <button key={r.id} onClick={() => show(r.id)} className="w-full text-left rounded-xl px-4 py-3 flex items-center gap-3" style={{ background: C.surface, border: `1px solid ${open?.id === r.id ? C.copper : C.line}` }}>
-              <div className="flex-1 min-w-0"><div className="text-[14px] font-semibold truncate">{r.name_1}</div><div className="text-[12px] truncate" style={{ color: C.inkFaint }}>{r.business} · {r.owner_name} · {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</div></div>
+              <div className="flex-1 min-w-0"><div className="text-[14px] font-semibold truncate">{r.name_1}</div><div className="text-[12px] truncate" style={{ color: C.inkFaint }}>{r.business} · {r.for_other ? `for ${r.owner_name || "someone else"}` : r.owner_name} · {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</div></div>
               <span className="shrink-0 text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ color: t, background: 'rgba(255,255,255,0.05)' }}>{w}</span>
             </button>
           ); })}
@@ -14347,6 +14347,9 @@ function AdminDashboard() {
   const [section, setSection] = useState(() => { try { return new URLSearchParams(window.location.search).get('ticket') ? 'support' : 'overview'; } catch (e) { return 'overview'; } });
   const [ticketFromLink] = useState(() => { try { return new URLSearchParams(window.location.search).get('ticket') || null; } catch (e) { return null; } });
   const [supportCounts, setSupportCounts] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);   // bumps to reload whichever section is open
+  const [justUpdated, setJustUpdated] = useState(false);
   const [login, setLogin] = useState({ email: '', password: '', confirm: '', create: false, busy: false, error: '' });
   const tokenRef = useRef(null);
   // The browser tab says who this page is for
@@ -14412,12 +14415,22 @@ function AdminDashboard() {
       if (!access.admin) { setUpdated(new Date()); setState({ phase: 'ready', error: '' }); call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {}); return; }
       const o = await call('admin_overview');
       try { o.deposits = await call('admin_deposit_earnings'); } catch (e) { o.deposits = null; }
+      try { o.revenue = await call('admin_revenue'); } catch (e) { o.revenue = null; }
       setOv(o); setUpdated(new Date()); setState({ phase: 'ready', error: '' });
       loadList(search, filter);
       call('support_inbox', { p_status: 'open', p_search: '' }).then((d) => setSupportCounts(d.counts)).catch(() => {});
     } catch (e) { setState({ phase: /not allowed/i.test(e.message) ? 'denied' : 'error', error: e.message }); }
   }, [call, freshToken, loadList, search, filter]);
   useEffect(() => { loadAll(); }, []);
+  // Refresh: fetch the numbers again and reload the open section, with something to see while it works
+  const refreshNow = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await loadAll(); setRefreshKey((k) => k + 1); } finally {
+      setRefreshing(false); setJustUpdated(true);
+      clearTimeout(window.__xorlaAdminUpd); window.__xorlaAdminUpd = setTimeout(() => setJustUpdated(false), 2500);
+    }
+  };
   useEffect(() => { if (state.phase !== 'ready') return undefined; const t = setTimeout(() => loadList(search, filter), 300); return () => clearTimeout(t); }, [search, filter]);
 
   const isPhone = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
@@ -14480,8 +14493,10 @@ function AdminDashboard() {
           {['ready', 'denied', 'mfa-setup', 'mfa-code', 'error'].includes(state.phase) && (
             <div className="flex items-center gap-2">
               {state.phase === 'ready' && (
-                <button onClick={loadAll} aria-label="Refresh" className="flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>
-                  <span className="hidden sm:inline">Refresh</span><span className="sm:hidden">↻</span>{updated ? <span className="hidden sm:inline" style={{ color: C.inkFaint }}> · {updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span> : null}
+                <button onClick={refreshNow} disabled={refreshing} aria-label="Get the latest numbers" title="Get the latest numbers and messages" className="flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg transition-colors" style={{ color: justUpdated ? C.sage : C.inkDim, border: `1px solid ${justUpdated ? 'rgba(31,217,196,0.4)' : C.line}` }}>
+                  {justUpdated ? <Check size={14} /> : <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />}
+                  <span className="hidden sm:inline">{refreshing ? 'Updating…' : justUpdated ? 'Up to date' : 'Refresh'}</span>
+                  {updated && !refreshing && !justUpdated ? <span className="hidden sm:inline" style={{ color: C.inkFaint }}>· {updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span> : null}
                 </button>
               )}
               <button onClick={logOut} className="flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}><LogOut size={14} /> Log out</button>
@@ -14593,14 +14608,14 @@ function AdminDashboard() {
   }
 
   if (section !== 'overview' || role !== 'founder' || !ov) {
-    const head = { support: ['Support inbox', role === 'agent' ? `Signed in as ${agentName || 'support'}. Replies go out as "${(agentName || 'Xorla').split(' ')[0]} from Xorla Support".` : 'Messages from businesses. Billing and complaints come first.'], publish: ["What's new and announcements", 'Keep every business up to date, in the app.'], team: ['Support team', 'Who can answer support messages.'] }[section === 'overview' ? 'support' : section];
+    const head = { support: ['Support inbox', role === 'agent' ? `Signed in as ${agentName || 'support'}. Replies go out as "${(agentName || 'Xorla').split(' ')[0]} from Xorla Support".` : 'Messages from businesses. Billing and complaints come first.'], publish: ["What's new and announcements", 'Keep every business up to date, in the app.'], team: ['Support team', 'Who can answer support messages.'], cac: ['Business name registrations', 'Requests from businesses, the agent you use, and the price.'] }[section === 'overview' ? 'support' : section] || ['', ''];
     return shell(
       <>
         <div className="mb-5"><h1 className="text-[24px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>{head[0]}</h1><div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>{head[1]}</div></div>
-        {(section === 'support' || section === 'overview') && <SupportInbox call={call} token={tokenRef.current} agentName={agentName} initialTicket={ticketFromLink} onCounts={setSupportCounts} />}
-        {section === 'publish' && role === 'founder' && <SupportPublishing call={call} />}
-        {section === 'team' && role === 'founder' && <SupportTeamAdmin call={call} />}
-        {section === 'cac' && role === 'founder' && <CacAdmin call={call} token={() => tokenRef.current} />}
+        {(section === 'support' || section === 'overview') && <SupportInbox key={`inbox-${refreshKey}`} call={call} token={tokenRef.current} agentName={agentName} initialTicket={ticketFromLink} onCounts={setSupportCounts} />}
+        {section === 'publish' && role === 'founder' && <SupportPublishing key={`pub-${refreshKey}`} call={call} />}
+        {section === 'team' && role === 'founder' && <SupportTeamAdmin key={`team-${refreshKey}`} call={call} />}
+        {section === 'cac' && role === 'founder' && <CacAdmin key={`cac-${refreshKey}`} call={call} token={() => tokenRef.current} />}
       </>
     );
   }
@@ -14686,10 +14701,43 @@ function AdminDashboard() {
         <div className="absolute -right-10 -bottom-14 opacity-[0.07] pointer-events-none"><XorlaMark size={260} /></div>
         <div className="relative grid lg:grid-cols-[1.25fr_1fr] gap-7 lg:gap-10 items-end">
           <div>
-            <div className="text-[13px] font-medium" style={{ color: C.inkDim }}>Monthly recurring revenue</div>
-            <div className="text-[44px] lg:text-[58px] font-extrabold tabular-nums leading-[1.05] mt-1" style={{ fontFamily: HEADF, letterSpacing: '-0.035em', color: '#FFD27A' }}>{fmt(ov.mrr)}</div>
-            <div className="text-[13.5px] mt-2" style={{ color: C.inkDim }}><span className="font-semibold" style={{ color: C.ink }}>{fmt(ov.revenue_30d)}</span> collected in the last 30 days</div>
-            {ov.deposits && <div className="text-[13px] mt-1" style={{ color: C.inkDim }}>+ <span className="font-semibold" style={{ color: C.sage }}>{fmt(ov.deposits.fees_30d)}</span> from online deposit fees <span style={{ color: C.inkFaint }}>· {n(ov.deposits.count_30d)} deposits, {n(ov.deposits.connected)} businesses taking them</span></div>}
+            {(() => {
+              const rv = ov.revenue;
+              const all = rv ? Number(rv.total_all) : Number(ov.revenue_all || 0) + Number(ov.deposits?.fees_all || 0);
+              const d30 = rv ? Number(rv.total_30d) : Number(ov.revenue_30d || 0) + Number(ov.deposits?.fees_30d || 0);
+              const kinds = [['plans', 'Plans', C.copper], ['payments', 'Payment fees', C.sage], ['cac', 'CAC service fees', '#7FB3FF']];
+              const months = rv?.by_month || [];
+              const top = Math.max(1, ...months.map((m) => Number(m.plans) + Number(m.payments) + Number(m.cac)));
+              return (<>
+                <div className="text-[13px] font-medium" style={{ color: C.inkDim }}>Total revenue, all time</div>
+                <div className="text-[44px] lg:text-[58px] font-extrabold tabular-nums leading-[1.05] mt-1" style={{ fontFamily: HEADF, letterSpacing: '-0.035em', color: '#FFD27A' }}>{fmt(all)}</div>
+                <div className="text-[13.5px] mt-2 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.inkDim }}>
+                  <span><span className="font-semibold" style={{ color: C.ink }}>{fmt(d30)}</span> in the last 30 days</span>
+                  {rv && <span><span className="font-semibold" style={{ color: C.ink }}>{fmt(rv.total_month)}</span> this month</span>}
+                  <span>MRR <span className="font-semibold" style={{ color: C.ink }}>{fmt(ov.mrr)}</span></span>
+                </div>
+                {rv && <div className="mt-3 flex flex-wrap gap-1.5">
+                  {kinds.map(([k, l, col]) => (
+                    <span key={k} className="inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1 rounded-full" style={{ background: 'rgba(0,0,0,0.22)', border: '1px solid rgba(255,255,255,0.07)', color: C.inkDim }}>
+                      <span className="w-2 h-2 rounded-full" style={{ background: col }} />{l} <span className="font-semibold tabular-nums" style={{ color: C.ink }}>{fmt(rv.by_kind?.[k]?.all || 0)}</span>
+                    </span>
+                  ))}
+                </div>}
+                {months.length > 0 && <div className="mt-4 max-w-sm">
+                  <div className="flex items-end gap-2 h-[64px]">
+                    {months.map((m) => { const tot = Number(m.plans) + Number(m.payments) + Number(m.cac); return (
+                      <div key={m.month} className="flex-1 flex flex-col justify-end h-full" title={`${new Date(m.month + '-15').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}: ${fmt(tot)}`}>
+                        <div className="w-full rounded-t-md overflow-hidden flex flex-col-reverse" style={{ height: `${Math.max(tot ? 6 : 2, (tot / top) * 100)}%`, background: tot ? 'transparent' : 'rgba(255,255,255,0.08)' }}>
+                          {kinds.map(([k, , col]) => Number(m[k]) > 0 && <div key={k} style={{ height: `${(Number(m[k]) / tot) * 100}%`, background: col }} />)}
+                        </div>
+                      </div>
+                    ); })}
+                  </div>
+                  <div className="flex gap-2 mt-1">{months.map((m) => <div key={m.month} className="flex-1 text-center text-[10.5px]" style={{ color: C.inkFaint }}>{new Date(m.month + '-15').toLocaleDateString('en-GB', { month: 'short' })}</div>)}</div>
+                </div>}
+                {!rv && <div className="text-[11.5px] mt-2" style={{ color: C.inkFaint }}>Run founder-revenue.sql to see CAC fees and a monthly breakdown here.</div>}
+              </>);
+            })()}
             <div className="mt-5 max-w-sm">
               <div className="flex justify-between text-[12px] mb-1.5"><span style={{ color: C.inkDim }}>Early supporters</span><span className="tabular-nums" style={{ color: C.ink }}>{n(early)} of 100 <span style={{ color: C.inkFaint }}>· {n(Math.max(0, 100 - early))} left</span></span></div>
               <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(1.5, early)}%`, background: `linear-gradient(90deg, ${C.sage}, ${C.copper})` }} /></div>
