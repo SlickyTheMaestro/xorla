@@ -14912,13 +14912,40 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
   useEffect(() => { loadList(filter); }, [filter]);
   useEffect(() => { call('admin_cac_settings', {}).then(setSt).catch(() => {}); if (initialId) show(initialId); }, []);
   const counts = useCallback(() => { if (onCounts) call('admin_cac_counts', {}).then(onCounts).catch(() => {}); }, [call, onCounts]);
+  // Paying the agent (founder only): what Xorla owes them, and what has been paid
+  const [pay, setPay] = useState(null);          // from admin_cac_payouts
+  const [payOpen, setPayOpen] = useState('');   // '', 'pay', 'history'
+  const [payPick, setPayPick] = useState([]);
+  const [payRef, setPayRef] = useState('');
+  const [payBusy, setPayBusy] = useState(false);
+  const [payDone, setPayDone] = useState(null);  // { count, total, names } after recording
+  const loadPay = useCallback(() => { if (isFounder) call('admin_cac_payouts', {}).then((d) => { setPay(d); setPayPick((p) => (p.length ? p.filter((id) => d.owed.some((o) => o.id === id)) : d.owed.map((o) => o.id))); }).catch(() => setPay(null)); }, [call, isFounder]);
+  useEffect(() => { loadPay(); }, [loadPay]);
+  const recordPay = async () => {
+    const chosen = (pay?.owed || []).filter((o) => payPick.includes(o.id));
+    if (!chosen.length) return;
+    const total = chosen.reduce((a, o) => a + Number(o.amount || 0), 0);
+    if (!(await brandConfirm(`Record that you've sent ${fmt(total)} to ${st?.agent_name || 'the agent'} for ${chosen.length} registration${chosen.length === 1 ? '' : 's'}?`, { title: 'Record the payment?', confirm: 'Yes, I sent it' }))) return;
+    setPayBusy(true);
+    try { const r = await call('admin_cac_mark_agent_paid', { p_ids: chosen.map((o) => o.id), p_ref: payRef || null }); setPayDone({ count: r.count, total: r.total, names: chosen.map((o) => o.name) }); setPayRef(''); setPayPick([]); setPayOpen(''); loadPay(); }
+    catch (e) { brandAlert(e.message); }
+    setPayBusy(false);
+  };
+  const undoPay = async (x) => {
+    if (!(await brandConfirm(`${x.name} goes back to "owed".`, { title: 'Undo this payment?', confirm: 'Undo', danger: true }))) return;
+    try { await call('admin_cac_undo_agent_paid', { p_id: x.id }); loadPay(); } catch (e) { brandAlert(e.message); }
+  };
+  const saveBank = async (patch) => {
+    const b = { bank: st?.agent_bank || '', number: st?.agent_account_number || '', name: st?.agent_account_name || '', ...patch };
+    try { const r = await call('admin_cac_agent_bank', { p_bank: b.bank, p_number: b.number, p_name: b.name }); setSt((x) => ({ ...x, ...r })); } catch (e) { brandAlert(e.message); }
+  };
   // Stay up to date by itself: every 30 seconds while this page is on screen, and when you come back to it
   const openRef = useRef(null); const actRef = useRef(act);
   useEffect(() => { openRef.current = open; actRef.current = act; });
   useEffect(() => {
     const tick = async () => {
       if (document.visibilityState !== 'visible') return;
-      loadList(); counts();
+      loadList(); counts(); loadPay();
       const o = openRef.current;
       if (o && !actRef.current.mode && !actRef.current.busy) { try { const r = await call('admin_cac_get', { p_id: o.id }); setOpen((cur) => (cur && cur.id === r.id ? { ...cur, ...r } : cur)); } catch (e) { /* try again next time */ } }
     };
@@ -14926,7 +14953,7 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
     const onVis = () => { if (document.visibilityState === 'visible') tick(); };
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
-  }, [loadList, counts]);
+  }, [loadList, counts, loadPay]);
   const [emailFor, setEmailFor] = useState(null);   // { subject, body } while choosing how to send the email
   const show = async (id) => {
     try {
@@ -14973,7 +15000,7 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
       if (act.mode === 'registered' && act.cert) cert = await cacUpload(token(), r.business_id, act.cert, 'certificate');
       const report = act.mode === 'registered' && act.report ? await cacUpload(token(), r.business_id, act.report, 'status-report') : null;
       await call('admin_cac_update', { p_id: r.id, p_status: act.mode, p_message: act.message, p_bn: act.bn || null, p_registered_name: act.name || null, p_certificate: cert, p_status_report: report, p_tin: act.tin || null });
-      await show(r.id); loadList(); counts();
+      await show(r.id); loadList(); counts(); loadPay();
     } catch (e) { setAct((a) => ({ ...a, busy: false, error: e.message })); }
   };
   const chips = [['', 'All'], ['submitted', 'Not paid'], ['paid', 'To check'], ['filed', 'With CAC'], ['query', 'Waiting on owner'], ['registered', 'Registered'], ['rejected', 'Rejected']];
@@ -15007,9 +15034,81 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
               </label>
             ))}
           </div>
-          <div className="text-[12px]" style={{ color: C.inkDim }}>Owners pay <strong className="cx-mono" style={{ color: C.ink }}>{fmt(Number(st.cac_fee) + Number(st.service_fee))}</strong>; Xorla keeps <strong className="cx-mono" style={{ color: C.ink }}>{fmt(Number(st.service_fee))}</strong> of each.</div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>Agent's bank
+              <input defaultValue={st.agent_bank || ''} placeholder="e.g. GTBank" onBlur={(e) => (e.target.value || '') !== (st.agent_bank || '') && saveBank({ bank: e.target.value })} className="w-full mt-1 rounded-lg px-3 py-2 text-[13px] outline-none" style={field} />
+            </label>
+            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>Account number
+              <input defaultValue={st.agent_account_number || ''} inputMode="numeric" maxLength={10} placeholder="10 digits" onBlur={(e) => (e.target.value || '') !== (st.agent_account_number || '') && saveBank({ number: e.target.value })} className="w-full mt-1 rounded-lg px-3 py-2 text-[13px] outline-none cx-mono" style={field} />
+            </label>
+            <label className="text-[11.5px] col-span-2" style={{ color: C.inkFaint }}>Account name
+              <input defaultValue={st.agent_account_name || ''} placeholder="As the bank shows it" onBlur={(e) => (e.target.value || '') !== (st.agent_account_name || '') && saveBank({ name: e.target.value })} className="w-full mt-1 rounded-lg px-3 py-2 text-[13px] outline-none" style={field} />
+            </label>
+          </div>
+          <div className="text-[12px]" style={{ color: C.inkDim }}>Owners pay <strong className="cx-mono" style={{ color: C.ink }}>{fmt(Number(st.cac_fee) + Number(st.service_fee))}</strong>. Paystack pays it all to Xorla; you send the agent <strong className="cx-mono" style={{ color: C.ink }}>{fmt(Number(st.cac_fee))}</strong> once it's filed, and Xorla keeps <strong className="cx-mono" style={{ color: C.ink }}>{fmt(Number(st.service_fee))}</strong> (less Paystack's fee).</div>
         </div>
       )}
+      {isFounder && pay && (() => {
+        const owed = pay.owed || []; const total = owed.reduce((a, o) => a + Number(o.amount || 0), 0);
+        const chosen = owed.filter((o) => payPick.includes(o.id)); const chosenTotal = chosen.reduce((a, o) => a + Number(o.amount || 0), 0);
+        const agent = st?.agent_name || 'the agent';
+        return (
+          <div className="rounded-2xl p-4 space-y-3" style={{ background: total ? 'linear-gradient(150deg, rgba(255,176,32,0.12), rgba(255,176,32,0.03))' : C.surface, border: `1px solid ${total ? 'rgba(255,176,32,0.35)' : C.line}` }}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Agent payments</div>
+                {total ? <div className="text-[19px] font-extrabold mt-0.5">You owe {agent} <span className="cx-mono" style={{ color: C.copper }}>{fmt(total)}</span></div> : <div className="text-[16px] font-bold mt-0.5 flex items-center gap-1.5" style={{ color: C.sage }}><Check size={17} /> All paid up</div>}
+                <div className="text-[12px] mt-1" style={{ color: C.inkDim }}>{total ? `For ${owed.length} filed registration${owed.length === 1 ? '' : 's'}. ` : ''}{pay.waiting ? `${pay.waiting} more paid but not filed yet (owed once filed). ` : ''}Paid this month: <span className="cx-mono">{fmt(pay.paid_month)}</span></div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                {total > 0 && <button onClick={() => { setPayOpen(payOpen === 'pay' ? '' : 'pay'); setPayDone(null); }} className="px-3.5 py-2 rounded-xl text-[12.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{payOpen === 'pay' ? 'Close' : 'Record a payment'}</button>}
+                {(pay.paid || []).length > 0 && <button onClick={() => setPayOpen(payOpen === 'history' ? '' : 'history')} className="px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>{payOpen === 'history' ? 'Close' : 'Past payments'}</button>}
+              </div>
+            </div>
+            {st?.agent_account_number && total > 0 && (
+              <div className="rounded-xl px-3.5 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]" style={{ background: C.bg }}>
+                <span style={{ color: C.inkFaint }}>Send to</span>
+                <span className="font-semibold">{st.agent_bank || 'Bank'} · <span className="cx-mono">{st.agent_account_number}</span>{st.agent_account_name ? ` · ${st.agent_account_name}` : ''}</span>
+                <button onClick={() => { navigator.clipboard?.writeText(st.agent_account_number); setCopied('acct'); setTimeout(() => setCopied(false), 1500); }} className="text-[12px] font-semibold" style={{ color: copied === 'acct' ? C.sage : C.copper }}>{copied === 'acct' ? 'Copied' : 'Copy number'}</button>
+              </div>
+            )}
+            {!st?.agent_account_number && total > 0 && <div className="text-[12px]" style={{ color: C.inkFaint }}>Add the agent's bank details above to see them here when you pay.</div>}
+            {payOpen === 'pay' && (
+              <div className="space-y-2">
+                <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+                  {owed.map((o, i) => { const on = payPick.includes(o.id); return (
+                    <button key={o.id} onClick={() => setPayPick((p) => (on ? p.filter((x) => x !== o.id) : [...p, o.id]))} className="w-full text-left flex items-center gap-3 px-3.5 py-2.5" style={{ background: C.surface, borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                      <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: on ? C.sage : 'transparent', border: `2px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.bg }} />}</span>
+                      <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold truncate">{o.name}</span><span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{o.business}{o.owner_name ? ` · ${o.owner_name}` : ''} · filed {new Date(o.filed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span></span>
+                      <span className="shrink-0 cx-mono text-[13px] font-semibold">{fmt(o.amount)}</span>
+                    </button>
+                  ); })}
+                </div>
+                <input value={payRef} onChange={(e) => setPayRef(e.target.value)} maxLength={60} placeholder="Transfer reference or note (optional)" className="w-full rounded-xl px-3 py-2.5 text-[13px] outline-none" style={field} />
+                <button onClick={recordPay} disabled={!chosen.length || payBusy} className="w-full h-11 rounded-xl text-[13.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: !chosen.length || payBusy ? 0.5 : 1 }}>{payBusy ? 'Saving…' : chosen.length ? `I've sent ${fmt(chosenTotal)} for ${chosen.length}` : 'Choose what you paid for'}</button>
+              </div>
+            )}
+            {payDone && (
+              <div className="rounded-xl px-3.5 py-3 text-[12.5px] flex flex-wrap items-center gap-2" style={{ background: C.sageSoft, color: C.ink }}>
+                <span className="flex-1 min-w-0"><strong style={{ color: C.sage }}>Recorded:</strong> {fmt(payDone.total)} for {payDone.count} registration{payDone.count === 1 ? '' : 's'}.</span>
+                {st?.agent_phone && <a href={`https://wa.me/${toWhatsAppNumber(st.agent_phone)}?text=${encodeURIComponent(`Hello${st.agent_name ? ` ${st.agent_name.split(' ')[0]}` : ''}, I've sent ${fmt(payDone.total)} for: ${payDone.names.join(', ')}. Thank you.`)}`} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={13} /> Tell {st.agent_name ? st.agent_name.split(' ')[0] : 'the agent'}</a>}
+              </div>
+            )}
+            {payOpen === 'history' && (
+              <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+                {(pay.paid || []).map((x, i) => (
+                  <div key={x.id} className="flex items-center gap-3 px-3.5 py-2.5 text-[12.5px]" style={{ background: C.surface, borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                    <span className="flex-1 min-w-0"><span className="block font-semibold truncate">{x.name}</span><span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>Paid {new Date(x.paid_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{x.ref ? ` · ${x.ref}` : ''}</span></span>
+                    <span className="shrink-0 cx-mono font-semibold">{fmt(x.amount)}</span>
+                    <button onClick={() => undoPay(x)} className="shrink-0 text-[11.5px] font-semibold" style={{ color: C.inkFaint }}>Undo</button>
+                  </div>
+                ))}
+                <div className="px-3.5 py-2 text-[11.5px] text-right" style={{ background: C.bg, color: C.inkFaint }}>Paid to the agent in all: <span className="cx-mono" style={{ color: C.ink }}>{fmt(pay.paid_all)}</span></div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       <div className="flex flex-wrap gap-1.5">{chips.map(([v, l]) => <button key={v || 'all'} onClick={() => setFilter(v)} className="px-3 py-1.5 rounded-full text-[12px] font-semibold" style={filter === v ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}</div>
       {list === null ? <Loader2 className="animate-spin" size={18} style={{ color: C.inkFaint }} /> : list.length === 0 ? <div className="text-[13px] py-8 text-center" style={{ color: C.inkFaint }}>No registrations here yet.</div> : (
         <div className="space-y-2">
@@ -15058,7 +15157,7 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
             <button onClick={() => { navigator.clipboard?.writeText(agentText(open)); setCopied('text'); setTimeout(() => setCopied(false), 2000); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>{copied === 'text' ? 'Copied' : 'Copy the details'}</button>
             {open.owner_phone && <a href={`https://wa.me/${toWhatsAppNumber(open.owner_phone)}`} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>WhatsApp the owner</a>}
           </div>
-          <div className="text-[12.5px]" style={{ color: C.inkDim }}>Status: <strong style={{ color: (CAC_STATUS[open.status] || [])[1] }}>{(CAC_STATUS[open.status] || [open.status])[0]}</strong>{open.paid_at ? ` · paid ${fmt(open.amount)} on ${new Date(open.paid_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · not paid'}{open.bn_number ? ` · ${open.bn_number}` : ''}{open.sent_to_agent_at ? ` · sent to the agent ${new Date(open.sent_to_agent_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</div>
+          <div className="text-[12.5px]" style={{ color: C.inkDim }}>Status: <strong style={{ color: (CAC_STATUS[open.status] || [])[1] }}>{(CAC_STATUS[open.status] || [open.status])[0]}</strong>{open.paid_at ? ` · paid ${fmt(open.amount)} on ${new Date(open.paid_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · not paid'}{open.bn_number ? ` · ${open.bn_number}` : ''}{open.sent_to_agent_at ? ` · sent to the agent ${new Date(open.sent_to_agent_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}{isFounder && open.agent_paid_at ? ` · agent paid ${fmt(open.agent_paid_amount)}` : isFounder && open.filed_at ? ' · agent not paid yet' : ''}</div>
           {(open.events || []).length > 0 && (
             <div className="rounded-xl p-3 space-y-2" style={{ background: C.bg }}>
               <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>What's happened</div>
