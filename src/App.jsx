@@ -13537,7 +13537,40 @@ function SupportTeamAdmin({ call }) {
 
 // ---------- Register a business name with CAC, through Xorla ----------
 const NG_STATES = ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT (Abuja)', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'];
-const CAC_NATURES = ['Trading and retail', 'Fashion, tailoring and textiles', 'Food, restaurant and catering', 'Beauty, salon and barbing', 'Hotel and hospitality', 'Transport and logistics', 'Repairs and technical services', 'Building and construction', 'Consulting and professional services', 'Computer and IT services', 'Agriculture and farming', 'Education and training', 'Health and wellness', 'Events, media and entertainment', 'Other'];
+// Business category → type, like CAC's own classification
+const CAC_NATURES = {
+  'Trading and retail': ['Provisions and foodstuff', 'Clothing and shoes', 'Phones and electronics', 'Building materials', 'Cosmetics and toiletries', 'Auto parts', 'General merchandise'],
+  'Fashion and textiles': ['Tailoring', 'Fashion design', 'Textile and fabrics', 'Shoes and bags making'],
+  'Food and drinks': ['Restaurant', 'Catering', 'Bakery and confectionery', 'Drinks and beverages', 'Food processing'],
+  'Beauty and personal care': ['Hair salon', 'Barbing', 'Makeup and beauty', 'Spa and wellness'],
+  'Hotels and short stays': ['Hotel', 'Guest house', 'Short-let apartments', 'Event centre'],
+  'Transport and logistics': ['Delivery and dispatch', 'Haulage', 'Car hire', 'Travel agency'],
+  'Repairs and technical work': ['Phone and computer repair', 'Auto mechanic', 'Electrical works', 'Plumbing', 'Welding and fabrication'],
+  'Building and construction': ['Building contractor', 'Interior decoration', 'Painting', 'Real estate agency'],
+  'Professional services': ['Business consulting', 'Accounting and bookkeeping', 'Legal support services', 'Printing and branding', 'Photography and video'],
+  'Computer and IT services': ['Software and apps', 'Website design', 'Computer training', 'Cyber café and business centre'],
+  'Agriculture': ['Crop farming', 'Poultry', 'Fish farming', 'Livestock', 'Agro-produce trading'],
+  'Education and training': ['Tutoring and lessons', 'Vocational training', 'Educational materials'],
+  'Health and wellness': ['Fitness and gym', 'Patent medicine store', 'Health products'],
+  'Events and entertainment': ['Event planning', 'DJ and music', 'Rentals for events', 'Media and content'],
+  'Cleaning and domestic services': ['Cleaning services', 'Laundry and dry cleaning', 'Fumigation'],
+  'Other': ['Other'],
+};
+const CAC_STAFF = ['Just me', '2 to 5', '6 to 10', '11 to 50', 'More than 50'];
+const CAC_FUNDS = ['Personal savings', 'Family or friends', 'Business profits', 'Loan', 'Grant', 'Other'];
+// Words CAC won't accept in a business name without special approval, and the endings most approved names use
+const CAC_RESTRICTED = ['nigeria', 'nigerian', 'federal', 'national', 'government', 'state', 'commission', 'ministry', 'agency', 'authority', 'bureau', 'council', 'bank', 'banking', 'finance', 'microfinance', 'insurance', 'assurance', 'investment', 'trust', 'cooperative', 'co-operative', 'limited', 'ltd', 'plc', 'incorporated', 'inc', 'gte', 'university', 'polytechnic', 'college', 'school', 'academy', 'institute', 'hospital', 'clinic', 'pharmacy', 'pharmaceutical', 'laboratory', 'church', 'mosque', 'ministries', 'foundation', 'association', 'union', 'chamber', 'crypto', 'cryptocurrency', 'bitcoin', 'forex', 'security', 'securities', 'police', 'army', 'military', 'bureau de change', 'radio', 'television', 'oil', 'petroleum', 'gas', 'mining', 'royal', 'presidential'];
+const CAC_ENDINGS = ['Enterprise', 'Enterprises', 'Ventures', 'Services', 'Concepts', 'Stores', 'Global', 'Collections', 'Solutions', 'Hub', 'Empire', 'Store'];
+function cacNameIssues(name) {
+  const n = String(name || '').trim(); if (n.length < 3) return [];
+  const low = ` ${n.toLowerCase().replace(/[^a-z0-9 -]/g, ' ')} `;
+  const bad = CAC_RESTRICTED.filter((w) => low.includes(` ${w} `));
+  const out = [];
+  if (bad.length) out.push({ tone: 'bad', text: `"${bad[0]}" needs special approval from CAC or another regulator. Leave it out, or the name will likely be refused.` });
+  if (/[^A-Za-z0-9 &'.,-]/.test(n)) out.push({ tone: 'bad', text: 'Use only letters, numbers and simple punctuation.' });
+  if (!bad.length && !CAC_ENDINGS.some((e) => low.trim().endsWith(e.toLowerCase())) && n.split(/\s+/).length < 4) out.push({ tone: 'tip', text: `Tip: most approved names end with a word like Enterprise, Ventures, Services or Concepts (e.g. "${n} Ventures").` });
+  return out;
+}
 const CAC_ID_TYPES = ['NIN slip or card', "Driver's licence", 'International passport', "Voter's card"];
 const CAC_STEPS = [['names', 'Your business'], ['place', 'Where it is'], ['owner', 'About you'], ['docs', 'Documents'], ['review', 'Check and send']];
 async function cacUpload(token, businessId, file, kind) {
@@ -13576,7 +13609,7 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
       setOffer(o || { open: false, total: 0, turnaround: '5 to 10 working days' });
       const r = rows && rows[0] && rows[0].status !== 'cancelled' ? rows[0] : null;
       setReq(r);
-      setF(r ? { ...r, owner_dob: r.owner_dob || '' } : { owner_phone: ownerPhone || '', owner_email: ownerEmail || '', owner_name: ownerName || '', name_1: businessName || '' });
+      setF(r ? { ...r, owner_dob: r.owner_dob || '' } : { owner_phone: ownerPhone || '', owner_email: ownerEmail || '', owner_name: ownerName || '', name_1: businessName || '', owner_nationality: 'Nigerian' });
       return r;
     } catch (e) { setReq(null); return null; }
   }, [token]);
@@ -13591,14 +13624,14 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
     })();
   }, [load]);
   useEffect(() => {   // show the documents already uploaded
-    ['id_doc', 'passport_doc', 'signature_doc', 'certificate_doc'].forEach((k) => {
+    ['id_doc', 'passport_doc', 'signature_doc'].forEach((k) => {
       if (f[k] && !preview[k]) cacDocUrl(token, f[k]).then((url) => setPreview((p) => ({ ...p, [k]: url }))).catch(() => {});
     });
   }, [f.id_doc, f.passport_doc, f.signature_doc, f.certificate_doc]);
 
-  const set = (k, v) => { setF((x) => ({ ...x, [k]: v })); setError(''); };
+  const set = (k, v) => { setF((x) => ({ ...x, [k]: v, ...(k !== 'attest' ? { attest: false } : {}) })); setError(''); };
   const save = async (patch = f) => {
-    const keys = ['name_1', 'name_2', 'nature', 'description', 'biz_state', 'biz_lga', 'biz_address', 'owner_name', 'owner_dob', 'owner_gender', 'owner_phone', 'owner_email', 'owner_nin', 'owner_address', 'id_type', 'id_doc', 'passport_doc', 'signature_doc'];
+    const keys = ['name_1', 'name_2', 'nature', 'sub_category', 'description', 'commencement_date', 'staff_size', 'fund_source', 'owner_nationality', 'owner_occupation', 'biz_state', 'biz_lga', 'biz_address', 'owner_name', 'owner_dob', 'owner_gender', 'owner_phone', 'owner_email', 'owner_nin', 'owner_address', 'id_type', 'id_doc', 'passport_doc', 'signature_doc'];
     const body = Object.fromEntries(keys.filter((k) => patch[k] !== undefined && patch[k] !== null).map((k) => [k, patch[k]]));
     const r = await sbRpc('cac_save', token, { p: body });
     setReq(r); return r;
@@ -13608,14 +13641,21 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
     if (id === 'names') {
       if (String(f.name_1 || '').trim().length < 3 || String(f.name_2 || '').trim().length < 3) return 'Give two name choices, in case the first is taken.';
       if (String(f.name_1).trim().toLowerCase() === String(f.name_2).trim().toLowerCase()) return 'Make your two name choices different.';
-      if (!f.nature) return 'Choose what kind of business it is.';
-      if (String(f.description || '').trim().length < 10) return 'Describe what the business does in a few words.';
+      if ([f.name_1, f.name_2].some((x) => cacNameIssues(x).some((i) => i.tone === 'bad'))) return 'One of your names has a word CAC refuses. Change it first.';
+      if (!f.nature || !f.sub_category) return 'Choose the kind and type of business.';
+      const dl = String(f.description || '').trim().length;
+      if (dl < 30) return `Describe what the business does in at least 30 characters (${dl} so far).`;
+      if (!f.commencement_date) return 'Add the date the business started (or will start).';
+      if (!f.staff_size) return 'Choose how many people work in the business.';
+      if (!f.fund_source) return 'Choose where the money for the business comes from.';
     }
     if (id === 'place' && (!f.biz_state || String(f.biz_address || '').trim().length < 8)) return 'Add the state and the full business address.';
     if (id === 'owner') {
       if (String(f.owner_name || '').trim().split(/\s+/).length < 2) return 'Type your full name as it is on your ID (first name and surname).';
       if (!f.owner_dob) return 'Add your date of birth.';
       if (!f.owner_gender) return 'Choose your gender.';
+      if (!String(f.owner_nationality ?? 'Nigerian').trim()) return 'Add your nationality.';
+      if (String(f.owner_occupation || '').trim().length < 3) return 'Add your occupation.';
       if (String(f.owner_phone || '').replace(/\D/g, '').length < 10) return 'Add your phone number.';
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(f.owner_email || '').trim())) return 'Add a working email. CAC sends updates there.';
       if (String(f.owner_nin || '').replace(/\D/g, '').length !== 11) return 'Your NIN has 11 digits.';
@@ -13632,7 +13672,8 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
   };
   const submit = async () => {
     setBusy('send'); setError('');
-    try { await save(); const r = await sbRpc('cac_submit', token, {}); setReq(r); setStep(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    if (!f.attest) { setError('Tick the declaration to confirm your details are true.'); setBusy(''); return; }
+    try { await save(); await sbRpc('cac_save', token, { p: { attest: true } }); const r = await sbRpc('cac_submit', token, {}); setReq(r); setStep(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     catch (e) { setError(e.message); }
     setBusy('');
   };
@@ -13690,23 +13731,45 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
           {id === 'names' && (<>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>Business name, first choice</span>
-              <input value={f.name_1 || ''} onChange={(e) => set('name_1', e.target.value)} maxLength={80} placeholder="e.g. Amaka Fashion House" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
+              <input value={f.name_1 || ''} onChange={(e) => set('name_1', e.target.value)} maxLength={80} placeholder="e.g. Amaka Fashion Ventures" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
+              {cacNameIssues(f.name_1).map((i) => <div key={i.text} className="text-[11.5px] mt-1.5 leading-relaxed" style={{ color: i.tone === 'bad' ? C.rust : C.copper }}>{i.text}</div>)}
             </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>Second choice</span>
-              <input value={f.name_2 || ''} onChange={(e) => set('name_2', e.target.value)} maxLength={80} placeholder="e.g. Amaka Couture" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
-              <div className="text-[11.5px] mt-1.5 leading-relaxed" style={{ color: C.inkFaint }}>CAC checks the name isn't already taken. If your first choice is, they use the second. Avoid words like "Nigeria", "Federal" or "Limited", which need special approval.</div>
+              <input value={f.name_2 || ''} onChange={(e) => set('name_2', e.target.value)} maxLength={80} placeholder="e.g. Amaka Couture Enterprise" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
+              {cacNameIssues(f.name_2).map((i) => <div key={i.text} className="text-[11.5px] mt-1.5 leading-relaxed" style={{ color: i.tone === 'bad' ? C.rust : C.copper }}>{i.text}</div>)}
+              <div className="text-[11.5px] mt-1.5 leading-relaxed" style={{ color: C.inkFaint }}>CAC checks the name isn't already taken or too close to another. If your first choice is, they use the second.</div>
             </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>What kind of business</span>
-              <BrandSelect value={f.nature || ''} onChange={(e) => set('nature', e.target.value)} className="w-full rounded-xl px-3.5 py-3 text-[15px]" style={field}>
+              <BrandSelect value={f.nature || ''} onChange={(e) => { set('nature', e.target.value); set('sub_category', (CAC_NATURES[e.target.value] || []).length === 1 ? CAC_NATURES[e.target.value][0] : ''); }} className="w-full rounded-xl px-3.5 py-3 text-[15px]" style={field}>
                 <option value="">Choose…</option>
-                {CAC_NATURES.map((n) => <option key={n} value={n}>{n}</option>)}
+                {Object.keys(CAC_NATURES).map((n) => <option key={n} value={n}>{n}</option>)}
               </BrandSelect>
             </div>
+            {f.nature && (CAC_NATURES[f.nature] || []).length > 1 && (
+              <div>
+                <span className={label} style={{ color: C.inkFaint }}>Type</span>
+                <div className="flex flex-wrap gap-1.5">{CAC_NATURES[f.nature].map((t) => <button key={t} type="button" onClick={() => set('sub_category', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.sub_category === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
+              </div>
+            )}
             <div>
               <span className={label} style={{ color: C.inkFaint }}>What the business does</span>
-              <textarea rows={3} maxLength={300} value={f.description || ''} onChange={(e) => set('description', e.target.value)} placeholder="e.g. Sewing and selling ready-made native wear and Ankara dresses" className="w-full rounded-xl px-3.5 py-3 text-[14.5px] outline-none resize-none" style={field} />
+              <textarea rows={3} maxLength={160} value={f.description || ''} onChange={(e) => set('description', e.target.value)} placeholder="e.g. Sewing and selling ready-made native wear and Ankara dresses" className="w-full rounded-xl px-3.5 py-3 text-[14.5px] outline-none resize-none" style={field} />
+              <div className="text-[11px] mt-1 text-right" style={{ color: String(f.description || '').trim().length < 30 ? C.copper : C.inkFaint }}>{String(f.description || '').trim().length}/160 · at least 30</div>
+            </div>
+            <div>
+              <span className={label} style={{ color: C.inkFaint }}>When the business started</span>
+              <input type="date" value={f.commencement_date || ''} max={new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10)} onChange={(e) => set('commencement_date', e.target.value)} className="w-full rounded-xl px-3 py-3 text-[15px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+              <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>If you haven't started yet, choose the day you plan to.</div>
+            </div>
+            <div>
+              <span className={label} style={{ color: C.inkFaint }}>How many people work in it</span>
+              <div className="flex flex-wrap gap-1.5">{CAC_STAFF.map((t) => <button key={t} type="button" onClick={() => set('staff_size', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.staff_size === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
+            </div>
+            <div>
+              <span className={label} style={{ color: C.inkFaint }}>Where the money for the business comes from</span>
+              <div className="flex flex-wrap gap-1.5">{CAC_FUNDS.map((t) => <button key={t} type="button" onClick={() => set('fund_source', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.fund_source === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
             </div>
           </>)}
           {id === 'place' && (<>
@@ -13742,6 +13805,16 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
                 <div className="flex gap-1.5">{['Male', 'Female'].map((g) => <button key={g} type="button" onClick={() => set('owner_gender', g)} className="flex-1 py-3 rounded-xl text-[14px] font-semibold" style={f.owner_gender === g ? { background: C.sage, color: C.bg } : { ...field }}>{g}</button>)}</div>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="min-w-0">
+                <span className={label} style={{ color: C.inkFaint }}>Nationality</span>
+                <input value={f.owner_nationality ?? 'Nigerian'} onChange={(e) => set('owner_nationality', e.target.value)} maxLength={40} className="w-full min-w-0 rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
+              </div>
+              <div className="min-w-0">
+                <span className={label} style={{ color: C.inkFaint }}>Occupation</span>
+                <input value={f.owner_occupation || ''} onChange={(e) => set('owner_occupation', e.target.value)} maxLength={60} placeholder="e.g. Trader" className="w-full min-w-0 rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />
+              </div>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
                 <span className={label} style={{ color: C.inkFaint }}>Phone number</span>
@@ -13774,8 +13847,9 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
           </>)}
           {id === 'review' && (
             <div className="space-y-3 text-[13.5px]">
-              {[['Names', `${f.name_1}  ·  ${f.name_2}`, 0], ['Business', `${f.nature}: ${f.description}`, 0], ['Address', `${f.biz_address}, ${f.biz_lga ? `${f.biz_lga}, ` : ''}${f.biz_state}`, 1],
-                ['Owner', `${f.owner_name}, ${f.owner_gender}, born ${f.owner_dob ? new Date(f.owner_dob + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}`, 2],
+              {[['Names', `${f.name_1}  ·  ${f.name_2}`, 0], ['Business', `${f.nature}, ${f.sub_category}: ${f.description}`, 0],
+                ['Started', `${f.commencement_date ? new Date(f.commencement_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : ''} · ${f.staff_size} · ${f.fund_source}`, 0], ['Address', `${f.biz_address}, ${f.biz_lga ? `${f.biz_lga}, ` : ''}${f.biz_state}`, 1],
+                ['Owner', `${f.owner_name}, ${f.owner_gender}, ${f.owner_nationality || 'Nigerian'}, ${f.owner_occupation}, born ${f.owner_dob ? new Date(f.owner_dob + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}`, 2],
                 ['Contact', `${f.owner_phone} · ${f.owner_email}`, 2], ['NIN', String(f.owner_nin || '').replace(/(\d{3})(\d{4})(\d{4})/, '$1 $2 $3'), 2], ['Home', f.owner_address, 2], ['Documents', `${f.id_type}, passport photograph, signature`, 3]].map(([k, v, s]) => (
                 <div key={k} className="flex items-start gap-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
                   <span className="w-20 shrink-0 text-[11.5px] font-semibold uppercase tracking-wide pt-0.5" style={{ color: C.inkFaint }}>{k}</span>
@@ -13783,6 +13857,10 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
                   <button type="button" onClick={() => setStep(s)} className="text-[12px] font-semibold shrink-0" style={{ color: C.copper }}>Edit</button>
                 </div>
               ))}
+              <button type="button" onClick={() => set('attest', !f.attest)} role="checkbox" aria-checked={!!f.attest} className="w-full text-left flex items-start gap-3 rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1.5px solid ${f.attest ? C.sage : C.line}` }}>
+                <span className="mt-0.5 w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: f.attest ? C.sage : 'transparent', border: `2px solid ${f.attest ? C.sage : C.inkFaint}` }}>{f.attest && <Check size={13} style={{ color: C.bg }} />}</span>
+                <span className="text-[12.5px] leading-relaxed" style={{ color: C.ink }}>I declare that these details are true and belong to me, and I agree to Xorla and its accredited agent filing this registration with CAC on my behalf.</span>
+              </button>
               <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed" style={{ background: C.surfaceRaised, color: C.inkDim }}>
                 {offer.open && price > 0 ? <>You'll pay <strong style={{ color: C.ink }}>{fmt(price)}</strong> next. It usually takes {offer.turnaround}.</> : <>Registration through Xorla opens soon. Send your details now and we'll tell you the moment it opens. You won't pay anything until then.</>}
               </div>
@@ -13843,6 +13921,8 @@ function CacRegistration({ token, businessId, businessName, ownerPhone, ownerEma
         {status === 'registered' && (
           <div className="space-y-2.5">
             {req.certificate_doc && <button onClick={() => openDoc(req.certificate_doc)} className="w-full h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><Download size={16} /> Download your certificate</button>}
+            {req.status_report_doc && <button onClick={() => openDoc(req.status_report_doc)} className="w-full h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Download the status report</button>}
+            {req.tin && <div className="rounded-xl px-3.5 py-3 flex items-center justify-between gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}><span className="text-[12.5px]" style={{ color: C.inkDim }}>Tax ID (TIN)</span><span className="text-[14px] font-bold cx-mono">{req.tin}</span></div>}
             {req.message && <div className="text-[12.5px] leading-relaxed px-1 whitespace-pre-line" style={{ color: C.inkDim }}>{req.message}</div>}
             <div className="text-[12px] leading-relaxed px-1" style={{ color: C.inkFaint }}>With your certificate you can open a business bank account in the business name, and show customers you're registered. Renew it with CAC every year.</div>
           </div>
@@ -13890,7 +13970,7 @@ function CacAdmin({ call, token }) {
   const [open, setOpen] = useState(null);      // the full request
   const [docs, setDocs] = useState({});
   const [st, setSt] = useState(null);
-  const [act, setAct] = useState({ mode: '', message: '', bn: '', name: '', cert: null, busy: false, error: '' });
+  const [act, setAct] = useState({ mode: '', message: '', bn: '', name: '', tin: '', cert: null, report: null, busy: false, error: '' });
   const [copied, setCopied] = useState(false);
   const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
   const loadList = useCallback(async (s = filter) => { try { setList(await call('admin_cac_list', { p_status: s })); } catch (e) { setList([]); } }, [call, filter]);
@@ -13898,16 +13978,17 @@ function CacAdmin({ call, token }) {
   useEffect(() => { call('admin_cac_settings', {}).then(setSt).catch(() => {}); }, []);
   const show = async (id) => {
     try {
-      const r = await call('admin_cac_get', { p_id: id }); setOpen(r); setDocs({}); setAct({ mode: '', message: '', bn: '', name: r.name_1, cert: null, busy: false, error: '' });
+      const r = await call('admin_cac_get', { p_id: id }); setOpen(r); setDocs({}); setAct({ mode: '', message: '', bn: '', name: r.name_1, tin: '', cert: null, report: null, busy: false, error: '' });
       ['id_doc', 'passport_doc', 'signature_doc', 'certificate_doc'].forEach((k) => { if (r[k]) cacDocUrl(token(), r[k]).then((u) => setDocs((d) => ({ ...d, [k]: u }))).catch(() => {}); });
     } catch (e) { brandAlert(e.message); }
   };
   const saveSettings = async (patch) => { try { setSt(await call('admin_cac_settings', { p: patch })); } catch (e) { brandAlert(e.message); } };
   const agentText = (r) => [
     `Business name registration: ${r.name_1} (second choice: ${r.name_2})`,
-    `Nature of business: ${r.nature}. ${r.description}`,
+    `Nature of business: ${r.nature} / ${r.sub_category}. ${r.description}`,
+    `Date of commencement: ${r.commencement_date || ''}. Staff: ${r.staff_size}. Source of funds: ${r.fund_source}`,
     `Business address: ${r.biz_address}, ${r.biz_lga ? `${r.biz_lga}, ` : ''}${r.biz_state} State`,
-    `Proprietor: ${r.owner_name}, ${r.owner_gender}, born ${r.owner_dob}`,
+    `Proprietor: ${r.owner_name}, ${r.owner_gender}, ${r.owner_nationality || 'Nigerian'}, ${r.owner_occupation}, born ${r.owner_dob}`,
     `Phone: ${r.owner_phone}. Email: ${r.owner_email}. NIN: ${r.owner_nin}`,
     `Residential address: ${r.owner_address}`,
     `ID: ${r.id_type} (photo attached), passport photograph and signature attached.`,
@@ -13918,7 +13999,8 @@ function CacAdmin({ call, token }) {
     try {
       let cert = null;
       if (act.mode === 'registered' && act.cert) cert = await cacUpload(token(), r.business_id, act.cert, 'certificate');
-      await call('admin_cac_update', { p_id: r.id, p_status: act.mode, p_message: act.message, p_bn: act.bn || null, p_registered_name: act.name || null, p_certificate: cert });
+      const report = act.mode === 'registered' && act.report ? await cacUpload(token(), r.business_id, act.report, 'status-report') : null;
+      await call('admin_cac_update', { p_id: r.id, p_status: act.mode, p_message: act.message, p_bn: act.bn || null, p_registered_name: act.name || null, p_certificate: cert, p_status_report: report, p_tin: act.tin || null });
       await show(r.id); loadList();
     } catch (e) { setAct((a) => ({ ...a, busy: false, error: e.message })); }
   };
@@ -13992,6 +14074,8 @@ function CacAdmin({ call, token }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <input value={act.bn} onChange={(e) => setAct({ ...act, bn: e.target.value })} placeholder="BN number, e.g. BN 1234567" className="rounded-xl px-3 py-2.5 text-[13px] outline-none cx-mono" style={field} />
                   <input value={act.name} onChange={(e) => setAct({ ...act, name: e.target.value })} placeholder="Name as registered" className="rounded-xl px-3 py-2.5 text-[13px] outline-none" style={field} />
+                  <input value={act.tin} onChange={(e) => setAct({ ...act, tin: e.target.value })} placeholder="TIN (if issued)" className="rounded-xl px-3 py-2.5 text-[13px] outline-none cx-mono" style={field} />
+                  <label className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-[13px] cursor-pointer min-w-0" style={field}><Upload size={14} className="shrink-0" /> <span className="truncate">{act.report ? act.report.name : 'Status report (optional)'}</span><input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => setAct({ ...act, report: e.target.files?.[0] || null })} /></label>
                   <label className="sm:col-span-2 flex items-center gap-2 rounded-xl px-3 py-2.5 text-[13px] cursor-pointer" style={field}><Upload size={14} /> {act.cert ? act.cert.name : 'Upload the certificate (PDF or photo)'}<input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => setAct({ ...act, cert: e.target.files?.[0] || null })} /></label>
                 </div>
               )}
