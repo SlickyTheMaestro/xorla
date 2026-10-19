@@ -11749,6 +11749,7 @@ function Storefront({ businessCode }) {
   const [bookBusy, setBookBusy] = useState(false);
   const [bookError, setBookError] = useState('');
   const [bookingSent, setBookingSent] = useState(null);
+  const [thanks, setThanks] = useState(null);   // the thank-you card after a booking or order: they stay on the store
   const [bookTerms, setBookTerms] = useState(null);   // deposit rule, cancellation window and how to pay
   // Halls and event spaces: one date, the whole day(s) or a few hours
   const [spaceItem, setSpaceItem] = useState(null);
@@ -11992,7 +11993,13 @@ function Storefront({ businessCode }) {
       let placed = null;
       try { placed = await sbRpc('place_order_v2', SB_KEY, orderArgs); }
       catch (e) { if (/place_order_v2|does not exist|schema cache/i.test(e.message || '')) { const { p_room, p_mode, p_address, p_zone, ...older } = orderArgs; await sbRpc('place_order', SB_KEY, { ...older, p_note: [older.p_note, p_mode === 'delivery' ? `Deliver to: ${p_address}` : p_mode === 'room' ? `Room ${p_room}` : p_mode === 'pickup' ? 'Pick-up' : ''].filter(Boolean).join(' · ') }); } else throw e; }
-      if (placed?.token && !(usesSlots && apptSlot)) { window.location.href = `/order/${placed.token}?new=1`; return; }
+      if (placed?.token && !(usesSlots && apptSlot)) {
+        setThanks({ kind: 'order', name: customerName.trim(), phone: customerPhone.trim(), link: `/order/${placed.token}`, total: payable,
+          lines: cartList.map((c) => `${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${c.qty > 1 ? ` ×${c.qty}` : ''}`),
+          when: when || '', room: (askHow && fulfilMode === 'room') || (askStay && guestStay === 'yes') ? guestRoom.trim() : '', service: isService || cartHasService || svcExtras.length > 0 });
+        setShowCheckout(false); setCart({}); setOrderNote(''); setPreferredTime(''); setGuestStay('');
+        return;
+      }
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
@@ -12056,6 +12063,55 @@ function Storefront({ businessCode }) {
       </div>
     );
   }
+
+  const renderThanks = () => {
+    if (!thanks) return null;
+    const t = thanks; const first = String(t.name || '').split(' ')[0];
+    const payNow = t.kind === 'booking' && t.deposit > 0 && bookTerms?.online_pay;
+    const steps = t.kind === 'booking'
+      ? [`${business.name} confirms your booking, usually within 24 hours. Your ${t.when.includes('·') ? 'dates are' : 'date is'} held until then.`,
+         `They'll reach you on WhatsApp or by phone${t.phone ? ` at ${t.phone}` : ''}.`,
+         t.deposit > 0 ? (payNow ? `Pay the ${fmt(t.deposit)} deposit online to confirm it straight away, or pay it later from your booking page.` : `Pay the ${fmt(t.deposit)} deposit the way they tell you, to secure it.`) : 'Pay when you arrive, or as they tell you.']
+      : [`${business.name} checks your ${t.service ? 'request' : 'order'}${t.when ? ` for ${t.when}` : ''}.`,
+         t.room ? `It goes on your room ${t.room} bill, paid at check-out.` : `They'll message you${t.phone ? ` on ${t.phone}` : ''} to confirm${bookTerms?.online_pay ? ', then you can pay online by card, transfer or USSD, or pay them directly' : ' and arrange payment'}.`,
+         'Follow it any time from your page.'];
+    const saveLink = `${window.location.origin}${t.link}`;
+    return (
+      <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(23,25,26,0.55)' }} onClick={() => setThanks(null)}>
+        <div role="dialog" aria-modal="true" aria-label="Thank you" className="w-full sm:max-w-md rounded-t-[28px] sm:rounded-[28px] px-5 pt-6 pb-5 max-h-[92vh] overflow-y-auto" style={{ background: '#fff', color: S.ink, paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex flex-col items-center text-center">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: S.ink, boxShadow: '0 0 0 8px rgba(23,25,26,0.06)' }}><Check size={30} color="#fff" strokeWidth={2.6} /></div>
+            <div className="text-[23px] font-bold mt-4 leading-tight">Thank you{first ? `, ${first}` : ''}!</div>
+            <div className="text-[14px] mt-1" style={{ color: S.muted }}>Your {t.kind === 'booking' ? 'booking request' : t.service ? 'request' : 'order'} is with {business.name}.</div>
+          </div>
+          <div className="rounded-2xl px-4 py-3.5 mt-5" style={{ background: S.tile }}>
+            {t.lines.slice(0, 4).map((l) => <div key={l} className="text-[14.5px] font-semibold leading-snug">{l}</div>)}
+            {t.lines.length > 4 && <div className="text-[13px]" style={{ color: S.muted }}>and {t.lines.length - 4} more</div>}
+            {t.when && <div className="text-[13px] mt-1" style={{ color: S.muted }}>{t.when}</div>}
+            <div className="flex items-baseline justify-between mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${S.line}` }}>
+              <span className="text-[13px]" style={{ color: S.muted }}>Total</span>
+              <span className="text-[18px] font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(t.total)}</span>
+            </div>
+            {t.deposit > 0 && <div className="flex items-baseline justify-between mt-1"><span className="text-[13px]" style={{ color: S.muted }}>Deposit to secure it</span><span className="text-[14px] font-semibold" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(t.deposit)}</span></div>}
+          </div>
+          <div className="mt-4">
+            <div className="text-[13px] font-semibold mb-2">What happens next</div>
+            <div className="space-y-2">{steps.map((x, i) => (
+              <div key={i} className="flex gap-3 text-[13px] leading-relaxed"><span className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[11px] font-bold mt-0.5" style={{ background: S.tile }}>{i + 1}</span><span style={{ color: S.ink }}>{x}</span></div>
+            ))}</div>
+          </div>
+          <div className="mt-5 space-y-2">
+            {payNow && <a href={t.link} className={`w-full h-12 rounded-xl text-[14.5px] font-semibold flex items-center justify-center gap-2 ${focusRing}`} style={{ background: S.ink, color: '#fff' }}>Pay {fmt(t.deposit)} deposit now</a>}
+            <button onClick={() => setThanks(null)} className={`w-full h-12 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={payNow ? { border: `1.5px solid ${S.line}`, color: S.ink } : { background: S.ink, color: '#fff' }}>Keep exploring {business.name}</button>
+            <div className="flex items-center justify-center gap-4 pt-1.5 text-[13px] font-semibold">
+              {!payNow && <a href={t.link} className="underline underline-offset-4" style={{ color: S.ink }}>{t.kind === 'booking' ? 'View my booking' : 'Track it'}</a>}
+              {t.phone && String(t.phone).replace(/\D/g, '').length >= 10 && <a href={`https://wa.me/${toWhatsAppNumber(t.phone)}?text=${encodeURIComponent(`My ${t.kind === 'booking' ? 'booking' : t.service ? 'request' : 'order'} at ${business.name}: ${saveLink}`)}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4" style={{ color: S.muted }}>Save the link to my WhatsApp</a>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const kindWords = SERVICE_KINDS[business.service_kind] || {};
   const anyNightly = storeProducts.some((p) => p.priceUnit === 'night');
@@ -12127,7 +12183,14 @@ function Storefront({ businessCode }) {
         const msg = `New booking request from ${bookName.trim()}${bookPhone ? ` (${bookPhone.trim()})` : ''}:\n\n${bookItem.name}${bookUnits > 1 ? ` × ${bookUnits}` : ''}\n${prettyDay(stayIn)} to ${prettyDay(stayOut)} (${nightsText})\nTotal: ${fmt(total)}${bookNote.trim() ? `\nNote: ${bookNote.trim()}` : ''}\n\nThe dates are held for 24 hours. Confirm it in Xorla.`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
       }
-      if (placed?.token) { window.location.href = `/booking/${placed.token}?new=1`; return; }
+      if (placed?.token) {
+        const pct = Number(bookTerms?.deposit_percent ?? 0), cap = Number(bookTerms?.deposit_cap_nights ?? 0);
+        const dep = pct > 0 ? Math.round(cap > 0 ? Math.min(total * pct / 100, bookItem.sellingPrice * bookUnits * cap) : total * pct / 100) : 0;
+        setThanks({ kind: 'booking', name: bookName.trim(), phone: bookPhone.trim(), link: `/booking/${placed.token}`, total, deposit: dep,
+          lines: [`${bookItem.name}${bookUnits > 1 ? ` × ${bookUnits}` : ''}`], when: `${prettyDay(stayIn)} to ${prettyDay(stayOut)} · ${nightsText}` });
+        setBookItem(null); setBookName(''); setBookPhone(''); setBookNote('');
+        return;
+      }
       setBookingSent({ item: bookItem.name, units: bookUnits, dates: `${prettyDay(stayIn)} to ${prettyDay(stayOut)}`, nights: nightsText, total, phone: bookPhone.trim() });
       setBookItem(null); setBookName(''); setBookPhone(''); setBookNote('');
     } catch (e) { setBookError(e.message); }
@@ -12218,7 +12281,16 @@ function Storefront({ businessCode }) {
       const placed = await sbRpc('place_space_booking', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_product_id: spaceItem.id, p_date: a.date,
         p_days: hourly ? null : Math.max(1, Number(a.days) || 1), p_start: hourly ? a.start : null, p_end: hourly ? a.end : null,
         p_name: bookName.trim(), p_phone: bookPhone.trim(), p_note: bookNote.trim(), p_guests: Number(a.guests) > 0 ? Math.round(Number(a.guests)) : null, p_event: a.event.trim() });
-      if (placed?.token) { window.location.href = `/booking/${placed.token}?new=1`; return; }
+      if (placed?.token) {
+        const days = Math.max(1, Number(a.days) || 1);
+        const total = hourly ? Math.round(spaceItem.hourPrice * spaceHours(a)) : spaceItem.sellingPrice * days;
+        const pct = Number(bookTerms?.deposit_percent ?? 0);
+        const prettyD = new Date(a.date + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+        setThanks({ kind: 'booking', name: bookName.trim(), phone: bookPhone.trim(), link: `/booking/${placed.token}`, total, deposit: pct > 0 ? Math.round(total * pct / 100) : 0,
+          lines: [`${spaceItem.name}${a.event ? ` · ${a.event}` : ''}`], when: hourly ? `${prettyD}, ${a.start} to ${a.end}` : `${prettyD}${days > 1 ? ` · ${days} days` : ''}` });
+        setSpaceItem(null); setBookName(''); setBookPhone(''); setBookNote('');
+        return;
+      }
       setSpaceItem(null);
     } catch (e) { setBookError(e.message); }
     finally { setBookBusy(false); }
@@ -12899,7 +12971,7 @@ function Storefront({ businessCode }) {
       </div>
 
       {/* Footer */}
-      {renderBookSheet()}{renderSpaceSheet()}
+      {renderBookSheet()}{renderSpaceSheet()}{renderThanks()}
       {renderItemSheet()}{renderBranchChooser()}
       <footer className="mt-4" style={{ background: S.tile }}>
         <div className="max-w-6xl mx-auto px-5 md:px-8 py-10 grid gap-8 md:grid-cols-[1.2fr_1fr_1fr] text-[13.5px]" style={{ color: S.muted }}>
