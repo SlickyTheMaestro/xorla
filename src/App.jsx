@@ -3352,7 +3352,16 @@ function XorlaApp() {
   const guestsInHouseAt = (shopId) => bookingsAll.filter((b) => b.status === 'checked_in' && !b.is_space && b.shop_id === (shopId || mainShopId));
   // Booked but not arrived yet (confirmed, arriving in the next 30 days): an order can go on their booking bill too
   const guestsArrivingAt = (shopId) => { const until = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10); return bookingsAll.filter((b) => b.status === 'confirmed' && !b.is_space && b.shop_id === (shopId || mainShopId) && String(b.check_out) >= todayKey() && String(b.check_in) <= until); };
-  const sameGuest = (b, o) => { const p1 = String(b.customer_phone || '').replace(/\D/g, '').slice(-10); const p2 = String(o.customerPhone || '').replace(/\D/g, '').slice(-10); if (p1.length === 10 && p1 === p2) return true; const n1 = String(b.customer_name || '').trim().toLowerCase(); const n2 = String(o.customerName || '').trim().toLowerCase(); return !!n1 && !!n2 && (n1 === n2 || n1.split(/\s+/)[0] === n2.split(/\s+/)[0] && (n1.includes(n2) || n2.includes(n1))); };
+  // Is this order from the person on that booking? The phone and the name are checked separately:
+  // both must agree before we call it "their booking" (a shared or mistyped phone must never bill someone else).
+  const guestCheck = (b, o) => {
+    const p1 = String(b.customer_phone || '').replace(/\D/g, '').slice(-10); const p2 = String(o.customerPhone || '').replace(/\D/g, '').slice(-10);
+    const words = (s) => String(s || '').toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3);
+    const w2 = words(o.customerName);
+    return { phone: p1.length === 10 && p1 === p2, name: words(b.customer_name).some((w) => w2.includes(w)) };
+  };
+  const sameGuest = (b, o) => { const c = guestCheck(b, o); return c.phone && c.name; };
+  const partGuest = (b, o) => { const c = guestCheck(b, o); return c.phone !== c.name; };
   // A request already on a guest's bill: the job is done (pickup made, laundry back). Paid with the stay, so no sale here.
   const roomOrderDone = async (o) => {
     try { await sbRpc('room_order_done', session.access_token, { p_order: o.id }); await loadBusinessData(session.access_token); }
@@ -3377,7 +3386,7 @@ function XorlaApp() {
         <div className="text-[12.5px] mb-3 leading-relaxed" style={{ color: C.inkDim }}>{o.items.map((it) => `${it.quantity} × ${it.description}`).join(', ')} · <strong className="cx-mono" style={{ color: C.ink }}>{fmt(o.total)}</strong>. It's paid with the stay at check-out. Choose the guest:</div>
         <div className="space-y-2">
           {inHouse.map((b) => {
-            const m = roomMatches(b, o.roomLabel);
+            const m = roomMatches(b, o.roomLabel) && (() => { const c = guestCheck(b, o); return c.phone || c.name; })();
             return (
               <button key={b.id} onClick={() => putOrderOnRoom(o, b)} className="w-full flex items-center gap-3 rounded-xl px-3.5 py-3 text-left" style={{ background: m ? C.copperSoft : C.surfaceRaised, border: `1px solid ${m ? 'rgba(255,176,32,0.4)' : C.line}` }}>
                 <span className="min-w-[52px] px-2 py-1 rounded-lg text-center text-[13px] font-bold cx-mono" style={{ background: C.surface, color: C.ink }}>{b.room_label || '—'}</span>
@@ -5262,12 +5271,17 @@ function XorlaApp() {
                     if (notGuest[o.id]) return <div className="rounded-xl px-3 py-2 mb-3 text-[12px] flex items-center justify-between gap-2" style={{ background: C.surfaceRaised, color: C.inkDim }}><span>Not a guest: take payment the usual way.</span><button onClick={() => setNotGuest((x) => ({ ...x, [o.id]: false }))} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>Undo</button></div>;
                     const inHouse = guestsInHouseAt(o.shopId);
                     if (String(o.note || '').startsWith(BOOKED_GUEST_NOTE)) {
-                      const found = guestsArrivingAt(o.shopId).concat(inHouse).filter((b) => sameGuest(b, o));
+                      const pool = guestsArrivingAt(o.shopId).concat(inHouse);
+                      const found = pool.filter((b) => sameGuest(b, o));
+                      const half = found.length ? [] : pool.filter((b) => partGuest(b, o));
                       const first = String(o.customerName).split(' ')[0];
+                      const halfMsg = half.length ? half.map((b) => guestCheck(b, o).phone
+                        ? `That phone number is on ${b.customer_name}'s booking, but this order is in the name ${o.customerName || 'not given'}.`
+                        : `There's a booking for ${b.customer_name}, but under a different phone number.`).join(' ') + ' Check with them before adding it to anyone\'s bill.' : '';
                       return (
                         <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
                           <div className="flex items-center gap-2 font-semibold" style={{ color: C.copper }}><BedDouble size={14} /> Says they've booked, not arrived yet</div>
-                          <div className="mt-0.5" style={{ color: found.length ? C.inkDim : C.rust }}>{found.length ? `Booking found: ${found.map((b) => `${b.customer_name}, ${b.status === 'checked_in' ? `room ${b.room_label || ''}` : `arrives ${new Date(b.check_in + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}`).join('; ')}.` : `No booking found for ${first} or that phone number. Check with them before adding it to a bill.`}</div>
+                          <div className="mt-0.5" style={{ color: found.length ? C.inkDim : C.rust }}>{found.length ? `Booking found: ${found.map((b) => `${b.customer_name}, ${b.status === 'checked_in' ? `room ${b.room_label || ''}` : `arrives ${new Date(b.check_in + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}`).join('; ')}.` : half.length ? halfMsg : `No booking found for ${first} or that phone number. Check with them before adding it to a bill.`}</div>
                           {!found.length && (
                             <div className="grid grid-cols-2 gap-2 mt-2">
                               {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${first}, thank you for your order from ${settings.businessName}. We couldn't find your booking. What name was it under? If you haven't booked with us, we can arrange payment instead.`)}`} target="_blank" rel="noopener noreferrer" className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={14} /> WhatsApp them</a> : <span />}
@@ -5281,11 +5295,14 @@ function XorlaApp() {
                       );
                     }
                     if (!o.roomLabel && !inHouse.length) return null;
-                    const match = o.roomLabel ? inHouse.filter((b) => roomMatches(b, o.roomLabel)) : [];
+                    const inRoom = o.roomLabel ? inHouse.filter((b) => roomMatches(b, o.roomLabel)) : [];
+                    // The room alone isn't enough: the name or the phone must agree too
+                    const match = inRoom.filter((b) => { const c = guestCheck(b, o); return c.phone || c.name; });
+                    const mismatch = inRoom.length > 0 && !match.length;
                     return (
                       <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: o.roomLabel ? C.copperSoft : C.surfaceRaised, border: o.roomLabel ? '1px solid rgba(255,176,32,0.25)' : 'none' }}>
                         {o.roomLabel && <div className="flex items-center gap-2 font-semibold" style={{ color: C.copper }}><BedDouble size={14} /> Says they're in room {o.roomLabel}</div>}
-                        {o.roomLabel && <div className="mt-0.5" style={{ color: match.length ? C.inkDim : C.rust }}>{match.length ? `Checked in there: ${match.map((b) => b.customer_name).join(', ')}.` : `Nobody is checked in to room ${o.roomLabel}. Check with ${String(o.customerName).split(' ')[0]} before adding it to a bill.`}</div>}
+                        {o.roomLabel && <div className="mt-0.5" style={{ color: match.length ? C.inkDim : C.rust }}>{match.length ? `Checked in there: ${match.map((b) => b.customer_name).join(', ')}.` : mismatch ? `Room ${o.roomLabel} is ${inRoom.map((b) => b.customer_name).join(' and ')}'s, but this order is from ${o.customerName || 'someone else'} with a different phone number. Check with them before adding it to anyone's bill.` : `Nobody is checked in to room ${o.roomLabel}. Check with ${String(o.customerName).split(' ')[0]} before adding it to a bill.`}</div>}
                         {o.roomLabel && !match.length && (
                           <div className="grid grid-cols-2 gap-2 mt-2">
                             {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${String(o.customerName).split(' ')[0]}, thank you for your order from ${settings.businessName}. We couldn't find room ${o.roomLabel}. Which room are you in? If you're not staying with us, we can arrange payment instead.`)}`} target="_blank" rel="noopener noreferrer" className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={14} /> WhatsApp them</a> : <span />}
