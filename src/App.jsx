@@ -1888,6 +1888,7 @@ function XorlaApp() {
   const [cacHome, setCacHome] = useState(null);   // the owner's business-name registration, for the notice on Overview and the sidebar
   const [cacHidden, setCacHidden] = useState(false);
   const [cacToast, setCacToast] = useState(false);
+  const [extrasPick, setExtrasPick] = useState(false);   // choosing how to add extras
   const [vaultInfo, setVaultInfo] = useState(null);   // { count, due, list } for the menu and the Overview reminder   // "It's still in Settings" after hiding the notice
   const [draft, setDraft] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
@@ -5820,6 +5821,25 @@ function XorlaApp() {
       </div>
     );
   };
+  // How to add extras: all at once from a photo of the price list, by pasting, or one at a time
+  const renderExtrasPick = () => extrasPick && (
+    <Sheet onClose={() => setExtrasPick(false)} title={<><div className="text-[16px] font-semibold cx-display">Add your extras</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Delivery, extra hours and anything else you charge for' : 'Laundry, bar, airport pickup and anything else you charge for'}</div></>}>
+      <div className="space-y-2.5">
+        <button onClick={() => { setExtrasPick(false); openScan(); }} className="w-full text-left rounded-2xl p-4 flex items-center gap-3.5" style={{ background: 'linear-gradient(150deg, rgba(255,176,32,0.16), rgba(255,176,32,0.04))', border: '1px solid rgba(255,176,32,0.4)' }}>
+          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})` }}><Camera size={21} style={{ color: C.bg }} /></span>
+          <span className="flex-1 min-w-0"><span className="flex items-center gap-2 text-[15px] font-bold">Snap your price list <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full" style={{ background: C.copper, color: C.bg }}>Fastest</span></span><span className="block text-[12px] mt-0.5 leading-snug" style={{ color: C.inkDim }}>A photo or PDF. Oga reads every item and price, and you check them before saving.</span></span>
+        </button>
+        <button onClick={() => { setExtrasPick(false); openImport(); }} className="w-full text-left rounded-2xl p-4 flex items-center gap-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.06)' }}><Copy size={19} style={{ color: C.inkDim }} /></span>
+          <span className="flex-1 min-w-0"><span className="block text-[14.5px] font-semibold">Paste a list</span><span className="block text-[12px] mt-0.5" style={{ color: C.inkDim }}>From WhatsApp, Excel or your notes</span></span>
+        </button>
+        <button onClick={() => { setExtrasPick(false); openCatalogForm('extra'); }} className="w-full text-left rounded-2xl p-4 flex items-center gap-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Plus size={20} style={{ color: C.sage }} /></span>
+          <span className="flex-1 min-w-0"><span className="block text-[14.5px] font-semibold">Add one at a time</span><span className="block text-[12px] mt-0.5" style={{ color: C.inkDim }}>Type the name and price yourself</span></span>
+        </button>
+      </div>
+    </Sheet>
+  );
   const renderExtrasEmpty = () => (
     <div className="rounded-xl p-3.5 mb-3" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
       <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
@@ -5827,7 +5847,7 @@ function XorlaApp() {
           ? `Add ${serviceKind === 'rentals' ? 'delivery, extra hours' : 'laundry, bar items'} and other extras once, and they'll appear here with their prices.`
           : 'Ask the owner to add extras like laundry or the bar, and they\'ll appear here with their prices.'}
       </div>
-      {canRun && <button type="button" onClick={() => openCatalogForm('extra')} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
+      {canRun && <button type="button" onClick={() => (isOwnerRole ? setExtrasPick(true) : openCatalogForm('extra'))} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
     </div>
   );
 
@@ -7805,7 +7825,7 @@ function XorlaApp() {
             {!showShopSwitcher && <div className="text-[12px] shrink-0" style={{ color: C.inkFaint }}>{shopNameOf(activeShopId || targetShopId)}</div>}
           </div>
           {renderXorlaNotices()}
-          {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderSpotlight()}
+          {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
           {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} ${L.many}`,
             `Check the ${L.one} shown at the top before recording. That's where your ${T.sale} is saved.`)}
           {staffTab === 'bookings' && <div className="rounded-2xl p-4 lg:p-6 mb-5" style={card}>{renderBookingDesk()}</div>}
@@ -9951,7 +9971,7 @@ function XorlaApp() {
         {renderReadyCheck()}
         {renderSetup()}
         {renderPastImport()}
-        {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderSpotlight()}
+        {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
       </div>
     );
   }
@@ -10690,24 +10710,41 @@ function XorlaApp() {
 
             {canRun && (
               T.saleHint ? (
-                <div className="grid grid-cols-2 gap-2 mb-6">
-                  <button onClick={() => openCatalogForm('room')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.copper, color: C.bg }}>
-                    <Plus size={18} className="shrink-0" /><span><span className="block text-[14px] font-semibold">Add a {roomWord}</span><span className="block text-[11.5px] opacity-80">Priced per {serviceKind === 'rentals' ? 'day' : 'night'}, booked by date</span></span>
-                  </button>
-                  <button onClick={() => openCatalogForm('extra')} className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.35)', color: C.ink }}>
-                    <Plus size={18} className="shrink-0" style={{ color: C.sage }} /><span><span className="block text-[14px] font-semibold">Add an extra</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Delivery, extra hours' : 'Laundry, bar, airport pickup'}</span></span>
-                  </button>
-                  {serviceKind === 'accommodation' && (
-                    <button onClick={() => openCatalogForm('space')} className="col-span-2 flex items-center gap-3 rounded-2xl px-4 py-3 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}>
-                      <Building2 size={18} className="shrink-0" style={{ color: C.copper }} /><span><span className="block text-[14px] font-semibold">Add a hall or event space</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>Event centre, conference hall, boardroom: booked by the day or hour</span></span>
-                    </button>
-                  )}
-                  {isOwnerRole && (
-                    <div className="col-span-2 -mt-1 grid grid-cols-2 gap-2">
-                      <button onClick={openScan} className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.copper, border: `1px dashed rgba(255,176,32,0.45)` }}><Camera size={14} /> Upload a price list</button>
-                      <button onClick={openImport} className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px dashed ${C.lineStrong || C.line}` }}><Copy size={14} /> Paste a list</button>
+                <div className="mb-6 space-y-3">
+                  {isOwnerRole && (listItems.length === 0 ? (
+                    <div className="relative rounded-[22px] overflow-hidden" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(255,176,32,0.35)' }}>
+                      <span aria-hidden className="absolute -right-10 -top-12 w-44 h-44 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.22), transparent 65%)' }} />
+                      <div className="relative p-4 sm:p-5">
+                        <div className="flex items-start gap-3.5">
+                          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})` }}><Camera size={21} style={{ color: C.bg }} /></span>
+                          <div className="min-w-0">
+                            <div className="text-[16.5px] font-bold leading-tight">Add everything at once</div>
+                            <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>Snap your rate card or price list. Oga reads your {serviceKind === 'accommodation' ? 'rooms, halls and extras' : `${roomWord}s and extras`} with their prices, and you check them before anything is saved.</div>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-3.5">
+                          <button onClick={openScan} className="flex-1 h-11 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><Camera size={15} /> Photo or PDF</button>
+                          <button onClick={openImport} className="h-11 px-4 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.12)', color: C.ink }}><Copy size={14} /> Paste a list</button>
+                        </div>
+                      </div>
                     </div>
-                  )}
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button onClick={openScan} className="flex-1 h-11 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2" style={{ color: C.copper, background: C.copperSoft, border: '1px solid rgba(255,176,32,0.3)' }}><Camera size={14} /> Add more from a price list</button>
+                      <button onClick={openImport} className="h-11 px-3.5 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}><Copy size={14} /> Paste</button>
+                    </div>
+                  ))}
+                  {isOwnerRole && listItems.length === 0 && <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 pt-1" style={{ color: C.inkFaint }}>Or add one at a time</div>}
+                  <div className={`grid gap-2 ${serviceKind === 'accommodation' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                    {[['room', BedDouble, `A ${roomWord}`, `Per ${serviceKind === 'rentals' ? 'day' : 'night'}`, C.copper],
+                      ...(serviceKind === 'accommodation' ? [['space', Building2, 'A hall', 'By day or hour', '#7FB3FF']] : []),
+                      ['extra', Sparkles, 'An extra', serviceKind === 'rentals' ? 'Delivery, hours' : 'Laundry, bar', C.sage]].map(([k, Ic, l, sub, col]) => (
+                      <button key={k} onClick={() => (k === 'extra' && isOwnerRole && listItems.length === 0 ? setExtrasPick(true) : openCatalogForm(k))} className="rounded-2xl p-3 text-left flex flex-col gap-2 min-w-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                        <span className="flex items-center justify-between"><span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${col}22` }}><Ic size={17} style={{ color: col }} /></span><Plus size={15} style={{ color: C.inkFaint }} /></span>
+                        <span className="min-w-0"><span className="block text-[13.5px] font-semibold truncate">{l}</span><span className="block text-[11px] truncate" style={{ color: C.inkFaint }}>{sub}</span></span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : (
               <button onClick={() => { setEditingProductId(null); setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null, photos: [] }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
@@ -11534,7 +11571,7 @@ function XorlaApp() {
       {renderImportPanel()}
       {renderListTool()}
       {renderPastImport()}
-      {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderSpotlight()}
+      {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
       {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
       {renderApptPanel()}
       {renderNotifPanel()}
