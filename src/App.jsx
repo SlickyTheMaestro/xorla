@@ -3471,19 +3471,36 @@ function XorlaApp() {
   };
   const pickupPointOf = (o) => { const sh = locationsAll.find((x) => x.id === (o.shopId || mainShopId)); return sh?.address || settings.businessAddress || (shops.length > 1 ? `${settings.businessName}, ${locName(sh)}` : settings.businessName); };
   const packageOf = (o) => o.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${it.description}`).join(', ');
-  const riderAskMessage = (r, o) => `Hello ${String(r.name).split(' ')[0]}, delivery request from ${settings.businessName}.\n\nPick up: ${pickupPointOf(o)}\nDrop off: ${o.deliveryAddress}\nPackage: ${packageOf(o)}\n\nHow much, and how soon can you come?`;
+  // Hotels: an airport pickup or taxi extra is a ride for the guest, done by one of your drivers/riders (no delivery address)
+  const isRideJob = (o) => !o.deliveryAddress && o.fulfilMode !== 'delivery' && ['accommodation', 'rentals'].includes(serviceKind) && o.items.some((it) => stayServiceKind(it.description || '') === 'ride');
+  const rideDetails = (o) => String(o.note || '').replace(BOOKED_GUEST_NOTE, '').trim();
+  const rideBilled = (o) => !!o.roomBookingId || o.payStatus === 'paid';
+  const riderAskMessage = (r, o) => isRideJob(o)
+    ? `Hello ${String(r.name).split(' ')[0]}, a ride job from ${settings.businessName}.\n\nJob: ${packageOf(o)}\nGuest: ${o.customerName}${rideDetails(o) ? `\nDetails: ${rideDetails(o)}` : ''}\nBring them to: ${pickupPointOf(o)}\n\nHow much, and are you free?`
+    : `Hello ${String(r.name).split(' ')[0]}, delivery request from ${settings.businessName}.\n\nPick up: ${pickupPointOf(o)}\nDrop off: ${o.deliveryAddress}\nPackage: ${packageOf(o)}\n\nHow much, and how soon can you come?`;
   const riderBriefMessage = (o) => {
+    if (isRideJob(o)) return [`Hi ${String(o.riderName).split(' ')[0]}, please do this ride for ${settings.businessName}.`, `Job: ${packageOf(o)}`, `Guest: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}`, rideDetails(o) ? `Details: ${rideDetails(o)}` : '', `Bring them to: ${pickupPointOf(o)}`, o.riderFee != null ? `Your fee: ${fmt(o.riderFee)}` : '', rideBilled(o) ? "It's paid with their stay. Don't collect any money from the guest." : `${settings.businessName} handles the guest's payment. Don't collect any money.`].filter(Boolean).join('\n\n');
     const owing = o.payStatus === 'paid' ? Math.max(0, orderMoney(o).total - orderMoney(o).paidOnline) : orderMoney(o).total;
     const paidAlready = deliveryPaid(o) || owing <= 0;
     return [`Hi ${String(o.riderName).split(' ')[0]}, please pick up a delivery from ${settings.businessName}.`, `Pick up: ${pickupPointOf(o)}`, `Deliver to: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}\n${o.deliveryAddress}`, `Package: ${packageOf(o)}`, o.riderFee != null ? `Your fee: ${fmt(o.riderFee)}` : '', paidAlready ? "The customer has already paid. Don't collect any money." : `Collect ${fmt(owing)} from the customer (cash, or transfer to ${settings.businessName}${settings.bankAccountNumber ? `: ${settings.bankName ? `${settings.bankName} ` : ''}${settings.bankAccountNumber}` : ''}).`, `Map: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`].filter(Boolean).join('\n\n');
   };
-  const openRiders = (o) => setRiderFor({ order: o, quotes: Object.fromEntries((Array.isArray(o.riderQuotes) ? o.riderQuotes : []).map((q) => [q.id, String(q.fee)])), chosen: o.riderId || '', customerFee: o.deliveryZone || o.deliveryFee ? String(o.deliveryFee || '') : '', pay: deliveryPaid(o) ? 'paid' : (o.deliveryPay || ''), busy: false, error: '' });
+  const openRiders = (o) => setRiderFor({ order: o, ride: isRideJob(o), quotes: Object.fromEntries((Array.isArray(o.riderQuotes) ? o.riderQuotes : []).map((q) => [q.id, String(q.fee)])), chosen: o.riderId || '', customerFee: o.deliveryZone || o.deliveryFee ? String(o.deliveryFee || '') : '', pay: deliveryPaid(o) ? 'paid' : (o.deliveryPay || ''), busy: false, error: '' });
   const saveRider = async () => {
     const f = riderFor; if (!f || f.busy) return;
     const o = f.order; const r = riders.find((x) => x.id === f.chosen);
     const rFee = Number(parseNumInput(f.quotes[f.chosen] || '')); const cFee = Number(parseNumInput(f.customerFee || ''));
     if (!r) { setRiderFor({ ...f, error: 'Choose the rider to send.' }); return; }
     if (!Number.isFinite(rFee) || rFee < 0 || String(f.quotes[f.chosen] || '').trim() === '') { setRiderFor({ ...f, error: `Enter ${r.name}'s price.` }); return; }
+    if (f.ride) {
+      setRiderFor({ ...f, busy: true, error: '' });
+      try {
+        const quotes = riders.filter((x) => String(f.quotes[x.id] || '').trim() !== '').map((x) => ({ id: x.id, rider: x.name, fee: Number(parseNumInput(f.quotes[x.id])) }));
+        await sbRpc('set_order_rider', session.access_token, { p_order: o.id, p_rider: r.id, p_rider_fee: rFee, p_customer_fee: Number(o.deliveryFee) || 0, p_quotes: quotes });
+        const fresh = (await refreshOrder(o.id)) || { ...o, riderId: r.id, riderName: r.name, riderPhone: r.phone, riderFee: rFee };
+        setRiderFor(null); await sendRider(fresh);
+      } catch (e) { setRiderFor((x) => x && { ...x, busy: false, error: e.message }); }
+      return;
+    }
     if (!Number.isFinite(cFee) || cFee < 0 || String(f.customerFee || '').trim() === '') { setRiderFor({ ...f, error: 'Enter what the customer pays for delivery.' }); return; }
     if (!f.pay) { setRiderFor({ ...f, error: `Choose how ${String(o.customerName).split(' ')[0]} will pay.` }); return; }
     setRiderFor({ ...f, busy: true, error: '' });
@@ -3508,8 +3525,10 @@ function XorlaApp() {
     const f = riderFor; const o = f.order; const set = (patch) => setRiderFor({ ...f, ...patch, error: '' });
     const chosenFee = Number(parseNumInput(f.quotes[f.chosen] || '')) || 0; const cFee = Number(parseNumInput(f.customerFee || '')) || 0;
     return (
-      <Sheet title="Get rider prices" onClose={() => !f.busy && setRiderFor(null)} busy={f.busy}>
-        <div className="text-[12.5px] mb-3 leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>{packageOf(o)}</strong> from {pickupPointOf(o)} to <strong style={{ color: C.ink }}>{o.deliveryAddress}</strong>.</div>
+      <Sheet title={f.ride ? 'Get driver prices' : 'Get rider prices'} onClose={() => !f.busy && setRiderFor(null)} busy={f.busy}>
+        {f.ride
+          ? <div className="text-[12.5px] mb-3 leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>{packageOf(o)}</strong> for {o.customerName}{rideDetails(o) ? <>: {rideDetails(o)}</> : ''}. Bring them to {pickupPointOf(o)}.</div>
+          : <div className="text-[12.5px] mb-3 leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>{packageOf(o)}</strong> from {pickupPointOf(o)} to <strong style={{ color: C.ink }}>{o.deliveryAddress}</strong>.</div>}
         {riders.length === 0 ? (
           <div className="rounded-xl px-3.5 py-3 text-[12.5px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>You haven't added any riders yet.{canRun ? <> <button onClick={() => { setRiderFor(null); setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('delivery'); setTab('settings'); }} className="font-semibold" style={{ color: C.copper }}>Add your riders</button></> : ' Ask the owner or a manager to add them in Settings.'}</div>
         ) : (
@@ -3530,6 +3549,12 @@ function XorlaApp() {
                 );
               })}
             </div>
+            {f.ride ? (
+              <div className="mt-3 rounded-xl p-3 text-[12px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>
+                {String(o.customerName).split(' ')[0]} pays <strong className="cx-mono" style={{ color: C.ink }}>{fmt(orderMoney(o).total)}</strong> for this{rideBilled(o) ? ', with the stay' : ''}. The driver's price is your cost.
+                {chosenFee > 0 && <div className="text-[11.5px] mt-1.5 font-semibold" style={{ color: orderMoney(o).total >= chosenFee ? C.sage : C.rust }}>{orderMoney(o).total > chosenFee ? `You keep ${fmt(orderMoney(o).total - chosenFee)} on this ride.` : orderMoney(o).total === chosenFee ? 'The driver gets everything the guest pays.' : `You pay ${fmt(chosenFee - orderMoney(o).total)} of this ride yourself.`}</div>}
+              </div>
+            ) : <>
             <div className="mt-3 rounded-xl p-3" style={{ background: C.surfaceRaised }}>
               <label className="block text-[12px] mb-1" style={{ color: C.inkDim }}>Customer pays for delivery{o.deliveryZone ? ` (${o.deliveryZone} area)` : ''}</label>
               <div className="flex items-center gap-2">
@@ -3554,8 +3579,9 @@ function XorlaApp() {
               )}
               {f.pay === 'before' && !settings.payout && !bankLine() && <div className="text-[11px] mt-1.5" style={{ color: C.copper }}>Tip: add your bank account in Settings → Deposits so the message tells them where to pay.</div>}
             </div>
+            </>}
             {f.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
-            <button onClick={saveRider} disabled={f.busy} className="w-full mt-3 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : !f.chosen ? 'Choose a rider' : f.pay === 'before' ? `Ask ${String(o.customerName).split(' ')[0]} to pay first` : `Send ${riders.find((x) => x.id === f.chosen)?.name || 'rider'}`}</button>
+            <button onClick={saveRider} disabled={f.busy} className="w-full mt-3 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : !f.chosen ? (f.ride ? 'Choose a driver' : 'Choose a rider') : f.ride ? `Send ${riders.find((x) => x.id === f.chosen)?.name || 'driver'}` : f.pay === 'before' ? `Ask ${String(o.customerName).split(' ')[0]} to pay first` : `Send ${riders.find((x) => x.id === f.chosen)?.name || 'rider'}`}</button>
           </>
         )}
       </Sheet>
@@ -5313,6 +5339,24 @@ function XorlaApp() {
                       </div>
                     );
                   })()}
+                  {isRideJob(o) && (o.status === 'pending' || o.riderName) && (
+                    <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                      {o.riderName ? (
+                        <div className="flex items-center gap-2">
+                          <Truck size={14} className="shrink-0" style={{ color: C.copper }} />
+                          <span className="flex-1 min-w-0"><span className="block font-semibold" style={{ color: C.ink }}>Driver: {o.riderName}{o.riderFee != null ? <span className="font-normal" style={{ color: C.inkFaint }}> · {fmt(o.riderFee)}</span> : null}</span><span className="block text-[11px]" style={{ color: o.riderSentAt ? C.inkFaint : C.sage }}>{o.riderSentAt ? `Details sent at ${new Date(o.riderSentAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })}` : 'Send them the details.'}</span></span>
+                          {o.riderPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.riderPhone)}?text=${encodeURIComponent(riderBriefMessage(o))}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={14} /></a>}
+                          {o.riderPhone && <a href={`tel:${String(o.riderPhone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Phone size={14} /></a>}
+                          {o.status === 'pending' && <button onClick={() => openRiders(o)} className="shrink-0 text-[11.5px] font-semibold" style={{ color: C.copper }}>Change</button>}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2 font-semibold" style={{ color: C.ink }}><Truck size={14} style={{ color: C.copper }} /> Who's doing the ride?</div>
+                          <button onClick={() => openRiders(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copper, color: C.bg }}><Truck size={14} /> Get driver prices</button>
+                        </>
+                      )}
+                    </div>
+                  )}
                   {o.startAt && (() => {
                     const clash = o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer ? apptClashes(o) : [];
                     const offerOpen = o.awaitingCustomer && o.holdUntil && new Date(o.holdUntil) > new Date();
