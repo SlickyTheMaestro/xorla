@@ -1483,6 +1483,7 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
 
 function XorlaApp() {
   const [tab, setTab] = useState('overview');
+  const [reqFilter, setReqFilter] = useState('open');   // Requests list: 'open' | 'done' | 'cancelled'
   // When Bookings / Orders were last looked at, so anything newer (a request, an online payment, a cancellation) shows a badge
   const [seenAt, setSeenAt] = useState({});
   const prevTabRef = useRef(null);
@@ -3304,7 +3305,10 @@ function XorlaApp() {
     const shop = locationsAll.find((x) => x.id === (o.shopId || mainShopId));
     const where = shop?.address || settings.businessAddress || '';
     const owing = o.payStatus === 'paid' ? Math.max(0, total - orderMoney(o).paidOnline) : total;
-    const payLine = o.fulfilMode === 'delivery' && o.deliveryPay ? (deliveryPaid(o) ? 'It is fully paid.' : `Please have ${fmt(deliveryOwing(o))} ready for the rider (cash or transfer).`) : o.payStatus === 'requested' && orderLinkOf(o) ? `Please pay ${fmt(owing)} here before you ${o.fulfilMode === 'delivery' ? 'receive it' : 'come'}: ${orderLinkOf(o)}` : owing > 0 ? `Total: ${fmt(owing)}${o.fulfilMode === 'delivery' ? ', to pay on delivery' : ', to pay when you collect'}.` : 'It is fully paid.';
+    const payLine = o.fulfilMode === 'delivery' && o.deliveryPay ? (deliveryPaid(o) ? 'It is fully paid.' : `Please have ${fmt(deliveryOwing(o))} ready for the rider: cash${bankLine() ? `, or transfer to ${bankLine()}` : ' or transfer'}.`) : o.payStatus === 'requested' && orderLinkOf(o) ? `Please pay ${fmt(owing)} here before you ${o.fulfilMode === 'delivery' ? 'receive it' : 'come'}: ${orderLinkOf(o)}` : owing > 0 ? `Total: ${fmt(owing)}${o.fulfilMode === 'delivery' ? ', to pay on delivery' : ', to pay when you collect'}.${bankLine() ? ` You can pay cash, or transfer to ${bankLine()}.` : ''}` : 'It is fully paid.';
+    if (isLaundryOrder(o) && (laundryCollect(o) || laundryDrop(o))) return laundryCollect(o)
+      ? [`Hi ${first}, your laundry from ${settings.businessName} is clean and on its way back to you.`, `Delivering to: ${o.deliveryAddress}`, o.riderName ? `Your rider: ${o.riderName}${o.riderPhone ? `, ${formatPhoneDisplay(o.riderPhone)}` : ''}` : '', payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n')
+      : [`Hi ${first}, your laundry at ${settings.businessName} is clean and ready to collect.`, `Collect it from: ${where || settings.businessName}`, payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n');
     return o.fulfilMode === 'delivery'
       ? [`Hi ${first}, your order from ${settings.businessName} is on its way to you.`, `${items}.`, `Delivering to: ${o.deliveryAddress}`, o.riderName ? `Your rider: ${o.riderName}${o.riderPhone ? `, ${formatPhoneDisplay(o.riderPhone)}` : ''}` : '', payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n')
       : [`Hi ${first}, your order from ${settings.businessName} is ready for pick-up.`, `${items}.`, `Collect it from: ${where || (shops.length > 1 ? `${settings.businessName}, ${locName(shop)}` : settings.businessName)}`, payLine, orderLinkOf(o) && o.payStatus !== 'requested' ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n');
@@ -3473,16 +3477,20 @@ function XorlaApp() {
   const packageOf = (o) => o.items.map((it) => `${it.quantity > 1 ? `${it.quantity} × ` : ''}${it.description}`).join(', ');
   // Hotels: an airport pickup or taxi extra is a ride for the guest, done by one of your drivers/riders (no delivery address)
   const isRideJob = (o) => !o.deliveryAddress && o.fulfilMode !== 'delivery' && ['accommodation', 'rentals'].includes(serviceKind) && o.items.some((it) => stayServiceKind(it.description || '') === 'ride');
-  const rideDetails = (o) => String(o.note || '').replace(BOOKED_GUEST_NOTE, '').trim();
+  const rideDetails = (o) => noteWithout(o.note);
   const rideBilled = (o) => !!o.roomBookingId || o.payStatus === 'paid';
   const riderAskMessage = (r, o) => isRideJob(o)
     ? `Hello ${String(r.name).split(' ')[0]}, a ride job from ${settings.businessName}.\n\nJob: ${packageOf(o)}\nGuest: ${o.customerName}${rideDetails(o) ? `\nDetails: ${rideDetails(o)}` : ''}\nBring them to: ${pickupPointOf(o)}\n\nHow much, and are you free?`
+    : laundryCollect(o) ? `Hello ${String(r.name).split(' ')[0]}, a laundry job from ${settings.businessName}.\n\n1. Collect the laundry from: ${o.deliveryAddress}\n2. Bring it to: ${pickupPointOf(o)}\n3. When it's clean, take it back to the same address.\n\nHow much for both trips, and how soon can you come?`
     : `Hello ${String(r.name).split(' ')[0]}, delivery request from ${settings.businessName}.\n\nPick up: ${pickupPointOf(o)}\nDrop off: ${o.deliveryAddress}\nPackage: ${packageOf(o)}\n\nHow much, and how soon can you come?`;
   const riderBriefMessage = (o) => {
     if (isRideJob(o)) return [`Hi ${String(o.riderName).split(' ')[0]}, please do this ride for ${settings.businessName}.`, `Job: ${packageOf(o)}`, `Guest: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}`, rideDetails(o) ? `Details: ${rideDetails(o)}` : '', `Bring them to: ${pickupPointOf(o)}`, o.riderFee != null ? `Your fee: ${fmt(o.riderFee)}` : '', rideBilled(o) ? "It's paid with their stay. Don't collect any money from the guest." : `${settings.businessName} handles the guest's payment. Don't collect any money.`].filter(Boolean).join('\n\n');
     const owing = o.payStatus === 'paid' ? Math.max(0, orderMoney(o).total - orderMoney(o).paidOnline) : orderMoney(o).total;
     const paidAlready = deliveryPaid(o) || owing <= 0;
-    return [`Hi ${String(o.riderName).split(' ')[0]}, please pick up a delivery from ${settings.businessName}.`, `Pick up: ${pickupPointOf(o)}`, `Deliver to: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}\n${o.deliveryAddress}`, `Package: ${packageOf(o)}`, o.riderFee != null ? `Your fee: ${fmt(o.riderFee)}` : '', paidAlready ? "The customer has already paid. Don't collect any money." : `Collect ${fmt(owing)} from the customer (cash, or transfer to ${settings.businessName}${settings.bankAccountNumber ? `: ${settings.bankName ? `${settings.bankName} ` : ''}${settings.bankAccountNumber}` : ''}).`, `Map: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`].filter(Boolean).join('\n\n');
+    const collectLine = paidAlready ? "The customer has already paid. Don't collect any money." : `Collect ${fmt(owing)} from the customer: cash, or a transfer to ${bankLine() ? `${settings.businessName}'s account, ${bankLine()}` : settings.businessName}. If they transfer, wait for ${settings.businessName} to confirm it's in before you hand it over.`;
+    if (laundryCollect(o) && !o.readyAt) return [`Hi ${String(o.riderName).split(' ')[0]}, please collect laundry for ${settings.businessName}.`, `Collect from: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}\n${o.deliveryAddress}`, `Bring it to: ${pickupPointOf(o)}`, `Laundry: ${packageOf(o)}`, o.riderFee != null ? `Your fee: ${fmt(o.riderFee)}, for collecting it and taking it back` : '', "Don't collect any money now. We'll tell you when it's clean and ready to go back.", `Map: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`].filter(Boolean).join('\n\n');
+    if (laundryCollect(o)) return [`Hi ${String(o.riderName).split(' ')[0]}, the laundry is clean. Please take it back from ${settings.businessName}.`, `Pick up from: ${pickupPointOf(o)}`, `Deliver to: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}\n${o.deliveryAddress}`, collectLine, `Map: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`].filter(Boolean).join('\n\n');
+    return [`Hi ${String(o.riderName).split(' ')[0]}, please pick up a delivery from ${settings.businessName}.`, `Pick up: ${pickupPointOf(o)}`, `Deliver to: ${o.customerName}${o.customerPhone ? ` (${o.customerPhone})` : ''}\n${o.deliveryAddress}`, `Package: ${packageOf(o)}`, o.riderFee != null ? `Your fee: ${fmt(o.riderFee)}` : '', paidAlready ? "The customer has already paid. Don't collect any money." : `Collect ${fmt(owing)} from the customer: cash, or a transfer to ${bankLine() ? `${settings.businessName}'s account, ${bankLine()}` : settings.businessName}. If they transfer, wait for ${settings.businessName} to confirm it's in before you hand it over.`, `Map: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`].filter(Boolean).join('\n\n');
   };
   const openRiders = (o) => setRiderFor({ order: o, ride: isRideJob(o), quotes: Object.fromEntries((Array.isArray(o.riderQuotes) ? o.riderQuotes : []).map((q) => [q.id, String(q.fee)])), chosen: o.riderId || '', customerFee: o.deliveryZone || o.deliveryFee ? String(o.deliveryFee || '') : '', pay: deliveryPaid(o) ? 'paid' : (o.deliveryPay || ''), busy: false, error: '' });
   const saveRider = async () => {
@@ -3570,7 +3578,7 @@ function XorlaApp() {
                 <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.sageSoft, color: C.sage }}>Already paid. {riders.find((x) => x.id === f.chosen)?.name || 'The rider'} won't collect any money.</div>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
-                  {[['on_delivery', 'Pay on delivery', `${String(riders.find((x) => x.id === f.chosen)?.name || 'The rider').split(' ')[0]} collects ${fmt(orderMoney(o).total - (o.deliveryFee || 0) + cFee)}. Sent now.`], ['before', 'Pay before we send it', settings.payout ? 'They pay online with a link. The rider goes once it\'s paid.' : bankLine() ? 'They transfer to your account. The rider goes once it\'s in.' : 'They pay you first. The rider goes once it\'s in.']].map(([v, l, d]) => (
+                  {[['on_delivery', laundryCollect(o) ? 'Pay when it comes back' : 'Pay on delivery', `${String(riders.find((x) => x.id === f.chosen)?.name || 'The rider').split(' ')[0]} collects ${fmt(orderMoney(o).total - (o.deliveryFee || 0) + cFee)}. Sent now.`], ['before', laundryCollect(o) ? 'Pay before we collect' : 'Pay before we send it', settings.payout ? 'They pay online with a link. The rider goes once it\'s paid.' : bankLine() ? 'They transfer to your account. The rider goes once it\'s in.' : 'They pay you first. The rider goes once it\'s in.']].map(([v, l, d]) => (
                     <button key={v} type="button" onClick={() => set({ pay: v })} className="rounded-xl px-3 py-2.5 text-left" style={{ background: f.pay === v ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${f.pay === v ? C.copper : C.line}` }}>
                       <span className="block text-[12.5px] font-semibold" style={{ color: C.ink }}>{l}</span><span className="block text-[11px] mt-0.5 leading-snug" style={{ color: C.inkFaint }}>{d}</span>
                     </button>
@@ -5139,11 +5147,57 @@ function XorlaApp() {
               </div>
     );
   };
+  // What kind of request this is, in a word or two (shown as a tag on the card)
+  const orderTag = (o) => {
+    if (o.startAt) return null;
+    if (isRideJob(o)) return { label: 'Ride', Icon: Truck };
+    if (laundryCollect(o)) return { label: 'Laundry · we collect', Icon: Truck };
+    if (laundryDrop(o)) return { label: 'Laundry · drop-off', Icon: Store };
+    if (o.roomBookingId) return { label: 'On a room bill', Icon: BedDouble };
+    if (String(o.note || '').startsWith(BOOKED_GUEST_NOTE)) return { label: 'Booked guest', Icon: BedDouble };
+    if (o.fulfilMode === 'room') return { label: o.roomLabel ? `Room ${o.roomLabel}` : 'Room', Icon: BedDouble };
+    if (o.fulfilMode === 'delivery') return { label: 'Delivery', Icon: Truck };
+    if (o.fulfilMode === 'pickup') return { label: 'Pick-up', Icon: Store };
+    return null;
+  };
+  // The one thing the desk should do next on an open request (or what it's waiting for)
+  const orderNext = (o) => {
+    if (o.status !== 'pending') return null;
+    const first = firstName(o); const rider = o.riderName ? String(o.riderName).split(' ')[0] : '';
+    const wait = (t) => ({ text: t, waiting: true }); const act = (t) => ({ text: t, waiting: false });
+    if (o.payStatus === 'refund_due') return act(`Send ${first} their refund`);
+    if (o.customState === 'asked') return act(`Answer ${first}'s own-choice request`);
+    if (o.customState === 'suggested') return wait(`Waiting for ${first} to choose`);
+    const ride = isRideJob(o);
+    if (!o.roomBookingId && !o.startAt && o.status === 'pending' && !['paid', 'refund_due', 'refunded'].includes(o.payStatus) && !notGuest[o.id]) {
+      if (String(o.note || '').startsWith(BOOKED_GUEST_NOTE)) return act('Check their booking, then add it to their bill');
+      if (o.fulfilMode === 'room') return act(`Check room ${o.roomLabel || ''}, then add it to the guest's bill`.replace('  ', ' '));
+    }
+    if (ride && !o.riderName) return act('Choose a driver');
+    if (ride) return act(`${rider} is doing the ride. Tap ${o.roomBookingId ? 'Done' : 'Mark done'} after`);
+    if (o.roomBookingId) return act(`It's on the bill. Do it, then tap Done`);
+    if (o.fulfilMode === 'delivery') {
+      if (!o.riderId) return riders.length ? act(laundryCollect(o) ? 'Choose a rider to collect the laundry' : 'Get rider prices and choose one') : act(laundryCollect(o) ? 'Send someone to collect the laundry' : 'Get it ready, then send it out');
+      if (o.deliveryPay === 'before' && !deliveryPaid(o)) return wait(`Waiting for ${first} to pay`);
+      if (!o.riderSentAt) return act(`Send ${rider} the details`);
+      if (laundryCollect(o) && !o.readyAt) return act('Wash it, then tap "Clean: send it back"');
+      if (!o.readyAt) return act('Tap "Out for delivery" when it leaves');
+      return wait(`On its way with ${rider}. Tap ${laundryCollect(o) ? 'Returned' : 'Delivered'} when it arrives`);
+    }
+    if (o.fulfilMode === 'pickup') {
+      if (laundryDrop(o) && !o.readyAt) return act(`When ${first} drops it off and it's clean, tap "Clean: ready to collect"`);
+      if (!o.readyAt) return act('Get it ready, then tap "Ready for pick-up"');
+      return wait(`Waiting for ${first} to collect it`);
+    }
+    if (o.payStatus === 'requested') return wait(`Waiting for ${first} to pay`);
+    if (o.startAt) return null;
+    return act(o.acceptedAt ? 'Get it done, then tap Mark done' : `Confirm with ${first}, then get it done`);
+  };
   const renderOrderCard = (o) => (
                 <div key={o.id} className="rounded-2xl p-4" style={card}>
                   <div className="flex items-start justify-between mb-2.5">
-                    <div>
-                      <div className="text-[13.5px] font-semibold">{o.customerName}</div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap"><span className="text-[13.5px] font-semibold">{o.customerName}</span>{(() => { const t = orderTag(o); return t ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold" style={{ background: 'rgba(255,255,255,0.06)', color: C.inkDim }}><t.Icon size={11} />{t.label}</span> : null; })()}</div>
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                     <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
@@ -5158,6 +5212,12 @@ function XorlaApp() {
                       { background: 'rgba(226,98,75,0.12)', color: C.rust }
                     }>{o.status === 'pending' && o.payStatus === 'paid' ? 'Paid online' : o.status === 'pending' && o.payStatus === 'requested' ? 'Awaiting payment' : o.payStatus === 'refund_due' ? 'Refund to send' : o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.noShow ? "Didn't come" : o.startAt && !o.acceptedAt ? 'Declined' : 'Cancelled'}</span>
                   </div>
+                  {(() => { const n = orderNext(o); return n ? (
+                    <div className="flex items-start gap-2 rounded-xl px-3 py-2 mb-3 text-[12.5px]" style={{ background: n.waiting ? C.surfaceRaised : C.copperSoft, color: n.waiting ? C.inkDim : C.ink }}>
+                      {n.waiting ? <Clock size={14} className="shrink-0 mt-0.5" style={{ color: C.inkFaint }} /> : <ArrowRight size={14} className="shrink-0 mt-0.5" style={{ color: C.copper }} />}
+                      <span><span className="font-semibold" style={{ color: n.waiting ? C.inkDim : C.copper }}>{n.waiting ? 'Waiting: ' : 'Next: '}</span>{n.text.replace(/^Waiting for /, 'for ')}</span>
+                    </div>
+                  ) : null; })()}
                   <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
                     {o.items.map((it, i) => (
                       <div key={i} className="flex items-center justify-between text-[12.5px]">
@@ -5239,7 +5299,7 @@ function XorlaApp() {
                   })()}
                   {o.fulfilMode === 'delivery' && o.deliveryAddress && (
                     <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                      <div className="flex items-center gap-2 font-semibold" style={{ color: C.ink }}><Truck size={14} style={{ color: C.copper }} /> Deliver to</div>
+                      <div className="flex items-center gap-2 font-semibold" style={{ color: C.ink }}><Truck size={14} style={{ color: C.copper }} /> {laundryCollect(o) ? (o.readyAt ? 'Bringing the laundry back to' : 'Collect the laundry from') : 'Deliver to'}</div>
                       <div className="mt-0.5 leading-relaxed" style={{ color: C.inkDim }}>{o.deliveryAddress}{o.deliveryZone ? <span style={{ color: C.inkFaint }}> · {o.deliveryZone} area, {fmt(o.deliveryFee)}</span> : null}</div>
                       <div className="flex gap-3 mt-1.5">
                         <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold" style={{ color: C.sage }}>Open in Maps</a>
@@ -5264,6 +5324,13 @@ function XorlaApp() {
                           </div>
                         );
                         if (!o.riderSentAt) return <div className="mt-2 text-[11.5px] font-semibold" style={{ color: C.sage }}>{deliveryPaid(o) ? `Paid${o.deliveryPaidBy ? ` (confirmed by ${o.deliveryPaidBy})` : ''}. Send ${rFirst} the pick-up details.` : `${rFirst} collects ${fmt(deliveryOwing(o))} on delivery. Send them the pick-up details.`}</div>;
+                        if (laundryCollect(o) && o.readyAt && o.riderPhone) return (
+                          <div className="mt-2 rounded-lg px-2.5 py-2" style={{ background: C.sageSoft }}>
+                            <div className="text-[11.5px]" style={{ color: C.inkDim }}>{rFirst} collected the laundry. It's clean now:</div>
+                            <a href={`https://wa.me/${toWhatsAppNumber(o.riderPhone)}?text=${encodeURIComponent(riderBriefMessage(o))}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-1 text-[12px] font-semibold" style={{ color: C.sage }}><MessageCircle size={13} /> Ask {rFirst} to take it back</a>
+                          </div>
+                        );
+                        if (laundryCollect(o)) return <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>{rFirst} was sent to collect the laundry at {new Date(o.riderSentAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })}. When it's clean, tap "Clean: send it back".</div>;
                         return <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>Pick-up details sent to {rFirst} at {new Date(o.riderSentAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })} · {deliveryPaid(o) ? 'paid, nothing to collect' : `collects ${fmt(deliveryOwing(o))}`}</div>;
                       })() : null}
                       {o.riderName ? (
@@ -5390,14 +5457,14 @@ function XorlaApp() {
                         {o.acceptedAt && o.status === 'pending' && o.remindedAt && <div className="mt-1" style={{ color: C.sage }}>Reminder sent {lagosDateKey(o.remindedAt) === lagosToday ? 'today' : apptDay(o.remindedAt)} at {apptTime(o.remindedAt)}</div>}
                         {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.proposalReply === 'accepted' ? ` by ${String(o.customerName).split(' ')[0]} from your offer` : o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
                         {o.status === 'cancelled' && o.cancelReason && !o.noShow && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
-                        {String(o.note || '').replace(BOOKED_GUEST_NOTE, '').trim() && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{String(o.note).replace(BOOKED_GUEST_NOTE, '').trim()}</div>}
+                        {noteWithout(o.note) && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{noteWithout(o.note)}</div>}
                       </div>
                     );
                   })()}
-                  {!o.startAt && (o.preferredTime || o.note) && (
+                  {!o.startAt && (o.preferredTime || noteWithout(o.note)) && (
                     <div className="rounded-xl px-3 py-2.5 mb-3 space-y-1 text-[12.5px]" style={{ background: C.surfaceRaised }}>
                       {o.preferredTime && <div><span style={{ color: C.inkFaint }}>Preferred time: </span><span className="font-semibold">{o.preferredTime}</span></div>}
-                      {String(o.note || '').replace(BOOKED_GUEST_NOTE, '').trim() && <div><span style={{ color: C.inkFaint }}>Note: </span>{String(o.note).replace(BOOKED_GUEST_NOTE, '').trim()}</div>}
+                      {noteWithout(o.note) && <div><span style={{ color: C.inkFaint }}>Note: </span>{noteWithout(o.note)}</div>}
                     </div>
                   )}
                   {(() => {
@@ -5440,14 +5507,18 @@ function XorlaApp() {
                         // A rider is chosen: get paid first if that was agreed, then send the rider the pick-up details
                         if (o.deliveryPay === 'before' && !deliveryPaid(o)) primary = { label: 'Payment received', onClick: () => confirmTransfer(o) };
                         else primary = { label: `Send ${String(o.riderName).split(' ')[0]}`, onClick: () => sendRider(o) };
+                      } else if (o.fulfilMode === 'delivery' && !o.riderId && !o.readyAt && (riders.length || laundryCollect(o)) && o.payStatus !== 'refund_due') {
+                        primary = null; note = laundryCollect(o) ? 'Choose who collects the laundry above' : 'Choose a rider above first';
                       } else if ((o.fulfilMode === 'pickup' || o.fulfilMode === 'delivery') && o.payStatus !== 'refund_due') {
-                        if (!o.readyAt) primary = { label: o.fulfilMode === 'delivery' ? 'Out for delivery' : 'Ready for pick-up', onClick: () => markReady(o) };
+                        if (!o.readyAt) primary = { label: laundryCollect(o) ? 'Clean: send it back' : laundryDrop(o) ? 'Clean: ready to collect' : o.fulfilMode === 'delivery' ? 'Out for delivery' : 'Ready for pick-up', onClick: () => markReady(o) };
                         else {
                           if (o.customerPhone) sec.push({ label: 'Message', tone: 'accent', href: `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(readyMessage(o))}` });
-                          primary = { label: o.fulfilMode === 'delivery' ? 'Delivered' : 'Collected', onClick: () => fulfillOrder(o) };
+                          primary = { label: laundryCollect(o) ? 'Returned' : o.fulfilMode === 'delivery' ? 'Delivered' : 'Collected', onClick: () => fulfillOrder(o) };
                         }
                       }
                     }
+                    // A hotel extra for a guest: put it on their bill first (or say they're not a guest), so it isn't recorded as a separate sale
+                    if (pending && !o.startAt && !o.roomBookingId && !notGuest[o.id] && !['paid', 'refund_due', 'refunded'].includes(o.payStatus) && serviceKind === 'accommodation' && (String(o.note || '').startsWith(BOOKED_GUEST_NOTE) || o.fulfilMode === 'room')) { primary = null; note = 'Add it to the guest\'s bill above first'; }
                     // An own-choice request is answered first (above); then the order carries on as usual
                     if (pending && !o.startAt && (o.customState === 'asked' || o.customState === 'suggested')) { primary = null; note = o.customState === 'asked' ? 'Answer the own-choice request above first' : `Waiting for ${firstName(o)} to choose`; }
                     const secBtn = (b, i) => {
@@ -6514,7 +6585,7 @@ function XorlaApp() {
     const totalRooms = roomsHere.length || bookables.reduce((a, p) => a + capacityOf(p, deskShopId), 0);
     const jump = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     const tiles = [
-      ['requests', 'bk-requests', 'Requests', bookingRequests.length, C.copper, Bell],
+      ['requests', 'bk-requests', 'To confirm', bookingRequests.length, C.copper, Bell],
       ['arriving', 'bk-arriving', 'Arriving', arrivals.length, C.sage, ArrowDownRight],
       ['inhouse', stayingNow.length ? 'bk-staying' : 'bk-leaving', 'In house', staying.length, C.ink, BedDouble],
       ['leaving', 'bk-leaving', 'Leaving', leavingToday.length, C.copper, ArrowUpRight],
@@ -6592,6 +6663,29 @@ function XorlaApp() {
             </div>
           );
         })()}
+        {(() => {
+          // Extras and orders from the storefront live on the Requests screen: show the front desk what's open there
+          const open = orders.filter((o) => o.status === 'pending' && !o.startAt);
+          if (!open.length) return null;
+          const todo = open.filter((o) => !orderNext(o)?.waiting);
+          return (
+            <button type="button" onClick={() => { setReqFilter('open'); setTab('orders'); window.scrollTo(0, 0); }} className="w-full text-left rounded-2xl p-3.5" style={{ background: todo.length ? C.copperSoft : C.surfaceRaised, border: `1px solid ${todo.length ? 'rgba(255,176,32,0.35)' : C.line}` }}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[14px] font-semibold flex items-center gap-2" style={{ color: todo.length ? C.copper : C.ink }}><ShoppingBag size={16} />Requests from your storefront</span>
+                <span className="shrink-0 flex items-center gap-1 text-[12px] font-semibold" style={{ color: C.copper }}>Open <ChevronRight size={14} /></span>
+              </div>
+              <div className="mt-2 space-y-1">
+                {open.slice(0, 3).map((o) => { const n = orderNext(o); return (
+                  <div key={o.id} className="text-[12px] flex gap-2 min-w-0" style={{ color: C.inkDim }}>
+                    <span className="font-semibold shrink-0" style={{ color: C.ink }}>{firstName(o)}</span>
+                    <span className="truncate">{o.items.map((it) => it.description).join(', ')}{n ? ` · ${n.waiting ? 'waiting' : n.text.charAt(0).toLowerCase() + n.text.slice(1)}` : ''}</span>
+                  </div>
+                ); })}
+                {open.length > 3 && <div className="text-[11.5px]" style={{ color: C.inkFaint }}>and {open.length - 3} more</div>}
+              </div>
+            </button>
+          );
+        })()}
         <div className="rounded-2xl p-3" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
           <div className="flex items-center justify-between px-1 mb-2.5">
             <span className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Today</span>
@@ -6632,7 +6726,7 @@ function XorlaApp() {
         )}
         {showRefundHistory && <RefundHistory accessToken={session.access_token} onClose={() => setShowRefundHistory(false)} />}
 
-        {bookingRequests.length > 0 && section('Requests waiting for you', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
+        {bookingRequests.length > 0 && section('New bookings to confirm', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
           ...(depositPct > 0 ? [actBtn('Deposit received', () => openAct(b, 'deposit'), true), actBtn('Confirm', () => quickConfirm(b))] : [actBtn('Confirm', () => quickConfirm(b), true)]),
           actBtn('Decline', () => openAct(b, 'decline')),
         ] : [<span key="w" className="flex-1 self-center text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to confirm</span>]), 'bk-requests', 'Answer within 24 hours')}
@@ -10185,7 +10279,7 @@ function XorlaApp() {
           {/* Top bar */}
           <div className="flex flex-wrap items-center gap-3 mb-6">
             <div className="hidden lg:block text-[17px] font-semibold cx-display capitalize mr-auto">
-              {tab === 'overview' ? `Welcome back${settings.businessName ? ', ' + settings.businessName : ''}` : tab}
+              {tab === 'overview' ? `Welcome back${settings.businessName ? ', ' + settings.businessName : ''}` : tab === 'orders' ? (apptMode ? 'Appointments' : T.orders) : tab === 'products' ? T.catalog : tab}
             </div>
             <div className="relative flex-1 lg:flex-none lg:w-64">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
@@ -10796,9 +10890,27 @@ function XorlaApp() {
                 {settings.storefrontEnabled ? 'No orders yet — share your storefront link to start getting them.' : 'Turn on your storefront in Settings to start receiving orders here.'}
               </div>
             )}
-            <div className="space-y-3">
-              {orders.map((o) => renderOrderCard(o))}
-            </div>
+            {orders.length > 0 && (() => {
+              const groups = { open: orders.filter((o) => o.status === 'pending'), done: orders.filter((o) => o.status === 'fulfilled'), cancelled: orders.filter((o) => o.status !== 'pending' && o.status !== 'fulfilled') };
+              const cur = groups[reqFilter] ? reqFilter : 'open';
+              const list = groups[cur];
+              // Open ones: what needs doing first, then what's waiting on someone else
+              const shown = cur === 'open' ? [...list].sort((a, b) => Number(!!orderNext(a)?.waiting) - Number(!!orderNext(b)?.waiting)) : list;
+              return (
+                <>
+                  <div className="flex gap-1 p-1 mb-3 rounded-xl" role="tablist" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                    {[['open', 'Open'], ['done', 'Done'], ['cancelled', 'Cancelled']].filter(([k]) => k !== 'cancelled' || groups.cancelled.length).map(([k, l]) => (
+                      <button key={k} role="tab" aria-selected={cur === k} onClick={() => setReqFilter(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={cur === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
+                        {l}<span className="text-[11px] cx-mono px-1.5 rounded-full" style={{ background: cur === k ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.06)' }}>{groups[k].length}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {list.length === 0
+                    ? <div className="text-center text-[13px] py-8 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>{cur === 'open' ? 'Nothing open. New requests from your storefront show up here.' : cur === 'done' ? 'Nothing done yet.' : 'Nothing cancelled.'}</div>
+                    : <div className="space-y-3 xl:space-y-0 xl:grid xl:grid-cols-2 xl:gap-3 xl:items-start">{shown.map((o) => renderOrderCard(o))}</div>}
+                </>
+              );
+            })()}
           </>
         )}
 
@@ -11757,6 +11869,7 @@ function Storefront({ businessCode }) {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [guestRoom, setGuestRoom] = useState('');
+  const [laundryWay, setLaundryWay] = useState('');   // laundry, not staying: 'collect' (they fetch it) | 'drop' (customer brings it)
   const [guestStay, setGuestStay] = useState('');   // hotel service extras: '' | 'yes' (staying here) | 'no'   // hotels: a guest staying here can say which room (staff check it before billing)
   // How the customer gets their order: pick-up, delivery (address + landmark), or brought to their room at a hotel
   const [orderModes, setOrderModes] = useState([]);
@@ -11986,6 +12099,9 @@ function Storefront({ businessCode }) {
   // Ask "how do you want it?" when there are goods to hand over (not for appointments or pure services)
   const askHow = orderModes.length > 0 && cartList.some((c) => storeKind(c.product) !== 'service' && !isBookable(c.product) && !stayService(c.product));
   const askStay = svcExtras.length > 0 && !askHow && orderModes.includes('room');
+  // Laundry for someone not staying: first, how does the bag get to the business?
+  const laundryOut = svcKinds.includes('laundry') && !askHow && !cartHasService && (askStay ? guestStay === 'no' : true);
+  const laundryOpts = [['collect', 'Collect it from me', "We pick it up and bring it back"], ['drop', "I'll drop it off", "And collect it when it's ready"]].filter(([v]) => orderModes.includes(v === 'collect' ? 'delivery' : 'pickup'));
   const lineQtyText = (c) => {
     if (storeKind(c.product) !== 'service') return ` ×${c.qty}`;
     return c.product.priceUnit === 'hour' ? ` (${c.qty} hr${c.qty !== 1 ? 's' : ''})` : '';
@@ -12042,6 +12158,10 @@ function Storefront({ businessCode }) {
       if (guestStay === 'yes' && !guestRoom.trim()) { brandAlert('Please add your room number.', { theme: 'light' }); return; }
       if (guestStay === 'booked' && customerPhone.replace(/\D/g, '').length < 10) { brandAlert('Please add the phone number you booked with, so the front desk can find your booking.', { theme: 'light' }); return; }
     }
+    if (laundryOut && laundryOpts.length) {
+      if (!laundryWay) { brandAlert('Please choose how we get your laundry.', { theme: 'light' }); return; }
+      if (laundryWay === 'collect' && deliverAddr.trim().length < 6) { brandAlert('Please add the address to collect your laundry from.', { theme: 'light' }); return; }
+    }
     setSubmitting(true);
     try {
       // Only product IDs + quantities are sent — the database looks up the real prices itself
@@ -12049,7 +12169,10 @@ function Storefront({ businessCode }) {
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: (askStay && guestStay === 'booked' ? `${BOOKED_GUEST_NOTE} ${orderNote.trim()}` : orderNote.trim()).trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(askHow && fulfilMode ? { p_mode: fulfilMode } : {}), ...(askHow && fulfilMode === 'room' ? { p_room: guestRoom.trim() } : {}), ...(askStay && guestStay === 'yes' ? { p_mode: 'room', p_room: guestRoom.trim() } : {}), ...(askHow && fulfilMode === 'delivery' && zoneId && zoneId !== 'other' ? { p_zone: zoneId } : {}), ...(askHow && fulfilMode === 'delivery' ? { p_address: `${deliverAddr.trim()}${deliverLandmark.trim() ? ` (near ${deliverLandmark.trim().replace(/^(near|opposite|beside)\s+/i, '')})` : ''}` } : {}) };
+      const lway = laundryOut && laundryOpts.some(([v]) => v === laundryWay) ? laundryWay : '';
+      const laundryNote = lway === 'collect' || (svcKinds.includes('laundry') && askHow && fulfilMode === 'delivery') ? LAUNDRY_COLLECT_NOTE : lway === 'drop' ? LAUNDRY_DROP_NOTE : '';
+      const fullAddr = `${deliverAddr.trim()}${deliverLandmark.trim() ? ` (near ${deliverLandmark.trim().replace(/^(near|opposite|beside)\s+/i, '')})` : ''}`;
+      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: [askStay && guestStay === 'booked' ? BOOKED_GUEST_NOTE : '', laundryNote, orderNote.trim()].filter(Boolean).join(' ').trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(askHow && fulfilMode ? { p_mode: fulfilMode } : {}), ...(askHow && fulfilMode === 'room' ? { p_room: guestRoom.trim() } : {}), ...(askStay && guestStay === 'yes' ? { p_mode: 'room', p_room: guestRoom.trim() } : {}), ...(askHow && fulfilMode === 'delivery' && zoneId && zoneId !== 'other' ? { p_zone: zoneId } : {}), ...(askHow && fulfilMode === 'delivery' ? { p_address: fullAddr } : {}), ...(lway === 'collect' ? { p_mode: 'delivery', p_address: fullAddr } : lway === 'drop' ? { p_mode: 'pickup' } : {}) };
       // Orders get the customer's own page (track it, pay online once confirmed). Appointments keep their own flow.
       let placed = null;
       try { placed = await sbRpc('place_order_v2', SB_KEY, orderArgs); }
@@ -12058,14 +12181,14 @@ function Storefront({ businessCode }) {
         setThanks({ kind: 'order', name: customerName.trim(), phone: customerPhone.trim(), link: `/order/${placed.token}`, total: payable,
           lines: cartList.map((c) => `${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${c.qty > 1 ? ` ×${c.qty}` : ''}`),
           when: when || '', room: (askHow && fulfilMode === 'room') || (askStay && guestStay === 'yes') ? guestRoom.trim() : '', service: isService || cartHasService || svcExtras.length > 0 });
-        setShowCheckout(false); setCart({}); setOrderNote(''); setPreferredTime(''); setGuestStay('');
+        setShowCheckout(false); setCart({}); setOrderNote(''); setPreferredTime(''); setGuestStay(''); setLaundryWay('');
         return;
       }
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
         const lines = cartList.map((c) => `• ${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${lineQtyText(c)} — ${fmt(linePrice(c) * c.qty)}`).join('\n');
-        const extra = `${askHow && fulfilMode === 'delivery' ? `\nDeliver to: ${orderArgs.p_address}` : (askHow && fulfilMode === 'room') || (askStay && guestStay === 'yes') ? `\nRoom: ${guestRoom.trim()}` : askHow && fulfilMode === 'pickup' ? '\nPick-up' : ''}${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
+        const extra = `${lway === 'collect' ? `\nCollect the laundry from: ${orderArgs.p_address}` : lway === 'drop' ? "\nWill drop the laundry off" : ''}${askHow && fulfilMode === 'delivery' ? `\nDeliver to: ${orderArgs.p_address}` : (askHow && fulfilMode === 'room') || (askStay && guestStay === 'yes') ? `\nRoom: ${guestRoom.trim()}` : askHow && fulfilMode === 'pickup' ? '\nPick-up' : ''}${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
         const shopLabel = storeShops.length > 1 ? ` for ${displayLocationName(currentStoreShop, locationWords(business?.business_type, business?.service_kind))}` : '';
         const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}${discountOff ? `\n\nSubtotal: ${fmt(cartTotal)}\nDiscount (${discount.code}): ${fmt(-discountOff)}` : ''}\n\nTotal: ${fmt(payable)}${extra}`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -12765,6 +12888,7 @@ function Storefront({ businessCode }) {
                 );
               })}
             </div>
+            {svcKinds.includes('laundry') && (fulfilMode === 'delivery' || fulfilMode === 'pickup') && <div className="text-[12px] mt-2 rounded-xl px-3 py-2" style={{ background: S.tile, color: S.muted }}>{fulfilMode === 'delivery' ? 'The rider also collects your laundry, and brings it back when it\'s clean.' : 'Bring your laundry with you when you come.'}</div>}
             {fulfilMode === 'room' && (
               <>
                 <input id="sf-room" value={guestRoom} onChange={(e) => setGuestRoom(e.target.value.slice(0, 20))} placeholder="Your room number, e.g. 204" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
@@ -12793,7 +12917,7 @@ function Storefront({ businessCode }) {
       {svcExtras.length > 0 && (() => {
         const inputStyle = { background: S.tile, border: 'none', color: S.ink };
         const many = svcExtras.length > 1;
-        const whenLabel = svcKind === 'ride' ? 'When should we pick you up?' : svcKind === 'laundry' ? 'When should we collect it?' : svcKind === 'checkin' ? 'What time?' : many ? 'When do you need these?' : 'When do you need it?';
+        const whenLabel = svcKind === 'ride' ? 'When should we pick you up?' : svcKind === 'laundry' ? (laundryOut && laundryWay === 'drop' ? 'When will you drop it off?' : 'When should we collect it?') : svcKind === 'checkin' ? 'What time?' : many ? 'When do you need these?' : 'When do you need it?';
         const part = { ride: 'Pickup: flight number and arrival time', laundry: 'Laundry: how many items', checkin: 'Check-in or check-out time you want', other: 'Anything else they should know' };
         const notePh = svcKind === 'ride' ? 'Flight number and arrival time, or where to pick you up' : svcKind === 'laundry' ? 'How many items, and anything special (e.g. dry clean only)' : svcKind === 'mixed' ? svcKinds.map((k) => part[k]).join('. ') : 'Anything they should know';
         const names = svcExtras.map((c) => c.product.name);
@@ -12811,7 +12935,29 @@ function Storefront({ businessCode }) {
                   ); })}
                 </div>
                 {guestStay === 'yes' && <input value={guestRoom} onChange={(e) => setGuestRoom(e.target.value.slice(0, 20))} placeholder="Your room number, e.g. 204" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />}
+                {guestStay === 'no' && !laundryOut && <div className="text-[12px] mt-2 leading-relaxed" style={{ color: S.muted }}>{business.name} will confirm the details and how to pay.</div>}
                 {guestStay === 'booked' && <div className="text-[12px] mt-2 leading-relaxed" style={{ color: S.muted }}>You'll get your room when you check in. Use the same name and phone number as your booking, so the front desk can add this to your booking and you pay with your stay.</div>}
+              </div>
+            )}
+            {laundryOut && laundryOpts.length > 0 && (
+              <div className="mb-3">
+                <div className="text-[13px] font-semibold mb-1.5">How do we get your laundry?</div>
+                <div className={`grid gap-2 ${laundryOpts.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`} role="radiogroup" aria-label="How do we get your laundry?">
+                  {laundryOpts.map(([v, l, d]) => { const on = laundryWay === v; return (
+                    <button key={v} type="button" role="radio" aria-checked={on} onClick={() => setLaundryWay(v)} className={`rounded-xl px-3 py-2.5 text-left ${focusRing}`} style={on ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>
+                      <span className="block text-[13px] font-semibold leading-tight">{l}</span>
+                      <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: on ? 'rgba(255,255,255,0.75)' : S.muted }}>{d}</span>
+                    </button>
+                  ); })}
+                </div>
+                {laundryWay === 'collect' && (
+                  <>
+                    <textarea id="sf-laundry-address" rows={2} maxLength={220} value={deliverAddr} onChange={(e) => setDeliverAddr(e.target.value)} placeholder="Where do we collect it? e.g. 12 Faulks Road, Aba" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] resize-none ${focusRing}`} style={inputStyle} />
+                    <input value={deliverLandmark} onChange={(e) => setDeliverLandmark(e.target.value.slice(0, 70))} placeholder="Landmark (optional), e.g. opposite First Bank" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
+                    <div className="text-[12px] mt-1.5 leading-relaxed" style={{ color: S.muted }}>A rider collects the bag, and brings it back to the same address when it's clean. {business.name} confirms the price and the pickup fee first. You pay when it comes back.</div>
+                  </>
+                )}
+                {laundryWay === 'drop' && <div className="text-[12px] mt-1.5 leading-relaxed" style={{ color: S.muted }}>Bring it to {currentStoreShop?.address || business.name}. You'll get a message when it's clean and ready to collect.</div>}
               </div>
             )}
             {!cartHasService && (<>
@@ -13935,6 +14081,13 @@ const NG_STATES = ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa
 // Local government areas, by state (774)
 // A guest who has booked but not checked in yet (no room until check-in). Starts the order note, so the front desk can find the booking.
 const BOOKED_GUEST_NOTE = 'Has a booking, not checked in yet.';
+// Laundry for someone not staying: the business fetches the bag and brings it back, or the customer drops it off and collects it
+const LAUNDRY_COLLECT_NOTE = 'Laundry: collect it from me and bring it back.';
+const LAUNDRY_DROP_NOTE = "Laundry: I'll drop it off and collect it.";
+const isLaundryOrder = (o) => (o.items || []).some((it) => stayServiceKind(it.description || '') === 'laundry');
+const laundryCollect = (o) => o.fulfilMode === 'delivery' && String(o.note || '').startsWith(LAUNDRY_COLLECT_NOTE);
+const laundryDrop = (o) => o.fulfilMode === 'pickup' && String(o.note || '').startsWith(LAUNDRY_DROP_NOTE);
+const noteWithout = (n) => String(n || '').replace(BOOKED_GUEST_NOTE, '').replace(LAUNDRY_COLLECT_NOTE, '').replace(LAUNDRY_DROP_NOTE, '').trim();
 // Hotel extras that are a service (someone does it for the guest), so "brought to your room / pick it up" doesn't fit
 const STAY_SERVICE_RE = /air ?port|pick ?-?up|drop ?-?off|transfer|shuttle|taxi|\bcab\b|car hire|chauffeur|driver|\bride\b|laundry|dry ?clean|ironing|washing|massage|\bspa\b|sauna|salon|tour|excursion|guide|cleaning|housekeeping|late check|early check|wake ?-?up|baby ?sit|decorat|photograph|gym|pool access|parking/i;
 const stayServiceKind = (name) => (/air ?port|pick ?-?up|drop ?-?off|transfer|shuttle|taxi|\bcab\b|car hire|chauffeur|driver|\bride\b/i.test(name) ? 'ride' : /laundry|dry ?clean|ironing|washing/i.test(name) ? 'laundry' : /late check|early check/i.test(name) ? 'checkin' : 'other');
@@ -18389,6 +18542,8 @@ function CustomerOrder({ token }) {
   const delivery = Number(od.delivery_fee) || 0;
   const total = Number(od.pay_amount ?? (Number(od.total) + delivery));
   const first = String(od.customer_name || '').split(' ')[0];
+  const addr = String(od.delivery_address || '').replace(/[.\s]+$/, '');
+  const lCollect = laundryCollect({ fulfilMode: od.fulfil_mode, note: od.note }); const lDrop = laundryDrop({ fulfilMode: od.fulfil_mode, note: od.note });
   const when = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Lagos' });
   const tellText = `Hello ${od.business}, I just sent ${noun === 'order' ? 'an order' : 'a request'} on your page: ${items.map((it) => `${it.description}${Number(it.quantity) > 1 ? ` x${it.quantity}` : ''}`).join(', ')}. My name is ${od.customer_name}. My ${noun}: ${link}`;
   const wa = od.phone ? `https://wa.me/${toWhatsAppNumber(od.phone)}${isNew && od.status === 'pending' ? `?text=${encodeURIComponent(tellText)}` : ''}` : null;
@@ -18408,8 +18563,12 @@ function CustomerOrder({ token }) {
     : od.pay_status === 'refunded' ? ['#F1F2EF', '#3F4440', 'Refunded', `${od.business} sent your ${fmt(od.refund_amount)} back${od.refunded_at ? ` on ${when(od.refunded_at)}` : ''}.`]
     : od.status === 'fulfilled' ? ['#DFF6EE', '#0E7A5F', 'Completed', `Thank you for ${noun === 'order' ? 'ordering from' : 'choosing'} ${od.business}.`]
     : od.status === 'cancelled' ? ['#FDECEA', '#B42318', 'Cancelled', `${od.business} couldn't take this ${noun}${od.cancel_reason ? `: ${od.cancel_reason}` : ''}.`]
+    : lCollect && od.ready_at ? ['#DFF6EE', '#0E7A5F', 'Clean and on its way back', `Your laundry is on its way back to ${addr}.${od.rider_name ? ` Your rider is ${od.rider_name}${od.rider_phone ? ` (${formatPhoneDisplay(od.rider_phone)})` : ''}.` : ''}${od.delivery_pay !== 'before' && od.pay_status !== 'paid' && !od.delivery_paid ? ` Please have ${fmt(itemsTotal - discount + delivery)} ready for them.` : ''}`]
+    : lCollect && od.delivery_pay !== 'before' ? (od.accepted ? ['#DFF6EE', '#0E7A5F', 'Confirmed', `A rider will collect your laundry from ${addr}, and bring it back when it's clean. You pay when it comes back.`] : ['#FFF4D6', '#8A5A00', 'Waiting for confirmation', `${od.business} will confirm the price and the pickup fee, then send a rider to collect your laundry.`])
+    : lDrop && od.ready_at ? ['#DFF6EE', '#0E7A5F', 'Clean and ready', `Your laundry is clean. Collect it from ${od.address || od.business}.`]
+    : lDrop ? ['#DFF6EE', '#0E7A5F', od.accepted ? 'Confirmed' : 'Request sent', `Bring your laundry to ${od.address || od.business}. You'll get a message when it's clean and ready to collect.`]
     : od.ready_at && od.fulfil_mode === 'pickup' ? ['#DFF6EE', '#0E7A5F', 'Ready for pick-up', `Your ${noun} is ready. Collect it from ${od.address || od.business}.${od.pay_status === 'requested' && od.online ? ' Pay below first, or when you collect it.' : ''}`]
-    : od.ready_at && od.fulfil_mode === 'delivery' ? ['#DFF6EE', '#0E7A5F', 'On its way', `Your ${noun} is on its way to ${od.delivery_address}.${od.rider_name ? ` Your rider is ${od.rider_name}${od.rider_phone ? ` (${formatPhoneDisplay(od.rider_phone)})` : ''}.` : ''}${od.delivery_pay === 'on_delivery' && od.pay_status !== 'paid' && !od.delivery_paid ? ` Please have ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} ready for them.` : ''}`]
+    : od.ready_at && od.fulfil_mode === 'delivery' ? ['#DFF6EE', '#0E7A5F', 'On its way', `Your ${noun} is on its way to ${addr}.${od.rider_name ? ` Your rider is ${od.rider_name}${od.rider_phone ? ` (${formatPhoneDisplay(od.rider_phone)})` : ''}.` : ''}${od.delivery_pay === 'on_delivery' && od.pay_status !== 'paid' && !od.delivery_paid ? ` Please have ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} ready for them.` : ''}`]
     : od.pay_status === 'paid' ? ['#DFF6EE', '#0E7A5F', 'Paid', `Thanks, ${first}! ${od.business} has your payment and is getting your ${noun} ready.`]
     : od.pay_status === 'requested' ? ['#DFF6EE', '#0E7A5F', 'Confirmed: ready to pay', `${od.business} has everything for your ${noun}.${od.online ? ' Pay below to complete it.' : ''}`]
     : od.fulfil_mode === 'delivery' && od.delivery_pay === 'before' && !od.delivery_paid ? ['#FFF4D6', '#8A5A00', 'Confirmed: waiting for your payment', `Pay ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} as ${od.business} asked on WhatsApp. They'll send it out with their rider as soon as it's in.`]
@@ -18479,20 +18638,37 @@ function CustomerOrder({ token }) {
         })()}
 
         <div className="rounded-2xl p-4 mb-4 text-[14px]" style={{ background: S.tile }}>
-          {items.map((it, i) => row(`${it.description}${Number(it.quantity) > 1 ? ` × ${it.quantity}` : ''}`, fmt(Number(it.quantity) * Number(it.unitPrice)), false, S.ink))}
+          {items.map((it, i) => <div key={i}>{row(`${it.description}${Number(it.quantity) > 1 ? ` × ${it.quantity}` : ''}`, fmt(Number(it.quantity) * Number(it.unitPrice)), false, S.ink)}</div>)}
           {discount > 0 && row(`Discount${od.discount_code ? ` (${od.discount_code})` : ''}`, fmt(-discount), false, '#0E7A5F')}
           {delivery > 0 && row('Delivery', fmt(delivery), false, S.ink)}
           <div className="my-1.5" style={{ borderTop: `1px solid ${S.line}` }} />
-          {row('Total', fmt(od.pay_status ? total : itemsTotal - discount), true, S.ink)}
+          {row('Total', fmt(od.pay_status ? total : itemsTotal - discount + delivery), true, S.ink)}
           {od.pay_status === 'paid' && row('Paid online', fmt(od.amount_paid), false, '#0E7A5F')}
-          {od.fulfil_mode === 'delivery' && od.delivery_address && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Delivering to: <strong style={{ color: S.ink }}>{od.delivery_address}</strong>{od.delivery_zone ? ` (${od.delivery_zone})` : ''}</div>}
+          {od.fulfil_mode === 'delivery' && od.delivery_address && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Delivering to: <strong style={{ color: S.ink }}>{addr}</strong>{od.delivery_zone ? ` (${od.delivery_zone})` : ''}</div>}
           {od.fulfil_mode === 'delivery' && od.ready_at && od.rider_phone && od.status === 'pending' && <a href={`tel:${String(od.rider_phone).replace(/[^0-9+]/g, '')}`} className="inline-flex items-center gap-1.5 mt-2 text-[13px] font-semibold" style={{ color: '#0E7A5F' }}><Phone size={14} /> Call {od.rider_name || 'your rider'}</a>}
           {od.fulfil_mode === 'pickup' && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>You'll pick it up{od.address ? <> from <strong style={{ color: S.ink }}>{od.address}</strong></> : ''}.</div>}
           {od.fulfil_mode === 'room' && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>{od.on_room_bill ? <>Added to your room bill{od.room_label ? <> (room <strong style={{ color: S.ink }}>{od.room_label}</strong>)</> : ''}. You'll pay at check-out.</> : <>For room <strong style={{ color: S.ink }}>{od.room_label}</strong>. The front desk will confirm it and add it to your room bill.</>}</div>}
           {od.preferred_time && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Preferred time: <strong style={{ color: S.ink }}>{od.preferred_time}</strong></div>}
-          {od.note && <div className="text-[12.5px] mt-1" style={{ color: S.muted }}>Your note: {od.note}</div>}
+          {noteWithout(od.note) && <div className="text-[12.5px] mt-1" style={{ color: S.muted }}>Your note: {noteWithout(od.note)}</div>}
           {od.address && <div className="text-[12.5px] mt-2 flex items-start gap-1.5" style={{ color: S.muted }}><MapPin size={14} className="shrink-0 mt-0.5" /> {od.address}</div>}
         </div>
+
+        {od.pay && od.pay.account_number && (od.delivery_pay === 'on_delivery' || od.delivery_pay === 'before' || (od.ready_at && od.fulfil_mode === 'pickup')) && (
+          <div className="rounded-2xl p-4 mb-4" style={{ border: `1.5px solid ${S.line}` }}>
+            <div className="text-[14px] font-bold">{od.delivery_pay === 'before' ? `Pay ${fmt(itemsTotal - discount + delivery)} by transfer` : 'Paying by transfer?'}</div>
+            <div className="text-[13px] mt-0.5 mb-3" style={{ color: S.muted }}>{od.delivery_pay === 'before' ? `${od.business} sends it out once the money is in.` : od.fulfil_mode === 'delivery' ? `Pay the rider cash, or transfer to ${od.business}:` : `Pay cash when you collect, or transfer to ${od.business}:`}</div>
+            <div className="rounded-xl p-3.5" style={{ background: S.tile }}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[19px] font-bold tracking-wide" style={{ fontVariantNumeric: 'tabular-nums' }}>{od.pay.account_number}</div>
+                  <div className="text-[13px]" style={{ color: S.muted }}>{[od.pay.bank_name, od.pay.account_name].filter(Boolean).join(' · ')}</div>
+                </div>
+                <button onClick={() => copy(od.pay.account_number, 'acct')} className="shrink-0 px-3.5 py-2 rounded-xl text-[13px] font-semibold" style={{ background: S.ink, color: '#fff' }}>{copied === 'acct' ? 'Copied' : 'Copy'}</button>
+              </div>
+            </div>
+            {wa && <a href={`https://wa.me/${toWhatsAppNumber(od.phone)}?text=${encodeURIComponent(`Hello ${od.business}, I've sent ${fmt(itemsTotal - discount + delivery)} by transfer for my ${noun} (${od.customer_name}). Here is my receipt: `)}`} target="_blank" rel="noopener noreferrer" className="block text-center mt-3 text-[13.5px] font-semibold" style={{ color: '#0E7A5F' }}>Sent it? Send your receipt on WhatsApp</a>}
+          </div>
+        )}
 
         {od.status === 'pending' && od.pay_status === 'requested' && (
           <div className="rounded-2xl p-4 mb-4" style={{ border: `1.5px solid ${S.ink}` }}>
