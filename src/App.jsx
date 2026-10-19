@@ -2206,11 +2206,29 @@ function XorlaApp() {
     return () => clearInterval(t);
   }, [session?.refresh_token]);
 
-  // Quietly refresh in the background every 20s so new entries from teammates show up without a manual reload
+  // Keep the screen up to date on its own, so a booking or storefront request is never missed even if a notification is late:
+  // every 15 seconds while Xorla is on screen, and straight away when the phone is unlocked, the app is reopened, or the internet comes back
+  const lastSyncRef = useRef(0);
+  const [netOnline, setNetOnline] = useState(typeof navigator === 'undefined' || navigator.onLine !== false);
   useEffect(() => {
-    if (!session) return;
-    const interval = setInterval(() => { loadBusinessData(session.access_token); }, 20000);
-    return () => clearInterval(interval);
+    if (!session) return undefined;
+    const sync = (force) => {
+      if (!force && document.visibilityState !== 'visible') return;   // phones pause hidden pages anyway; catch up when it's back
+      if (Date.now() - lastSyncRef.current < 3000) return;
+      lastSyncRef.current = Date.now();
+      loadBusinessData(session.access_token);
+    };
+    const interval = setInterval(() => sync(false), 15000);
+    const back = () => { if (document.visibilityState === 'visible') sync(true); };
+    const online = () => { setNetOnline(true); sync(true); };
+    const offline = () => setNetOnline(false);
+    document.addEventListener('visibilitychange', back); window.addEventListener('focus', back); window.addEventListener('pageshow', back);
+    window.addEventListener('online', online); window.addEventListener('offline', offline);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', back); window.removeEventListener('focus', back); window.removeEventListener('pageshow', back);
+      window.removeEventListener('online', online); window.removeEventListener('offline', offline);
+    };
   }, [session, loadBusinessData]);
 
   const applySession = useCallback((sess, profile, business, staffRoster, lockIfPin = false) => {
@@ -4245,6 +4263,43 @@ function XorlaApp() {
   if (resetToken) {
     return <>{fontStyle}<ResetPasswordScreen accessToken={resetToken} onDone={() => { window.location.hash = ''; setResetToken(null); }} /></>;
   }
+  // Something new came in (a storefront request, a booking request, or a room order): say so on screen, with a sound,
+  // even if the push notification is late or turned off
+  const knownArrivalsRef = useRef(null);
+  const [arrival, setArrival] = useState(null);   // { count, text, tab }
+  const arrivalBookings = bookingsAll.filter((b) => (viewAllShops ? (!isManager || myShops.some((sh) => sh.id === b.shop_id)) : b.shop_id === activeShopId))
+    .filter((b) => b.status === 'requested' && b.hold_until && new Date(b.hold_until).getTime() > Date.now());
+  const arrivalAppt = settings.businessType !== 'products' && !['accommodation', 'rentals'].includes(serviceKind);
+  const arrivalItems = [
+    ...orders.filter((o) => o.status === 'pending').map((o) => ({ key: `o:${o.id}`, tab: 'orders', text: `${firstName(o)}: ${o.items.map((it) => it.description).join(', ')}`, kind: arrivalAppt ? 'appointment request' : 'request' })),
+    ...arrivalBookings.map((b) => ({ key: `b:${b.id}`, tab: 'bookings', text: `${String(b.customer_name || '').split(' ')[0]}: ${b.item_name || 'a booking'}`, kind: 'booking request' })),
+    ...roomOrders.filter((r) => r.status === 'new' && (viewAllShops ? (!isManager || myShops.some((sh) => sh.id === r.shop_id)) : r.shop_id === activeShopId)).map((r) => ({ key: `r:${r.id}`, tab: 'bookings', text: `Room ${r.room_label || ''}: ${(r.items || []).map((i) => i.description).join(', ')}`, kind: 'room order' })),
+  ];
+  const arrivalSig = arrivalItems.map((x) => x.key).sort().join(',');
+  const arrivalScope = `${currentShopId || ''}`;
+  const arrivalScopeRef = useRef(arrivalScope);
+  useEffect(() => {
+    if (arrivalScopeRef.current !== arrivalScope) { arrivalScopeRef.current = arrivalScope; knownArrivalsRef.current = null; }   // switching location is not 'new'
+    if (!settings.loggedIn || !planKnown) return;
+    const keys = arrivalItems.map((x) => x.key);
+    if (knownArrivalsRef.current === null) { knownArrivalsRef.current = new Set(keys); return; }   // first load: nothing is "new"
+    const fresh = arrivalItems.filter((x) => !knownArrivalsRef.current.has(x.key));
+    keys.forEach((k) => knownArrivalsRef.current.add(k));
+    if (!fresh.length) return;
+    const kinds = [...new Set(fresh.map((x) => x.kind))];
+    setArrival({ count: fresh.length, title: fresh.length === 1 ? `New ${fresh[0].kind}` : `${fresh.length} new ${kinds.length === 1 ? `${kinds[0]}s` : 'requests'}`, text: fresh.slice(0, 2).map((x) => x.text).join(' · '), tab: fresh[0].tab });
+    try { navigator.vibrate?.([120, 80, 120]); } catch (e) {}
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) { const ac = new AC(); [880, 1175].forEach((f, i) => { const o = ac.createOscillator(); const g = ac.createGain(); o.frequency.value = f; o.connect(g); g.connect(ac.destination); const t0 = ac.currentTime + i * 0.18; g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16); o.start(t0); o.stop(t0 + 0.17); }); setTimeout(() => ac.close?.(), 800); }
+    } catch (e) {}
+    if (document.visibilityState !== 'visible') { try { document.title = `(${fresh.length}) New · ${settings.businessName || 'Xorla'}`; } catch (e) {} }
+  }, [arrivalSig, arrivalScope, settings.loggedIn, planKnown]);
+  useEffect(() => {
+    const restore = () => { if (document.visibilityState === 'visible' && /^\(\d+\) New · /.test(document.title)) document.title = settings.businessName || 'Xorla'; };
+    document.addEventListener('visibilitychange', restore); return () => document.removeEventListener('visibilitychange', restore);
+  }, [settings.businessName]);
+  useEffect(() => { if (!arrival) return undefined; const t = setTimeout(() => setArrival(null), 15000); return () => clearTimeout(t); }, [arrival]);
   if (!loaded || authLoading) return <div className="min-h-screen flex items-center justify-center cx-body" style={{ background: C.bg, color: C.inkDim }}>{fontStyle}<div className="text-sm">Loading…</div></div>;
   if (pendingJoin) {
     return <>{fontStyle}<PendingJoinScreen info={pendingJoin} onCheck={async () => { setPendingJoin(null); await bootstrap({ fresh: true }); }} onLogout={async () => { setPendingJoin(null); await logout(); }} /></>;
@@ -7341,6 +7396,28 @@ function XorlaApp() {
   const renderSpotlight = () => spotlight && createPortal(
     <XorlaSpotlight spot={spotlight} canPlan={isOwnerRole} onClose={closeSpotlight} />, document.body
   );
+  const renderArrivalToast = () => createPortal(
+    <>
+      {arrival && (
+        <div className="fixed left-0 right-0 z-[96] flex justify-center px-3 pointer-events-none" style={{ top: 'max(12px, env(safe-area-inset-top))' }}>
+          <div role="alert" className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.copper}`, boxShadow: '0 12px 32px rgba(0,0,0,0.45)', color: C.ink }}>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><Bell size={19} style={{ color: C.bg }} /></span>
+            <button onClick={() => { const t = arrival.tab; setArrival(null); if (t === 'orders') setReqFilter('open'); setTab(t); window.scrollTo(0, 0); }} className="flex-1 min-w-0 text-left">
+              <span className="block text-[14px] font-semibold">{arrival.title}</span>
+              <span className="block text-[12px] truncate" style={{ color: C.inkDim }}>{arrival.text}</span>
+            </button>
+            <button onClick={() => { const t = arrival.tab; setArrival(null); if (t === 'orders') setReqFilter('open'); setTab(t); window.scrollTo(0, 0); }} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: C.copper, color: C.bg }}>View</button>
+            <button onClick={() => setArrival(null)} aria-label="Dismiss" className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg" style={{ color: C.inkFaint }}><X size={15} /></button>
+          </div>
+        </div>
+      )}
+      {!netOnline && (
+        <div className="fixed left-0 right-0 z-[94] flex justify-center px-3 pointer-events-none" style={{ bottom: 'calc(84px + env(safe-area-inset-bottom))' }}>
+          <div className="rounded-full px-4 py-2 text-[12.5px] font-semibold flex items-center gap-2" style={{ background: C.rust, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>You're offline. New bookings and requests will show when you're back online.</div>
+        </div>
+      )}
+    </>, document.body
+  );
   const renderSupportToast = () => supportToast && !helpOpen && createPortal(
     <div className="fixed left-0 right-0 z-[95] flex justify-center px-3 pointer-events-none" style={{ top: 'max(12px, env(safe-area-inset-top))' }}>
       <button onClick={() => { setSupportToast(false); setHelpOpen({}); }} className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 text-left xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(255,176,32,0.45)', boxShadow: '0 18px 40px -12px rgba(0,0,0,0.7)' }}>
@@ -8033,7 +8110,7 @@ function XorlaApp() {
             {!showShopSwitcher && <div className="text-[12px] shrink-0" style={{ color: C.inkFaint }}>{shopNameOf(activeShopId || targetShopId)}</div>}
           </div>
           {renderXorlaNotices()}
-          {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
+          {renderHelp()}{renderSupportToast()}{renderArrivalToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
           {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} ${L.many}`,
             `Check the ${L.one} shown at the top before recording. That's where your ${T.sale} is saved.`)}
           {staffTab === 'bookings' && <div className="rounded-2xl p-4 lg:p-6 mb-5" style={card}>{renderBookingDesk()}</div>}
@@ -10179,7 +10256,7 @@ function XorlaApp() {
         {renderReadyCheck()}
         {renderSetup()}
         {renderPastImport()}
-        {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
+        {renderHelp()}{renderSupportToast()}{renderArrivalToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
       </div>
     );
   }
@@ -11797,7 +11874,7 @@ function XorlaApp() {
       {renderImportPanel()}
       {renderListTool()}
       {renderPastImport()}
-      {renderHelp()}{renderSupportToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
+      {renderHelp()}{renderSupportToast()}{renderArrivalToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
       {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
       {renderApptPanel()}
       {renderNotifPanel()}
