@@ -11866,7 +11866,8 @@ function Storefront({ businessCode }) {
   // Hotels and rentals: extras that are a service done for the guest (airport pickup, laundry, spa), not something handed over
   const stayService = (p) => ['accommodation', 'rentals'].includes(business?.service_kind) && !isBookable(p) && STAY_SERVICE_RE.test(`${p.name} ${p.category || ''}`);
   const svcExtras = cartList.filter((c) => stayService(c.product));
-  const svcKind = svcExtras.length ? stayServiceKind(svcExtras.map((c) => c.product.name).join(' ')) : null;
+  const svcKinds = [...new Set(svcExtras.map((c) => stayServiceKind(c.product.name)))];
+  const svcKind = svcKinds.length === 1 ? svcKinds[0] : svcKinds.length ? 'mixed' : null;
   // Ask "how do you want it?" when there are goods to hand over (not for appointments or pure services)
   const askHow = orderModes.length > 0 && cartList.some((c) => storeKind(c.product) !== 'service' && !isBookable(c.product) && !stayService(c.product));
   const askStay = svcExtras.length > 0 && !askHow && orderModes.includes('room');
@@ -12565,7 +12566,7 @@ function Storefront({ businessCode }) {
         const inputStyle = { background: S.tile, border: 'none', color: S.ink };
         return (
           <div className="mt-2 mb-3">
-            <div className="text-[13px] font-semibold mb-1.5">How do you want it?</div>
+            <div className="text-[13px] font-semibold mb-1.5">{svcExtras.length ? `How do you want the ${cartList.filter((c) => !stayService(c.product)).length === 1 ? cartList.find((c) => !stayService(c.product)).product.name.toLowerCase() : 'items'}?` : 'How do you want it?'}</div>
             <div className={`grid gap-2 ${opts.length === 3 ? 'grid-cols-3' : opts.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`} role="radiogroup" aria-label="How do you want it?">
               {opts.map(([v, l, d]) => {
                 const on = fulfilMode === v;
@@ -12580,7 +12581,7 @@ function Storefront({ businessCode }) {
             {fulfilMode === 'room' && (
               <>
                 <input id="sf-room" value={guestRoom} onChange={(e) => setGuestRoom(e.target.value.slice(0, 20))} placeholder="Your room number, e.g. 204" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
-                <div className="text-[12px] mt-1" style={{ color: S.muted }}>The front desk checks it, then it goes on your room bill, paid at check-out.</div>
+                <div className="text-[12px] mt-1" style={{ color: S.muted }}>The front desk checks it, then {svcExtras.length ? 'everything, including the services,' : 'it'} goes on your room bill, paid at check-out.</div>
               </>
             )}
             {fulfilMode === 'delivery' && (
@@ -12604,8 +12605,11 @@ function Storefront({ businessCode }) {
       })()}
       {svcExtras.length > 0 && (() => {
         const inputStyle = { background: S.tile, border: 'none', color: S.ink };
-        const whenLabel = svcKind === 'ride' ? 'When should we pick you up?' : svcKind === 'laundry' ? 'When should we collect it?' : svcKind === 'checkin' ? 'What time?' : 'When do you need it?';
-        const notePh = svcKind === 'ride' ? 'Flight number and arrival time, or where to pick you up' : svcKind === 'laundry' ? 'How many items, and anything special (e.g. dry clean only)' : 'Anything they should know';
+        const many = svcExtras.length > 1;
+        const whenLabel = svcKind === 'ride' ? 'When should we pick you up?' : svcKind === 'laundry' ? 'When should we collect it?' : svcKind === 'checkin' ? 'What time?' : many ? 'When do you need these?' : 'When do you need it?';
+        const part = { ride: 'Pickup: flight number and arrival time', laundry: 'Laundry: how many items', checkin: 'Check-in or check-out time you want', other: 'Anything else they should know' };
+        const notePh = svcKind === 'ride' ? 'Flight number and arrival time, or where to pick you up' : svcKind === 'laundry' ? 'How many items, and anything special (e.g. dry clean only)' : svcKind === 'mixed' ? svcKinds.map((k) => part[k]).join('. ') : 'Anything they should know';
+        const names = svcExtras.map((c) => c.product.name);
         return (
           <div className="mt-2 mb-1">
             {askStay && (
@@ -12623,9 +12627,10 @@ function Storefront({ businessCode }) {
               </div>
             )}
             {!cartHasService && (<>
+              {(many || askHow) && <div className="text-[12px] mb-2 rounded-xl px-3 py-2" style={{ background: S.tile, color: S.muted }}>For {names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names.join(' and ')}. If they need different times, say so below.</div>}
               <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-svc-when">{whenLabel}</label>
               <input id="sf-svc-when" type="datetime-local" value={preferredTime} onChange={(e) => setPreferredTime(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 ${focusRing}`} style={inputStyle} />
-              <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-svc-note">{svcKind === 'ride' ? 'Pickup details' : 'Anything they should know?'} <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
+              <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-svc-note">{svcKind === 'ride' ? 'Pickup details' : svcKind === 'mixed' ? 'Details' : 'Anything they should know?'} <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
               <textarea id="sf-svc-note" rows={2} maxLength={300} value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder={notePh} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 resize-none ${focusRing}`} style={inputStyle} />
             </>)}
           </div>
