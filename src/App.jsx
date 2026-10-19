@@ -782,7 +782,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '' };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, billedAt: row.billed_at || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '' };
 }
 
 function staticMessage(inv, settings) {
@@ -3353,6 +3353,11 @@ function XorlaApp() {
   // Booked but not arrived yet (confirmed, arriving in the next 30 days): an order can go on their booking bill too
   const guestsArrivingAt = (shopId) => { const until = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10); return bookingsAll.filter((b) => b.status === 'confirmed' && !b.is_space && b.shop_id === (shopId || mainShopId) && String(b.check_out) >= todayKey() && String(b.check_in) <= until); };
   const sameGuest = (b, o) => { const p1 = String(b.customer_phone || '').replace(/\D/g, '').slice(-10); const p2 = String(o.customerPhone || '').replace(/\D/g, '').slice(-10); if (p1.length === 10 && p1 === p2) return true; const n1 = String(b.customer_name || '').trim().toLowerCase(); const n2 = String(o.customerName || '').trim().toLowerCase(); return !!n1 && !!n2 && (n1 === n2 || n1.split(/\s+/)[0] === n2.split(/\s+/)[0] && (n1.includes(n2) || n2.includes(n1))); };
+  // A request already on a guest's bill: the job is done (pickup made, laundry back). Paid with the stay, so no sale here.
+  const roomOrderDone = async (o) => {
+    try { await sbRpc('room_order_done', session.access_token, { p_order: o.id }); await loadBusinessData(session.access_token); }
+    catch (e) { brandAlert(e.message); }
+  };
   const putOrderOnRoom = async (o, b) => {
     try {
       await sbRpc('order_to_room_bill', session.access_token, { p_order: o.id, p_booking: b.id });
@@ -5242,6 +5247,17 @@ function XorlaApp() {
                         <BedDouble size={14} /> On {onBill ? `${String(onBill.customer_name).split(' ')[0]}'s` : 'the guest\'s'} room bill{onBill?.room_label ? ` (room ${onBill.room_label})` : ''}, paid at check-out
                       </div>
                     );
+                    if (o.status === 'pending' && o.roomBookingId) {
+                      const gb = bookingsAll.find((b) => b.id === o.roomBookingId);
+                      const who = gb ? String(gb.customer_name).split(' ')[0] : 'the guest';
+                      const where = gb ? (gb.status === 'checked_in' ? (gb.room_label ? `room ${gb.room_label}` : 'checked in') : `arrives ${new Date(gb.check_in + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`) : '';
+                      return (
+                        <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px] flex items-start gap-2.5" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.25)' }}>
+                          <BedDouble size={15} className="shrink-0 mt-0.5" style={{ color: C.sage }} />
+                          <span className="min-w-0"><span className="block font-semibold" style={{ color: C.sage }}>On {who}'s bill{where ? ` · ${where}` : ''}</span><span className="block mt-0.5" style={{ color: C.inkDim }}>{o.billedAt ? 'Added automatically. ' : ''}Paid with the stay. Tap Done once it's {o.items.some((it) => STAY_SERVICE_RE.test(it.description || '')) ? 'been done' : 'delivered'}.</span></span>
+                        </div>
+                      );
+                    }
                     if (o.status !== 'pending' || ['paid', 'refund_due', 'refunded'].includes(o.payStatus) || o.fulfilMode === 'delivery' || o.fulfilMode === 'pickup') return null;
                     if (notGuest[o.id]) return <div className="rounded-xl px-3 py-2 mb-3 text-[12px] flex items-center justify-between gap-2" style={{ background: C.surfaceRaised, color: C.inkDim }}><span>Not a guest: take payment the usual way.</span><button onClick={() => setNotGuest((x) => ({ ...x, [o.id]: false }))} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>Undo</button></div>;
                     const inHouse = guestsInHouseAt(o.shopId);
@@ -5357,6 +5373,7 @@ function XorlaApp() {
                         sec.push({ label: 'Ask to pay online', tone: 'accent', onClick: () => setPayAsk({ order: o, fee: '', busy: false, error: '' }) });
                       }
                       primary = { label: T.tracksStock ? 'Fulfill' : 'Mark done', onClick: () => fulfillOrder(o) };
+                      if (o.roomBookingId) primary = { label: 'Done', onClick: () => roomOrderDone(o) };
                       // Pick-up and delivery: first tell the customer it's ready / on its way, then close it when they have it
                       if (o.fulfilMode === 'delivery' && o.riderId && !o.riderSentAt && o.payStatus !== 'refund_due') {
                         // A rider is chosen: get paid first if that was agreed, then send the rider the pick-up details
@@ -6168,7 +6185,7 @@ function XorlaApp() {
 
   const renderBookingRow = (b, actions) => {
     const paid = Number(b.amount_paid) || 0;
-    const due = Number(b.total) + (b.status === 'checked_in' ? extrasTotalOf(b) : 0);
+    const due = Number(b.total) + (['confirmed', 'checked_in'].includes(b.status) ? extrasTotalOf(b) : 0);
     const credit = creditLeftOf(b);
     const [label, bg, fg] = b.deposit_status === 'refund_due' ? ['Cancelled', C.rustSoft, C.rust] : b.status === 'cancelled' || b.status === 'no_show' ? [b.status === 'no_show' ? 'No-show' : 'Cancelled', C.surface, C.inkFaint] : paid <= 0 ? ['Unpaid', C.rustSoft, C.rust] : paid < due ? [`${fmt(paid)} paid`, C.copperSoft, C.copper] : credit > 0 ? [`${fmt(credit)} credit`, C.sageSoft, C.sage] : ['Paid', C.sageSoft, C.sage];
     const live = !['cancelled', 'no_show'].includes(b.status) && b.deposit_status !== 'refund_due';
@@ -6246,8 +6263,12 @@ function XorlaApp() {
           {credit > 0 && <div className="text-[12px] font-semibold" style={{ color: C.sage }}>Credit left: <span className="cx-mono">{fmt(credit)}</span> <span className="font-normal" style={{ color: C.inkFaint }}>· paid ahead, extras come out of it</span></div>}
           {Number(b.change_given) > 0 && <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Change given back at check-out: <span className="cx-mono">{fmt(b.change_given)}</span></div>}
           {Number(b.change_kept) > 0 && <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Balance of <span className="cx-mono">{fmt(b.change_kept)}</span> kept at the guest's request</div>}
-          {b.status === 'checked_in' && chargesOf(b).length > 0 && (
-            <div className="text-[12px] font-semibold" style={{ color: C.copper }}>Extras on bill: <span className="cx-mono">{fmt(extrasTotalOf(b))}</span> <span className="font-normal" style={{ color: C.inkFaint }}>({chargesOf(b).length} item{chargesOf(b).length !== 1 ? 's' : ''})</span></div>
+          {['confirmed', 'checked_in'].includes(b.status) && chargesOf(b).length > 0 && (
+            <div className="rounded-lg px-2.5 py-2 text-[12px]" style={{ background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.18)' }}>
+              <div className="flex justify-between gap-3 font-semibold" style={{ color: C.copper }}><span>Extras on the bill</span><span className="cx-mono">{fmt(extrasTotalOf(b))}</span></div>
+              <div className="mt-0.5 truncate" style={{ color: C.inkDim }}>{chargesOf(b).map((c) => (Number(c.quantity) > 1 ? `${c.item} ×${Number(c.quantity)}` : c.item)).join(', ')}</div>
+              <div className="flex justify-between gap-3 mt-1 pt-1" style={{ borderTop: '1px solid rgba(255,176,32,0.15)', color: C.ink }}><span>Total bill{b.status === 'confirmed' ? ' (stay + extras)' : ''}</span><span className="cx-mono font-semibold">{fmt(Number(b.total) + extrasTotalOf(b))}</span></div>
+            </div>
           )}
           {b.deposit_status === 'refund_due' && (
             <div className="text-[12px] font-semibold" style={{ color: C.rust }}>Refund to send: <span className="cx-mono">{fmt(b.refund_amount)}</span>{b.cancel_reason ? <span className="font-normal" style={{ color: C.inkFaint }}> · {b.cancel_reason}</span> : null}</div>
@@ -6809,7 +6830,7 @@ function XorlaApp() {
       const paidSoFar = Number(b.amount_paid) || 0, adding = Number(parseNumInput(actForm.amount)) || 0;
       const leaving = action === 'check_out' ? earlyOf(b, actForm.earlyRule) : null;
       const stayTotal = leaving ? leaving.total : Number(b.total);
-      const balance = Math.max(0, stayTotal + (action === 'check_out' ? extrasTotal : 0) - paidSoFar - adding);
+      const balance = Math.max(0, stayTotal + (action === 'check_out' || action === 'check_in' ? extrasTotal : 0) - paidSoFar - adding);
       const labels = { check_in: ['Check in', 'Check in'], check_out: ['Check out', 'Check out'], decline: ['Decline request', 'Decline'], cancel: ['Cancel booking', 'Cancel booking'], deposit: ['Record a deposit', 'Save deposit'], no_show: ['Mark as no-show', 'Mark as no-show'], refunded: ['Mark refunded', `I've refunded ${fmt(b.refund_amount)}`], bill: [`${b.room_label ? `${String(b.room_label).includes(',') ? 'Rooms' : 'Room'} ${b.room_label}` : b.customer_name}'s bill`, 'Check out'] };
       const held = Number(b.deposit_paid) || 0, early = isEarlyCancel(b);
       if (b.is_space) Object.assign(labels, { check_in: ['Start the event', 'Start'], check_out: ['Finish the event', 'Finish'], bill: [`${b.customer_name}'s bill`, 'Finish the event'], no_show: ['Mark as no-show', 'Mark as no-show'] });
@@ -6891,16 +6912,16 @@ function XorlaApp() {
             <>
               <input type="text" inputMode="decimal" placeholder="Payment received now (₦)" value={formatNumInput(actForm.amount)} onChange={(e) => setActForm({ ...actForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
               {(() => {
-                const grand = stayTotal + (action === 'check_out' ? extrasTotal : 0);
+                const grand = stayTotal + extrasTotal;
                 const paidAll = paidSoFar + adding;
                 const owe = Math.max(0, grand - paidAll);
                 const extra = Math.max(0, paidAll - grand);
                 return (
                   <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
-                    {action === 'check_out' && extrasTotal > 0 ? (
+                    {extrasTotal > 0 ? (
                       <>
                         <div className="flex justify-between"><span style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Rental' : 'Stay'}{leaving ? ` (${leaving.charge} ${unitWord(b)}${leaving.charge !== 1 ? 's' : ''})` : ''}</span><span className="cx-mono">{fmt(stayTotal)}</span></div>
-                        <div className="flex justify-between"><span style={{ color: C.inkDim }}>Extras ({charges.length})</span><span className="cx-mono">{fmt(extrasTotal)}</span></div>
+                        {charges.map((c) => <div key={c.id} className="flex justify-between gap-3"><span className="truncate" style={{ color: C.inkDim }}>{Number(c.quantity) > 1 ? `${c.item} ×${Number(c.quantity)}` : c.item}</span><span className="cx-mono shrink-0">{fmt(c.amount)}</span></div>)}
                         <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(grand)}</span></div>
                       </>
                     ) : <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total{leaving ? ` (${leaving.charge} ${unitWord(b)}${leaving.charge !== 1 ? 's' : ''})` : ''}</span><span className="cx-mono">{fmt(grand)}</span></div>}
@@ -6909,7 +6930,7 @@ function XorlaApp() {
                       ? <div className="flex justify-between font-semibold"><span>{action === 'check_in' ? "Guest's credit" : 'Change to give back'}</span><span className="cx-mono" style={{ color: C.sage }}>{fmt(extra)}</span></div>
                       : <div className="flex justify-between font-semibold"><span>Balance</span><span className="cx-mono" style={{ color: owe > 0 ? C.rust : C.sage }}>{fmt(owe)}</span></div>}
                     <div className="text-[11.5px] pt-1 leading-relaxed" style={{ color: C.inkFaint }}>{action === 'check_in'
-                      ? (extra > 0 ? `The stay is recorded as a ${fmt(b.total)} sale. The extra ${fmt(extra)} is held as the guest's credit, not a sale: extras on their bill come out of it, and whatever is left is given back at check-out.` : owe > 0 ? `Checking in records the stay as a sale today. The ${fmt(owe)} still owed becomes an invoice you can follow up.` : 'Checking in records the stay as a sale today, fully paid.')
+                      ? (extrasTotal > 0 && extra <= 0 ? `${owe > 0 ? `${fmt(owe)} covers everything, extras included. ` : 'Everything is paid, extras included. '}The stay is recorded as a sale today, and the extras when the guest checks out.` : extra > 0 ? `The stay is recorded as a ${fmt(b.total)} sale. The extra ${fmt(extra)} is held as the guest's credit, not a sale: extras on their bill come out of it, and whatever is left is given back at check-out.` : owe > 0 ? `Checking in records the stay as a sale today. The ${fmt(owe)} still owed becomes an invoice you can follow up.` : 'Checking in records the stay as a sale today, fully paid.')
                       : extra > 0 ? (leaving && leaving.cut > 0 ? `Everything is paid${extrasTotal > 0 ? ', extras included' : ''}. ${fmt(extra)} is for the ${unitWord(b)}s not used: give it back by cash or transfer.` : `Everything is paid${extrasTotal > 0 ? ', extras included' : ''}. ${fmt(extra)} is left over from what the guest paid.`)
                       : `${extrasTotal > 0 ? 'Payment covers the stay first, then the extras, which are recorded as sales on one receipt. ' : ''}${owe > 0 ? `The ${fmt(owe)} still owed goes on the guest's invoice for follow-up.` : 'Fully paid. Nothing else to collect.'}`}</div>
                     {action === 'check_out' && extra > 0 && (
