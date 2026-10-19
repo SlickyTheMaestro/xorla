@@ -11642,7 +11642,8 @@ function Storefront({ businessCode }) {
   const [showCheckout, setShowCheckout] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [guestRoom, setGuestRoom] = useState('');   // hotels: a guest staying here can say which room (staff check it before billing)
+  const [guestRoom, setGuestRoom] = useState('');
+  const [guestStay, setGuestStay] = useState('');   // hotel service extras: '' | 'yes' (staying here) | 'no'   // hotels: a guest staying here can say which room (staff check it before billing)
   // How the customer gets their order: pick-up, delivery (address + landmark), or brought to their room at a hotel
   const [orderModes, setOrderModes] = useState([]);
   const [fulfilMode, setFulfilMode] = useState('');
@@ -11862,8 +11863,13 @@ function Storefront({ businessCode }) {
   // Hotels and rentals: extras (water, laundry, drinks) are counted like goods, not booked like a haircut
   const storeKind = (p) => { const k = kindOf(p, business?.business_type); return k === 'service' && ['accommodation', 'rentals'].includes(business?.service_kind) && !isBookable(p) ? 'product' : k; };
   const cartHasService = cartList.some((c) => storeKind(c.product) === 'service');
+  // Hotels and rentals: extras that are a service done for the guest (airport pickup, laundry, spa), not something handed over
+  const stayService = (p) => ['accommodation', 'rentals'].includes(business?.service_kind) && !isBookable(p) && STAY_SERVICE_RE.test(`${p.name} ${p.category || ''}`);
+  const svcExtras = cartList.filter((c) => stayService(c.product));
+  const svcKind = svcExtras.length ? stayServiceKind(svcExtras.map((c) => c.product.name).join(' ')) : null;
   // Ask "how do you want it?" when there are goods to hand over (not for appointments or pure services)
-  const askHow = orderModes.length > 0 && cartList.some((c) => storeKind(c.product) !== 'service' && !isBookable(c.product));
+  const askHow = orderModes.length > 0 && cartList.some((c) => storeKind(c.product) !== 'service' && !isBookable(c.product) && !stayService(c.product));
+  const askStay = svcExtras.length > 0 && !askHow && orderModes.includes('room');
   const lineQtyText = (c) => {
     if (storeKind(c.product) !== 'service') return ` ×${c.qty}`;
     return c.product.priceUnit === 'hour' ? ` (${c.qty} hr${c.qty !== 1 ? 's' : ''})` : '';
@@ -11915,6 +11921,10 @@ function Storefront({ businessCode }) {
       if (fulfilMode === 'delivery' && deliverAddr.trim().length < 6) { brandAlert('Please add the address to deliver to.', { theme: 'light' }); return; }
       if (fulfilMode === 'room' && !guestRoom.trim()) { brandAlert('Please add your room number.', { theme: 'light' }); return; }
     }
+    if (askStay) {
+      if (!guestStay) { brandAlert('Please say whether you are staying with us.', { theme: 'light' }); return; }
+      if (guestStay === 'yes' && !guestRoom.trim()) { brandAlert('Please add your room number.', { theme: 'light' }); return; }
+    }
     setSubmitting(true);
     try {
       // Only product IDs + quantities are sent — the database looks up the real prices itself
@@ -11922,7 +11932,7 @@ function Storefront({ businessCode }) {
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(askHow && fulfilMode ? { p_mode: fulfilMode } : {}), ...(askHow && fulfilMode === 'room' ? { p_room: guestRoom.trim() } : {}), ...(askHow && fulfilMode === 'delivery' && zoneId && zoneId !== 'other' ? { p_zone: zoneId } : {}), ...(askHow && fulfilMode === 'delivery' ? { p_address: `${deliverAddr.trim()}${deliverLandmark.trim() ? ` (near ${deliverLandmark.trim().replace(/^(near|opposite|beside)\s+/i, '')})` : ''}` } : {}) };
+      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(askHow && fulfilMode ? { p_mode: fulfilMode } : {}), ...(askHow && fulfilMode === 'room' ? { p_room: guestRoom.trim() } : {}), ...(askStay && guestStay === 'yes' ? { p_mode: 'room', p_room: guestRoom.trim() } : {}), ...(askHow && fulfilMode === 'delivery' && zoneId && zoneId !== 'other' ? { p_zone: zoneId } : {}), ...(askHow && fulfilMode === 'delivery' ? { p_address: `${deliverAddr.trim()}${deliverLandmark.trim() ? ` (near ${deliverLandmark.trim().replace(/^(near|opposite|beside)\s+/i, '')})` : ''}` } : {}) };
       // Orders get the customer's own page (track it, pay online once confirmed). Appointments keep their own flow.
       let placed = null;
       try { placed = await sbRpc('place_order_v2', SB_KEY, orderArgs); }
@@ -11932,7 +11942,7 @@ function Storefront({ businessCode }) {
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
         const lines = cartList.map((c) => `• ${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${lineQtyText(c)} — ${fmt(linePrice(c) * c.qty)}`).join('\n');
-        const extra = `${askHow && fulfilMode === 'delivery' ? `\nDeliver to: ${orderArgs.p_address}` : askHow && fulfilMode === 'room' ? `\nRoom: ${guestRoom.trim()}` : askHow && fulfilMode === 'pickup' ? '\nPick-up' : ''}${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
+        const extra = `${askHow && fulfilMode === 'delivery' ? `\nDeliver to: ${orderArgs.p_address}` : (askHow && fulfilMode === 'room') || (askStay && guestStay === 'yes') ? `\nRoom: ${guestRoom.trim()}` : askHow && fulfilMode === 'pickup' ? '\nPick-up' : ''}${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
         const shopLabel = storeShops.length > 1 ? ` for ${displayLocationName(currentStoreShop, locationWords(business?.business_type, business?.service_kind))}` : '';
         const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}${discountOff ? `\n\nSubtotal: ${fmt(cartTotal)}\nDiscount (${discount.code}): ${fmt(-discountOff)}` : ''}\n\nTotal: ${fmt(payable)}${extra}`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -12589,6 +12599,35 @@ function Storefront({ businessCode }) {
                   : <div className="text-[12px] mt-1" style={{ color: S.muted }}>{business.name} confirms the delivery fee before you pay.</div>; })()}
               </>
             )}
+          </div>
+        );
+      })()}
+      {svcExtras.length > 0 && (() => {
+        const inputStyle = { background: S.tile, border: 'none', color: S.ink };
+        const whenLabel = svcKind === 'ride' ? 'When should we pick you up?' : svcKind === 'laundry' ? 'When should we collect it?' : svcKind === 'checkin' ? 'What time?' : 'When do you need it?';
+        const notePh = svcKind === 'ride' ? 'Flight number and arrival time, or where to pick you up' : svcKind === 'laundry' ? 'How many items, and anything special (e.g. dry clean only)' : 'Anything they should know';
+        return (
+          <div className="mt-2 mb-1">
+            {askStay && (
+              <div className="mb-3">
+                <div className="text-[13px] font-semibold mb-1.5">Are you staying with us?</div>
+                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Are you staying with us?">
+                  {[['yes', "Yes, I'm a guest", 'Add it to my room bill'], ['no', "No, I'm not", "They'll confirm how to pay"]].map(([v, l, d]) => { const on = guestStay === v; return (
+                    <button key={v} type="button" role="radio" aria-checked={on} onClick={() => setGuestStay(v)} className={`rounded-xl px-3 py-2.5 text-left ${focusRing}`} style={on ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>
+                      <span className="block text-[13px] font-semibold leading-tight">{l}</span>
+                      <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: on ? 'rgba(255,255,255,0.75)' : S.muted }}>{d}</span>
+                    </button>
+                  ); })}
+                </div>
+                {guestStay === 'yes' && <input value={guestRoom} onChange={(e) => setGuestRoom(e.target.value.slice(0, 20))} placeholder="Your room number, e.g. 204" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />}
+              </div>
+            )}
+            {!cartHasService && (<>
+              <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-svc-when">{whenLabel}</label>
+              <input id="sf-svc-when" type="datetime-local" value={preferredTime} onChange={(e) => setPreferredTime(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 ${focusRing}`} style={inputStyle} />
+              <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-svc-note">{svcKind === 'ride' ? 'Pickup details' : 'Anything they should know?'} <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
+              <textarea id="sf-svc-note" rows={2} maxLength={300} value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder={notePh} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 resize-none ${focusRing}`} style={inputStyle} />
+            </>)}
           </div>
         );
       })()}
@@ -13701,6 +13740,9 @@ function SupportTeamAdmin({ call }) {
 const NG_STATES = ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT (Abuja)', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'];
 // Business category → type, like CAC's own classification
 // Local government areas, by state (774)
+// Hotel extras that are a service (someone does it for the guest), so "brought to your room / pick it up" doesn't fit
+const STAY_SERVICE_RE = /air ?port|pick ?-?up|drop ?-?off|transfer|shuttle|taxi|\bcab\b|car hire|chauffeur|driver|\bride\b|laundry|dry ?clean|ironing|washing|massage|\bspa\b|sauna|salon|tour|excursion|guide|cleaning|housekeeping|late check|early check|wake ?-?up|baby ?sit|decorat|photograph|gym|pool access|parking/i;
+const stayServiceKind = (name) => (/air ?port|pick ?-?up|drop ?-?off|transfer|shuttle|taxi|\bcab\b|car hire|chauffeur|driver|\bride\b/i.test(name) ? 'ride' : /laundry|dry ?clean|ironing|washing/i.test(name) ? 'laundry' : /late check|early check/i.test(name) ? 'checkin' : 'other');
 const NG_LGAS = Object.fromEntries(Object.entries({
   'Abia': 'Aba North|Aba South|Arochukwu|Bende|Ikwuano|Isiala Ngwa North|Isiala Ngwa South|Isuikwuato|Obi Ngwa|Ohafia|Osisioma|Ugwunagbo|Ukwa East|Ukwa West|Umuahia North|Umuahia South|Umu Nneochi',
   'Adamawa': 'Demsa|Fufure|Ganye|Gayuk|Gombi|Grie|Hong|Jada|Lamurde|Madagali|Maiha|Mayo Belwa|Michika|Mubi North|Mubi South|Numan|Shelleng|Song|Toungo|Yola North|Yola South',
