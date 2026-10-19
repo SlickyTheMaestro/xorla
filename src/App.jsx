@@ -6741,7 +6741,7 @@ function XorlaApp() {
             </button>
           );
         })()}
-        <div className="rounded-2xl p-3" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+        {!(quietDay && !bookingRequests.length) && <div className="rounded-2xl p-3" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
           <div className="flex items-center justify-between px-1 mb-2.5">
             <span className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Today</span>
             <span className="text-[12px]" style={{ color: C.inkDim }}><strong className="cx-mono" style={{ color: freeRoomsNow > 0 ? C.sage : C.rust }}>{freeRoomsNow}</strong> of {totalRooms} {word} free</span>
@@ -6755,30 +6755,15 @@ function XorlaApp() {
               </button>
             ))}
           </div>
-          {(refundsDue.length > 0 || refundsDone.length > 0) && (
-            <div className="grid grid-cols-2 gap-1.5 mt-1.5">
-              <button onClick={() => refundsDue.length && jump('bk-refunds')} className="rounded-xl px-3 py-2 flex items-center gap-2 text-left" style={{ background: refundsDue.length ? C.rustSoft : 'transparent', border: `1px solid ${refundsDue.length ? 'rgba(226,98,75,0.3)' : C.line}` }}>
-                <Wallet size={14} style={{ color: refundsDue.length ? C.rust : C.inkFaint }} /><span className="text-[12px] font-semibold" style={{ color: refundsDue.length ? C.ink : C.inkFaint }}>{refundsDue.length} to refund</span>
-              </button>
-              <button onClick={() => setShowRefundHistory(true)} className="rounded-xl px-3 py-2 flex items-center gap-2 text-left" style={{ background: refundsDone.length ? C.sageSoft : 'transparent', border: `1px solid ${refundsDone.length ? 'rgba(31,217,196,0.3)' : C.line}` }}>
-                <Undo2 size={14} style={{ color: refundsDone.length ? C.sage : C.inkFaint }} /><span className="text-[12px] font-semibold" style={{ color: refundsDone.length ? C.ink : C.inkFaint }}>{refundsDone.length} refunded</span>
-              </button>
-            </div>
-          )}
-        </div>
+        </div>}
+        {refundsDue.length > 0 && (
+          <button onClick={() => jump('bk-refunds')} className="w-full rounded-xl px-3.5 py-2.5 flex items-center gap-2.5 text-left" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.3)' }}>
+            <Wallet size={15} style={{ color: C.rust }} /><span className="flex-1 text-[13px] font-semibold">{refundsDue.length} refund{refundsDue.length !== 1 ? 's' : ''} to send</span><ChevronRight size={15} style={{ color: C.rust }} />
+          </button>
+        )}
         {bookingError && !bookingPanel && !bookingAct && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
 
         {refundsDue.length > 0 && section('Refunds to send', C.rust, refundsDue, '', (b) => renderBookingRow(b, [actBtn('Mark refunded', () => openAct(b, 'refunded'), true)]), 'bk-refunds', 'Guests who cancelled in time')}
-        {refundsDone.length > 0 && (
-          <button type="button" id="bk-refunded" onClick={() => setShowRefundHistory(true)} className="scroll-mt-24 w-full rounded-2xl px-4 py-3 flex items-center gap-3 text-left" style={{ background: 'linear-gradient(180deg, #143630, #102C27)', border: `1px solid ${C.lineStrong}` }}>
-            <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Undo2 size={16} style={{ color: C.sage }} /></span>
-            <span className="flex-1 min-w-0">
-              <span className="block text-[13.5px] font-semibold">Refund history</span>
-              <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{refundsDone.length} sent in 90 days · last: {refundsDone[0].customer_name}, {fmt(refundsDone[0].refund_amount)}</span>
-            </span>
-            <span className="shrink-0 flex items-center gap-1 text-[12px] font-semibold" style={{ color: C.copper }}><Search size={13} />Search</span>
-          </button>
-        )}
         {showRefundHistory && <RefundHistory accessToken={session.access_token} onClose={() => setShowRefundHistory(false)} />}
 
         {bookingRequests.length > 0 && section('New bookings to confirm', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
@@ -6786,12 +6771,38 @@ function XorlaApp() {
           actBtn('Decline', () => openAct(b, 'decline')),
         ] : [<span key="w" className="flex-1 self-center text-[11.5px]" style={{ color: C.inkFaint }}>Waiting for the owner to confirm</span>]), 'bk-requests', 'Answer within 24 hours')}
 
-        {quietDay ? (
-          <div className="rounded-2xl px-4 py-5 flex items-center gap-3.5" style={{ background: C.surfaceRaised, border: `1px dashed ${C.lineStrong}` }}>
-            <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><BedDouble size={20} style={{ color: C.sage }} /></span>
-            <span className="min-w-0"><span className="block text-[14px] font-semibold">A quiet day</span><span className="block text-[12px] leading-snug" style={{ color: C.inkFaint }}>No arrivals, guests in house or departures today. A walk-in? Tap a free {serviceKind === 'rentals' ? 'item' : 'room'} below.</span></span>
-          </div>
-        ) : (
+        {quietDay ? (() => {
+          const next = [...upcomingBookings].sort((a, b) => String(a.check_in).localeCompare(String(b.check_in)))[0];
+          const nextDay = next ? new Date(next.check_in + 'T12:00:00') : null;
+          const daysTo = next ? Math.round((new Date(next.check_in + 'T12:00:00') - new Date(bkToday + 'T12:00:00')) / 86400000) : 0;
+          const unit = serviceKind === 'rentals' ? 'item' : 'room';
+          return (
+            <div className="relative overflow-hidden rounded-2xl p-4" style={{ background: 'radial-gradient(120% 140% at 100% 0%, rgba(31,217,196,0.16) 0%, rgba(31,217,196,0.04) 45%, transparent 70%), ' + C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <span aria-hidden className="absolute -right-6 -top-6 w-28 h-28 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.18), transparent 70%)' }} />
+              <div className="relative flex items-start gap-3.5">
+                <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><Sparkles size={20} style={{ color: C.bg }} /></span>
+                <span className="min-w-0">
+                  <span className="block text-[15px] font-bold">All calm today</span>
+                  <span className="block text-[12.5px] leading-snug mt-0.5" style={{ color: C.inkDim }}>No arrivals, guests in house or check-outs. A good moment to get {serviceKind === 'rentals' ? 'items' : 'rooms'} ready.</span>
+                </span>
+              </div>
+              <div className="relative grid grid-cols-2 gap-2 mt-3.5">
+                <div className="rounded-xl px-3 py-2.5" style={{ background: 'rgba(0,0,0,0.18)' }}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Free tonight</div>
+                  <div className="text-[18px] font-bold cx-mono mt-0.5" style={{ color: freeRoomsNow > 0 ? C.sage : C.rust }}>{freeRoomsNow}<span className="text-[12px] font-medium" style={{ color: C.inkFaint }}> of {totalRooms}</span></div>
+                </div>
+                <div className="rounded-xl px-3 py-2.5 min-w-0" style={{ background: 'rgba(0,0,0,0.18)' }}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Next arrival</div>
+                  {next ? <div className="text-[13px] font-semibold mt-1 truncate">{String(next.customer_name || '').split(' ')[0]} · {daysTo === 1 ? 'tomorrow' : nextDay.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</div> : <div className="text-[13px] mt-1" style={{ color: C.inkFaint }}>None booked yet</div>}
+                </div>
+              </div>
+              <div className="relative flex gap-2 mt-3">
+                <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : openNewBooking())} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copper, color: C.bg }}><Plus size={15} /> Walk-in guest</button>
+                {storeLink && <button onClick={() => copyText('quiet-link', storeLink)} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.sage, border: '1px solid rgba(31,217,196,0.35)' }}>{copiedKey === 'quiet-link' ? <><Check size={15} /> Link copied</> : <><Copy size={14} /> Copy booking link</>}</button>}
+              </div>
+            </div>
+          );
+        })() : (
           <div className="grid gap-5 lg:grid-cols-3">
             {arrivals.length > 0 && section('Arriving', C.sage, arrivals, '', (b) => renderBookingRow(b, [actBtn('Check in', () => openAct(b, 'check_in'), true), b.check_in < bkToday ? actBtn('No-show', () => openAct(b, 'no_show')) : actBtn('Cancel', () => openAct(b, 'cancel'))]), 'bk-arriving')}
             {stayingNow.length > 0 && section('In house', C.ink, stayingNow, '', (b) => renderBookingRow(b, [actBtn('Add to bill', () => openBill(b), true), actBtn('Check out', () => openAct(b, 'check_out'))]), 'bk-staying')}
@@ -6808,6 +6819,23 @@ function XorlaApp() {
             <div className="text-[16px] font-bold cx-mono shrink-0" style={{ color: C.sage }}>{fmt(depositsHeldTotal)}</div>
           </div>
         )}
+
+        {refundsDone.length > 0 && (() => {
+          const sum = refundsDone.reduce((a, b) => a + (Number(b.refund_amount) || 0), 0);
+          const last = refundsDone[0];
+          const when = last.refunded_at ? new Date(last.refunded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+          return (
+            <button type="button" id="bk-refunded" onClick={() => setShowRefundHistory(true)} className="scroll-mt-24 w-full rounded-2xl p-3.5 flex items-center gap-3.5 text-left transition-colors" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><Undo2 size={17} style={{ color: C.sage }} /></span>
+              <span className="flex-1 min-w-0">
+                <span className="flex items-baseline gap-2"><span className="text-[13.5px] font-semibold">Refunds sent</span><span className="text-[11.5px]" style={{ color: C.inkFaint }}>last 90 days</span></span>
+                <span className="flex items-baseline gap-2 mt-0.5"><span className="text-[17px] font-bold cx-mono" style={{ color: C.sage }}>{fmt(sum)}</span><span className="text-[12px]" style={{ color: C.inkDim }}>to {refundsDone.length} guest{refundsDone.length !== 1 ? 's' : ''}</span></span>
+                <span className="block text-[11.5px] truncate mt-0.5" style={{ color: C.inkFaint }}>Latest: {String(last.customer_name || '').split(' ')[0]}, {fmt(last.refund_amount)}{when ? ` on ${when}` : ''}</span>
+              </span>
+              <span className="shrink-0 flex items-center gap-0.5 text-[12px] font-semibold" style={{ color: C.copper }}>View all <ChevronRight size={14} /></span>
+            </button>
+          );
+        })()}
 
         {renderRoomBoard()}
 
@@ -12259,6 +12287,7 @@ function Storefront({ businessCode }) {
           lines: cartList.map((c) => `${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${c.qty > 1 ? ` ×${c.qty}` : ''}`),
           when: when || '', room: (askHow && fulfilMode === 'room') || (askStay && guestStay === 'yes') ? guestRoom.trim() : '', service: isService || cartHasService || svcExtras.length > 0 });
         setShowCheckout(false); setCart({}); setOrderNote(''); setPreferredTime(''); setGuestStay(''); setLaundryWay('');
+        setSubmitting(false);   // so "Keep exploring" goes back to a working store, not a stuck "Sending…"
         return;
       }
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
