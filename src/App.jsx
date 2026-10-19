@@ -3350,18 +3350,23 @@ function XorlaApp() {
   const normRoom = (x) => String(x || '').toLowerCase().replace(/^\s*(room|rm)\.?\s*/, '').trim();
   const roomMatches = (b, label) => !!label && String(b.room_label || '').split(/\s*,\s*/).some((l) => normRoom(l) === normRoom(label));
   const guestsInHouseAt = (shopId) => bookingsAll.filter((b) => b.status === 'checked_in' && !b.is_space && b.shop_id === (shopId || mainShopId));
+  // Booked but not arrived yet (confirmed, arriving in the next 30 days): an order can go on their booking bill too
+  const guestsArrivingAt = (shopId) => { const until = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10); return bookingsAll.filter((b) => b.status === 'confirmed' && !b.is_space && b.shop_id === (shopId || mainShopId) && String(b.check_out) >= todayKey() && String(b.check_in) <= until); };
+  const sameGuest = (b, o) => { const p1 = String(b.customer_phone || '').replace(/\D/g, '').slice(-10); const p2 = String(o.customerPhone || '').replace(/\D/g, '').slice(-10); if (p1.length === 10 && p1 === p2) return true; const n1 = String(b.customer_name || '').trim().toLowerCase(); const n2 = String(o.customerName || '').trim().toLowerCase(); return !!n1 && !!n2 && (n1 === n2 || n1.split(/\s+/)[0] === n2.split(/\s+/)[0] && (n1.includes(n2) || n2.includes(n1))); };
   const putOrderOnRoom = async (o, b) => {
     try {
       await sbRpc('order_to_room_bill', session.access_token, { p_order: o.id, p_booking: b.id });
       setRoomBillFor(null);
       await loadBusinessData(session.access_token);
-      showAiNotice(`Added to ${String(b.customer_name).split(' ')[0]}'s room bill.`);
+      showAiNotice(b.status === 'checked_in' ? `Added to ${String(b.customer_name).split(' ')[0]}'s room bill.` : `Added to ${String(b.customer_name).split(' ')[0]}'s booking. It's paid with the stay.`);
     } catch (e) { brandAlert(e.message); }
   };
   const renderRoomBillPicker = () => {
     if (!roomBillFor) return null;
     const o = roomBillFor;
     const inHouse = guestsInHouseAt(o.shopId).sort((x, y) => Number(roomMatches(y, o.roomLabel)) - Number(roomMatches(x, o.roomLabel)) || String(x.room_label || '').localeCompare(String(y.room_label || ''), undefined, { numeric: true }));
+    const arriving = guestsArrivingAt(o.shopId).sort((x, y) => Number(sameGuest(y, o)) - Number(sameGuest(x, o)) || String(x.check_in).localeCompare(String(y.check_in)));
+    const shortDay = (d) => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     return (
       <Sheet title="Put it on a room bill" onClose={() => setRoomBillFor(null)}>
         <div className="text-[12.5px] mb-3 leading-relaxed" style={{ color: C.inkDim }}>{o.items.map((it) => `${it.quantity} × ${it.description}`).join(', ')} · <strong className="cx-mono" style={{ color: C.ink }}>{fmt(o.total)}</strong>. It's paid with the stay at check-out. Choose the guest:</div>
@@ -3376,6 +3381,14 @@ function XorlaApp() {
               </button>
             );
           })}
+          {arriving.length > 0 && <div className="text-[11.5px] font-semibold uppercase tracking-wide pt-2 px-1" style={{ color: C.inkFaint }}>Booked, not arrived yet</div>}
+          {arriving.map((b) => { const m = sameGuest(b, o); return (
+            <button key={b.id} onClick={() => putOrderOnRoom(o, b)} className="w-full flex items-center gap-3 rounded-xl px-3.5 py-3 text-left" style={{ background: m ? C.copperSoft : C.surfaceRaised, border: `1px solid ${m ? 'rgba(255,176,32,0.4)' : C.line}` }}>
+              <span className="min-w-[52px] px-2 py-1 rounded-lg text-center text-[11.5px] font-bold" style={{ background: C.surface, color: C.inkDim }}>{shortDay(b.check_in)}</span>
+              <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold truncate">{b.customer_name}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{b.item_name} · arrives {shortDay(b.check_in)}</span></span>
+              {m && <span className="shrink-0 text-[11px] font-semibold" style={{ color: C.copper }}>Their booking</span>}
+            </button>
+          ); })}
         </div>
       </Sheet>
     );
@@ -5232,6 +5245,25 @@ function XorlaApp() {
                     if (o.status !== 'pending' || ['paid', 'refund_due', 'refunded'].includes(o.payStatus) || o.fulfilMode === 'delivery' || o.fulfilMode === 'pickup') return null;
                     if (notGuest[o.id]) return <div className="rounded-xl px-3 py-2 mb-3 text-[12px] flex items-center justify-between gap-2" style={{ background: C.surfaceRaised, color: C.inkDim }}><span>Not a guest: take payment the usual way.</span><button onClick={() => setNotGuest((x) => ({ ...x, [o.id]: false }))} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>Undo</button></div>;
                     const inHouse = guestsInHouseAt(o.shopId);
+                    if (String(o.note || '').startsWith(BOOKED_GUEST_NOTE)) {
+                      const found = guestsArrivingAt(o.shopId).concat(inHouse).filter((b) => sameGuest(b, o));
+                      const first = String(o.customerName).split(' ')[0];
+                      return (
+                        <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
+                          <div className="flex items-center gap-2 font-semibold" style={{ color: C.copper }}><BedDouble size={14} /> Says they've booked, not arrived yet</div>
+                          <div className="mt-0.5" style={{ color: found.length ? C.inkDim : C.rust }}>{found.length ? `Booking found: ${found.map((b) => `${b.customer_name}, ${b.status === 'checked_in' ? `room ${b.room_label || ''}` : `arrives ${new Date(b.check_in + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}`).join('; ')}.` : `No booking found for ${first} or that phone number. Check with them before adding it to a bill.`}</div>
+                          {!found.length && (
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                              {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${first}, thank you for your order from ${settings.businessName}. We couldn't find your booking. What name was it under? If you haven't booked with us, we can arrange payment instead.`)}`} target="_blank" rel="noopener noreferrer" className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={14} /> WhatsApp them</a> : <span />}
+                              <button onClick={() => setNotGuest((x) => ({ ...x, [o.id]: true }))} className="h-9 rounded-lg text-[12.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Not a guest</button>
+                            </div>
+                          )}
+                          {found.length === 1
+                            ? <button onClick={() => putOrderOnRoom(o, found[0])} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Add to {String(found[0].customer_name).split(' ')[0]}'s booking bill</button>
+                            : <button onClick={() => setRoomBillFor(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{found.length ? 'Choose the booking' : 'Choose the guest yourself'}</button>}
+                        </div>
+                      );
+                    }
                     if (!o.roomLabel && !inHouse.length) return null;
                     const match = o.roomLabel ? inHouse.filter((b) => roomMatches(b, o.roomLabel)) : [];
                     return (
@@ -5281,14 +5313,14 @@ function XorlaApp() {
                         {o.acceptedAt && o.status === 'pending' && o.remindedAt && <div className="mt-1" style={{ color: C.sage }}>Reminder sent {lagosDateKey(o.remindedAt) === lagosToday ? 'today' : apptDay(o.remindedAt)} at {apptTime(o.remindedAt)}</div>}
                         {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.proposalReply === 'accepted' ? ` by ${String(o.customerName).split(' ')[0]} from your offer` : o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
                         {o.status === 'cancelled' && o.cancelReason && !o.noShow && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
-                        {o.note && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
+                        {String(o.note || '').replace(BOOKED_GUEST_NOTE, '').trim() && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{String(o.note).replace(BOOKED_GUEST_NOTE, '').trim()}</div>}
                       </div>
                     );
                   })()}
                   {!o.startAt && (o.preferredTime || o.note) && (
                     <div className="rounded-xl px-3 py-2.5 mb-3 space-y-1 text-[12.5px]" style={{ background: C.surfaceRaised }}>
                       {o.preferredTime && <div><span style={{ color: C.inkFaint }}>Preferred time: </span><span className="font-semibold">{o.preferredTime}</span></div>}
-                      {o.note && <div><span style={{ color: C.inkFaint }}>Note: </span>{o.note}</div>}
+                      {String(o.note || '').replace(BOOKED_GUEST_NOTE, '').trim() && <div><span style={{ color: C.inkFaint }}>Note: </span>{String(o.note).replace(BOOKED_GUEST_NOTE, '').trim()}</div>}
                     </div>
                   )}
                   {(() => {
@@ -11925,6 +11957,7 @@ function Storefront({ businessCode }) {
     if (askStay) {
       if (!guestStay) { brandAlert('Please say whether you are staying with us.', { theme: 'light' }); return; }
       if (guestStay === 'yes' && !guestRoom.trim()) { brandAlert('Please add your room number.', { theme: 'light' }); return; }
+      if (guestStay === 'booked' && customerPhone.replace(/\D/g, '').length < 10) { brandAlert('Please add the phone number you booked with, so the front desk can find your booking.', { theme: 'light' }); return; }
     }
     setSubmitting(true);
     try {
@@ -11933,7 +11966,7 @@ function Storefront({ businessCode }) {
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: orderNote.trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(askHow && fulfilMode ? { p_mode: fulfilMode } : {}), ...(askHow && fulfilMode === 'room' ? { p_room: guestRoom.trim() } : {}), ...(askStay && guestStay === 'yes' ? { p_mode: 'room', p_room: guestRoom.trim() } : {}), ...(askHow && fulfilMode === 'delivery' && zoneId && zoneId !== 'other' ? { p_zone: zoneId } : {}), ...(askHow && fulfilMode === 'delivery' ? { p_address: `${deliverAddr.trim()}${deliverLandmark.trim() ? ` (near ${deliverLandmark.trim().replace(/^(near|opposite|beside)\s+/i, '')})` : ''}` } : {}) };
+      const orderArgs = { p_shop_id: business.shop_id || null, p_business_code: businessCode, p_customer_name: customerName.trim(), p_customer_phone: customerPhone.trim(), p_items: items, p_preferred_time: when, p_note: (askStay && guestStay === 'booked' ? `${BOOKED_GUEST_NOTE} ${orderNote.trim()}` : orderNote.trim()).trim(), ...(usesSlots && apptSlot ? { p_start_at: apptSlot, ...(apptPerson ? { p_person: apptPerson } : {}) } : {}), ...(discount ? { p_discount_code: discount.code } : {}), ...(askHow && fulfilMode ? { p_mode: fulfilMode } : {}), ...(askHow && fulfilMode === 'room' ? { p_room: guestRoom.trim() } : {}), ...(askStay && guestStay === 'yes' ? { p_mode: 'room', p_room: guestRoom.trim() } : {}), ...(askHow && fulfilMode === 'delivery' && zoneId && zoneId !== 'other' ? { p_zone: zoneId } : {}), ...(askHow && fulfilMode === 'delivery' ? { p_address: `${deliverAddr.trim()}${deliverLandmark.trim() ? ` (near ${deliverLandmark.trim().replace(/^(near|opposite|beside)\s+/i, '')})` : ''}` } : {}) };
       // Orders get the customer's own page (track it, pay online once confirmed). Appointments keep their own flow.
       let placed = null;
       try { placed = await sbRpc('place_order_v2', SB_KEY, orderArgs); }
@@ -12615,8 +12648,8 @@ function Storefront({ businessCode }) {
             {askStay && (
               <div className="mb-3">
                 <div className="text-[13px] font-semibold mb-1.5">Are you staying with us?</div>
-                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Are you staying with us?">
-                  {[['yes', "Yes, I'm a guest", 'Add it to my room bill'], ['no', "No, I'm not", "They'll confirm how to pay"]].map(([v, l, d]) => { const on = guestStay === v; return (
+                <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Are you staying with us?">
+                  {[['yes', "I'm checked in", 'Add it to my room bill'], ['booked', "I've booked", 'Not arrived yet'], ['no', 'Not staying', "They'll confirm how to pay"]].map(([v, l, d]) => { const on = guestStay === v; return (
                     <button key={v} type="button" role="radio" aria-checked={on} onClick={() => setGuestStay(v)} className={`rounded-xl px-3 py-2.5 text-left ${focusRing}`} style={on ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>
                       <span className="block text-[13px] font-semibold leading-tight">{l}</span>
                       <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: on ? 'rgba(255,255,255,0.75)' : S.muted }}>{d}</span>
@@ -12624,6 +12657,7 @@ function Storefront({ businessCode }) {
                   ); })}
                 </div>
                 {guestStay === 'yes' && <input value={guestRoom} onChange={(e) => setGuestRoom(e.target.value.slice(0, 20))} placeholder="Your room number, e.g. 204" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />}
+                {guestStay === 'booked' && <div className="text-[12px] mt-2 leading-relaxed" style={{ color: S.muted }}>You'll get your room when you check in. Use the same name and phone number as your booking, so the front desk can add this to your booking and you pay with your stay.</div>}
               </div>
             )}
             {!cartHasService && (<>
@@ -13745,6 +13779,8 @@ function SupportTeamAdmin({ call }) {
 const NG_STATES = ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT (Abuja)', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara'];
 // Business category → type, like CAC's own classification
 // Local government areas, by state (774)
+// A guest who has booked but not checked in yet (no room until check-in). Starts the order note, so the front desk can find the booking.
+const BOOKED_GUEST_NOTE = 'Has a booking, not checked in yet.';
 // Hotel extras that are a service (someone does it for the guest), so "brought to your room / pick it up" doesn't fit
 const STAY_SERVICE_RE = /air ?port|pick ?-?up|drop ?-?off|transfer|shuttle|taxi|\bcab\b|car hire|chauffeur|driver|\bride\b|laundry|dry ?clean|ironing|washing|massage|\bspa\b|sauna|salon|tour|excursion|guide|cleaning|housekeeping|late check|early check|wake ?-?up|baby ?sit|decorat|photograph|gym|pool access|parking/i;
 const stayServiceKind = (name) => (/air ?port|pick ?-?up|drop ?-?off|transfer|shuttle|taxi|\bcab\b|car hire|chauffeur|driver|\bride\b/i.test(name) ? 'ride' : /laundry|dry ?clean|ironing|washing/i.test(name) ? 'laundry' : /late check|early check/i.test(name) ? 'checkin' : 'other');
