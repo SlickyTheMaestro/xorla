@@ -18055,6 +18055,7 @@ function GuestBooking({ token }) {
   return (
     <div style={page}>
       <div className="max-w-md mx-auto px-5 pt-8 pb-12">
+        {bk.business_code && <a href={`/store/${bk.business_code}`} className="inline-flex items-center gap-1 -ml-1 mb-5 px-1 py-1 rounded-lg text-[14px] font-semibold" style={{ color: S.ink }}><ChevronLeft size={18} /> Back to {bk.business}</a>}
         <div className="text-[13px] font-semibold uppercase tracking-wide mb-1" style={{ color: S.muted }}>Your booking</div>
         <div className="text-[26px] font-bold leading-tight mb-5">{bk.business}</div>
 
@@ -18358,6 +18359,7 @@ function CustomerOrder({ token }) {
   return (
     <div style={page}>
       <div className="max-w-md mx-auto px-5 pt-8 pb-12">
+        {od.business_code && <a href={`/store/${od.business_code}`} className="inline-flex items-center gap-1 -ml-1 mb-5 px-1 py-1 rounded-lg text-[14px] font-semibold" style={{ color: S.ink }}><ChevronLeft size={18} /> Back to {od.business}</a>}
         <div className="text-[13px] font-semibold uppercase tracking-wide mb-1" style={{ color: S.muted }}>Your {noun}</div>
         <div className="text-[26px] font-bold leading-tight mb-5">{od.business}</div>
 
@@ -18484,7 +18486,6 @@ function CustomerOrder({ token }) {
         <div className="flex flex-col gap-2">
           {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className={btn} style={isNew && od.status === 'pending' && !od.pay_status ? { background: '#25D366', color: '#fff', textAlign: 'center' } : { border: `1.5px solid ${S.ink}`, textAlign: 'center' }}>{isNew && od.status === 'pending' && !od.pay_status ? `Also tell ${od.business} on WhatsApp` : `Message ${od.business}`}</a>}
           {od.business_code && ['fulfilled', 'cancelled'].includes(od.status) && <a href={`/store/${od.business_code}`} className={btn} style={{ background: S.ink, color: '#fff', textAlign: 'center' }}>{noun === 'order' ? 'Order again' : 'Book again'}</a>}
-          {od.business_code && od.status === 'pending' && <a href={`/store/${od.business_code}`} className="py-3 text-center text-[14px] font-semibold" style={{ color: S.muted }}>Back to {od.business}</a>}
         </div>
         <div className="text-center text-[11.5px] mt-10" style={{ color: S.soldOut }}>Orders by Xorla</div>
       </div>
