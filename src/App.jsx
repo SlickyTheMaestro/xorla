@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Sun, Moon, MousePointerClick, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
+import { Plus, Sun, Moon, LayoutGrid, List, MousePointerClick, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -1170,6 +1170,56 @@ function XorlaMark({ size = 30 }) {
   );
 }
 
+// Oga's mark: the gold shard from the Xorla logo, cut like a gem. While Oga is working on an answer it spins,
+// sparks circle it and light sweeps across it, so you can see it thinking.
+const OGA_GEM = 'M6 10 L34 10 L34 29 L16 29 Z';
+function OgaMark({ size = 18, thinking = false, tone = 'gold', className = '', style }) {
+  const id = 'og' + React.useId().replace(/:/g, '');
+  const ink = tone === 'ink';
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden className={`oga-mark ${thinking ? 'oga-thinking' : ''} ${className}`} style={{ flexShrink: 0, overflow: 'visible', ...style }}>
+      <defs>
+        <linearGradient id={`${id}g`} x1="6" y1="8" x2="34" y2="31" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor={ink ? '#2A6B5F' : '#FFDB8A'} />
+          <stop offset="0.5" stopColor={ink ? '#0E3C34' : '#FFB020'} />
+          <stop offset="1" stopColor={ink ? '#06201C' : '#E08700'} />
+        </linearGradient>
+        <linearGradient id={`${id}s`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#fff" stopOpacity="0" /><stop offset="0.5" stopColor="#fff" stopOpacity="0.8" /><stop offset="1" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
+        <clipPath id={`${id}c`}><path d={OGA_GEM} /></clipPath>
+      </defs>
+      <g className="oga-orbit">
+        <circle cx="20" cy="1.5" r="2" fill="#1FD9C4" />
+        <circle cx="36.5" cy="29" r="1.5" fill={ink ? '#FFB020' : '#FFB020'} />
+        <circle cx="3.5" cy="29" r="1.2" fill="#1FD9C4" opacity="0.8" />
+      </g>
+      <g className="oga-gem">
+        <path d={OGA_GEM} fill={`url(#${id}g)`} />
+        <path d="M6 10 L34 10 L23.5 17.5 Z" fill="#fff" opacity={ink ? 0.16 : 0.32} />
+        <path d="M16 29 L34 29 L34 18.5 L25 21 Z" fill="#000" opacity="0.12" />
+        <g clipPath={`url(#${id}c)`}><rect className="oga-sheen" x="-14" y="4" width="10" height="32" fill={`url(#${id}s)`} /></g>
+      </g>
+    </svg>
+  );
+}
+// What Oga says while it works, one line at a time
+const OGA_THINKING = ['Reading your sales…', 'Checking your expenses…', 'Looking at what customers owe…', 'Comparing with last week…', 'Putting your answer together…'];
+function OgaThinking() {
+  const [i, setI] = useState(0);
+  useEffect(() => { const t = setInterval(() => setI((x) => (x + 1) % OGA_THINKING.length), 1500); return () => clearInterval(t); }, []);
+  return (
+    <div role="status" aria-live="polite" className="rounded-2xl px-4 py-6 flex flex-col items-center text-center xorla-fade-up" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+      <div className="relative w-[72px] h-[72px] flex items-center justify-center">
+        <span aria-hidden className="absolute inset-0 rounded-full oga-halo" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.35), transparent 65%)' }} />
+        <OgaMark size={46} thinking />
+      </div>
+      <div className="mt-3 text-[14px] font-semibold">Oga is thinking</div>
+      <div key={i} className="text-[12.5px] mt-0.5 oga-line" style={{ color: C.inkFaint }}>{OGA_THINKING[i]}</div>
+    </div>
+  );
+}
+
 // A new staff member waits here until the owner approves them
 function PendingJoinScreen({ info, onCheck, onLogout }) {
   const [busy, setBusy] = useState(false);
@@ -1680,7 +1730,7 @@ function XorlaApp() {
     accommodation: { catalog: 'Rooms & services', item: 'room or service', Item: 'Room or service', salesTab: 'Sales', sale: 'sale', soldPrompt: 'What was it for? e.g. Laundry, Bar, Airport pickup', amountPh: 'Amount (₦)', pickLabel: 'PICK AN EXTRA (OPTIONAL)', pickChoose: 'Choose an extra…', saleHint: 'Rooms are booked in Bookings. Use this for extras like laundry or the bar.', intro: 'Add your rooms, priced per night so guests can book them, and any extras you charge for, like laundry or the bar.' },
     rentals: { catalog: 'Rentals & services', item: 'rental or service', Item: 'Rental or service', salesTab: 'Sales', sale: 'sale', soldPrompt: 'What was it for? e.g. Extra hours, Delivery fee', amountPh: 'Amount (₦)', pickLabel: 'PICK AN EXTRA (OPTIONAL)', pickChoose: 'Choose an extra…', saleHint: 'Rentals are booked in Bookings. Use this for extras like delivery or extra hours.', intro: 'Add what you rent out, priced per day so customers can book it, and any extras you charge for.' },
   };
-  const serviceKind = settings.serviceKind
+  const serviceKind = settings.businessType === 'products' ? null : settings.serviceKind
     || (productsAll.some((p) => p.priceUnit === 'night') ? 'accommodation' : productsAll.some((p) => p.priceUnit === 'day') ? 'rentals' : null);
   const T = { ...(BUSINESS_TERMS[settings.businessType] || BUSINESS_TERMS.products), ...(settings.businessType === 'services' ? KIND_TERMS[serviceKind] || {} : {}) };
   // What a location is called: shops sell goods; hotels, salons and other service businesses have branches
@@ -1971,6 +2021,7 @@ function XorlaApp() {
   const [heroUploading, setHeroUploading] = useState(false);
   const [openSections, setOpenSections] = useState(new Set(['branding']));
   const [settingsPage, setSettingsPage] = useState(null);
+  const [bookPick, setBookPick] = useState(false);   // Bookings: 'what are you booking?' (a room or a hall)
   const [pinFlow, setPinFlow] = useState(null);
   const [pinNotice, setPinNotice] = useState('');
   const [waConnected, setWaConnected] = useState(null);
@@ -2013,6 +2064,10 @@ function XorlaApp() {
   const [receipt, setReceipt] = useState(null);
   const [paperWidth, setPaperWidth] = useState(() => { try { return localStorage.getItem('xorla:paper') || '58'; } catch (e) { return '58'; } });
   const [cartMode, setCartMode] = useState(false);
+  // Recording a sale: a list with a dropdown, or tap-the-picture tiles (remembered on this device)
+  const [saleView, setSaleViewState] = useState(() => { try { return localStorage.getItem('xorla:sale-view') === 'pictures' ? 'pictures' : 'list'; } catch (e) { return 'list'; } });
+  const [gridPick, setGridPick] = useState(null);   // a product with sizes/colours waiting for one to be chosen
+  const [gridQ, setGridQ] = useState('');
   const [cartItems, setCartItems] = useState([{ productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }]);
   const [savingExpense, setSavingExpense] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
@@ -4416,6 +4471,10 @@ function XorlaApp() {
     document.addEventListener('visibilitychange', restore); return () => document.removeEventListener('visibilitychange', restore);
   }, [settings.businessName]);
   useEffect(() => { if (!arrival) return undefined; const t = setTimeout(() => setArrival(null), 15000); return () => clearTimeout(t); }, [arrival]);
+  // Opening a tab (or a settings page) always starts at the top of it
+  useEffect(() => {
+    try { window.scrollTo(0, 0); document.querySelectorAll('[data-scrolltop]').forEach((el) => { el.scrollTop = 0; }); } catch (e) {}
+  }, [tab, settingsPage]);
   if (!loaded || authLoading) return <div className="min-h-screen flex items-center justify-center cx-body" style={{ background: C.bg, color: C.inkDim }}>{fontStyle}<div className="text-sm">Loading…</div></div>;
   if (pendingJoin) {
     return <>{fontStyle}<PendingJoinScreen info={pendingJoin} onCheck={async () => { setPendingJoin(null); await bootstrap({ fresh: true }); }} onLogout={async () => { setPendingJoin(null); await logout(); }} /></>;
@@ -4842,7 +4901,7 @@ function XorlaApp() {
         )}
 
         <button onClick={() => { setPreviousTab('products'); setTab('advisor'); runAdvisor(T.tracksStock ? 'Based on my sales, which products should I stock more of, and which should I reduce or stop?' : 'Based on my bookings, which services should I promote more, and which should I rethink?'); }} className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-semibold mb-2" style={{ border: `1px solid ${C.line}`, color: C.ink }}>
-          <Lightbulb size={15} style={{ color: C.copper }} /> Ask Oga what to {T.tracksStock ? 'stock more or less of' : 'focus on'}
+          <OgaMark size={16} /> Ask Oga what to {T.tracksStock ? 'stock more or less of' : 'focus on'}
         </button>
       </>
     );
@@ -6771,11 +6830,58 @@ function XorlaApp() {
             <div className="text-[12px] truncate" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 ? 'All locations' : shopNameOf(deskShopId)} · {dayLabel(bkToday)}</div>
           </div>
           <div className="flex gap-2 mt-3">
-            <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : openNewBooking())} className="flex-1 flex items-center justify-center gap-2 rounded-2xl h-12 text-[14.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, boxShadow: '0 10px 24px -12px rgba(255,176,32,0.6)' }}><Plus size={18} /> New booking</button>
+            <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : spacesHere.length ? setBookPick(true) : openNewBooking())} className="flex-1 flex items-center justify-center gap-2 rounded-2xl h-12 text-[14.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, boxShadow: '0 10px 24px -12px rgba(255,176,32,0.6)' }}><Plus size={18} /> New booking</button>
             {canRun && (
               <button onClick={() => setTab('products')} className="shrink-0 flex items-center gap-2 rounded-2xl h-12 px-4 text-[13.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage, border: '1px solid rgba(31,217,196,0.3)' }}><BedDouble size={17} /> {serviceKind === 'rentals' ? 'Items & prices' : 'Rooms & prices'}</button>
             )}
           </div>
+          {bookables.length > 0 && spacesHere.length > 0 && (() => {
+            const todayN = eventsNow.length; const nextN = eventsNext.length;
+            return (
+              <div className="mt-2.5 flex items-stretch gap-2">
+                <button type="button" onClick={() => jump('bk-events')} className="flex-1 min-w-0 flex items-center gap-3 rounded-2xl pl-3 pr-3.5 py-2.5 text-left" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+                  <span className="relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Building2 size={17} style={{ color: C.copper }} />{todayN > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full xorla-pulse" style={{ background: C.copperFill, boxShadow: `0 0 0 2px ${C.bg}` }} />}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13.5px] font-semibold truncate">{spacesHere.length === 1 ? spacesHere[0].name : 'Halls & events'}</span>
+                    <span className="block text-[11.5px] truncate" style={{ color: todayN ? C.copper : C.inkFaint }}>{todayN ? `${todayN} event${todayN > 1 ? 's' : ''} today` : 'Nothing today'}{nextN ? ` · ${nextN} coming up` : ''}</span>
+                  </span>
+                  <ChevronDown size={16} style={{ color: C.inkFaint }} className="shrink-0" />
+                </button>
+                <button type="button" onClick={() => openSpaceBooking(spacesHere.length === 1 ? spacesHere[0].id : undefined)} className="shrink-0 flex items-center gap-1.5 rounded-2xl px-3.5 text-[13px] font-semibold" style={{ background: C.copperSoft, color: C.copper, border: '1px solid rgba(255,176,32,0.3)' }}><Plus size={15} />Book {spacesHere.length === 1 ? 'it' : 'a hall'}</button>
+              </div>
+            );
+          })()}
+          {bookPick && (
+            <Sheet title="What are you booking?" onClose={() => setBookPick(false)}>
+              <div className="space-y-2.5">
+                <button type="button" onClick={() => { setBookPick(false); openNewBooking(); }} className="w-full flex items-center gap-3.5 rounded-2xl p-4 text-left transition-transform active:scale-[0.99]" style={{ background: C.card, border: `1px solid ${C.lineStrong}` }}>
+                  <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><BedDouble size={22} style={{ color: C.sage }} /></span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[15.5px] font-semibold">{serviceKind === 'rentals' ? 'An item to rent' : 'A room'}</span>
+                    <span className="block text-[12.5px] mt-0.5" style={{ color: C.inkFaint }}>{serviceKind === 'rentals' ? 'By the day' : 'Guests staying overnight'} · {freeRoomsNow} of {totalRooms} free now</span>
+                  </span>
+                  <ChevronRight size={18} style={{ color: C.inkFaint }} />
+                </button>
+                <div className="rounded-2xl p-1.5" style={{ background: C.card, border: `1px solid ${C.lineStrong}` }}>
+                  <div className="flex items-center gap-3.5 px-2.5 pt-2.5 pb-2">
+                    <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Building2 size={22} style={{ color: C.copper }} /></span>
+                    <span className="flex-1 min-w-0"><span className="block text-[15.5px] font-semibold">{spacesHere.length === 1 ? 'The hall' : 'A hall or space'}</span><span className="block text-[12.5px] mt-0.5" style={{ color: C.inkFaint }}>Weddings, meetings, parties: by the hour or day</span></span>
+                  </div>
+                  {spacesHere.map((h) => {
+                    const busy = eventsNow.some((b) => b.product_id === h.id);
+                    return (
+                      <button key={h.id} type="button" onClick={() => { setBookPick(false); openSpaceBooking(h.id); }} className="cx-hov w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left">
+                        <span className="w-2 h-2 rounded-full shrink-0 ml-[22px]" style={{ background: busy ? C.copperFill : C.sageFill }} />
+                        <span className="flex-1 min-w-0 text-[14px] font-medium truncate">{h.name}</span>
+                        <span className="text-[11.5px] shrink-0" style={{ color: busy ? C.copper : C.inkFaint }}>{busy ? 'In use today' : 'Free today'}</span>
+                        <ChevronRight size={16} style={{ color: C.inkFaint }} className="shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </Sheet>
+          )}
           <button type="button" disabled={!isOwnerRole} onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('deposits'); setTab('settings'); }}
             className="mt-2.5 w-full flex items-center gap-2 text-left text-[11.5px] px-1" style={{ color: C.inkFaint }}>
             <ShieldCheck size={13} style={{ color: C.sage, flexShrink: 0 }} />
@@ -6913,7 +7019,7 @@ function XorlaApp() {
                 </div>
               </div>
               <div className="relative flex gap-2 mt-3">
-                <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : openNewBooking())} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={15} /> Walk-in guest</button>
+                <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : spacesHere.length ? setBookPick(true) : openNewBooking())} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={15} /> Walk-in guest</button>
                 {storeLink && <button onClick={() => copyText('quiet-link', storeLink)} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.sage, border: '1px solid rgba(31,217,196,0.35)' }}>{copiedKey === 'quiet-link' ? <><Check size={15} /> Link copied</> : <><Copy size={14} /> Copy booking link</>}</button>}
               </div>
             </div>
@@ -8141,6 +8247,134 @@ function XorlaApp() {
   );
 
   const cartTotalNow = cartItems.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0);
+  const picturesOn = saleView === 'pictures' && saleProducts.length > 0;
+  const setSaleView = (v) => {
+    setSaleViewState(v);
+    try { localStorage.setItem('xorla:sale-view', v); } catch (e) {}
+    if (v === 'list') setCartItems((items) => { const kept = items.filter((it) => it.productId || it.description.trim()); setCartMode(kept.length > 1); return kept.length ? kept : [{ productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }]; });
+  };
+  const basketQty = (productId) => cartItems.filter((it) => it.productId === productId).reduce((a, it) => a + (Number(it.quantity) || 0), 0);
+  const gridAdd = (p, variant = '', delta = 1) => {
+    const have = basketQty(p.id);
+    const left = variant && p.optionStock ? p.optionStock[variant] : p.stockQuantity;
+    const haveV = cartItems.filter((it) => it.productId === p.id && (it.variant || '') === variant).reduce((a, it) => a + (Number(it.quantity) || 0), 0);
+    if (delta > 0 && left !== null && left !== undefined && (variant ? haveV : have) >= left) { brandAlert(left > 0 ? `Only ${left} ${p.name}${variant ? ` (${variant})` : ''} left here.` : `${p.name}${variant ? ` (${variant})` : ''} is sold out here.`, { tone: 'info' }); return; }
+    if (navigator.vibrate) { try { navigator.vibrate(8); } catch (e) {} }
+    setCartItems((items) => {
+      const list = items.filter((it) => it.productId || it.description.trim());
+      const i = list.findIndex((it) => it.productId === p.id && (it.variant || '') === variant);
+      if (i < 0) {
+        if (delta < 0) return list;
+        const price = Math.max(0, Number(p.sellingPrice) + (variant ? optionAddon(p.options, variant) : 0));
+        return [...list, { productId: p.id, variant, description: variant ? `${p.name} (${variant})` : p.name, quantity: '1', unitPrice: String(price), unitCost: String(kindOf(p, settings.businessType) === 'service' ? 0 : p.costPrice) }];
+      }
+      const q = (Number(list[i].quantity) || 0) + delta;
+      if (q <= 0) return list.filter((_, k) => k !== i);
+      const next = [...list]; next[i] = { ...next[i], quantity: String(q) }; return next;
+    });
+  };
+  const renderSaleViewSwitch = () => saleProducts.length > 0 && (
+    <div role="tablist" aria-label="How to pick items" className="inline-flex p-1 rounded-xl" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+      {[['list', 'List', List], ['pictures', 'Pictures', LayoutGrid]].map(([v, l, Ic]) => {
+        const on = (v === 'pictures') === picturesOn;
+        return <button key={v} type="button" role="tab" aria-selected={on} onClick={() => setSaleView(v)} className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12.5px] font-semibold transition-colors" style={on ? { background: C.surfaceRaised, color: C.ink, boxShadow: '0 1px 3px rgba(var(--c-lo),calc(0.3 * var(--c-lok)))' } : { color: C.inkFaint }}><Ic size={14} />{l}</button>;
+      })}
+    </div>
+  );
+  const renderSaleGrid = () => {
+    const q = gridQ.trim().toLowerCase();
+    const list = saleProducts.filter((p) => !q || `${p.name} ${p.category || ''}`.toLowerCase().includes(q));
+    const basket = cartItems.filter((it) => it.productId || it.description.trim());
+    const total = basket.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0);
+    const count = basket.reduce((a, it) => a + (Number(it.quantity) || 0), 0);
+    const hue = (name) => { let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; };
+    return (
+      <div className="space-y-3">
+        {saleProducts.length > 8 && (
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
+            <input value={gridQ} onChange={(e) => setGridQ(e.target.value)} placeholder={`Find ${T.Item === 'Item' ? 'an' : 'a'} ${T.item}`} className="w-full rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none" style={field} />
+          </div>
+        )}
+        <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 gap-2.5">
+          {list.map((p) => {
+            const n = basketQty(p.id);
+            const left = p.stockQuantity;
+            const out = left !== null && left <= 0 && !p.madeToOrder;
+            const h = hue(p.name);
+            return (
+              <div key={p.id} className="relative">
+                <button type="button" disabled={out} onClick={() => (hasOptions(p) ? setGridPick(p) : gridAdd(p))} aria-label={`Add ${p.name}, ${fmt(p.sellingPrice)}`}
+                  className="w-full text-left rounded-2xl overflow-hidden transition-all active:scale-[0.95]" style={{ background: C.surfaceRaised, border: `1.5px solid ${n ? C.copper : C.line}`, opacity: out ? 0.5 : 1, boxShadow: n ? '0 0 0 3px rgba(255,176,32,0.16)' : 'none' }}>
+                  <div className="aspect-square relative overflow-hidden" style={{ background: p.imageUrl ? C.bg : `linear-gradient(140deg, hsla(${h},70%,55%,0.22), hsla(${(h + 40) % 360},70%,50%,0.10))` }}>
+                    {p.imageUrl
+                      ? <img src={p.imageUrl} alt="" loading="lazy" className="w-full h-full object-cover" />
+                      : <span className="absolute inset-0 flex items-center justify-center text-[24px] font-bold cx-display" style={{ color: `hsl(${h},55%,45%)` }}>{String(p.name).replace(/[^A-Za-z0-9 ]+/g, ' ').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '•'}</span>}
+                    {out && <span className="absolute inset-x-0 bottom-0 text-[10.5px] font-bold text-center py-1" style={{ background: 'rgba(0,0,0,0.62)', color: '#fff' }}>Sold out</span>}
+                    {hasOptions(p) && !out && <span className="absolute bottom-1.5 left-1.5 text-[9.5px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(0,0,0,0.55)', color: '#fff' }}>{optionWords(p.options)}</span>}
+                  </div>
+                  <div className="px-2 pt-1.5 pb-2">
+                    <div className="text-[12px] font-semibold leading-tight line-clamp-2 min-h-[2.4em]">{p.name}</div>
+                    <div className="text-[11.5px] cx-mono font-semibold mt-0.5 truncate" style={{ color: C.ink }}>{fmt(p.sellingPrice)}</div>
+                    {left !== null && !out && <div className="text-[10.5px] truncate" style={{ color: left <= p.lowStockThreshold ? C.rust : C.inkFaint }}>{left} left</div>}
+                  </div>
+                </button>
+                {n > 0 && <span className="absolute -top-2 -right-2 min-w-[26px] h-[26px] px-1.5 rounded-full flex items-center justify-center text-[12.5px] font-bold cx-mono xorla-fade-up pointer-events-none" style={{ background: C.copperFill, color: C.onAccent, boxShadow: `0 0 0 2px ${C.surface}, 0 6px 14px -4px rgba(0,0,0,0.35)` }}>{n}</span>}
+                {n > 0 && !hasOptions(p) && <button type="button" aria-label={`One less ${p.name}`} onClick={() => gridAdd(p, '', -1)} className="absolute top-1.5 left-1.5 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}><Minus size={15} /></button>}
+              </div>
+            );
+          })}
+        </div>
+        {!list.length && <div className="text-[12.5px] text-center py-4" style={{ color: C.inkFaint }}>Nothing matches "{gridQ}".</div>}
+        {basket.length > 0 ? (
+          <div className="rounded-2xl overflow-hidden" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            {basket.map((it, i) => {
+              const p = it.productId && products.find((x) => x.id === it.productId);
+              return (
+                <div key={`${it.productId}-${it.variant || ''}-${i}`} className="flex items-center gap-2.5 px-3 py-2" style={i ? { borderTop: `1px solid ${C.line}` } : {}}>
+                  <span className="flex-1 min-w-0 text-[13px] truncate">{it.description}</span>
+                  {p ? (
+                    <span className="flex items-center gap-1 shrink-0">
+                      <button type="button" aria-label={`One less ${it.description}`} onClick={() => gridAdd(p, it.variant || '', -1)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}><Minus size={13} /></button>
+                      <span className="w-7 text-center text-[13px] font-bold cx-mono">{it.quantity}</span>
+                      <button type="button" aria-label={`One more ${it.description}`} onClick={() => gridAdd(p, it.variant || '', 1)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}><Plus size={13} /></button>
+                    </span>
+                  ) : <span className="text-[12px] cx-mono" style={{ color: C.inkFaint }}>×{it.quantity}</span>}
+                  <span className="w-[76px] text-right text-[13px] font-semibold cx-mono shrink-0">{fmt((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0))}</span>
+                </div>
+              );
+            })}
+            <div className="flex items-center justify-between px-3 py-2.5" style={{ borderTop: `1px solid ${C.line}`, background: C.copperSoft }}>
+              <span className="text-[12.5px] font-semibold">{count} item{count !== 1 ? 's' : ''}</span>
+              <span className="text-[15px] font-bold cx-mono">{fmt(total)}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="text-[12px] text-center" style={{ color: C.inkFaint }}>Tap a picture to add it. Tap again for more.</div>
+        )}
+        {gridPick && (
+          <Sheet title={`${gridPick.name}: which ${optionWords(gridPick.options).toLowerCase()}?`} onClose={() => setGridPick(null)}>
+            <div className="grid grid-cols-2 gap-2">
+              {optionCombos(gridPick.options).map((v) => {
+                const left = gridPick.optionStock ? gridPick.optionStock[v] : null;
+                const have = cartItems.filter((it) => it.productId === gridPick.id && it.variant === v).reduce((a, it) => a + (Number(it.quantity) || 0), 0);
+                const out = left !== null && left !== undefined && left <= 0;
+                const add = optionAddon(gridPick.options, v);
+                return (
+                  <button key={v} type="button" disabled={out} onClick={() => gridAdd(gridPick, v)} className="relative rounded-xl px-3 py-3 text-left transition-transform active:scale-[0.97]" style={{ background: have ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${have ? C.copper : C.line}`, opacity: out ? 0.45 : 1 }}>
+                    <span className="block text-[14px] font-semibold">{v}</span>
+                    <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{fmt(Number(gridPick.sellingPrice) + add)}{left !== null && left !== undefined ? ` · ${out ? 'sold out' : `${left} left`}` : ''}</span>
+                    {have > 0 && <span className="absolute top-2 right-2 min-w-[22px] h-[22px] px-1 rounded-full flex items-center justify-center text-[11.5px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>{have}</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <button type="button" onClick={() => setGridPick(null)} className="w-full mt-4 rounded-xl py-3 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Done</button>
+          </Sheet>
+        )}
+      </div>
+    );
+  };
   const renderCartEditor = () => (
 <div className="rounded-xl p-3 space-y-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                     <div className="text-[10.5px] mb-1" style={{ color: C.inkFaint }}>Everything this one customer is buying right now.</div>
@@ -8304,10 +8538,13 @@ function XorlaApp() {
               </div>
             )}
             <div className="space-y-2.5">
-              <button type="button" onClick={() => setCartMode(!cartMode)} className="flex items-center gap-1.5 text-[12px] font-medium py-0.5" style={{ color: C.copper }}>
-                {cartMode ? '− Just one item instead' : '+ Customer buying several different things?'}
-              </button>
-              {!cartMode && (<>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                {renderSaleViewSwitch()}
+                {!picturesOn && <button type="button" onClick={() => setCartMode(!cartMode)} className="flex items-center gap-1.5 text-[12px] font-medium py-0.5" style={{ color: C.copper }}>
+                  {cartMode ? '− Just one item instead' : '+ Several different things?'}
+                </button>}
+              </div>
+              {!picturesOn && !cartMode && (<>
               {saleProducts.length === 0 && T.saleHint ? renderExtrasEmpty() : null}
               {saleProducts.length > 0 && (
                 <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
@@ -8333,7 +8570,7 @@ function XorlaApp() {
                 {T.costPh ? <input type="text" inputMode="decimal" placeholder={T.costPh} value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} /> : null}
               </div>
               </>)}
-              {cartMode && renderCartEditor()}
+              {picturesOn ? renderSaleGrid() : cartMode && renderCartEditor()}
               <div>
                 <div className="text-[11.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>Did they pay the full amount?</div>
                 <div className="flex gap-1.5">
@@ -8361,7 +8598,7 @@ function XorlaApp() {
                   )}
                 </div>
               )}
-              <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
+              <button onClick={cartMode || picturesOn ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
             </div>
           </div>
           {settings.allowStaffExpenses && (
@@ -9524,7 +9761,7 @@ function XorlaApp() {
           </div>
           <nav className="px-5 pt-5 pb-10 space-y-6">{settingsGroups('side')}</nav>
         </aside>
-        <div className="flex-1 min-w-0 flex flex-col min-h-screen lg:h-screen lg:overflow-y-auto">
+        <div data-scrolltop className="flex-1 min-w-0 flex flex-col min-h-screen lg:h-screen lg:overflow-y-auto">
           <div className="lg:hidden sticky top-0 z-20 flex items-center px-2" style={{ background: 'rgba(var(--c-bg-rgb),0.98)', borderBottom: `1px solid ${C.line}`, paddingTop: 'env(safe-area-inset-top)', minHeight: 'calc(56px + env(safe-area-inset-top))' }}>
             <button onClick={() => (settingsPage ? setSettingsPage(null) : leaveSettings())} className="flex items-center gap-0.5 pl-1 pr-4 min-h-[44px] rounded-lg active:opacity-60" style={{ color: C.copper }}>
               <ChevronLeft size={22} />
@@ -10449,7 +10686,7 @@ function XorlaApp() {
             { id: 'expenses', label: 'Expenses', Icon: Receipt },
             { id: 'invoices', label: 'Invoices', Icon: Wallet },
             ...(canRun ? [{ id: 'reports', label: 'Reports', Icon: TrendingUp }] : []),
-            { id: 'advisor', label: 'Oga', Icon: Lightbulb },
+            { id: 'advisor', label: 'Oga', Icon: OgaMark },
           ].map(({ id, label, Icon }) => (
             <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: C.sageSoft, color: C.sage } : { color: C.inkDim }}>
               <Icon size={16} /> {label}
@@ -10964,11 +11201,14 @@ function XorlaApp() {
                   <button onClick={() => setShowSaleForm(false)} style={{ color: C.inkFaint }}><X size={17} /></button>
                 </div>
                 {renderRecordShopPicker()}
-                <button onClick={() => setCartMode(!cartMode)} className="flex items-center gap-1.5 text-[12px] font-medium py-1" style={{ color: C.copper }}>
-                  {cartMode ? '− Just one item instead' : '+ Customer buying several different things?'}
-                </button>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  {renderSaleViewSwitch()}
+                  {!picturesOn && <button onClick={() => setCartMode(!cartMode)} className="flex items-center gap-1.5 text-[12px] font-medium py-1" style={{ color: C.copper }}>
+                    {cartMode ? '− Just one item instead' : '+ Several different things?'}
+                  </button>}
+                </div>
 
-                {!cartMode && (
+                {!picturesOn && !cartMode && (
                   <>
                     {saleProducts.length === 0 && T.saleHint ? renderExtrasEmpty() : null}
                     {saleProducts.length > 0 && (
@@ -11003,7 +11243,7 @@ function XorlaApp() {
                   </>
                 )}
 
-                {cartMode && renderCartEditor()}
+                {picturesOn ? renderSaleGrid() : cartMode && renderCartEditor()}
 
                 <div className="pt-1">
                   <div className="flex gap-1.5">
@@ -11043,7 +11283,7 @@ function XorlaApp() {
                     )}
                   </div>
                 )}
-                <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : cartMode ? `Save ${cartItems.length > 1 ? 'items' : 'item'}` : `Save ${T.sale}`}</button>
+                <button onClick={cartMode || picturesOn ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : cartMode ? `Save ${cartItems.length > 1 ? 'items' : 'item'}` : `Save ${T.sale}`}</button>
               </div>
             )}
 
@@ -11915,11 +12155,14 @@ function XorlaApp() {
         {/* ============ ADVISOR TAB ============ */}
         {tab === 'advisor' && (
           <div className="rounded-2xl p-5" style={card}>
-            <div className="flex items-center gap-2 mb-1">
-              <Lightbulb size={16} style={{ color: C.copper }} />
-              <div className="text-[15px] font-semibold cx-display">Oga</div>
+            <div className="flex items-center gap-3 mb-2">
+              <span className="relative w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(145deg, #12403A, #0A231F)', boxShadow: '0 8px 20px -10px rgba(255,176,32,0.6)' }}><OgaMark size={26} thinking={advisorLoading} /></span>
+              <div>
+                <div className="text-[17px] font-bold cx-display leading-tight">Oga</div>
+                <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Your business advisor</div>
+              </div>
             </div>
-            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>Your business advisor. Ask anything — answers are grounded in your real numbers, not generic tips.</div>
+            <div className="text-[12px] mb-4" style={{ color: C.inkFaint }}>Ask anything. Answers come from your real numbers, not generic tips.</div>
 
             <div className="rounded-xl px-3.5 py-3 mb-4" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
               <div className="flex items-center gap-1.5 text-[11.5px] font-semibold mb-2" style={{ color: C.inkDim }}><Globe size={13} style={{ color: C.copper }} /> Oga answers in</div>
@@ -11948,13 +12191,14 @@ function XorlaApp() {
                 style={field}
               />
               <button onClick={() => runAdvisor(advisorQuestion)} disabled={advisorLoading || !advisorQuestion.trim()} className="px-4 rounded-xl text-[12.5px] font-semibold flex items-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent, opacity: advisorLoading || !advisorQuestion.trim() ? 0.4 : 1 }}>
-                {advisorLoading ? <Loader2 size={14} className="animate-spin" /> : 'Ask'}
+                {advisorLoading ? <OgaMark size={18} tone="ink" thinking /> : 'Ask'}
               </button>
             </div>
 
             {advisorAnswer && !advisorLoading && (
               <div className="rounded-xl p-4 text-[13px] leading-relaxed whitespace-pre-line" style={{ background: C.surfaceRaised, color: C.inkDim }}>{advisorAnswer}</div>
             )}
+            {advisorLoading && <OgaThinking />}
             {!advisorAnswer && !advisorLoading && (
               <div className="text-[12px] py-6 text-center" style={{ color: C.inkFaint }}>Ask a question above or tap a suggestion to get started.</div>
             )}
@@ -11970,8 +12214,8 @@ function XorlaApp() {
           className="fixed bottom-24 lg:bottom-6 right-5 lg:right-6 z-40 flex items-center gap-2 pl-3.5 pr-4 py-3 rounded-full transition-transform active:scale-95"
           style={{ background: C.copperFill, color: C.onAccent, boxShadow: '0 8px 24px rgba(255,176,32,0.35)' }}
         >
-          <Lightbulb size={17} />
-          <span className="text-[12.5px] font-semibold">Ask Oga</span>
+          <OgaMark size={19} tone="ink" thinking={advisorLoading} />
+          <span className="text-[12.5px] font-semibold">{advisorLoading ? 'Oga is thinking…' : 'Ask Oga'}</span>
         </button>
       )}
 
@@ -12048,7 +12292,7 @@ function XorlaApp() {
       {renderLimitPrompt()}{renderAddLocations()}
       {aiNotice && (
         <div role="status" className="fixed left-4 right-4 lg:left-auto lg:right-6 lg:w-[380px] bottom-24 lg:bottom-6 z-50 rounded-2xl px-4 py-3.5 flex items-start gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 12px 32px rgba(var(--c-lo),calc(0.4 * var(--c-lok)))' }}>
-          <Lightbulb size={17} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
+          <OgaMark size={18} className="mt-0.5" />
           <div className="flex-1 text-[13px] leading-relaxed" style={{ color: C.ink }}>{aiNotice}</div>
           <button onClick={() => setAiNotice('')} aria-label="Dismiss" style={{ color: C.inkFaint }}><X size={16} /></button>
         </div>
@@ -12228,14 +12472,16 @@ function Storefront({ businessCode }) {
         // Secure function returns only shopper-safe fields — never cost prices or private settings
         const store = await sbRpc('get_storefront', SB_KEY, { p_business_code: businessCode, ...(storeShopId ? { p_shop_id: storeShopId } : {}) });
         if (!store) { setLoadError(true); setLoading(false); return; }
-        setBusiness(store);
+        // A business that only sells products has no "kind of service" (an old hotel setting must not make it ask about rooms)
+        const kind = store.business_type === 'products' ? null : store.service_kind;
+        setBusiness({ ...store, service_kind: kind });
         document.title = store.name;
         setStoreProducts((store.products || []).map((r) => ({ ...fromSbProduct(r), variantStock: r.variant_stock && typeof r.variant_stock === 'object' ? r.variant_stock : null })).filter((p) => store.business_type !== 'products' || !isBookable(p)));
         sbRpc('storefront_booking_terms', SB_KEY, { p_business_code: businessCode }).then((t) => setBookTerms(t || null)).catch(() => {});
         sbRpc('storefront_delivery_zones', SB_KEY, { p_business_code: businessCode }).then((z) => setStoreZones(Array.isArray(z) ? z : [])).catch(() => setStoreZones([]));
         sbRpc('storefront_order_modes', SB_KEY, { p_business_code: businessCode })
-          .then((m) => { const list = Array.isArray(m) ? m : []; setOrderModes(list); if (list.length === 1) setFulfilMode(list[0]); })
-          .catch(() => setOrderModes(store.service_kind === 'accommodation' ? ['room', 'pickup'] : []));
+          .then((m) => { const list = (Array.isArray(m) ? m : []).filter((v) => v !== 'room' || kind === 'accommodation'); setOrderModes(list); if (list.length === 1) setFulfilMode(list[0]); })
+          .catch(() => setOrderModes(kind === 'accommodation' ? ['room', 'pickup'] : store.business_type !== 'services' ? ['pickup', 'delivery'] : []));
       } catch (e) { if (!business) setLoadError(true); }
       setLoading(false);
       setSwitchingShop(false);
@@ -16977,7 +17223,7 @@ function SupportImage({ path, token }) {
 function helpGuides({ T, L, isOwner, apptMode, stays, tracksStock }) {
   const g = [
     { id: 'sale', q: `How do I record a ${T.sale}?`, a: [`Tap Record a ${T.sale}. Pick what was sold from your list (or type it), check the amount, and save. It shows in today's numbers straight away.`, `Customer paying later? Fill in how much is still owed and Xorla keeps track of it for you.`] },
-    { id: 'basket', q: 'A customer bought several things. How do I record it?', a: [`When recording, tap "+ Customer buying several different things?". Add each item with its quantity, then save once. You get one receipt for the whole basket.`] },
+    { id: 'basket', q: 'A customer bought several things. How do I record it?', a: [`When recording, tap "+ Several different things?". Add each item with its quantity, then save once. You get one receipt for the whole basket.`, `Faster: switch to "Pictures" at the top of the form and tap each item's picture (tap again for more). Xorla remembers which view you like.`] },
     { id: 'receipt', q: 'How do I give a customer a receipt?', a: [`After saving a ${T.sale}, tap Receipt. You can send it on WhatsApp, share it, or download it. It carries your business name and logo.`] },
     { id: 'pin', q: 'How do I lock the app, or what if I forget my password?', a: ['Settings → App lock (PIN) adds a 4-digit lock on this phone.', 'Forgot your password? On the log-in screen tap "Forgot password?" and we\'ll email you a link to set a new one.'] },
     { id: 'install', q: 'How do I put Xorla on my home screen?', a: ['On Android (Chrome): open the menu ⋮ and tap "Install app" or "Add to Home screen".', 'On iPhone (Safari): tap the Share button, then "Add to Home Screen". Xorla then opens like any other app.'] },
@@ -20213,6 +20459,13 @@ function LandingPage() {
   const [faq, setFaq] = useState(0);
   const [menu, setMenu] = useState(false);
   const [yearly, setYearly] = useState(false);
+  useEffect(() => {
+    if (!menu) return undefined;
+    const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    const onKey = (e) => { if (e.key === 'Escape') setMenu(false); };
+    window.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
+  }, [menu]);
   const [scrolled, setScrolled] = useState(0);   // 0..1 how far down the page
   const [pastHero, setPastHero] = useState(false);
   const still = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -20328,10 +20581,19 @@ function LandingPage() {
         }
       `}</style>
 
+      <style>{`
+        .lp-menu .lp-menu-bg { opacity: 0; transition: opacity .35s ease; }
+        .lp-menu .lp-menu-glow { opacity: 0; transform: scale(.6); transition: opacity .6s ease, transform .9s cubic-bezier(.2,.7,.2,1); }
+        .lp-menu .lp-mi { opacity: 0; transform: translateY(16px); transition: opacity .45s ease, transform .55s cubic-bezier(.2,.7,.2,1); transition-delay: 0s; }
+        .lp-menu-open .lp-menu-bg { opacity: 1; }
+        .lp-menu-open .lp-menu-glow { opacity: 1; transform: none; }
+        .lp-menu-open .lp-mi { opacity: 1; transform: none; transition-delay: calc(var(--i, 0) * 45ms + 60ms); }
+        @media (prefers-reduced-motion: reduce) { .lp-menu * { transition: none !important; } }
+      `}</style>
       {/* How far down the page you are */}
       <div aria-hidden className="fixed top-0 left-0 right-0 h-[3px] z-50 origin-left" style={{ background: `linear-gradient(90deg, ${LP.teal}, ${LP.amber})`, transform: `scaleX(${scrolled})` }} />
 
-      <header className="sticky top-0 z-40 transition-[background-color,box-shadow] duration-300" style={{ background: scrolled > 0.005 ? LP.nav : 'transparent', backdropFilter: 'saturate(1.4) blur(14px)', WebkitBackdropFilter: 'saturate(1.4) blur(14px)', boxShadow: scrolled > 0.005 ? `0 1px 0 ${LP.line}` : 'none' }}>
+      <header className={`sticky top-0 ${menu ? 'z-[60]' : 'z-40'} transition-[background-color,box-shadow] duration-300`} style={{ background: menu ? 'transparent' : scrolled > 0.005 ? LP.nav : 'transparent', backdropFilter: 'saturate(1.4) blur(14px)', WebkitBackdropFilter: 'saturate(1.4) blur(14px)', boxShadow: !menu && scrolled > 0.005 ? `0 1px 0 ${LP.line}` : 'none' }}>
         <div className={`${wrap} h-16 flex items-center justify-between gap-4`}>
           <a href="/" className="lp-focus flex items-center gap-2.5 rounded-lg"><XorlaMark size={28} /><span className="text-[19px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}>Xorla</span></a>
           <nav className="hidden lg:flex items-center gap-1 text-[14.5px] font-semibold">
@@ -20341,17 +20603,50 @@ function LandingPage() {
             {themeBtn}
             <a href="/login" className="lp-focus hidden sm:inline-flex px-4 py-2 rounded-full text-[14.5px] font-semibold" style={{ color: LP.ink }}>Log in</a>
             <a href={start} className="lp-focus lp-press hidden sm:inline-flex px-5 py-2.5 rounded-full text-[14.5px] font-bold" style={{ background: LP.btn, color: LP.btnInk }}>Start free</a>
-            <button onClick={() => setMenu((m) => !m)} aria-label="Menu" aria-expanded={menu} className="lp-focus lg:hidden w-10 h-10 rounded-full flex items-center justify-center" style={{ background: LP.bg2, border: `1px solid ${LP.line}` }}>{menu ? <X size={18} /> : <span className="flex flex-col gap-[4px]"><span className="block w-4 h-[2px] rounded" style={{ background: LP.ink }} /><span className="block w-4 h-[2px] rounded" style={{ background: LP.ink }} /></span>}</button>
+            <button onClick={() => setMenu((m) => !m)} aria-label={menu ? 'Close menu' : 'Open menu'} aria-expanded={menu} className="lp-focus lg:hidden relative z-[60] w-11 h-11 rounded-full flex items-center justify-center transition-colors" style={{ background: menu ? LP.btn : LP.bg2, border: `1px solid ${menu ? 'transparent' : LP.line}` }}>
+              <span aria-hidden className="relative block w-[18px] h-[12px]">
+                <span className="absolute left-0 right-0 h-[2px] rounded-full transition-all duration-300" style={{ top: menu ? 5 : 0, transform: menu ? 'rotate(45deg)' : 'none', background: menu ? LP.btnInk : LP.ink }} />
+                <span className="absolute left-0 h-[2px] rounded-full transition-all duration-300" style={{ top: 5, width: menu ? 0 : 12, opacity: menu ? 0 : 1, background: LP.ink }} />
+                <span className="absolute left-0 right-0 h-[2px] rounded-full transition-all duration-300" style={{ top: menu ? 5 : 10, transform: menu ? 'rotate(-45deg)' : 'none', background: menu ? LP.btnInk : LP.ink }} />
+              </span>
+            </button>
           </div>
         </div>
-        {menu && (
-          <div className={`lg:hidden ${wrap} pb-5 flex flex-col`} style={{ background: LP.bg }}>
-            {navLinks.map(([h, l]) => <a key={h} href={h} onClick={() => setMenu(false)} className="py-3.5 text-[16.5px] font-semibold" style={{ borderBottom: `1px solid ${LP.line}` }}>{l}</a>)}
-            <a href="/login" className="py-3.5 text-[16.5px] font-semibold" style={{ borderBottom: `1px solid ${LP.line}` }}>Log in</a>
-            <a href={start} className={`${btn} mt-4`} style={{ background: LP.btn, color: LP.btnInk }}>Start free</a>
-          </div>
-        )}
       </header>
+
+      {/* Phone menu: a full panel built for Xorla, not a plain list */}
+      <div className={`lp-menu lg:hidden fixed inset-0 z-[55] ${menu ? 'lp-menu-open' : ''}`} aria-hidden={!menu} style={{ pointerEvents: menu ? 'auto' : 'none' }}>
+        <div className="lp-menu-bg absolute inset-0" style={{ background: LP.bg }} onClick={() => setMenu(false)} />
+        <div aria-hidden className="lp-menu-glow absolute -top-24 -right-24 w-72 h-72 rounded-full" style={{ background: 'radial-gradient(circle, rgba(31,217,196,0.28), transparent 65%)' }} />
+        <div aria-hidden className="lp-menu-glow absolute bottom-24 -left-24 w-64 h-64 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.20), transparent 65%)' }} />
+        <nav aria-label="Menu" className="relative h-full flex flex-col px-5 sm:px-8 pt-20 overflow-y-auto" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
+          <div className="lp-mi text-[11.5px] font-bold uppercase tracking-[0.18em] mb-2" style={{ color: LP.faint, '--i': 0 }}>Explore Xorla</div>
+          {[[ '#try', 'Try it', 'Tap products, watch profit add up', MousePointerClick, LP.teal],
+            ['#features', 'What it does', 'Sales, stock, bookings, receipts', Sparkles, LP.amber],
+            ['#for-you', "Who it's for", 'Shops, salons, hotels and more', Users, LP.teal],
+            ['#pricing', 'Pricing', 'Start free. No card needed', Tag, LP.amber],
+            ['/ride', 'Ride with us', 'Riders: earn delivering nearby', Bike, LP.coral],
+          ].map(([h, l, d, Ic, col], i) => (
+            <a key={h} href={h} onClick={() => setMenu(false)} className="lp-mi lp-focus group flex items-center gap-4 py-3.5" style={{ '--i': i + 1, borderBottom: `1px solid ${LP.line}` }}>
+              <span className="text-[11px] font-bold w-5 shrink-0" style={{ fontFamily: LP_DISPLAY, color: LP.faint }}>{String(i + 1).padStart(2, '0')}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[22px] leading-tight font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.035em' }}>{l}</span>
+                <span className="block text-[13px] mt-0.5" style={{ color: LP.dim }}>{d}</span>
+              </span>
+              <span className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 transition-transform group-active:scale-90" style={{ background: `${col}22`, color: col }}><Ic size={18} /></span>
+            </a>
+          ))}
+          <div className="lp-mi mt-6 rounded-[22px] p-4 flex items-center gap-3.5" style={{ '--i': 6, background: LP.deep, color: '#EAF6F2' }}>
+            <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.08)' }}><XorlaMark size={24} /></span>
+            <span className="flex-1 min-w-0 text-[12.5px] leading-snug"><strong className="block text-[14px]">Free to start, ready in minutes</strong><span style={{ opacity: 0.75 }}>No card needed. Record your first sale today.</span></span>
+          </div>
+          <div className="flex-1 min-h-6" />
+          <div className="lp-mi grid grid-cols-2 gap-2.5" style={{ '--i': 7 }}>
+            <a href="/login" className="lp-focus h-[52px] rounded-full flex items-center justify-center text-[15px] font-semibold" style={{ border: `1.5px solid ${LP.line}`, color: LP.ink }}>Log in</a>
+            <a href={start} className="lp-focus lp-press h-[52px] rounded-full flex items-center justify-center gap-1.5 text-[15px] font-bold" style={{ background: LP.btn, color: LP.btnInk }}>Start free <ArrowRight size={16} /></a>
+          </div>
+        </nav>
+      </div>
 
       <main>
         {/* Hero */}
