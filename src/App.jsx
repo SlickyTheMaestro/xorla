@@ -105,6 +105,8 @@ async function sbRpc(fnName, accessToken, params) {
 async function saveSession(session) { try { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch (e) {} }
 async function loadSession() { try { const v = localStorage.getItem(SESSION_KEY); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 async function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch (e) {} }
+const RIDER_ACCOUNT_MSG = 'This email is a Xorla rider account. Riders log in at xorla.vercel.app/ride. To use Xorla for a business, sign up with a different email.';
+async function isRiderLogin(token) { try { const r = await sbRpc('rider_me', token, {}); return !!r && r.status !== 'business_account'; } catch (e) { return false; } }
 
 const C = {
   bg: '#0A1F1C',
@@ -1184,14 +1186,19 @@ function AuthScreen({ onDone }) {
   if (step === 'role') {
     return wrap("Who's opening Xorla?", 'This decides what you\'ll see next.', (
       <>
-        <button onClick={() => { setStep('owner'); setMode('login'); }} className="w-full rounded-xl p-4 mb-2.5 text-left transition-all hover:border-opacity-100 active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} onMouseEnter={(e) => e.currentTarget.style.borderColor = C.sage} onMouseLeave={(e) => e.currentTarget.style.borderColor = C.line}>
-          <div className="text-[13.5px] font-semibold">I'm the business owner</div>
-          <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>Full dashboard — sales, invoices, expenses, team, and advice.</div>
-        </button>
-        <button onClick={() => { setStep('staff'); setMode('login'); }} className="w-full rounded-xl p-4 text-left transition-all active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} onMouseEnter={(e) => e.currentTarget.style.borderColor = C.copper} onMouseLeave={(e) => e.currentTarget.style.borderColor = C.line}>
-          <div className="text-[13.5px] font-semibold">I'm a sales rep / staff</div>
-          <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>Straight to recording sales — nothing else.</div>
-        </button>
+        {[
+          ['owner', Store, C.sage, "I'm the business owner", 'Full dashboard: sales, bookings, money, team and advice.'],
+          ['staff', Users, C.copper, "I'm a sales rep / staff", 'Join your business with its staff code.'],
+          ['rider', Bike, '#F4845F', "I'm a delivery rider", 'Apply to deliver for businesses near you.'],
+        ].map(([k, Ic, col, t, d]) => (
+          <button key={k} onClick={() => { if (k === 'rider') { window.location.href = '/ride'; return; } setStep(k); setMode('login'); }}
+            className="w-full rounded-xl p-3.5 mb-2.5 last:mb-0 text-left flex items-center gap-3.5 transition-all active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = col; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.line; }}>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${col}22` }}><Ic size={19} style={{ color: col }} /></span>
+            <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">{t}</span><span className="block text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{d}</span></span>
+            <ChevronRight size={16} className="shrink-0" style={{ color: C.inkFaint }} />
+          </button>
+        ))}
       </>
     ));
   }
@@ -1254,6 +1261,7 @@ function AuthScreen({ onDone }) {
         }
         await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
         const result = await onDone();
+        if (!result.ok && mode === 'login' && await isRiderLogin(auth.access_token)) { await clearSession(); throw new Error(RIDER_ACCOUNT_MSG); }
         if (!result.ok) throw new Error(result.removed ? "Your access to this business has been removed. Contact the business owner if you think this is a mistake." : "Logged in, but couldn't load your business. Please try again.");
       } catch (e) { setError(e.message); } finally { setLoading(false); }
     };
@@ -1303,6 +1311,7 @@ function AuthScreen({ onDone }) {
         auth = await sbSignIn(form.email.trim(), form.password);
         await saveSession({ access_token: auth.access_token, refresh_token: auth.refresh_token, user_id: auth.user.id });
         const bootResult = await onDone();
+        if (!bootResult.ok && await isRiderLogin(auth.access_token)) { await clearSession(); throw new Error(RIDER_ACCOUNT_MSG); }
         if (!bootResult.ok) throw new Error(bootResult.removed ? "This account no longer has access to a business." : "Logged in, but couldn't load your business. Please try again.");
       } else {
         auth = await sbSignUp(form.email.trim(), form.password);
@@ -19339,6 +19348,23 @@ function RiderApp() {
   }
 
   if (me === undefined) return <div style={page} className="flex items-center justify-center"><Loader2 size={22} className="animate-spin" style={{ color: C.inkFaint }} /></div>;
+
+  // ---------- This login belongs to a business: riders need their own account ----------
+  if (me?.status === 'business_account') return (
+    <div style={page}>
+      {header}
+      <main className="max-w-md mx-auto px-5 pt-4 pb-10">
+        <RiderHeroArt className="w-full h-auto max-h-[220px]" />
+        <div className="rounded-[28px] p-6 mt-2" style={{ background: C.surface, boxShadow: '0 1px 0 rgba(11,43,38,0.04), 0 24px 50px -28px rgba(11,43,38,0.35)' }}>
+          <span className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: C.mint }}><Store size={22} style={{ color: C.sage }} /></span>
+          <h1 className="mt-3 text-[24px] font-extrabold leading-tight" style={{ letterSpacing: '-0.03em' }}>This email is for a Xorla business</h1>
+          <p className="mt-2 text-[14.5px] leading-relaxed" style={{ color: C.inkDim }}>To keep things safe, a rider account and a business account can't share a login. To ride with Xorla, create a rider account with a <strong style={{ color: C.ink }}>different email</strong>. Your business stays exactly as it is.</p>
+          <button onClick={() => { logout(); setAuthMode('signup'); setView('auth'); }} className="mt-5 w-full h-12 rounded-full text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: C.copper, color: '#fff' }}>Use a different email <ArrowRight size={17} /></button>
+          <a href="/" className="mt-2.5 w-full h-12 rounded-full text-[14.5px] font-semibold flex items-center justify-center" style={{ color: C.ink, boxShadow: `inset 0 0 0 1.5px ${C.lineStrong}` }}>Go to my business</a>
+        </div>
+      </main>
+    </div>
+  );
 
   // ---------- Sent: where their application is ----------
   const status = me?.status || 'draft';
