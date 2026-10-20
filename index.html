@@ -30,6 +30,10 @@
 
     <!-- Theming: matches the app's own dark background, no white flash on launch -->
     <meta name="theme-color" content="#0A1F1C" />
+    <script>
+      // Light or dark mode before the page paints, so there's no flash (owner/staff app and founder dashboard only)
+      try { var xp = location.pathname.replace(/\/+$/, ''); if (xp === '' || xp === '/login' || xp === '/admin') { var xt = localStorage.getItem('xorla:theme'); if (xt === 'auto') xt = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; if (xt === 'light') { document.documentElement.setAttribute('data-xt', 'light'); document.querySelector('meta[name="theme-color"]').setAttribute('content', '#F1F5F2'); } } } catch (e) {}
+    </script>
 
     <!-- Android: launch as a standalone app -->
     <meta name="mobile-web-app-capable" content="yes" />
