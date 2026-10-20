@@ -108,23 +108,121 @@ async function clearSession() { try { localStorage.removeItem(SESSION_KEY); } ca
 const RIDER_ACCOUNT_MSG = 'This email is a Xorla rider account. Riders log in at xorla.vercel.app/ride. To use Xorla for a business, sign up with a different email.';
 async function isRiderLogin(token) { try { const r = await sbRpc('rider_me', token, {}); return !!r && r.status !== 'business_account'; } catch (e) { return false; } }
 
+// The app's colours are CSS variables (see index.css), so light and dark mode is one switch on <html data-xt>.
+// Any part of the page can stay dark by wrapping it in data-xt="dark".
 const C = {
-  bg: '#0A1F1C',
-  surface: '#0F2925',
-  surfaceRaised: '#13322C',
-  line: 'rgba(255,255,255,0.07)',
-  lineStrong: 'rgba(255,255,255,0.13)',
-  ink: '#EAF6F2',
-  inkDim: '#93B0AA',
-  inkFaint: '#54706A',
-  copper: '#FFB020',
-  copperSoft: 'rgba(255,176,32,0.14)',
-  sage: '#1FD9C4',
-  sageSoft: 'rgba(31,217,196,0.14)',
-  rust: '#E2624B',
-  rustSoft: 'rgba(226,98,75,0.14)',
+  bg: 'var(--c-bg)',
+  surface: 'var(--c-surface)',
+  surfaceRaised: 'var(--c-raised)',
+  card: 'var(--c-card)',
+  line: 'var(--c-line)',
+  lineStrong: 'var(--c-line-strong)',
+  ink: 'var(--c-ink)',
+  inkDim: 'var(--c-ink-dim)',
+  inkFaint: 'var(--c-ink-faint)',
+  copper: 'var(--c-copper)',
+  copperSoft: 'var(--c-copper-soft)',
+  copperFill: 'var(--c-copper-fill)',
+  sage: 'var(--c-sage)',
+  sageSoft: 'var(--c-sage-soft)',
+  sageFill: 'var(--c-sage-fill)',
+  rust: 'var(--c-rust)',
+  rustSoft: 'var(--c-rust-soft)',
+  rustFill: 'var(--c-rust-fill)',
+  onAccent: 'var(--c-on-accent)',
 };
-const shadow = '0 1px 1px rgba(0,0,0,0.25), 0 12px 28px -16px rgba(0,0,0,0.65)';
+// A see-through version of a colour: works for palette colours (CSS variables) and plain hex colours
+function tint(col, a) {
+  const v = typeof col === 'string' && col.match(/^var\(--c-([a-z-]+)\)$/);
+  if (v) return `rgba(var(--c-${v[1]}-rgb),${a})`;
+  const h = typeof col === 'string' && col.match(/^#([0-9a-f]{6})$/i);
+  if (h) { const n = parseInt(h[1], 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+  return col;
+}
+const shadow = 'var(--c-shadow)';
+
+// ---------- Light / dark mode for the app (owners, staff and the founder dashboard) ----------
+// Saved on this phone or computer. 'auto' follows the phone's own setting.
+const THEME_KEY = 'xorla:theme';
+function readThemePref() { try { const v = localStorage.getItem(THEME_KEY); return v === 'light' || v === 'auto' ? v : 'dark'; } catch (e) { return 'dark'; } }
+function resolveTheme(pref) {
+  if (pref !== 'auto') return pref;
+  try { return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; } catch (e) { return 'dark'; }
+}
+function applyTheme(mode, animate) {
+  const html = document.documentElement;
+  if (animate) { html.classList.add('xt-anim'); setTimeout(() => html.classList.remove('xt-anim'), 450); }
+  html.setAttribute('data-xt', mode);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', mode === 'light' ? '#F1F5F2' : '#0A1F1C');
+}
+function useXorlaTheme() {
+  const [pref, setPrefState] = useState(readThemePref);
+  const [mode, setMode] = useState(() => resolveTheme(readThemePref()));
+  useEffect(() => {
+    const sync = () => { const p = readThemePref(); const m = resolveTheme(p); setPrefState(p); setMode(m); applyTheme(m, false); };
+    sync();
+    window.addEventListener('xorla-theme', sync); window.addEventListener('storage', sync);
+    let mq = null;
+    try { mq = window.matchMedia('(prefers-color-scheme: light)'); if (mq.addEventListener) mq.addEventListener('change', sync); else mq.addListener(sync); } catch (e) { mq = null; }
+    return () => {
+      window.removeEventListener('xorla-theme', sync); window.removeEventListener('storage', sync);
+      if (mq) { if (mq.removeEventListener) mq.removeEventListener('change', sync); else mq.removeListener(sync); }
+    };
+  }, []);
+  const setPref = (p) => {
+    try { localStorage.setItem(THEME_KEY, p); } catch (e) {}
+    applyTheme(resolveTheme(p), true);
+    window.dispatchEvent(new Event('xorla-theme'));
+  };
+  return { pref, mode, setPref, toggle: () => setPref(mode === 'light' ? 'dark' : 'light') };
+}
+// The little sun / moon button in the top bar
+function ThemeToggle({ size = 17, className = '' }) {
+  const { mode, toggle } = useXorlaTheme();
+  const light = mode === 'light';
+  return (
+    <button type="button" onClick={toggle} aria-label={light ? 'Switch to dark mode' : 'Switch to light mode'} title={light ? 'Dark mode' : 'Light mode'}
+      className={`relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-colors ${className}`} style={{ color: light ? C.copper : C.inkDim, background: 'rgba(var(--c-hi),0.05)', border: `1px solid ${C.line}` }}>
+      <span className="absolute inset-0 flex items-center justify-center transition-all duration-500" style={{ opacity: light ? 0 : 1, transform: light ? 'rotate(-90deg) scale(0.5)' : 'none' }}><Moon size={size} /></span>
+      <span className="absolute inset-0 flex items-center justify-center transition-all duration-500" style={{ opacity: light ? 1 : 0, transform: light ? 'none' : 'rotate(90deg) scale(0.5)' }}><Sun size={size} /></span>
+    </button>
+  );
+}
+// Settings page: three big choices with a small preview of each
+function AppearancePicker() {
+  const { pref, setPref } = useXorlaTheme();
+  const opts = [
+    ['light', 'Light', 'Bright and clear, great in daylight', Sun],
+    ['dark', 'Dark', 'Easy on the eyes at night', Moon],
+    ['auto', 'Match my phone', 'Changes when your phone does', Smartphone],
+  ];
+  const Mini = ({ xt }) => (
+    <div data-xt={xt} className="rounded-xl p-2.5 w-full" style={{ background: 'var(--c-bg)', border: '1px solid var(--c-line)' }}>
+      <div className="rounded-lg p-2" style={{ background: 'var(--c-card)', border: '1px solid var(--c-line)' }}>
+        <div className="h-1.5 w-10 rounded-full" style={{ background: 'var(--c-ink-faint)' }} />
+        <div className="h-2.5 w-16 rounded-full mt-1.5" style={{ background: 'var(--c-ink)' }} />
+        <div className="flex gap-1.5 mt-2"><div className="h-4 flex-1 rounded-md" style={{ background: 'var(--c-copper-fill)' }} /><div className="h-4 w-6 rounded-md" style={{ background: 'var(--c-sage-soft)' }} /></div>
+      </div>
+    </div>
+  );
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {opts.map(([id, label, sub, Ic]) => {
+        const on = pref === id;
+        return (
+          <button key={id} type="button" onClick={() => setPref(id)} aria-pressed={on} className="rounded-2xl p-3 text-left flex sm:flex-col gap-3 items-center sm:items-stretch transition-all" style={{ background: C.card, border: `1.5px solid ${on ? C.copper : C.line}`, boxShadow: on ? '0 0 0 4px rgba(255,176,32,0.14)' : 'none' }}>
+            <div className="w-24 sm:w-full shrink-0">{id === 'auto' ? <div className="grid grid-cols-2 gap-1.5"><Mini xt="light" /><Mini xt="dark" /></div> : <Mini xt={id} />}</div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2"><Ic size={15} style={{ color: on ? C.copper : C.inkDim }} /><span className="text-[14.5px] font-semibold">{label}</span>{on && <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center" style={{ background: C.copperFill }}><Check size={12} strokeWidth={3} style={{ color: C.onAccent }} /></span>}</div>
+              <div className="text-[12.5px] mt-0.5" style={{ color: C.inkFaint }}>{sub}</div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // A panel that slides up over the screen (same look as Send stock). Tapping outside closes it
 // unless the form inside has something worth keeping (closeOnBackdrop=false).
@@ -137,7 +235,7 @@ function Sheet({ title, onClose, children, closeOnBackdrop = true, busy = false 
     return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
   }, [busy, onClose]);
   return createPortal(
-    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)', fontFamily: "'Inter', sans-serif", color: C.ink }} onClick={() => closeOnBackdrop && !busy && onClose()}>
+    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)', fontFamily: "'Inter', sans-serif", color: C.ink }} onClick={() => closeOnBackdrop && !busy && onClose()}>
       <div role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}`, paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
         <div className="sm:hidden mx-auto -mt-1.5 mb-3 w-10 h-1 rounded-full" style={{ background: C.lineStrong }} />
         <div className="flex items-start justify-between gap-3 mb-4">
@@ -201,8 +299,8 @@ function RefundHistory({ accessToken, onClose }) {
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Guest name, phone or account number" className="w-full rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none" style={field} />
       </div>
       <div className="grid grid-cols-2 gap-2 mb-2">
-        <label className="text-[11px]" style={{ color: C.inkFaint }}>Refunded from<input type="date" value={from} max={to || today} onChange={(e) => setFrom(e.target.value)} className="mt-1 w-full rounded-xl px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
-        <label className="text-[11px]" style={{ color: C.inkFaint }}>To<input type="date" value={to} min={from || undefined} max={today} onChange={(e) => setTo(e.target.value)} className="mt-1 w-full rounded-xl px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
+        <label className="text-[11px]" style={{ color: C.inkFaint }}>Refunded from<input type="date" value={from} max={to || today} onChange={(e) => setFrom(e.target.value)} className="mt-1 w-full rounded-xl px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} /></label>
+        <label className="text-[11px]" style={{ color: C.inkFaint }}>To<input type="date" value={to} min={from || undefined} max={today} onChange={(e) => setTo(e.target.value)} className="mt-1 w-full rounded-xl px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} /></label>
       </div>
       <div className="flex flex-wrap gap-1.5 mb-3">
         {[['Today', 0], ['7 days', 7], ['30 days', 30], ['90 days', 90]].map(([l, d]) => (
@@ -307,7 +405,7 @@ const SETTINGS_DESCRIPTIONS = {
   cac: 'With the Corporate Affairs Commission (CAC), filed for you by an accredited agent.',
   vault: 'CAC certificate, TIN, permits and more. Share with a link, get reminded before they expire.',
 };
-const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Your team', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business', payments: 'Online payments', delivery: 'Delivery & riders', cac: 'Register your business name', vault: 'Document vault' };
+const SETTINGS_TITLES = { plan: 'Your plan', notifications: 'Notifications', shops: 'Shops', automation: 'Automatic WhatsApp', businessType: 'Business type', tour: 'App tour', branding: 'Name & logo', storefront: 'Storefront', messages: 'Messages & language', contact: 'Phone & contact', team: 'Your team', security: 'App lock (PIN)', deposits: 'Deposits & cancellations', export: 'Your records', hours: 'Opening hours & appointments', promote: 'Promote your business', payments: 'Online payments', delivery: 'Delivery & riders', cac: 'Register your business name', vault: 'Document vault', appearance: 'Appearance' };
 // WhatsApp needs full international format (2348031234567). People type local format (08031234567),
 // so convert Nigerian numbers automatically; numbers already in international format pass through.
 function toWhatsAppNumber(raw) {
@@ -984,7 +1082,7 @@ function PinPad({ title, subtitle, error, onComplete, footer, top }) {
       <div className="text-[13px] mb-8 text-center max-w-[280px]" style={{ color: error ? C.rust : C.inkFaint }}>{error || subtitle}</div>
       <div className={`flex gap-4 mb-10 ${shake ? 'animate-pulse' : ''}`} aria-live="polite" aria-label={`${entry.length} of 4 digits entered`}>
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="w-3 h-3 rounded-full transition-colors" style={{ background: i < entry.length ? (shake ? C.rust : C.copper) : 'transparent', border: `1.5px solid ${i < entry.length ? (shake ? C.rust : C.copper) : C.lineStrong}` }} />
+          <div key={i} className="w-3 h-3 rounded-full transition-colors" style={{ background: i < entry.length ? (shake ? C.rustFill : C.copperFill) : 'transparent', border: `1.5px solid ${i < entry.length ? (shake ? C.rust : C.copper) : C.lineStrong}` }} />
         ))}
       </div>
       <div className="grid grid-cols-3 gap-4 w-full max-w-[260px]">
@@ -1082,7 +1180,7 @@ function PendingJoinScreen({ info, onCheck, onLogout }) {
         <div className="w-14 h-14 rounded-2xl mx-auto mb-5 flex items-center justify-center" style={{ background: C.copperSoft }}><Users size={24} style={{ color: C.copper }} /></div>
         <div className="text-[22px] font-bold cx-display mb-2">Waiting for approval</div>
         <div className="text-[14px] leading-relaxed mb-7" style={{ color: C.inkDim }}>Hi {info.name}. You've asked to join <strong style={{ color: C.ink }}>{info.business}</strong>. The owner has been told, and you can start as soon as they approve you.</div>
-        <button disabled={busy} onClick={async () => { setBusy(true); await onCheck(); setBusy(false); }} className="w-full rounded-xl py-3.5 text-[14px] font-semibold mb-3" style={{ background: C.copper, color: C.bg, opacity: busy ? 0.6 : 1 }}>{busy ? 'Checking…' : "I've been approved, continue"}</button>
+        <button disabled={busy} onClick={async () => { setBusy(true); await onCheck(); setBusy(false); }} className="w-full rounded-xl py-3.5 text-[14px] font-semibold mb-3" style={{ background: C.copperFill, color: C.onAccent, opacity: busy ? 0.6 : 1 }}>{busy ? 'Checking…' : "I've been approved, continue"}</button>
         <button onClick={onLogout} className="text-[13px] font-medium" style={{ color: C.inkFaint }}>Log out</button>
       </div>
     </div>
@@ -1135,8 +1233,9 @@ function AuthScreen({ onDone }) {
 
   const wrap = (title, subtitle, content) => (
     <div className="lg:flex h-[100dvh] overflow-hidden relative" style={{ background: `radial-gradient(circle at 25% 20%, ${C.surface} 0%, ${C.bg} 55%)`, color: C.ink }}>
-      <div className="xorla-orb xorla-pulse" style={{ width: 420, height: 420, top: '-10%', left: '-8%', background: C.sage, opacity: 0.16 }} />
-      <div className="xorla-orb" style={{ width: 360, height: 360, bottom: '-12%', right: '-6%', background: C.copper, opacity: 0.13 }} />
+      <div className="xorla-orb xorla-pulse" style={{ width: 420, height: 420, top: '-10%', left: '-8%', background: C.sageFill, opacity: 0.16 }} />
+      <div className="xorla-orb" style={{ width: 360, height: 360, bottom: '-12%', right: '-6%', background: C.copperFill, opacity: 0.13 }} />
+      <div className="absolute right-4 z-20" style={{ top: 'max(14px, env(safe-area-inset-top))' }}><ThemeToggle /></div>
 
       {/* Left brand panel — desktop only */}
       <div className="hidden lg:flex lg:w-1/2 flex-col items-center justify-center p-12 relative z-10">
@@ -1145,18 +1244,18 @@ function AuthScreen({ onDone }) {
           <div className="text-[32px] font-extrabold mt-4 cx-display" style={{ letterSpacing: '-0.01em', background: `linear-gradient(135deg, ${C.ink}, ${C.sage})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Xorla</div>
           <div className="text-[13.5px] mt-2 mb-10" style={{ color: C.inkFaint }}>Run your business. Grow your future.</div>
 
-          <div className="xorla-float w-full max-w-[320px] rounded-2xl p-5" style={{ background: 'rgba(19,50,44,0.55)', backdropFilter: 'blur(20px)', border: `1px solid ${C.lineStrong}`, boxShadow: `0 20px 60px -12px rgba(0,0,0,0.6), 0 0 40px -8px ${C.sageSoft}` }}>
+          <div className="xorla-float w-full max-w-[320px] rounded-2xl p-5" style={{ background: 'rgba(var(--c-raised-rgb),0.55)', backdropFilter: 'blur(20px)', border: `1px solid ${C.lineStrong}`, boxShadow: `0 20px 60px -12px rgba(var(--c-lo),calc(0.6 * var(--c-lok))), 0 0 40px -8px ${C.sageSoft}` }}>
             <div className="flex items-center justify-between mb-1">
               <div className="text-[10px] uppercase tracking-wide" style={{ color: C.inkFaint }}>Profit today</div>
               <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full xorla-pulse" style={{ background: C.sage }} />
+                <div className="w-1.5 h-1.5 rounded-full xorla-pulse" style={{ background: C.sageFill }} />
                 <span className="text-[9.5px] font-medium" style={{ color: C.sage }}>Live</span>
               </div>
             </div>
             <div className="cx-mono text-[28px] font-extrabold mb-3">₦42,500</div>
             <div className="flex items-end gap-1.5 h-14">
               {[40, 65, 50, 80, 55, 90, 70].map((h, i) => (
-                <div key={i} className="flex-1 rounded-sm xorla-bar" style={{ height: `${h}%`, background: i === 5 ? C.sage : C.line, animationDelay: `${i * 60}ms` }} />
+                <div key={i} className="flex-1 rounded-sm xorla-bar" style={{ height: `${h}%`, background: i === 5 ? C.sageFill : C.line, animationDelay: `${i * 60}ms` }} />
               ))}
             </div>
             <div className="flex items-center justify-between mt-4 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
@@ -1175,7 +1274,7 @@ function AuthScreen({ onDone }) {
             <div className="text-[20px] font-extrabold mt-2.5 cx-display" style={{ letterSpacing: '-0.01em' }}>Xorla</div>
             <div className="text-[11px] mt-1" style={{ color: C.inkFaint }}>Run your business. Grow your future.</div>
           </div>
-          <div className="rounded-2xl p-6" style={{ background: 'rgba(15,41,37,0.7)', backdropFilter: 'blur(24px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 24px 70px -16px rgba(0,0,0,0.65)' }}>
+          <div className="rounded-2xl p-6" style={{ background: 'rgba(var(--c-surface-rgb),0.7)', backdropFilter: 'blur(24px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 24px 70px -16px rgba(var(--c-lo),calc(0.65 * var(--c-lok)))' }}>
             {title && <div className="text-[18px] font-semibold cx-display mb-1">{title}</div>}
             {subtitle && <div className="text-[12.5px] mb-5" style={{ color: C.inkFaint }}>{subtitle}</div>}
             {content}
@@ -1197,7 +1296,7 @@ function AuthScreen({ onDone }) {
           <button key={k} onClick={() => { if (k === 'rider') { window.location.href = '/ride'; return; } setStep(k); setMode('login'); }}
             className="w-full rounded-xl p-3.5 mb-2.5 last:mb-0 text-left flex items-center gap-3.5 transition-all active:scale-[0.98]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = col; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.line; }}>
-            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${col}22` }}><Ic size={19} style={{ color: col }} /></span>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: tint(col, 0.13) }}><Ic size={19} style={{ color: col }} /></span>
             <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">{t}</span><span className="block text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{d}</span></span>
             <ChevronRight size={16} className="shrink-0" style={{ color: C.inkFaint }} />
           </button>
@@ -1225,7 +1324,7 @@ function AuthScreen({ onDone }) {
         ) : (
           <>
             <input type="email" placeholder="Your email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none mb-4" style={field} />
-            <button disabled={loading || !form.email} onClick={sendReset} className="w-full rounded-xl py-3 text-[13.5px] font-semibold transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
+            <button disabled={loading || !form.email} onClick={sendReset} className="w-full rounded-xl py-3 text-[13.5px] font-semibold transition-transform active:scale-[0.98]" style={{ background: C.sageFill, color: C.onAccent, opacity: loading ? 0.6 : 1, boxShadow: '0 12px 28px -8px rgba(var(--c-sage-rgb),0.4)' }}>
               {loading ? 'Sending…' : 'Send reset link'}
             </button>
           </>
@@ -1240,7 +1339,7 @@ function AuthScreen({ onDone }) {
         <div className="rounded-xl p-5 mb-5 text-center" style={{ background: C.surfaceRaised, border: `1px solid ${C.sage}` }}>
           <div className="cx-mono text-[28px] font-extrabold tracking-[0.1em]" style={{ color: C.sage }}>{newBusinessCode}</div>
         </div>
-        <button onClick={() => onDone()} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.sage, color: C.bg, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>Continue to my dashboard</button>
+        <button onClick={() => onDone()} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, boxShadow: '0 12px 28px -8px rgba(var(--c-sage-rgb),0.4)' }}>Continue to my dashboard</button>
       </>
     ));
   }
@@ -1284,7 +1383,7 @@ function AuthScreen({ onDone }) {
           {mode === 'signup' && <PasswordInput placeholder="Type the password again" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} autoComplete="new-password" style={field} />}
           {mode === 'signup' && <PasswordChecks password={form.password} confirm={form.confirm} />}
         </div>
-        <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.code || !form.name || !form.confirm))} onClick={submitStaff} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
+        <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.code || !form.name || !form.confirm))} onClick={submitStaff} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sageFill, color: C.onAccent, opacity: loading ? 0.6 : 1, boxShadow: '0 12px 28px -8px rgba(var(--c-sage-rgb),0.4)' }}>
           {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Join business'}
         </button>
         <div className="text-center text-[12.5px]" style={{ color: C.inkFaint }}>
@@ -1342,7 +1441,7 @@ function AuthScreen({ onDone }) {
         {mode === 'signup' && <PasswordInput placeholder="Type the password again" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} autoComplete="new-password" style={field} />}
         {mode === 'signup' && <PasswordChecks password={form.password} confirm={form.confirm} />}
       </div>
-      <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.business || !form.confirm))} onClick={submitOwner} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
+      <button disabled={loading || !form.email || !form.password || (mode === 'signup' && (!form.business || !form.confirm))} onClick={submitOwner} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-4 transition-transform active:scale-[0.98]" style={{ background: C.sageFill, color: C.onAccent, opacity: loading ? 0.6 : 1, boxShadow: '0 12px 28px -8px rgba(var(--c-sage-rgb),0.4)' }}>
         {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}
       </button>
       {mode === 'signup' && <div className="text-center text-[11.5px] leading-relaxed -mt-2 mb-4" style={{ color: C.inkFaint }}>By creating an account you agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: C.inkDim }}>Terms of service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: C.inkDim }}>Privacy policy</a>.</div>}
@@ -1381,18 +1480,18 @@ function ResetPasswordScreen({ accessToken, onDone }) {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-6 py-10 relative overflow-hidden" style={{ background: `radial-gradient(circle at 25% 20%, ${C.surface} 0%, ${C.bg} 55%)`, color: C.ink }}>
-      <div className="xorla-orb xorla-pulse" style={{ width: 380, height: 380, top: '-10%', left: '-8%', background: C.sage, opacity: 0.14 }} />
+      <div className="xorla-orb xorla-pulse" style={{ width: 380, height: 380, top: '-10%', left: '-8%', background: C.sageFill, opacity: 0.14 }} />
       <div className="w-full max-w-[380px] xorla-fade-up relative z-10">
         <div className="flex flex-col items-center mb-8">
           <div style={{ filter: `drop-shadow(0 0 20px ${C.sageSoft})` }}><XorlaMark size={44} /></div>
           <div className="text-[22px] font-extrabold mt-3 cx-display" style={{ letterSpacing: '-0.01em' }}>Xorla</div>
         </div>
-        <div className="rounded-2xl p-6" style={{ background: 'rgba(15,41,37,0.7)', backdropFilter: 'blur(24px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 24px 70px -16px rgba(0,0,0,0.65)' }}>
+        <div className="rounded-2xl p-6" style={{ background: 'rgba(var(--c-surface-rgb),0.7)', backdropFilter: 'blur(24px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 24px 70px -16px rgba(var(--c-lo),calc(0.65 * var(--c-lok)))' }}>
           {done ? (
             <>
               <div className="text-[17px] font-semibold cx-display mb-1">Password updated</div>
               <div className="text-[12.5px] mb-5" style={{ color: C.inkFaint }}>You can log in with your new password now.</div>
-              <button onClick={onDone} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.sage, color: C.bg, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>Continue to log in</button>
+              <button onClick={onDone} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, boxShadow: '0 12px 28px -8px rgba(var(--c-sage-rgb),0.4)' }}>Continue to log in</button>
             </>
           ) : (
             <>
@@ -1404,7 +1503,7 @@ function ResetPasswordScreen({ accessToken, onDone }) {
                 <PasswordInput placeholder="Type it again" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" style={field} />
                 <PasswordChecks password={password} confirm={confirm} />
               </div>
-              <button disabled={loading || !password || !confirm} onClick={submit} className="w-full rounded-xl py-3 text-[13.5px] font-semibold transition-transform active:scale-[0.98]" style={{ background: C.sage, color: C.bg, opacity: loading ? 0.6 : 1, boxShadow: `0 12px 28px -8px ${C.sage}66` }}>
+              <button disabled={loading || !password || !confirm} onClick={submit} className="w-full rounded-xl py-3 text-[13.5px] font-semibold transition-transform active:scale-[0.98]" style={{ background: C.sageFill, color: C.onAccent, opacity: loading ? 0.6 : 1, boxShadow: '0 12px 28px -8px rgba(var(--c-sage-rgb),0.4)' }}>
                 {loading ? 'Saving…' : 'Set new password'}
               </button>
             </>
@@ -1477,7 +1576,7 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
       </button>
       {open && pos && createPortal(
         <div ref={listRef} role="listbox" aria-label={ariaLabel} className="fixed z-[200] rounded-xl py-1.5 max-h-64 overflow-y-auto"
-          style={{ ...pos, width: 'max-content', maxWidth: 'min(340px, 90vw)', background: P.surface, border: `1px solid ${P.lineStrong || P.line}`, boxShadow: palette ? '0 16px 40px rgba(11,43,38,0.18)' : '0 16px 40px rgba(0,0,0,0.5)', fontFamily: "'Inter', sans-serif" }}>
+          style={{ ...pos, width: 'max-content', maxWidth: 'min(340px, 90vw)', background: P.surface, border: `1px solid ${P.lineStrong || P.line}`, boxShadow: palette ? '0 16px 40px rgba(11,43,38,0.18)' : '0 16px 40px rgba(var(--c-lo),calc(0.5 * var(--c-lok)))', fontFamily: "'Inter', sans-serif" }}>
           {opts.map((o, i) => {
             const sel = i === selIndex;
             return (
@@ -1498,6 +1597,7 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
 }
 
 function XorlaApp() {
+  const { mode: themeMode, pref: themePref } = useXorlaTheme();   // light or dark, as picked on this device
   const [tab, setTab] = useState('overview');
   const [reqFilter, setReqFilter] = useState('open');   // Requests list: 'open' | 'done' | 'cancelled'
   // When Bookings / Orders were last looked at, so anything newer (a request, an online payment, a cancellation) shows a badge
@@ -2059,10 +2159,10 @@ function XorlaApp() {
       @media (pointer: fine) {
         ::-webkit-scrollbar { width: 10px; height: 10px; }
         ::-webkit-scrollbar-track { background: ${C.bg}; }
-        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, ${C.sage}, #12A898); border-radius: 999px; border: 2px solid ${C.bg}; }
-        ::-webkit-scrollbar-thumb:hover { background: ${C.sage}; }
+        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, ${C.sageFill}, #12A898); border-radius: 999px; border: 2px solid ${C.bg}; }
+        ::-webkit-scrollbar-thumb:hover { background: ${C.sageFill}; }
         ::-webkit-scrollbar-corner { background: transparent; }
-        @supports (-moz-appearance: none) { * { scrollbar-color: ${C.sage} ${C.bg}; scrollbar-width: thin; } }
+        @supports (-moz-appearance: none) { * { scrollbar-color: ${C.sage} ${C.onAccent}; scrollbar-width: thin; } }
       }`;
     document.head.appendChild(el);
     return () => el.remove();
@@ -2478,7 +2578,7 @@ function XorlaApp() {
     const first = list[0]; const ex = vaultExpiry(first); const late = list.some((d) => vaultDaysLeft(d) < 0);
     return (
       <button onClick={openVault} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-5 xorla-fade-up text-left" style={{ background: late ? C.rustSoft : C.copperSoft, border: `1px solid ${late ? 'rgba(226,98,75,0.35)' : 'rgba(255,176,32,0.3)'}` }}>
-        <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: late ? C.rust : C.copper }}><Clock size={18} style={{ color: C.bg }} /></span>
+        <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: late ? C.rustFill : C.copperFill }}><Clock size={18} style={{ color: C.onAccent }} /></span>
         <span className="flex-1 min-w-0">
           <span className="block text-[14px] font-semibold truncate">{list.length === 1 ? `${first.title}: ${ex.text.toLowerCase()}` : `${list.length} documents need renewing`}</span>
           <span className="block text-[12px] mt-0.5 truncate" style={{ color: C.inkDim }}>{list.length === 1 ? 'Renew it in time so you are never caught without it.' : list.slice(0, 3).map((d) => d.title).join(', ')}</span>
@@ -2496,11 +2596,11 @@ function XorlaApp() {
   const undoHideCac = () => { setCacHidden(false); setCacToast(false); try { localStorage.removeItem(`xorla:cac-promo-hidden:${settings.businessId}`); } catch (er) {} };
   const renderCacToast = () => cacToast && createPortal(
     <div className="fixed left-0 right-0 z-[95] flex justify-center px-3 pointer-events-none" style={{ bottom: 'max(20px, calc(env(safe-area-inset-bottom) + 84px))' }}>
-      <div role="status" className="pointer-events-auto w-full max-w-md rounded-2xl pl-3.5 pr-2 py-2.5 flex items-center gap-3 xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(31,217,196,0.35)', boxShadow: '0 18px 40px -12px rgba(0,0,0,0.75)' }}>
+      <div data-xt="dark" role="status" className="pointer-events-auto w-full max-w-md rounded-2xl pl-3.5 pr-2 py-2.5 flex items-center gap-3 xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(31,217,196,0.35)', boxShadow: '0 18px 40px -12px rgba(var(--c-lo),calc(0.75 * var(--c-lok)))' }}>
         <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.14)' }}><Settings size={17} style={{ color: C.sage }} /></span>
         <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold">Hidden. It's always in Settings</span><span className="block text-[11.5px] leading-snug" style={{ color: C.inkDim }}>Settings → Register your business (CAC)</span></span>
         <button onClick={undoHideCac} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-bold" style={{ color: C.copper }}>Undo</button>
-        <button onClick={() => { setCacToast(false); openCac(); }} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-bold" style={{ background: C.sage, color: C.bg }}>Open</button>
+        <button onClick={() => { setCacToast(false); openCac(); }} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-bold" style={{ background: C.sageFill, color: C.onAccent }}>Open</button>
       </div>
     </div>, document.body
   );
@@ -2516,33 +2616,33 @@ function XorlaApp() {
     const certName = cacHome.name_1 || settings.businessName;
     const bg = { background: 'radial-gradient(130% 110% at 100% 0%, #22604F 0%, #143C33 45%, #0C2521 100%)', border: `1px solid ${st === 'query' ? 'rgba(226,98,75,0.5)' : 'rgba(255,176,32,0.4)'}`, boxShadow: '0 18px 34px -20px rgba(255,176,32,0.55)' };
     const pill = going ? <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: st === 'query' ? C.rustSoft : 'rgba(31,217,196,0.14)', color: tone }}><ShieldCheck size={10} /> CAC</span>
-      : <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: C.copper, color: C.bg }}><Sparkles size={10} /> New</span>;
+      : <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: C.copperFill, color: C.onAccent }}><Sparkles size={10} /> New</span>;
     if (where === 'side') return (
-      <div className="relative rounded-2xl mb-6 overflow-hidden" style={bg}>
+      <div data-xt="dark" className="relative rounded-2xl mb-6 overflow-hidden" style={bg}>
         <span aria-hidden className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.32), transparent 65%)' }} />
-        {!going && <button onClick={hideCacPromo} aria-label="Hide" title="Hide (it stays in Settings)" className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.3)', color: C.inkDim }}><X size={12} /></button>}
+        {!going && <button onClick={hideCacPromo} aria-label="Hide" title="Hide (it stays in Settings)" className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(var(--c-lo),calc(0.3 * var(--c-lok)))', color: C.inkDim }}><X size={12} /></button>}
         <div className="absolute top-2.5 left-3 z-10">{pill}</div>
         <div className="relative h-[104px] flex items-end justify-end pr-4 overflow-hidden">
-          <span aria-hidden className="absolute bottom-0 right-6 w-28 h-6 rounded-full blur-md" style={{ background: 'rgba(0,0,0,0.35)' }} />
+          <span aria-hidden className="absolute bottom-0 right-6 w-28 h-6 rounded-full blur-md" style={{ background: 'rgba(var(--c-lo),calc(0.35 * var(--c-lok)))' }} />
           <div className="translate-y-2"><CacMiniCert name={certName} width={124} tilt={-7} /></div>
         </div>
-        <div className="relative px-4 pb-4 pt-3" style={{ background: 'linear-gradient(180deg, rgba(12,37,33,0.0), rgba(12,37,33,0.65) 30%)' }}>
+        <div className="relative px-4 pb-4 pt-3" style={{ background: 'linear-gradient(180deg, rgba(var(--c-bg-rgb),0.0), rgba(var(--c-bg-rgb),0.65) 30%)' }}>
           <div className="text-[13px] font-bold mb-1 leading-snug">{words[0]}</div>
           <div className="text-[11px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{words[1]}</div>
-          <button onClick={openCac} className="w-full rounded-lg py-2 text-[11.5px] font-bold flex items-center justify-center gap-1" style={{ background: going ? tone : `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>{words[2]} <ArrowRight size={13} /></button>
+          <button onClick={openCac} className="w-full rounded-lg py-2 text-[11.5px] font-bold flex items-center justify-center gap-1" style={{ background: going ? tone : `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}>{words[2]} <ArrowRight size={13} /></button>
         </div>
       </div>
     );
     return (
-      <div role="button" tabIndex={0} onClick={openCac} onKeyDown={(e) => e.key === 'Enter' && openCac()} className="lg:hidden relative w-full rounded-2xl mb-5 xorla-fade-up text-left cursor-pointer overflow-hidden" style={bg}>
+      <div data-xt="dark" role="button" tabIndex={0} onClick={openCac} onKeyDown={(e) => e.key === 'Enter' && openCac()} className="lg:hidden relative w-full rounded-2xl mb-5 xorla-fade-up text-left cursor-pointer overflow-hidden" style={bg}>
         <span aria-hidden className="absolute -right-8 -top-10 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.3), transparent 65%)' }} />
-        {!going && <button onClick={hideCacPromo} aria-label="Hide this" className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.32)', color: C.inkDim }}><X size={14} /></button>}
+        {!going && <button onClick={hideCacPromo} aria-label="Hide this" className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(var(--c-lo),calc(0.32 * var(--c-lok)))', color: C.inkDim }}><X size={14} /></button>}
         <div className="relative flex items-center gap-2 pl-4 pr-1 py-4">
           <div className="flex-1 min-w-0">
             {pill}
             <div className="text-[16px] font-bold cx-display leading-tight mt-2">{words[0]}</div>
             <div className="text-[12px] leading-snug mt-1" style={{ color: C.inkDim }}>{words[1]}</div>
-            <span className="inline-flex items-center gap-1 mt-3 px-3 py-1.5 rounded-lg text-[12.5px] font-bold" style={{ background: going ? tone : `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>{words[2]} <ArrowRight size={13} /></span>
+            <span className="inline-flex items-center gap-1 mt-3 px-3 py-1.5 rounded-lg text-[12.5px] font-bold" style={{ background: going ? tone : `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}>{words[2]} <ArrowRight size={13} /></span>
           </div>
           <div className="shrink-0 w-[112px] pt-5 -mr-3"><CacMiniCert name={certName} width={112} tilt={7} /></div>
         </div>
@@ -2999,7 +3099,7 @@ function XorlaApp() {
             return (
               <div key={c.id} className="rounded-xl px-3 py-2.5" style={{ background: wait ? C.copperSoft : C.surfaceRaised, border: `1px solid ${wait ? 'rgba(255,176,32,0.35)' : C.line}`, opacity: (c.status === 'undone' && c.kind !== 'team') || c.status === 'declined' ? 0.6 : 1 }}>
                 <div className="flex items-start gap-2.5">
-                  <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: c.money ? C.copperSoft : 'rgba(255,255,255,0.05)' }}><Ic size={15} style={{ color: c.money ? C.copper : C.inkDim }} /></span>
+                  <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: c.money ? C.copperSoft : 'rgba(var(--c-hi),0.05)' }}><Ic size={15} style={{ color: c.money ? C.copper : C.inkDim }} /></span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13px] leading-snug" style={{ color: C.ink, textDecoration: c.status === 'undone' && c.kind !== 'team' ? 'line-through' : 'none' }}>{c.summary}</span>
                     <span className="block text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{c.actor_name || 'Manager'}{c.shop_id && hasManyLocations ? ` · ${shopNameOf(c.shop_id)}` : ''} · {when(c.created_at)}{c.status === 'undone' && c.kind !== 'team' ? ' · undone' : c.status === 'declined' ? ' · declined' : c.status === 'approved' ? ' · approved' : ''}</span>
@@ -3009,7 +3109,7 @@ function XorlaApp() {
                 {wait && (
                   <div className="grid grid-cols-2 gap-2 mt-2.5">
                     <button onClick={() => decideChange(c, false)} className="h-9 rounded-lg text-[12.5px] font-semibold" style={{ color: C.rust, border: `1px solid ${C.line}`, background: C.surfaceRaised }}>Decline</button>
-                    <button onClick={() => decideChange(c, true)} className="h-9 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Approve</button>
+                    <button onClick={() => decideChange(c, true)} className="h-9 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>Approve</button>
                   </div>
                 )}
               </div>
@@ -3053,7 +3153,7 @@ function XorlaApp() {
       <Sheet onClose={() => setLocPrice(null)} busy={locPrice.busy} title={<><div className="text-[16px] font-semibold cx-display">Price at {shopNameOf(locPrice.shopId)}</div><div className="text-[12.5px] mt-0.5 truncate" style={{ color: C.inkDim }}>{p.name}</div></>}>
         {myShops.length > 1 && (
           <div className="flex flex-wrap gap-1.5 mb-3">
-            {myShops.map((sh) => { const on = sh.id === locPrice.shopId; const had = shopRow(p.id, sh.id)?.price_override; return <button key={sh.id} type="button" onClick={() => setLocPrice({ ...locPrice, shopId: sh.id, value: had == null ? '' : String(had) })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={on ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(sh)}</button>; })}
+            {myShops.map((sh) => { const on = sh.id === locPrice.shopId; const had = shopRow(p.id, sh.id)?.price_override; return <button key={sh.id} type="button" onClick={() => setLocPrice({ ...locPrice, shopId: sh.id, value: had == null ? '' : String(had) })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={on ? { background: C.sageFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(sh)}</button>; })}
           </div>
         )}
         <div className="rounded-xl px-3.5 py-3 mb-3 flex items-center justify-between text-[12.5px]" style={{ background: C.surfaceRaised }}>
@@ -3073,7 +3173,7 @@ function XorlaApp() {
           return (
             <button type="button" onClick={toggle} disabled={locPrice.busy} className="w-full mb-3 rounded-xl px-3.5 py-3 flex items-center gap-3 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
               <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold">Offer at {shopNameOf(locPrice.shopId)}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{offered ? 'Guests and customers at this branch can book or buy it.' : 'Switched off here. Other branches still offer it.'}</span></span>
-              <span className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: offered ? C.sage : 'rgba(255,255,255,0.12)' }}><span className="absolute top-1 w-4 h-4 rounded-full" style={{ background: '#fff', left: offered ? '24px' : '4px' }} /></span>
+              <span className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: offered ? C.sageFill : 'rgba(var(--c-hi),0.12)' }}><span className="absolute top-1 w-4 h-4 rounded-full" style={{ background: '#fff', left: offered ? '24px' : '4px' }} /></span>
             </button>
           );
         })()}
@@ -3081,7 +3181,7 @@ function XorlaApp() {
         <input type="text" inputMode="decimal" autoFocus placeholder={fmt(std)} value={formatNumInput(locPrice.value)} onChange={(e) => setLocPrice({ ...locPrice, value: parseNumInput(e.target.value), error: '' })} onKeyDown={(e) => e.key === 'Enter' && saveLocPrice()} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
         <div className="text-[11.5px] mt-2 leading-relaxed" style={{ color: C.inkFaint }}>Only {shopNameOf(locPrice.shopId)} and its storefront page use this price. This item is shared by every branch, so renaming it or changing its photo is for the owner. To have your own version, add a new item for your branch.</div>
         {locPrice.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{locPrice.error}</div>}
-        <button onClick={saveLocPrice} disabled={locPrice.busy} className="w-full mt-4 rounded-xl py-3 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: locPrice.busy ? 0.6 : 1 }}>{locPrice.busy ? 'Saving…' : 'Save price'}</button>
+        <button onClick={saveLocPrice} disabled={locPrice.busy} className="w-full mt-4 rounded-xl py-3 text-[14px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: locPrice.busy ? 0.6 : 1 }}>{locPrice.busy ? 'Saving…' : 'Save price'}</button>
       </Sheet>
     );
   };
@@ -3142,7 +3242,7 @@ function XorlaApp() {
     const paid = paidOnline > 0 ? Math.min(total, paidOnline) : mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
     const close = () => { if (!fulfil.busy) setFulfil(null); };
     return (
-      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={close}>
         <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-4">
             <div className="text-[16px] font-semibold cx-display">{T.tracksStock ? `Fulfil ${order.customerName}'s order` : `${order.customerName}'s request is done`}</div>
@@ -3167,7 +3267,7 @@ function XorlaApp() {
           ) : (<>
           <div className="text-[12.5px] font-semibold mb-2">Has the customer paid?</div>
           <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-            {[['full', 'Paid in full'], ['part', 'Part, or not yet']].map(([k, l]) => <button key={k} onClick={() => setFulfil({ ...fulfil, mode: k })} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={mode === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+            {[['full', 'Paid in full'], ['part', 'Part, or not yet']].map(([k, l]) => <button key={k} onClick={() => setFulfil({ ...fulfil, mode: k })} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={mode === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>)}
           </div>
           </>)}
           {paidOnline <= 0 && mode === 'part' && <input type="text" inputMode="decimal" autoFocus placeholder="Amount paid so far (₦), 0 if nothing yet" value={formatNumInput(fulfil.paid)} onChange={(e) => setFulfil({ ...fulfil, paid: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-3" style={field} />}
@@ -3176,7 +3276,7 @@ function XorlaApp() {
             {total - paid > 0 ? `The ${fmt(total - paid)} still owed becomes an invoice for ${order.customerName}, so you can follow it up.` : ''}
           </div>
           {fulfil.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{fulfil.error}</div>}
-          <button onClick={confirmFulfil} disabled={fulfil.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: fulfil.busy ? 0.6 : 1 }}>{fulfil.busy ? 'Saving…' : T.tracksStock ? `Record sale of ${fmt(total)}` : `Record ${T.sale} of ${fmt(total)}`}</button>
+          <button onClick={confirmFulfil} disabled={fulfil.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: fulfil.busy ? 0.6 : 1 }}>{fulfil.busy ? 'Saving…' : T.tracksStock ? `Record sale of ${fmt(total)}` : `Record ${T.sale} of ${fmt(total)}`}</button>
         </div>
       </div>
     );
@@ -3219,7 +3319,7 @@ function XorlaApp() {
       <Sheet onClose={close} title={<div className="text-[16px] font-semibold cx-display">Order cancelled</div>}>
         <div className="space-y-3.5">
           <div className="text-[13px] leading-relaxed" style={{ color: C.inkDim }}>{firstName(o)}'s order page now says it's cancelled, with your reason: <strong style={{ color: C.ink }}>{c.reason}</strong>.{paid > 0 ? ` It also asks where to send back the ${fmt(paid)} they paid.` : ''}</div>
-          {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(cancelMessage(o, c.reason))}`} target="_blank" rel="noopener noreferrer" onClick={() => setTimeout(close, 300)} className="w-full rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><MessageCircle size={16} /> Tell {firstName(o)} on WhatsApp</a>
+          {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(cancelMessage(o, c.reason))}`} target="_blank" rel="noopener noreferrer" onClick={() => setTimeout(close, 300)} className="w-full rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageFill, color: C.onAccent }}><MessageCircle size={16} /> Tell {firstName(o)} on WhatsApp</a>
             : <div className="text-[12px]" style={{ color: C.inkFaint }}>No phone number on this order, so they'll see it on their order page.</div>}
           <button onClick={close} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Done</button>
         </div>
@@ -3232,12 +3332,12 @@ function XorlaApp() {
           <div>
             <div className={fieldLabel} style={{ color: C.inkFaint }}>WHY? {firstName(o).toUpperCase()} WILL SEE THIS</div>
             <div className="flex flex-wrap gap-1.5 mb-2">
-              {chips.map((t) => <button key={t} type="button" onClick={() => setCancelAsk({ ...c, reason: t, error: '' })} className="px-3 py-1.5 rounded-full text-[12px] font-medium text-left" style={c.reason === t ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t}</button>)}
+              {chips.map((t) => <button key={t} type="button" onClick={() => setCancelAsk({ ...c, reason: t, error: '' })} className="px-3 py-1.5 rounded-full text-[12px] font-medium text-left" style={c.reason === t ? { background: C.sageFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t}</button>)}
             </div>
             <textarea rows={2} maxLength={200} placeholder="Or write it in your own words" value={c.reason} onChange={(e) => setCancelAsk({ ...c, reason: e.target.value, error: '' })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
           </div>
           {c.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{c.error}</div>}
-          <button onClick={confirmCancel} disabled={c.busy} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.rust, color: '#fff', opacity: c.busy || String(c.reason || '').trim().length < 3 ? 0.55 : 1 }}>{c.busy ? 'Cancelling…' : paid > 0 ? 'Cancel and refund' : 'Cancel the order'}</button>
+          <button onClick={confirmCancel} disabled={c.busy} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.rustFill, color: '#fff', opacity: c.busy || String(c.reason || '').trim().length < 3 ? 0.55 : 1 }}>{c.busy ? 'Cancelling…' : paid > 0 ? 'Cancel and refund' : 'Cancel the order'}</button>
           <button onClick={close} disabled={c.busy} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Keep the order</button>
         </div>
       </Sheet>
@@ -3280,7 +3380,7 @@ function XorlaApp() {
           <div className="space-y-3.5">
             <div className="text-[13px] leading-relaxed" style={{ color: C.inkDim }}>{c.mode === 'confirm' ? `${firstName(o)}'s order page now says you can make it.` : `${firstName(o)}'s order page shows ${c.picks.join(', ')}. When they choose, tap their choice on the order.`}</div>
             <div className="rounded-xl px-3.5 py-3 text-[12.5px] whitespace-pre-line leading-relaxed" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>{msg}</div>
-            {o.customerPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener noreferrer" onClick={() => setTimeout(close, 300)} className="w-full rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><MessageCircle size={16} /> Send on WhatsApp</a>}
+            {o.customerPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener noreferrer" onClick={() => setTimeout(close, 300)} className="w-full rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageFill, color: C.onAccent }}><MessageCircle size={16} /> Send on WhatsApp</a>}
             <button onClick={close} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Done</button>
           </div>
         </Sheet>
@@ -3295,7 +3395,7 @@ function XorlaApp() {
             <div>
               <div className={fieldLabel} style={{ color: C.inkFaint }}>READY IN (OPTIONAL)</div>
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {['2 days', '3 days', '5 days', '1 week', '2 weeks'].map((d) => <button key={d} type="button" onClick={() => setCustomAsk({ ...c, note: c.note === d ? '' : d })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={c.note === d ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{d}</button>)}
+                {['2 days', '3 days', '5 days', '1 week', '2 weeks'].map((d) => <button key={d} type="button" onClick={() => setCustomAsk({ ...c, note: c.note === d ? '' : d })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={c.note === d ? { background: C.sageFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{d}</button>)}
               </div>
               <input type="text" maxLength={120} placeholder="Or type it, e.g. 10 days, after you send measurements" value={c.note} onChange={(e) => setCustomAsk({ ...c, note: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
             </div>
@@ -3306,7 +3406,7 @@ function XorlaApp() {
                 {listed.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {listed.map((v) => { const on = c.picks.includes(v); const n = leftOf(v); const none = n !== null && n <= 0;
-                      return <button key={v} type="button" disabled={none} onClick={() => setCustomAsk({ ...c, error: '', picks: on ? c.picks.filter((x) => x !== v) : [...c.picks, v] })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={on ? { background: C.sage, color: C.bg } : { color: none ? C.inkFaint : C.inkDim, border: `1px solid ${C.line}`, opacity: none ? 0.5 : 1 }}>{v}{n !== null ? ` · ${n > 0 ? `${n} here` : 'none'}` : ''}</button>; })}
+                      return <button key={v} type="button" disabled={none} onClick={() => setCustomAsk({ ...c, error: '', picks: on ? c.picks.filter((x) => x !== v) : [...c.picks, v] })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={on ? { background: C.sageFill, color: C.onAccent } : { color: none ? C.inkFaint : C.inkDim, border: `1px solid ${C.line}`, opacity: none ? 0.5 : 1 }}>{v}{n !== null ? ` · ${n > 0 ? `${n} here` : 'none'}` : ''}</button>; })}
                   </div>
                 ) : <div className="text-[12px]" style={{ color: C.inkFaint }}>This product has no listed options. Type what you can offer below.</div>}
               </div>
@@ -3315,7 +3415,7 @@ function XorlaApp() {
             </>
           )}
           {c.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{c.error}</div>}
-          <button onClick={saveCustom} disabled={c.busy} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: c.busy ? 0.6 : 1 }}>{c.busy ? 'Saving…' : c.mode === 'confirm' ? 'Confirm we can make it' : 'Save and tell the customer'}</button>
+          <button onClick={saveCustom} disabled={c.busy} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: c.busy ? 0.6 : 1 }}>{c.busy ? 'Saving…' : c.mode === 'confirm' ? 'Confirm we can make it' : 'Save and tell the customer'}</button>
         </div>
       </Sheet>
     );
@@ -3582,9 +3682,9 @@ function XorlaApp() {
                 return (
                   <div key={r.id} className="rounded-xl p-3" style={{ background: on ? C.copperSoft : C.surfaceRaised, border: `1px solid ${on ? 'rgba(255,176,32,0.4)' : C.line}` }}>
                     <div className="flex items-center gap-2.5">
-                      <button type="button" onClick={() => set({ chosen: r.id })} aria-label={`Choose ${r.name}`} className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={{ border: `1.5px solid ${on ? C.copper : C.inkFaint}` }}>{on && <span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copper }} />}</button>
+                      <button type="button" onClick={() => set({ chosen: r.id })} aria-label={`Choose ${r.name}`} className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={{ border: `1.5px solid ${on ? C.copper : C.inkFaint}` }}>{on && <span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copperFill }} />}</button>
                       <button type="button" onClick={() => set({ chosen: r.id })} className="flex-1 min-w-0 text-left"><span className="block text-[13.5px] font-semibold truncate">{r.name}</span>{r.areas && <span className="block text-[11px] truncate" style={{ color: C.inkFaint }}>{r.areas}</span>}</button>
-                      <a href={`https://wa.me/${toWhatsAppNumber(r.phone)}?text=${encodeURIComponent(riderAskMessage(r, o))}`} target="_blank" rel="noopener noreferrer" className="shrink-0 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold flex items-center gap-1" style={{ background: C.sage, color: C.bg }}><MessageCircle size={13} /> Ask</a>
+                      <a href={`https://wa.me/${toWhatsAppNumber(r.phone)}?text=${encodeURIComponent(riderAskMessage(r, o))}`} target="_blank" rel="noopener noreferrer" className="shrink-0 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold flex items-center gap-1" style={{ background: C.sageFill, color: C.onAccent }}><MessageCircle size={13} /> Ask</a>
                       <input type="text" inputMode="decimal" placeholder="₦ price" value={formatNumInput(f.quotes[r.id] || '')} onChange={(e) => setRiderFor({ ...f, error: '', quotes: { ...f.quotes, [r.id]: parseNumInput(e.target.value) }, chosen: f.chosen || r.id })} className="shrink-0 w-24 rounded-lg px-2.5 py-1.5 text-[13px] outline-none cx-mono" style={field} />
                     </div>
                   </div>
@@ -3623,7 +3723,7 @@ function XorlaApp() {
             </div>
             </>}
             {f.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
-            <button onClick={saveRider} disabled={f.busy} className="w-full mt-3 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : !f.chosen ? (f.ride ? 'Choose a driver' : 'Choose a rider') : f.ride ? `Send ${riders.find((x) => x.id === f.chosen)?.name || 'driver'}` : f.pay === 'before' ? `Ask ${String(o.customerName).split(' ')[0]} to pay first` : `Send ${riders.find((x) => x.id === f.chosen)?.name || 'rider'}`}</button>
+            <button onClick={saveRider} disabled={f.busy} className="w-full mt-3 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : !f.chosen ? (f.ride ? 'Choose a driver' : 'Choose a rider') : f.ride ? `Send ${riders.find((x) => x.id === f.chosen)?.name || 'driver'}` : f.pay === 'before' ? `Ask ${String(o.customerName).split(' ')[0]} to pay first` : `Send ${riders.find((x) => x.id === f.chosen)?.name || 'rider'}`}</button>
           </>
         )}
       </Sheet>
@@ -3654,7 +3754,7 @@ function XorlaApp() {
         </div>
         <div className="text-[11.5px] leading-relaxed mb-1" style={{ color: C.inkFaint }}>The full {fmt(total)} goes to your bank ({settings.payout?.bank || 'your connected account'}). The customer pays a small service fee on top.{o.customerPhone ? ' Next, you can send them the link on WhatsApp.' : ''}</div>
         {payAsk.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{payAsk.error}</div>}
-        <button onClick={confirmPayAsk} disabled={payAsk.busy || total < 100} className="w-full mt-3 rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg, opacity: payAsk.busy || total < 100 ? 0.6 : 1 }}>{payAsk.busy ? <><Loader2 size={15} className="animate-spin" /> Saving…</> : `Confirm order and ask for ${fmt(total)}`}</button>
+        <button onClick={confirmPayAsk} disabled={payAsk.busy || total < 100} className="w-full mt-3 rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageFill, color: C.onAccent, opacity: payAsk.busy || total < 100 ? 0.6 : 1 }}>{payAsk.busy ? <><Loader2 size={15} className="animate-spin" /> Saving…</> : `Confirm order and ask for ${fmt(total)}`}</button>
       </Sheet>
     );
   };
@@ -3764,7 +3864,7 @@ function XorlaApp() {
     const editingCounts = editingProductId && !canRun;
     const stockHere = editingProductId ? stockAt({ id: editingProductId }, targetShopId) : 0;
     const countedBefore = editingProductId && variantStock.some((r) => r.product_id === editingProductId && r.shop_id === targetShopId);
-    const chip = (on) => (on ? { background: C.sage, color: C.bg, border: `1px solid ${C.sage}` } : { color: C.inkDim, border: `1px solid ${C.line}` });
+    const chip = (on) => (on ? { background: C.sageFill, color: C.onAccent, border: `1px solid ${C.sage}` } : { color: C.inkDim, border: `1px solid ${C.line}` });
     return (
       <>
         <div className="rounded-xl p-3.5 space-y-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
@@ -3807,7 +3907,7 @@ function XorlaApp() {
                 <input type="text" placeholder={/size/i.test(g.name || '') ? 'e.g. S, M, L, XL' : /colou?r/i.test(g.name || '') ? 'e.g. Red, Navy blue, Black' : 'Type one or more, with commas'} value={g.draft || ''}
                   onChange={(e) => setOptionGroup(i, { draft: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOptionValues(i); } }} onBlur={() => String(g.draft || '').includes(',') && addOptionValues(i)}
                   className="flex-1 min-w-0 rounded-lg px-3 py-2 text-[13px] outline-none" style={field} />
-                <button type="button" onClick={() => addOptionValues(i)} disabled={!String(g.draft || '').trim()} className="shrink-0 px-3.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: String(g.draft || '').trim() ? 1 : 0.4 }}>Add</button>
+                <button type="button" onClick={() => addOptionValues(i)} disabled={!String(g.draft || '').trim()} className="shrink-0 px-3.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: String(g.draft || '').trim() ? 1 : 0.4 }}>Add</button>
               </div>
             </div>
           ))}
@@ -3819,7 +3919,7 @@ function XorlaApp() {
           )}
           {live.length > 0 && (
             <button type="button" onClick={() => setProductForm((f) => ({ ...f, customChoice: !f.customChoice }))} role="checkbox" aria-checked={!!productForm.customChoice} className="w-full text-left flex items-start gap-3 rounded-xl px-3 py-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-              <span className="mt-0.5 w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: productForm.customChoice ? C.sage : 'transparent', border: `2px solid ${productForm.customChoice ? C.sage : C.inkFaint}` }}>{productForm.customChoice && <Check size={13} style={{ color: C.bg }} />}</span>
+              <span className="mt-0.5 w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: productForm.customChoice ? C.sageFill : 'transparent', border: `2px solid ${productForm.customChoice ? C.sage : C.inkFaint}` }}>{productForm.customChoice && <Check size={13} style={{ color: C.onAccent }} />}</span>
               <span className="min-w-0"><span className="block text-[13px] font-semibold">Customers can ask for another {live[0].name.toLowerCase()}</span><span className="block text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>They type what they want (e.g. "emerald green") if it isn't on your list. You make it for them.</span></span>
             </button>
           )}
@@ -3887,7 +3987,7 @@ function XorlaApp() {
     return (
       <div className="min-w-0">
         {label && <div className={`${small ? 'text-[9.5px]' : 'text-[10.5px]'} font-semibold mb-1 uppercase tracking-wide`} style={{ color: C.inkFaint }}>{optionWords(product.options)}</div>}
-        <BrandSelect value={value || ''} onChange={(e) => onChange(e.target.value)} aria-label={`Choose ${optionWords(product.options)}`} className={`w-full min-w-0 rounded-lg ${small ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-sm'} outline-none`} style={{ ...field, colorScheme: 'dark', ...(countsByOption(product) && !value ? { border: `1.5px solid ${C.copper}` } : {}) }}>
+        <BrandSelect value={value || ''} onChange={(e) => onChange(e.target.value)} aria-label={`Choose ${optionWords(product.options)}`} className={`w-full min-w-0 rounded-lg ${small ? 'px-2.5 py-1.5 text-[11px]' : 'px-3 py-2 text-sm'} outline-none`} style={{ ...field, colorScheme: 'var(--c-scheme)', ...(countsByOption(product) && !value ? { border: `1.5px solid ${C.copper}` } : {}) }}>
           <option value="">Choose {optionWords(product.options)}…</option>
           {optionCombos(product.options).map((v) => { const n = counted ? optionAt(product.id, shopId, v) : null; const ex = optionAddon(product.options, v); return <option key={v} value={v} disabled={counted && n <= 0}>{v}{ex ? ` (${ex > 0 ? '+' : '−'}${fmt(Math.abs(ex))})` : ''}{counted ? (n > 0 ? ` — ${n} here` : ' — none here') : ''}</option>; })}
         </BrandSelect>
@@ -4165,11 +4265,11 @@ function XorlaApp() {
   const tipReady = (id) => tipsSeen !== null && !tipsSeen[id] && planKnown && tourStep === null;
   const renderTip = (id, Icon, title, body) => (
     <div key={id} className="rounded-2xl p-4 mb-5 flex items-start gap-3 xorla-fade-up" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.25)' }}>
-      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><Icon size={18} style={{ color: C.bg }} /></div>
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageFill }}><Icon size={18} style={{ color: C.onAccent }} /></div>
       <div className="flex-1 min-w-0">
         <div className="text-[13.5px] font-semibold cx-display">{title}</div>
         <div className="text-[12.5px] leading-relaxed mt-0.5 mb-2.5" style={{ color: C.inkDim }}>{body}</div>
-        <button onClick={() => dismissTip(id)} className="px-4 py-1.5 rounded-xl text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Got it</button>
+        <button onClick={() => dismissTip(id)} className="px-4 py-1.5 rounded-xl text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>Got it</button>
       </div>
       <button onClick={() => dismissTip(id)} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
     </div>
@@ -4326,7 +4426,7 @@ function XorlaApp() {
   if (locked && settings.pin) return <>{fontStyle}<LockScreen pin={settings.pin} businessName={settings.businessName} onUnlock={() => setLocked(false)} onForgot={() => { setStoredPin(session?.user_id, ''); setLocked(false); logout(); }} /></>;
 
   const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
-  const card = { background: '#0F2925', border: `1px solid ${C.lineStrong}`, boxShadow: '0 1px 1px rgba(0,0,0,0.2), 0 16px 40px -20px rgba(0,0,0,0.7)' };
+  const card = { background: C.surface, border: `1px solid ${C.lineStrong}`, boxShadow: '0 1px 1px rgba(var(--c-lo),calc(0.2 * var(--c-lok))), 0 16px 40px -20px rgba(var(--c-lo),calc(0.7 * var(--c-lok)))' };
 
   // One pill, top of every screen, only once there's a second shop
   // Team presence: who has Xorla open right now, and who's been active today. Tapping someone opens their sales.
@@ -4350,8 +4450,8 @@ function XorlaApp() {
         return (
           <button key={s.id} onClick={() => { setStaffFilter(s.name); setTab('sales'); }} title={`${pr.label}${pr.salesToday ? ` · ${pr.salesToday} ${T.sale}${pr.salesToday !== 1 ? 's' : ''} today` : ''}`} className="shrink-0 flex items-center gap-2 pl-2.5 pr-3 py-1.5 rounded-full text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
             <span className="relative flex w-2 h-2 shrink-0">
-              {pr.online && <span className="absolute inline-flex w-full h-full rounded-full animate-ping" style={{ background: C.sage, opacity: 0.6 }} />}
-              <span className="relative inline-flex w-2 h-2 rounded-full" style={{ background: pr.online ? C.sage : C.inkFaint }} />
+              {pr.online && <span className="absolute inline-flex w-full h-full rounded-full animate-ping" style={{ background: C.sageFill, opacity: 0.6 }} />}
+              <span className="relative inline-flex w-2 h-2 rounded-full" style={{ background: pr.online ? C.sageFill : C.inkFaint }} />
             </span>
             <span className="leading-tight">
               <span className="block text-[12px] font-semibold" style={{ color: C.ink }}>{s.name}</span>
@@ -4438,7 +4538,7 @@ function XorlaApp() {
     return [...map.values()];
   };
   const productSelect = (value, onChange, placeholder = 'Choose an item…') => (
-    <BrandSelect value={value} onChange={(e) => onChange(e.target.value)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+    <BrandSelect value={value} onChange={(e) => onChange(e.target.value)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-[13px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
       <option value="">{placeholder}</option>
       {stockProducts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
     </BrandSelect>
@@ -4459,7 +4559,7 @@ function XorlaApp() {
             <div key={t.id} className="flex items-center gap-2">
               <span className="flex-1 min-w-0 truncate text-[13px]">{productName(t.product_id, t.variant)} <span style={{ color: C.inkFaint }}>· {Number(t.qty_sent)} sent</span></span>
               <input type="number" min="0" aria-label={`How many ${productName(t.product_id, t.variant)} arrived`} placeholder={String(Number(t.qty_sent))} value={receiveQty[t.id] ?? ''} onChange={(e) => setReceiveQty({ ...receiveQty, [t.id]: e.target.value })} className="w-16 rounded-lg px-2 py-1.5 text-[13px] text-center outline-none cx-mono" style={field} />
-              <button onClick={() => confirmReceived(t)} disabled={stockBusy} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: stockBusy ? 0.6 : 1 }}>Received</button>
+              <button onClick={() => confirmReceived(t)} disabled={stockBusy} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: stockBusy ? 0.6 : 1 }}>Received</button>
             </div>
           ))}
         </div>
@@ -4476,7 +4576,7 @@ function XorlaApp() {
         <div className="flex-1 min-w-0">
           <div className="text-[13.5px] font-semibold">Deliveries, transfers and stock requests are part of Business</div>
           <div className="text-[12px] leading-relaxed mt-0.5 mb-3" style={{ color: C.inkDim }}>Your locations and everything recorded in them are all still here.</div>
-          <button onClick={openPlanPage} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>See plans</button>
+          <button onClick={openPlanPage} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>See plans</button>
         </div>
       </div>
     );
@@ -4489,7 +4589,7 @@ function XorlaApp() {
         </div>
         {stockError && !stockPanel && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{stockError}</div>}
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => { setStockError(''); setDeliveryForm({ lines: [{ productId: '', split: {} }], arrived: true, note: '' }); setStockPanel('delivery'); }} className="flex items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}><Truck size={16} /> Receive delivery</button>
+          <button onClick={() => { setStockError(''); setDeliveryForm({ lines: [{ productId: '', split: {} }], arrived: true, note: '' }); setStockPanel('delivery'); }} className="flex items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}><Truck size={16} /> Receive delivery</button>
           <button onClick={() => openSend()} className="flex items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink }}><ArrowRight size={16} /> Send stock</button>
         </div>
 
@@ -4503,7 +4603,7 @@ function XorlaApp() {
                   <div className="text-[12.5px] mt-1" style={{ color: C.inkDim }}>{(r.items || []).map((it) => `${productName(it.productId, it.variant)} ×${it.qty}`).join(', ')}</div>
                   {r.note && <div className="text-[11.5px] mt-1 italic" style={{ color: C.inkFaint }}>"{r.note}"</div>}
                   <div className="flex gap-2 mt-2.5">
-                    <button onClick={() => openSend({ to: r.shop_id, requestId: r.id, lines: (r.items || []).map((it) => ({ productId: it.productId, variant: it.variant || '', qty: String(it.qty) })) })} className="flex-1 rounded-lg py-2 text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Approve & send</button>
+                    <button onClick={() => openSend({ to: r.shop_id, requestId: r.id, lines: (r.items || []).map((it) => ({ productId: it.productId, variant: it.variant || '', qty: String(it.qty) })) })} className="flex-1 rounded-lg py-2 text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>Approve & send</button>
                     <button onClick={() => declineRequest(r)} className="px-4 rounded-lg py-2 text-[12.5px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Decline</button>
                   </div>
                 </div>
@@ -4557,7 +4657,7 @@ function XorlaApp() {
     };
     const title = stockPanel === 'delivery' ? 'Receive a supplier delivery' : stockPanel === 'transfer' ? (sendForm.requestId ? `Send stock to ${shopNameOf(sendForm.to)}` : 'Send stock') : `Request stock for ${shopNameOf(activeShopId || targetShopId)}`;
     return (
-      <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={() => !stockBusy && setStockPanel(null)}>
+      <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={() => !stockBusy && setStockPanel(null)}>
         <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-4">
             <div className="text-[16px] font-semibold cx-display">{title}</div>
@@ -4602,7 +4702,7 @@ function XorlaApp() {
               <div className="space-y-2">
                 {[[true, 'Arrived already', 'Add it to each location\'s stock now.'], [false, 'On its way', 'Each location confirms what arrives.']].map(([v, l, d]) => (
                   <button key={l} onClick={() => setDeliveryForm({ ...deliveryForm, arrived: v })} className="w-full text-left rounded-xl px-3.5 py-2.5 flex items-start gap-3" style={{ background: deliveryForm.arrived === v ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${deliveryForm.arrived === v ? C.copper : C.line}` }}>
-                    <span className="mt-1 w-4 h-4 rounded-full shrink-0 flex items-center justify-center" style={{ border: `2px solid ${deliveryForm.arrived === v ? C.copper : C.inkFaint}` }}>{deliveryForm.arrived === v && <span className="w-2 h-2 rounded-full" style={{ background: C.copper }} />}</span>
+                    <span className="mt-1 w-4 h-4 rounded-full shrink-0 flex items-center justify-center" style={{ border: `2px solid ${deliveryForm.arrived === v ? C.copper : C.inkFaint}` }}>{deliveryForm.arrived === v && <span className="w-2 h-2 rounded-full" style={{ background: C.copperFill }} />}</span>
                     <span><span className="block text-[13px] font-semibold">{l}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{d}</span></span>
                   </button>
                 ))}
@@ -4615,12 +4715,12 @@ function XorlaApp() {
           {stockPanel === 'transfer' && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <BrandSelect value={sendForm.from} onChange={(e) => setSendForm({ ...sendForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                <BrandSelect value={sendForm.from} onChange={(e) => setSendForm({ ...sendForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[13px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                   <option value="">From…</option>
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </BrandSelect>
                 <ArrowRight size={16} style={{ color: C.inkFaint }} className="shrink-0" />
-                <BrandSelect value={sendForm.to} onChange={(e) => setSendForm({ ...sendForm, to: e.target.value })} disabled={!!sendForm.requestId} className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[13px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                <BrandSelect value={sendForm.to} onChange={(e) => setSendForm({ ...sendForm, to: e.target.value })} disabled={!!sendForm.requestId} className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-[13px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                   <option value="">To…</option>
                   {allLiveLocations.filter((l) => l.id !== sendForm.from).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </BrandSelect>
@@ -4628,7 +4728,7 @@ function XorlaApp() {
               <div className="space-y-2.5">{sendForm.lines.map((_, i) => lineRow(sendForm.lines, (lines) => setSendForm({ ...sendForm, lines }), i, true))}</div>
               <button onClick={() => setSendForm({ ...sendForm, lines: [...sendForm.lines, { productId: '', qty: '' }] })} className="text-[12px] font-medium" style={{ color: C.sage }}>+ Add another item</button>
               <button onClick={() => setSendForm({ ...sendForm, receivedNow: !sendForm.receivedNow })} role="checkbox" aria-checked={sendForm.receivedNow} className="w-full text-left flex items-start gap-3 rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                <span className="mt-0.5 w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: sendForm.receivedNow ? C.sage : 'transparent', border: `2px solid ${sendForm.receivedNow ? C.sage : C.inkFaint}` }}>{sendForm.receivedNow && <Check size={13} style={{ color: C.bg }} />}</span>
+                <span className="mt-0.5 w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: sendForm.receivedNow ? C.sageFill : 'transparent', border: `2px solid ${sendForm.receivedNow ? C.sage : C.inkFaint}` }}>{sendForm.receivedNow && <Check size={13} style={{ color: C.onAccent }} />}</span>
                 <span><span className="block text-[13px] font-semibold">Already delivered — mark as received now</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>For nearby locations, or when you carried it yourself. Otherwise it shows as "on the way" until the receiving location confirms.</span></span>
               </button>
               <input type="text" placeholder="Note (optional) — e.g. driver or waybill" value={sendForm.note} onChange={(e) => setSendForm({ ...sendForm, note: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -4645,7 +4745,7 @@ function XorlaApp() {
           )}
 
           {stockError && <div className="mt-4 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{stockError}</div>}
-          <button onClick={stockPanel === 'delivery' ? submitDelivery : stockPanel === 'transfer' ? submitSend : submitRequest} disabled={stockBusy} className="w-full mt-5 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: stockBusy ? 0.6 : 1 }}>
+          <button onClick={stockPanel === 'delivery' ? submitDelivery : stockPanel === 'transfer' ? submitSend : submitRequest} disabled={stockBusy} className="w-full mt-5 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: stockBusy ? 0.6 : 1 }}>
             {stockBusy ? 'Saving…' : stockPanel === 'delivery' ? 'Record delivery' : stockPanel === 'transfer' ? (sendForm.receivedNow ? 'Send and mark received' : 'Send stock') : 'Send request'}
           </button>
         </div>
@@ -4672,7 +4772,7 @@ function XorlaApp() {
               <span className="shrink-0 cx-mono font-semibold">{sub(r)}</span>
             </div>
             <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}>
-              <div className="h-full rounded-full" style={{ width: `${Math.max(4, (valueOf(r) / (max || 1)) * 100)}%`, background: C.sage }} />
+              <div className="h-full rounded-full" style={{ width: `${Math.max(4, (valueOf(r) / (max || 1)) * 100)}%`, background: C.sageFill }} />
             </div>
           </div>
         ))}
@@ -4691,7 +4791,7 @@ function XorlaApp() {
           <div className="text-[12px]" style={{ color: C.inkFaint }}>{viewAllShops ? 'All shops combined' : shopNameOf(activeShopId)} · last {insightDays} days</div>
           <div className="flex gap-1 p-1 rounded-lg shrink-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
             {[7, 30, 90].map((d) => (
-              <button key={d} onClick={() => setInsightDays(d)} className="px-2.5 py-1 rounded-md text-[12px] font-semibold" style={insightDays === d ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{d}d</button>
+              <button key={d} onClick={() => setInsightDays(d)} className="px-2.5 py-1 rounded-md text-[12px] font-semibold" style={insightDays === d ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{d}d</button>
             ))}
           </div>
         </div>
@@ -4933,7 +5033,7 @@ function XorlaApp() {
         <div className="flex flex-wrap gap-2">
           {[{ id: null, name: `Anyone free` }, ...peopleAt(panelShop)].map((p) => {
             const on = (a.person || null) === p.id;
-            return <button key={p.id || 'any'} type="button" onClick={() => pickApptPerson(p.id)} aria-pressed={on} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={on ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{p.name}</button>;
+            return <button key={p.id || 'any'} type="button" onClick={() => pickApptPerson(p.id)} aria-pressed={on} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={on ? { background: C.copperFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{p.name}</button>;
           })}
         </div>
         {a.mode === 'assign' && <div className="text-[11.5px] mt-2 leading-relaxed" style={{ color: C.inkFaint }}>"Anyone free" lets Xorla pick whoever is free at {apptTime(a.order.startAt)}.</div>}
@@ -4955,7 +5055,7 @@ function XorlaApp() {
       </div>
     );
     return (
-      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={close}>
         <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-4">
             <div className="text-[16px] font-semibold cx-display">{title}</div>
@@ -4979,9 +5079,9 @@ function XorlaApp() {
                       <div className="flex flex-wrap gap-2">
                         {timedServices.map((p) => {
                           const on = a.items.includes(p.id);
-                          return <button key={p.id} type="button" onClick={() => toggleApptItem(p.id)} className="px-3 py-2 rounded-xl text-left" style={on ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>
+                          return <button key={p.id} type="button" onClick={() => toggleApptItem(p.id)} className="px-3 py-2 rounded-xl text-left" style={on ? { background: C.copperFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>
                             <span className="block text-[12.5px] font-semibold leading-tight">{p.name}</span>
-                            <span className="block text-[11px]" style={{ color: on ? C.bg : C.inkFaint }}>{fmt(priceAt(p, targetShopId))} · {serviceMinutes(p) >= 60 ? `${serviceMinutes(p) / 60}h` : `${serviceMinutes(p)}m`}</span>
+                            <span className="block text-[11px]" style={{ color: on ? C.onAccent : C.inkFaint }}>{fmt(priceAt(p, targetShopId))} · {serviceMinutes(p) >= 60 ? `${serviceMinutes(p) / 60}h` : `${serviceMinutes(p)}m`}</span>
                           </button>;
                         })}
                       </div>
@@ -5006,7 +5106,7 @@ function XorlaApp() {
             )}
           </div>
           {a.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
-          <button onClick={submitAppt} disabled={a.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: a.mode === 'decline' || a.mode === 'cancel' ? C.rust : C.copper, color: C.bg, opacity: a.busy ? 0.6 : 1 }}>
+          <button onClick={submitAppt} disabled={a.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: a.mode === 'decline' || a.mode === 'cancel' ? C.rustFill : C.copperFill, color: C.onAccent, opacity: a.busy ? 0.6 : 1 }}>
             {a.busy ? 'Saving…' : a.mode === 'assign' ? (a.person ? `Give to ${(activePeople.find((p) => p.id === a.person) || {}).name || ''}` : 'Give to anyone free') : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Offer ${apptDay(a.slot)}, ${apptTime(a.slot)} to ${firstName}` : `Offer a time to ${firstName}`) : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
           </button>
           {a.mode === 'reschedule' && a.slot && (
@@ -5061,7 +5161,7 @@ function XorlaApp() {
         {f.error && <div className="rounded-lg px-3 py-2 text-[12px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
         <div className="flex gap-2">
           <button onClick={() => setPersonForm(null)} className="flex-1 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Cancel</button>
-          <button onClick={savePerson} disabled={f.busy} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : f.id ? 'Save' : `Add ${PW.one}`}</button>
+          <button onClick={savePerson} disabled={f.busy} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: f.busy ? 0.6 : 1 }}>{f.busy ? 'Saving…' : f.id ? 'Save' : `Add ${PW.one}`}</button>
         </div>
       </div>
     );
@@ -5072,7 +5172,7 @@ function XorlaApp() {
             <div className="text-[14.5px] font-semibold mb-1">Customers choose their {PW.one}</div>
             <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>Each {PW.one} gets their own diary, so no one is double-booked. Customers pick someone, or "Anyone free".</div>
           </div>
-          <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: on ? C.sage : C.line }}>
+          <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: on ? C.sageFill : C.line }}>
             <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: on ? '24px' : '4px' }} />
           </span>
         </button>
@@ -5148,7 +5248,7 @@ function XorlaApp() {
                   <div className="grid grid-cols-7 gap-1.5">
                     {[1, 2, 3, 4, 5, 6, 7].map((d) => {
                       const on = b.days.includes(d);
-                      return <button key={d} onClick={() => setBranchHours({ ...b, days: on ? b.days.filter((x) => x !== d) : [...b.days, d].sort() })} aria-pressed={on} className="py-2 rounded-lg text-[12px] font-semibold" style={on ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{DAY_SHORT[d]}</button>;
+                      return <button key={d} onClick={() => setBranchHours({ ...b, days: on ? b.days.filter((x) => x !== d) : [...b.days, d].sort() })} aria-pressed={on} className="py-2 rounded-lg text-[12px] font-semibold" style={on ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{DAY_SHORT[d]}</button>;
                     })}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -5164,7 +5264,7 @@ function XorlaApp() {
                   <div className="flex gap-2">
                     {b.own ? <button onClick={() => saveBranchHours(true)} disabled={b.busy} className="flex-1 py-2.5 rounded-xl text-[12.5px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Use the main hours</button>
                       : <button onClick={() => setBranchHours(null)} className="flex-1 py-2.5 rounded-xl text-[12.5px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Cancel</button>}
-                    <button onClick={() => saveBranchHours(false)} disabled={b.busy} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: b.busy ? 0.6 : 1 }}>{b.busy ? 'Saving…' : 'Save hours'}</button>
+                    <button onClick={() => saveBranchHours(false)} disabled={b.busy} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: b.busy ? 0.6 : 1 }}>{b.busy ? 'Saving…' : 'Save hours'}</button>
                   </div>
                 </div>
               )}
@@ -5193,10 +5293,10 @@ function XorlaApp() {
     const unreminded = tomorrow.filter((o) => canRemind(o) && !o.remindedAt).length;
     return (
               <div className="mb-5 space-y-3">
-                <button onClick={() => openAppt('new')} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={17} /> New appointment</button>
+                <button onClick={() => openAppt('new')} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={17} /> New appointment</button>
                 {myPerson && (
                   <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                    {[[false, 'Everyone'], [true, 'Mine']].map(([v, l]) => <button key={l} onClick={() => setApptMineOnly(v)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={apptMineOnly === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+                    {[[false, 'Everyone'], [true, 'Mine']].map(([v, l]) => <button key={l} onClick={() => setApptMineOnly(v)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={apptMineOnly === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>)}
                   </div>
                 )}
                 {today.length > 0 && (
@@ -5268,7 +5368,7 @@ function XorlaApp() {
                 <div key={o.id} className="rounded-2xl p-4" style={card}>
                   <div className="flex items-start justify-between mb-2.5">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap"><span className="text-[13.5px] font-semibold">{o.customerName}</span>{(() => { const t = orderTag(o); return t ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold" style={{ background: 'rgba(255,255,255,0.06)', color: C.inkDim }}><t.Icon size={11} />{t.label}</span> : null; })()}</div>
+                      <div className="flex items-center gap-2 flex-wrap"><span className="text-[13.5px] font-semibold">{o.customerName}</span>{(() => { const t = orderTag(o); return t ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold" style={{ background: 'rgba(var(--c-hi),0.06)', color: C.inkDim }}><t.Icon size={11} />{t.label}</span> : null; })()}</div>
                       <div className="text-[11px]" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 && `${shopNameOf(o.shopId)} · `}{o.customerPhone && `${o.customerPhone} · `}{new Date(o.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(o.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                     <span className="px-2 py-1 rounded-full text-[10.5px] font-semibold shrink-0" style={
@@ -5320,13 +5420,13 @@ function XorlaApp() {
                           <>
                             <div className="text-[11.5px] mt-1.5 mb-2" style={{ color: C.inkDim }}>You suggested {o.customSuggest.join(', ')}. When they answer, tap what they chose:</div>
                             <div className="flex flex-wrap gap-1.5">
-                              {o.customSuggest.map((v) => <button key={v} onClick={() => chooseCustom(o, v, lines[0]?.idx)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>{firstName(o)} chose {v}</button>)}
+                              {o.customSuggest.map((v) => <button key={v} onClick={() => chooseCustom(o, v, lines[0]?.idx)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>{firstName(o)} chose {v}</button>)}
                               <button onClick={() => openCustom(o, 'suggest')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Suggest again</button>
                             </div>
                           </>
                         ) : (
                           <div className="grid grid-cols-3 gap-1.5 mt-2.5">
-                            <button onClick={() => openCustom(o, 'confirm')} className="h-9 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg }}>We can make it</button>
+                            <button onClick={() => openCustom(o, 'confirm')} className="h-9 rounded-lg text-[12px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>We can make it</button>
                             <button onClick={() => openCustom(o, 'suggest')} className="h-9 rounded-lg text-[12px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}`, background: C.bg }}>Suggest another</button>
                             <button onClick={() => cancelOrder(o.id, `We can't make it in ${lines.map((it) => it.custom).join(' or ')}`)} className="h-9 rounded-lg text-[12px] font-semibold" style={{ color: C.rust, border: `1px solid ${C.line}`, background: C.bg }}>Can't make it</button>
                           </div>
@@ -5353,12 +5453,12 @@ function XorlaApp() {
                       <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.3)' }}>
                         <div className="flex items-center justify-between gap-2"><span className="font-semibold" style={{ color: C.rust }}>Refund to send: {fmt(o.refundAmount)}</span><span style={{ color: C.inkFaint }}>paid online</span></div>
                         {o.refundNumber ? (
-                          <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg px-2.5 py-2" style={{ background: 'rgba(0,0,0,0.2)' }}>
+                          <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg px-2.5 py-2" style={{ background: 'rgba(var(--c-lo),calc(0.2 * var(--c-lok)))' }}>
                             <span className="min-w-0"><span className="block" style={{ color: C.inkDim }}>{o.refundBank}{o.refundName ? ` · ${o.refundName}` : ''}</span><span className="block cx-mono text-[14px] font-bold tracking-wider">{o.refundNumber}</span></span>
                             <button onClick={() => copyText(`refacct-${o.id}`, o.refundNumber)} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold flex items-center gap-1" style={{ background: C.surfaceRaised, color: C.ink }}><Copy size={12} />{copiedKey === `refacct-${o.id}` ? 'Copied' : 'Copy'}</button>
                           </div>
                         ) : <div className="mt-0.5" style={{ color: C.inkDim }}>Waiting for {String(o.customerName).split(' ')[0]} to add their account on their order page.{o.customerPhone ? ' ' : ''}{o.customerPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${String(o.customerName).split(' ')[0]}, we owe you ${fmt(o.refundAmount)} back for your order. Please add the account to send it to here: ${orderLinkOf(o)}`)}`} target="_blank" rel="noopener noreferrer" className="font-semibold" style={{ color: C.copper }}>Ask on WhatsApp</a>}</div>}
-                        <button onClick={() => markOrderRefunded(o)} className="mt-2 w-full h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg }}>Mark refunded</button>
+                        <button onClick={() => markOrderRefunded(o)} className="mt-2 w-full h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>Mark refunded</button>
                       </div>
                     );
                     if (o.payStatus === 'refunded') return (
@@ -5380,7 +5480,7 @@ function XorlaApp() {
                         <div className="mt-2 pt-2 flex items-center gap-2" style={{ borderTop: `1px solid ${C.line}` }}>
                           <span className="flex-1 min-w-0"><span className="block font-semibold" style={{ color: C.ink }}>Rider: {o.riderName}{o.riderFee != null ? <span className="font-normal" style={{ color: C.inkFaint }}> · {fmt(o.riderFee)}</span> : null}</span>{o.deliveryFee > 0 && o.riderFee != null && <span className="block text-[11px]" style={{ color: o.deliveryFee >= o.riderFee ? C.sage : C.rust }}>Customer pays {fmt(o.deliveryFee)}{o.deliveryFee > o.riderFee ? `, you keep ${fmt(o.deliveryFee - o.riderFee)}` : o.deliveryFee < o.riderFee ? `, you cover ${fmt(o.riderFee - o.deliveryFee)}` : ''}</span>}</span>
                           {o.riderPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.riderPhone)}?text=${encodeURIComponent(riderBriefMessage(o))}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={14} /></a>}
-                          {o.riderPhone && <a href={`tel:${String(o.riderPhone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Phone size={14} /></a>}
+                          {o.riderPhone && <a href={`tel:${String(o.riderPhone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(var(--c-hi),0.05)', color: C.inkDim }}><Phone size={14} /></a>}
                           {o.status === 'pending' && <button onClick={() => openRiders(o)} className="shrink-0 text-[11.5px] font-semibold" style={{ color: C.copper }}>Change</button>}
                         </div>
                       ) : null}
@@ -5407,7 +5507,7 @@ function XorlaApp() {
                       {o.riderName ? (
                         null
                       ) : o.status === 'pending' && (
-                        <button onClick={() => openRiders(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copper, color: C.bg }}><Truck size={14} /> Get rider prices</button>
+                        <button onClick={() => openRiders(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Truck size={14} /> Get rider prices</button>
                       )}
                     </div>
                   )}
@@ -5448,12 +5548,12 @@ function XorlaApp() {
                           <div className="mt-0.5" style={{ color: found.length ? C.inkDim : C.rust }}>{found.length ? `Booking found: ${found.map((b) => `${b.customer_name}, ${b.status === 'checked_in' ? `room ${b.room_label || ''}` : `arrives ${new Date(b.check_in + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}`).join('; ')}.` : half.length ? halfMsg : `No booking found for ${first} or that phone number. Check with them before adding it to a bill.`}</div>
                           {!found.length && (
                             <div className="grid grid-cols-2 gap-2 mt-2">
-                              {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${first}, thank you for your order from ${settings.businessName}. We couldn't find your booking. What name was it under? If you haven't booked with us, we can arrange payment instead.`)}`} target="_blank" rel="noopener noreferrer" className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={14} /> WhatsApp them</a> : <span />}
+                              {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${first}, thank you for your order from ${settings.businessName}. We couldn't find your booking. What name was it under? If you haven't booked with us, we can arrange payment instead.`)}`} target="_blank" rel="noopener noreferrer" className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent }}><MessageCircle size={14} /> WhatsApp them</a> : <span />}
                               <button onClick={() => setNotGuest((x) => ({ ...x, [o.id]: true }))} className="h-9 rounded-lg text-[12.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Not a guest</button>
                             </div>
                           )}
                           {found.length === 1
-                            ? <button onClick={() => putOrderOnRoom(o, found[0])} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Add to {String(found[0].customer_name).split(' ')[0]}'s booking bill</button>
+                            ? <button onClick={() => putOrderOnRoom(o, found[0])} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Add to {String(found[0].customer_name).split(' ')[0]}'s booking bill</button>
                             : <button onClick={() => setRoomBillFor(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>{found.length ? 'Choose the booking' : 'Choose the guest yourself'}</button>}
                         </div>
                       );
@@ -5469,11 +5569,11 @@ function XorlaApp() {
                         {o.roomLabel && <div className="mt-0.5" style={{ color: match.length ? C.inkDim : C.rust }}>{match.length ? `Checked in there: ${match.map((b) => b.customer_name).join(', ')}.` : mismatch ? `Room ${o.roomLabel} is ${inRoom.map((b) => b.customer_name).join(' and ')}'s, but this order is from ${o.customerName || 'someone else'} with a different phone number. Check with them before adding it to anyone's bill.` : `Nobody is checked in to room ${o.roomLabel}. Check with ${String(o.customerName).split(' ')[0]} before adding it to a bill.`}</div>}
                         {o.roomLabel && !match.length && (
                           <div className="grid grid-cols-2 gap-2 mt-2">
-                            {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${String(o.customerName).split(' ')[0]}, thank you for your order from ${settings.businessName}. We couldn't find room ${o.roomLabel}. Which room are you in? If you're not staying with us, we can arrange payment instead.`)}`} target="_blank" rel="noopener noreferrer" className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={14} /> WhatsApp them</a> : <span />}
+                            {o.customerPhone ? <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${String(o.customerName).split(' ')[0]}, thank you for your order from ${settings.businessName}. We couldn't find room ${o.roomLabel}. Which room are you in? If you're not staying with us, we can arrange payment instead.`)}`} target="_blank" rel="noopener noreferrer" className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent }}><MessageCircle size={14} /> WhatsApp them</a> : <span />}
                             <button onClick={() => setNotGuest((x) => ({ ...x, [o.id]: true }))} className="h-9 rounded-lg text-[12.5px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Not a guest</button>
                           </div>
                         )}
-                        {inHouse.length > 0 && <button onClick={() => setRoomBillFor(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold" style={o.roomLabel && match.length ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{match.length === 1 ? `Add to ${String(match[0].customer_name).split(' ')[0]}'s room bill` : o.roomLabel ? 'Choose the guest yourself' : 'Put it on a room bill'}</button>}
+                        {inHouse.length > 0 && <button onClick={() => setRoomBillFor(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold" style={o.roomLabel && match.length ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{match.length === 1 ? `Add to ${String(match[0].customer_name).split(' ')[0]}'s room bill` : o.roomLabel ? 'Choose the guest yourself' : 'Put it on a room bill'}</button>}
                       </div>
                     );
                   })()}
@@ -5484,13 +5584,13 @@ function XorlaApp() {
                           <Truck size={14} className="shrink-0" style={{ color: C.copper }} />
                           <span className="flex-1 min-w-0"><span className="block font-semibold" style={{ color: C.ink }}>Driver: {o.riderName}{o.riderFee != null ? <span className="font-normal" style={{ color: C.inkFaint }}> · {fmt(o.riderFee)}</span> : null}</span><span className="block text-[11px]" style={{ color: o.riderSentAt ? C.inkFaint : C.sage }}>{o.riderSentAt ? `Details sent at ${new Date(o.riderSentAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })}` : 'Send them the details.'}</span></span>
                           {o.riderPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.riderPhone)}?text=${encodeURIComponent(riderBriefMessage(o))}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={14} /></a>}
-                          {o.riderPhone && <a href={`tel:${String(o.riderPhone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Phone size={14} /></a>}
+                          {o.riderPhone && <a href={`tel:${String(o.riderPhone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(var(--c-hi),0.05)', color: C.inkDim }}><Phone size={14} /></a>}
                           {o.status === 'pending' && <button onClick={() => openRiders(o)} className="shrink-0 text-[11.5px] font-semibold" style={{ color: C.copper }}>Change</button>}
                         </div>
                       ) : (
                         <>
                           <div className="flex items-center gap-2 font-semibold" style={{ color: C.ink }}><Truck size={14} style={{ color: C.copper }} /> Who's doing the ride?</div>
-                          <button onClick={() => openRiders(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copper, color: C.bg }}><Truck size={14} /> Get driver prices</button>
+                          <button onClick={() => openRiders(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Truck size={14} /> Get driver prices</button>
                         </>
                       )}
                     </div>
@@ -5599,7 +5699,7 @@ function XorlaApp() {
                         ? <a key={i} href={b.href} target="_blank" rel="noopener noreferrer" className={cls} style={st}>{b.label}</a>
                         : <button key={i} onClick={b.onClick} title={b.title} className={cls} style={st}>{b.label}</button>;
                     };
-                    const primBtn = primary && <button onClick={primary.onClick} className="h-10 px-4 rounded-xl text-[13px] font-semibold whitespace-nowrap w-full transition-opacity active:opacity-80" style={{ background: C.sage, color: C.bg }}>{primary.label}</button>;
+                    const primBtn = primary && <button onClick={primary.onClick} className="h-10 px-4 rounded-xl text-[13px] font-semibold whitespace-nowrap w-full transition-opacity active:opacity-80" style={{ background: C.sageFill, color: C.onAccent }}>{primary.label}</button>;
                     return (
                       <>
                         <div className="flex items-center justify-between gap-3">
@@ -5709,7 +5809,7 @@ function XorlaApp() {
     const tag = { ok: ['New', C.sageSoft, C.sage], exists: ['Already added', C.surface, C.inkFaint], repeat: ['Listed twice', C.surface, C.inkFaint], noprice: ['No price', C.rustSoft, C.rust] };
     const n = importRoom === Infinity ? importable.length : Math.min(importable.length, importRoom);
     return (
-      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={close}>
         <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-1">
             <div className="text-[16px] font-semibold cx-display">Import your list</div>
@@ -5728,7 +5828,7 @@ function XorlaApp() {
           )}
           {importKinds.length > 1 && (
             <div className="flex gap-1 p-1 mb-3 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-              {importKinds.map(([k, l]) => <button key={k} onClick={() => setImportKind(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={importKind === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+              {importKinds.map(([k, l]) => <button key={k} onClick={() => setImportKind(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={importKind === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>)}
             </div>
           )}
           <div className="text-[11.5px] mb-1.5" style={{ color: C.inkFaint }}>One per line: <strong style={{ color: C.inkDim }}>name, price{importKind === 'product' ? ', stock, cost price' : ''}</strong>{importKind === 'product' ? ' (stock and cost are optional)' : ''}</div>
@@ -5761,7 +5861,7 @@ function XorlaApp() {
             </div>
           )}
           {importError && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{importError}</div>}
-          <button onClick={runImport} disabled={!n || !!importBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: !n || importBusy ? 0.55 : 1 }}>{importBusy || (n ? `Add ${importWord(n)}` : 'Paste your list to continue')}</button>
+          <button onClick={runImport} disabled={!n || !!importBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: !n || importBusy ? 0.55 : 1 }}>{importBusy || (n ? `Add ${importWord(n)}` : 'Paste your list to continue')}</button>
         </div>
       </div>
     );
@@ -5838,7 +5938,7 @@ function XorlaApp() {
     const busy = p.stage === 'saving';
     const close = () => { if (!busy) setPastImport(null); };
     const set = (patch) => setPastImport((x) => x && { ...x, ...patch });
-    const card = { background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` };
+    const card = { background: C.card, border: `1px solid ${C.line}` };
     const header = (title, sub, back) => (
       <div className="flex items-start gap-3 mb-4">
         {back ? <button onClick={back} aria-label="Back" className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}><ChevronLeft size={17} /></button>
@@ -5857,7 +5957,7 @@ function XorlaApp() {
         <>
           {header('Bring in past sales', 'Selling before you joined Xorla? Add your old sales records so your reports, best sellers and Oga can see your whole history.')}
           <label className="block rounded-2xl px-5 py-6 text-center cursor-pointer" style={{ background: 'linear-gradient(180deg, rgba(255,176,32,0.09), rgba(255,176,32,0.02))', border: '1.5px dashed rgba(255,176,32,0.45)' }}>
-            <div className="mx-auto w-12 h-12 rounded-2xl flex items-center justify-center mb-3" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>{p.reading ? <Loader2 size={21} className="animate-spin" /> : <FileSpreadsheet size={22} />}</div>
+            <div className="mx-auto w-12 h-12 rounded-2xl flex items-center justify-center mb-3" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}>{p.reading ? <Loader2 size={21} className="animate-spin" /> : <FileSpreadsheet size={22} />}</div>
             <div className="text-[15px] font-semibold">{p.reading ? 'Reading your file…' : 'Upload your sales file'}</div>
             <div className="text-[12px] mt-1" style={{ color: C.inkFaint }}>Excel (.xlsx) or CSV, from your phone or computer</div>
             <input type="file" accept=".csv,.txt,.tsv,.xlsx,.xls,.numbers,text/csv,text/plain" className="hidden" onChange={loadPastFile} disabled={p.reading} />
@@ -5961,7 +6061,7 @@ function XorlaApp() {
             {map.qty >= 0 && map.amount >= 0 && (
               <div className="px-4 pb-3 -mt-1">
                 <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                  {[[false, 'Total for the row'], [true, 'Price for one']].map(([v, l]) => <button key={l} onClick={() => set({ perUnit: v })} className="flex-1 py-1.5 rounded-lg text-[12px] font-semibold" style={!!p.perUnit === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+                  {[[false, 'Total for the row'], [true, 'Price for one']].map(([v, l]) => <button key={l} onClick={() => set({ perUnit: v })} className="flex-1 py-1.5 rounded-lg text-[12px] font-semibold" style={!!p.perUnit === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>)}
                 </div>
                 <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>{p.perUnit ? 'Amount is multiplied by quantity.' : 'Amount is already the full price paid.'}</div>
               </div>
@@ -5975,7 +6075,7 @@ function XorlaApp() {
             <div className="mt-3 rounded-2xl p-4" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
               <div className="text-[13px] font-semibold mb-2.5">In your file, is 03/04/2025 the 3rd of April or March 4th?</div>
               <div className="grid grid-cols-2 gap-2">
-                {[[true, '3rd of April'], [false, 'March 4th']].map(([v, l]) => <button key={l} onClick={() => set({ dayFirst: v })} className="py-2.5 rounded-xl text-[13px] font-semibold" style={p.dayFirst === v ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}
+                {[[true, '3rd of April'], [false, 'March 4th']].map(([v, l]) => <button key={l} onClick={() => set({ dayFirst: v })} className="py-2.5 rounded-xl text-[13px] font-semibold" style={p.dayFirst === v ? { background: C.copperFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}
               </div>
             </div>
           )}
@@ -5993,7 +6093,7 @@ function XorlaApp() {
                 <div className="text-[13px] font-semibold">Only bring in sales before {shortDay(cutoff)}</div>
                 <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>You started recording sales in Xorla on {shortDay(cutoff)}. {overlap.toLocaleString()} row{overlap !== 1 ? 's' : ''} in this file {overlap !== 1 ? 'are' : 'is'} from then on and would be counted twice.</div>
               </div>
-              <span className="shrink-0 mt-0.5 w-11 h-6 rounded-full relative" style={{ background: p.onlyBefore ? C.sage : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: p.onlyBefore ? '22px' : '2px' }} /></span>
+              <span className="shrink-0 mt-0.5 w-11 h-6 rounded-full relative" style={{ background: p.onlyBefore ? C.sageFill : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: p.onlyBefore ? '22px' : '2px' }} /></span>
             </button>
           )}
           {twice && (
@@ -6034,7 +6134,7 @@ function XorlaApp() {
             </div>
           )}
           {errorBox}
-          <button onClick={() => runPastImport(list)} disabled={!!needs || !list.length} className="w-full mt-5 h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: needs || !list.length ? 0.45 : 1 }}>
+          <button onClick={() => runPastImport(list)} disabled={!!needs || !list.length} className="w-full mt-5 h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, opacity: needs || !list.length ? 0.45 : 1 }}>
             {needs || (list.length ? <><Upload size={17} /> Add {list.length.toLocaleString()} past {map.item >= 0 ? `sale${list.length !== 1 ? 's' : ''}` : `day${list.length !== 1 ? 's' : ''}`}</> : 'Nothing to add')}
           </button>
           <div className="text-[11.5px] text-center mt-2" style={{ color: C.inkFaint }}>Marked as Imported{shops.length > 1 ? ` at ${shopNameOf(p.shopId)}` : ''}. Today's stock won't change.</div>
@@ -6047,7 +6147,7 @@ function XorlaApp() {
           <div className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.copperSoft, color: C.copper }}><Loader2 size={26} className="animate-spin" /></div>
           <div className="text-[18px] font-semibold cx-display">Adding your history…</div>
           <div className="text-[12.5px] mt-1" style={{ color: C.inkDim }}>{p.progress.toLocaleString()} of {p.total.toLocaleString()}. Keep this open until it finishes.</div>
-          <div className="mt-5 h-2 rounded-full overflow-hidden mx-auto max-w-xs" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full transition-all" style={{ width: `${Math.max(4, pct)}%`, background: `linear-gradient(90deg, ${C.sage}, ${C.copper})` }} /></div>
+          <div className="mt-5 h-2 rounded-full overflow-hidden mx-auto max-w-xs" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full transition-all" style={{ width: `${Math.max(4, pct)}%`, background: `linear-gradient(90deg, ${C.sageFill}, ${C.copperFill})` }} /></div>
         </div>
       );
     } else {
@@ -6058,7 +6158,7 @@ function XorlaApp() {
           <div className="text-[20px] font-semibold cx-display">Your history is in</div>
           <div className="text-[13px] leading-relaxed mt-1.5 max-w-sm mx-auto" style={{ color: C.inkDim }}>{Number(r.rows || 0).toLocaleString()} past sales, worth {fmt(Number(r.total || 0))}, from {shortDay(r.first_day)}{r.last_day !== r.first_day ? ` to ${shortDay(r.last_day)}` : ''}. Your reports now include them.</div>
           <div className="grid gap-2 mt-6">
-            <button onClick={() => { setPastImport(null); setTab('reports'); }} className="h-[50px] rounded-2xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><TrendingUp size={17} /> See your reports</button>
+            <button onClick={() => { setPastImport(null); setTab('reports'); }} className="h-[50px] rounded-2xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}><TrendingUp size={17} /> See your reports</button>
             <button onClick={() => setPastImport(null)} className="h-[46px] rounded-2xl text-[14px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>Done</button>
           </div>
           {r.import && <button onClick={() => undoPastImport({ id: r.import, row_count: r.rows, file_name: p.fileName })} className="mt-4 text-[12.5px] font-medium inline-flex items-center gap-1" style={{ color: C.inkFaint }}><Undo2 size={13} /> Wrong file? Undo this import</button>}
@@ -6066,7 +6166,7 @@ function XorlaApp() {
       );
     }
     return (
-      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={close}>
         <div className="w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
           {body}
         </div>
@@ -6078,11 +6178,11 @@ function XorlaApp() {
     <Sheet onClose={() => setExtrasPick(false)} title={<><div className="text-[16px] font-semibold cx-display">Add your extras</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Delivery, extra hours and anything else you charge for' : 'Laundry, bar, airport pickup and anything else you charge for'}</div></>}>
       <div className="space-y-2.5">
         <button onClick={() => { setExtrasPick(false); openScan(); }} className="w-full text-left rounded-2xl p-4 flex items-center gap-3.5" style={{ background: 'linear-gradient(150deg, rgba(255,176,32,0.16), rgba(255,176,32,0.04))', border: '1px solid rgba(255,176,32,0.4)' }}>
-          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})` }}><Camera size={21} style={{ color: C.bg }} /></span>
-          <span className="flex-1 min-w-0"><span className="flex items-center gap-2 text-[15px] font-bold">Snap your price list <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full" style={{ background: C.copper, color: C.bg }}>Fastest</span></span><span className="block text-[12px] mt-0.5 leading-snug" style={{ color: C.inkDim }}>A photo or PDF. Oga reads every item and price, and you check them before saving.</span></span>
+          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})` }}><Camera size={21} style={{ color: C.onAccent }} /></span>
+          <span className="flex-1 min-w-0"><span className="flex items-center gap-2 text-[15px] font-bold">Snap your price list <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full" style={{ background: C.copperFill, color: C.onAccent }}>Fastest</span></span><span className="block text-[12px] mt-0.5 leading-snug" style={{ color: C.inkDim }}>A photo or PDF. Oga reads every item and price, and you check them before saving.</span></span>
         </button>
         <button onClick={() => { setExtrasPick(false); openImport(); }} className="w-full text-left rounded-2xl p-4 flex items-center gap-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.06)' }}><Copy size={19} style={{ color: C.inkDim }} /></span>
+          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(var(--c-hi),0.06)' }}><Copy size={19} style={{ color: C.inkDim }} /></span>
           <span className="flex-1 min-w-0"><span className="block text-[14.5px] font-semibold">Paste a list</span><span className="block text-[12px] mt-0.5" style={{ color: C.inkDim }}>From WhatsApp, Excel or your notes</span></span>
         </button>
         <button onClick={() => { setExtrasPick(false); openCatalogForm('extra'); }} className="w-full text-left rounded-2xl p-4 flex items-center gap-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
@@ -6099,7 +6199,7 @@ function XorlaApp() {
           ? `Add ${serviceKind === 'rentals' ? 'delivery, extra hours' : 'laundry, bar items'} and other extras once, and they'll appear here with their prices.`
           : 'Ask the owner to add extras like laundry or the bar, and they\'ll appear here with their prices.'}
       </div>
-      {canRun && <button type="button" onClick={() => (isOwnerRole ? setExtrasPick(true) : openCatalogForm('extra'))} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}><Plus size={14} /> Add extras</button>}
+      {canRun && <button type="button" onClick={() => (isOwnerRole ? setExtrasPick(true) : openCatalogForm('extra'))} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}><Plus size={14} /> Add extras</button>}
     </div>
   );
 
@@ -6397,7 +6497,7 @@ function XorlaApp() {
     const holdH = b.status === 'requested' && b.hold_until ? Math.max(0, Math.round((new Date(b.hold_until).getTime() - Date.now()) / 3600000)) : null;
     const pct = due > 0 ? Math.min(100, Math.round((paid / due) * 100)) : 0;
     return (
-      <div key={b.id} className="relative rounded-2xl p-3.5 pl-4 overflow-hidden" style={{ background: 'linear-gradient(180deg, #143630, #102C27)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 10px 24px -16px rgba(0,0,0,0.8)' }}>
+      <div key={b.id} className="relative rounded-2xl p-3.5 pl-4 overflow-hidden" style={{ background: C.card, border: `1px solid ${C.lineStrong}`, boxShadow: '0 10px 24px -16px rgba(var(--c-lo),calc(0.8 * var(--c-lok)))' }}>
         <span aria-hidden className="absolute left-0 top-3.5 bottom-3.5 w-[3px] rounded-r-full" style={{ background: accent }} />
         <div className="flex items-start gap-3">
           <span className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-[13px] font-bold" style={{ background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{initials}</span>
@@ -6417,7 +6517,7 @@ function XorlaApp() {
               </div>
             </div>
             <div className="mt-2 flex items-center gap-1.5">
-              <div className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] min-w-0" style={{ background: 'rgba(0,0,0,0.2)', color: C.inkDim }}>
+              <div className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] min-w-0" style={{ background: 'rgba(var(--c-lo),calc(0.2 * var(--c-lok)))', color: C.inkDim }}>
                 <CalendarClock size={12} style={{ color: C.inkFaint }} className="shrink-0" />
                 {b.is_space ? <span className="leading-tight"><strong style={{ color: C.ink }}>{b.start_time ? `${dayLabel(b.check_in)}` : eventWhen(b).split(' (')[0].replace(', all day', '')}</strong><span className="block text-[10.5px]" style={{ color: C.inkFaint }}>{b.start_time ? `${eventTimeLabel(b.start_time)} to ${eventTimeLabel(b.end_time)}` : nightsBetween(b.check_in, b.check_out) > 1 ? `${nightsBetween(b.check_in, b.check_out)} days` : 'All day'}</span></span> :
                 <span className="leading-tight">{b.check_in.slice(0, 7) === b.check_out.slice(0, 7)
@@ -6427,9 +6527,9 @@ function XorlaApp() {
               </div>
               {b.customer_phone && <span className="ml-auto flex items-center gap-1.5 shrink-0">
                 <a href={`https://wa.me/${toWhatsAppNumber(b.customer_phone)}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${b.customer_name}`} title="WhatsApp" className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={15} /></a>
-                <a href={`tel:${String(b.customer_phone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${b.customer_name}`} title="Call" className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Phone size={14} /></a>
+                <a href={`tel:${String(b.customer_phone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${b.customer_name}`} title="Call" className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(var(--c-hi),0.05)', color: C.inkDim }}><Phone size={14} /></a>
               </span>}
-              {b.manage_token && ['requested', 'confirmed'].includes(b.status) && <button type="button" onClick={() => shareGuestLink(b)} aria-label={`Send ${b.customer_name} their booking link`} title="Booking link" className={`${b.customer_phone ? '' : 'ml-auto '}w-8 h-8 shrink-0 rounded-lg flex items-center justify-center`} style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><Link2 size={14} /></button>}
+              {b.manage_token && ['requested', 'confirmed'].includes(b.status) && <button type="button" onClick={() => shareGuestLink(b)} aria-label={`Send ${b.customer_name} their booking link`} title="Booking link" className={`${b.customer_phone ? '' : 'ml-auto '}w-8 h-8 shrink-0 rounded-lg flex items-center justify-center`} style={{ background: 'rgba(var(--c-hi),0.05)', color: C.inkDim }}><Link2 size={14} /></button>}
             </div>
             {b.status === 'confirmed' && b.customer_phone && b.wa_confirm_status === 'sent' && (
               <div className="mt-2 text-[11.5px] flex items-center gap-1.5" style={{ color: C.sage }}><Check size={13} /> Confirmation sent on WhatsApp{b.wa_confirm_at ? ` · ${new Date(b.wa_confirm_at).toLocaleString('en-GB', { ...LAGOS_TIME, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}` : ''}</div>
@@ -6448,7 +6548,7 @@ function XorlaApp() {
         </div>
         {live && due > 0 && paid > 0 && paid < due && (
           <div className="mt-3">
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: C.copper }} /></div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(var(--c-hi),0.06)' }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: C.copperFill }} /></div>
             <div className="flex justify-between mt-1 text-[11px]" style={{ color: C.inkFaint }}><span>{fmt(paid)} paid</span><span><strong style={{ color: C.ink }} className="cx-mono">{fmt(due - paid)}</strong> to pay</span></div>
           </div>
         )}
@@ -6477,7 +6577,7 @@ function XorlaApp() {
             <div className="text-[12px] font-semibold" style={{ color: C.rust }}>Refund to send: <span className="cx-mono">{fmt(b.refund_amount)}</span>{b.cancel_reason ? <span className="font-normal" style={{ color: C.inkFaint }}> · {b.cancel_reason}</span> : null}</div>
           )}
           {b.deposit_status === 'refund_due' && (b.refund_account_number
-            ? <div className="rounded-lg px-2.5 py-2 flex items-center gap-2" style={{ background: 'rgba(0,0,0,0.22)' }}>
+            ? <div className="rounded-lg px-2.5 py-2 flex items-center gap-2" style={{ background: 'rgba(var(--c-lo),calc(0.22 * var(--c-lok)))' }}>
                 <span className="flex-1 min-w-0 text-[12px]" style={{ color: C.inkDim }}>Send to <strong style={{ color: C.ink }}>{b.refund_bank_name}</strong> · <strong className="cx-mono" style={{ color: C.ink }}>{b.refund_account_number}</strong> · {b.refund_account_name}</span>
                 <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(b.refund_account_number); brandAlert('Account number copied.', { title: 'Copied' }); } catch (e) {} }} aria-label="Copy account number" className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}><Copy size={13} /></button>
               </div>
@@ -6485,7 +6585,7 @@ function XorlaApp() {
           {b.deposit_status === 'refunded' && (
             <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Refunded {fmt(b.refund_amount)}{b.refunded_by_name ? ` by ${b.refunded_by_name}` : ''}</div>
           )}
-          {b.note && <div className="text-[12px] rounded-lg px-2.5 py-1.5 mt-1.5" style={{ background: 'rgba(255,255,255,0.03)', color: C.inkDim }}>“{b.note}”</div>}
+          {b.note && <div className="text-[12px] rounded-lg px-2.5 py-1.5 mt-1.5" style={{ background: 'rgba(var(--c-hi),0.03)', color: C.inkDim }}>“{b.note}”</div>}
         </div>
         {actions && (
           <div className="flex gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
@@ -6496,7 +6596,7 @@ function XorlaApp() {
     );
   };
   const actBtn = (label, onClick, primary) => (
-    <button key={label} onClick={onClick} disabled={bookingBusy} className={`${primary ? 'flex-[1.4]' : 'flex-1'} min-w-0 h-10 rounded-lg px-2 text-[12.5px] font-semibold truncate`} style={primary ? { background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{label}</button>
+    <button key={label} onClick={onClick} disabled={bookingBusy} className={`${primary ? 'flex-[1.4]' : 'flex-1'} min-w-0 h-10 rounded-lg px-2 text-[12.5px] font-semibold truncate`} style={primary ? { background: C.sageFill, color: C.onAccent, opacity: bookingBusy ? 0.6 : 1 } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{label}</button>
   );
 
   // Room setup: "101-105" or "101, 102, Garden suite" or "A1-A4"
@@ -6546,9 +6646,9 @@ function XorlaApp() {
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-2">
         <span className="text-[14px] font-semibold whitespace-nowrap">{serviceKind === 'rentals' ? 'Your items' : 'Rooms right now'}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span>
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] whitespace-nowrap" style={{ color: C.inkFaint }}>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.sage }} />Free</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.rust }} />Occupied</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.copper }} />Leaving today</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.sageFill }} />Free</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.rustFill }} />Occupied</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.copperFill }} />Leaving today</span>
           {arrivals.some((a) => a.shop_id === deskShopId) && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.inkDim }} />Held</span>}
         </span>
       </div>
@@ -6590,7 +6690,7 @@ function XorlaApp() {
                         className="rounded-xl px-2.5 py-2 text-left active:scale-[0.97] transition-transform" style={{ background: picked ? C.rustSoft : tone[0], border: `1px solid ${picked ? C.rust : `${tone[1]}55`}`, boxShadow: picked ? `0 0 0 1px ${C.rust}` : 'none', opacity: editing && guest ? 0.45 : 1 }}>
                         <div className="flex items-center justify-between gap-1">
                           <span className="text-[15px] font-bold cx-mono" style={{ color: C.ink }}>{r.label}</span>
-                          {editing ? (guest ? <Lock size={12} style={{ color: C.inkFaint }} /> : <span className="w-4 h-4 rounded-md flex items-center justify-center shrink-0" style={{ background: picked ? C.rust : 'transparent', border: `1.5px solid ${picked ? C.rust : C.inkFaint}` }}>{picked && <Check size={11} strokeWidth={3} style={{ color: C.bg }} />}</span>) : <span className="w-2 h-2 rounded-full shrink-0" style={{ background: tone[1] }} />}
+                          {editing ? (guest ? <Lock size={12} style={{ color: C.inkFaint }} /> : <span className="w-4 h-4 rounded-md flex items-center justify-center shrink-0" style={{ background: picked ? C.rustFill : 'transparent', border: `1.5px solid ${picked ? C.rust : C.inkFaint}` }}>{picked && <Check size={11} strokeWidth={3} style={{ color: C.onAccent }} />}</span>) : <span className="w-2 h-2 rounded-full shrink-0" style={{ background: tone[1] }} />}
                         </div>
                         <div className="text-[10.5px] font-semibold truncate" style={{ color: tone[1] }}>{guest ? guest.customer_name.split(' ')[0] : tone[2]}</div>
                         {guest && extrasTotalOf(guest) > 0 && <div className="text-[10px] font-semibold truncate cx-mono" style={{ color: C.copper }}>+{fmt(extrasTotalOf(guest))}</div>}
@@ -6606,7 +6706,7 @@ function XorlaApp() {
                   {rooms.length === 0 && <div className="text-[12px] mb-2 leading-relaxed" style={{ color: C.inkDim }}>Name your {p.units || 1} {p.name.toLowerCase()}{(p.units || 1) !== 1 ? 's' : ''} so the front desk can check guests into a specific one.</div>}
                   <div className="flex gap-2">
                     <input type="text" placeholder={rooms.length ? 'Add more, e.g. 106-108' : 'e.g. 101-105, or 101, 102, Garden suite'} value={roomSetup[p.id] || ''} onChange={(e) => setRoomSetup({ ...roomSetup, [p.id]: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && addRooms(p.id)} className="flex-1 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                    <button onClick={() => addRooms(p.id)} disabled={bookingBusy} className="shrink-0 px-4 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>Add</button>
+                    <button onClick={() => addRooms(p.id)} disabled={bookingBusy} className="shrink-0 px-4 rounded-xl text-[13px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: bookingBusy ? 0.6 : 1 }}>Add</button>
                   </div>
                   {parseRoomLabels(roomSetup[p.id]).length > 0 && <div className="text-[11.5px] mt-1.5" style={{ color: C.sage }}>Will add: {parseRoomLabels(roomSetup[p.id]).slice(0, 12).join(', ')}{parseRoomLabels(roomSetup[p.id]).length > 12 ? ` and ${parseRoomLabels(roomSetup[p.id]).length - 12} more` : ''}</div>}
                   {editing && (() => {
@@ -6619,7 +6719,7 @@ function XorlaApp() {
                           <span className="text-[12px]" style={{ color: n ? C.ink : C.inkFaint }}>{n ? `${n} selected` : 'Tap rooms above to select them, e.g. ones under repair or added by mistake.'}</span>
                           {free.length > 1 && <button type="button" onClick={() => setPickedRooms(allPicked ? [] : free.map((r) => r.id))} className="shrink-0 text-[12px] font-semibold" style={{ color: C.copper }}>{allPicked ? 'Clear' : 'Select all free'}</button>}
                         </div>
-                        {n > 0 && <button type="button" onClick={() => retirePicked(rooms)} disabled={bookingBusy} className="mt-2.5 w-full py-2.5 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2" style={{ background: C.rust, color: '#fff', opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}Take {n} room{n === 1 ? '' : 's'} out of use</button>}
+                        {n > 0 && <button type="button" onClick={() => retirePicked(rooms)} disabled={bookingBusy} className="mt-2.5 w-full py-2.5 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2" style={{ background: C.rustFill, color: '#fff', opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}Take {n} room{n === 1 ? '' : 's'} out of use</button>}
                       </div>
                     );
                   })()}
@@ -6640,7 +6740,7 @@ function XorlaApp() {
       <div id={id} className="scroll-mt-24">
         <div className="flex items-center gap-2 mb-2.5">
           <span className="text-[14px] font-semibold" style={{ color }}>{title}</span>
-          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold cx-mono" style={{ background: 'rgba(255,255,255,0.06)', color: C.inkDim }}>{list.length}</span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold cx-mono" style={{ background: 'rgba(var(--c-hi),0.06)', color: C.inkDim }}>{list.length}</span>
           {hint && <span className="ml-auto text-[11px] truncate" style={{ color: C.inkFaint }}>{hint}</span>}
         </div>
         {list.length === 0 ? <div className="text-[12px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkFaint }}>{empty}</div> : <div className="space-y-3">{list.map(render)}</div>}
@@ -6671,7 +6771,7 @@ function XorlaApp() {
             <div className="text-[12px] truncate" style={{ color: C.inkFaint }}>{viewAllShops && shops.length > 1 ? 'All locations' : shopNameOf(deskShopId)} · {dayLabel(bkToday)}</div>
           </div>
           <div className="flex gap-2 mt-3">
-            <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : openNewBooking())} className="flex-1 flex items-center justify-center gap-2 rounded-2xl h-12 text-[14.5px] font-semibold" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -12px rgba(255,176,32,0.6)' }}><Plus size={18} /> New booking</button>
+            <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : openNewBooking())} className="flex-1 flex items-center justify-center gap-2 rounded-2xl h-12 text-[14.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, boxShadow: '0 10px 24px -12px rgba(255,176,32,0.6)' }}><Plus size={18} /> New booking</button>
             {canRun && (
               <button onClick={() => setTab('products')} className="shrink-0 flex items-center gap-2 rounded-2xl h-12 px-4 text-[13.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage, border: '1px solid rgba(31,217,196,0.3)' }}><BedDouble size={17} /> {serviceKind === 'rentals' ? 'Items & prices' : 'Rooms & prices'}</button>
             )}
@@ -6697,7 +6797,7 @@ function XorlaApp() {
 
         {isOwnerRole && depositPct > 0 && !settings.payout && !settings.bankAccountNumber && (
           <button type="button" onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('deposits'); setTab('settings'); }} className="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.4)' }}>
-            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><CreditCard size={18} style={{ color: C.bg }} /></span>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill }}><CreditCard size={18} style={{ color: C.onAccent }} /></span>
             <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">Guests can't pay your deposit yet</span><span className="block text-[12px] leading-snug" style={{ color: C.inkDim }}>Connect your bank in 1 minute and guests pay online, so bookings confirm themselves. Or add your account details for transfers.</span></span>
             <ChevronRight size={17} style={{ color: C.copper }} className="shrink-0" />
           </button>
@@ -6713,7 +6813,7 @@ function XorlaApp() {
             <div id="bk-room-orders" className="scroll-mt-24 rounded-2xl p-3.5" style={{ background: waiting.length ? C.copperSoft : C.surfaceRaised, border: `1px solid ${waiting.length ? 'rgba(255,176,32,0.35)' : C.line}` }}>
               <div className="flex items-center justify-between gap-3 mb-2.5">
                 <span className="text-[14px] font-semibold flex items-center gap-2" style={{ color: waiting.length ? C.copper : C.ink }}><BedDouble size={16} />Room orders{waiting.length ? ` to deliver` : ''}</span>
-                {waiting.length > 0 ? <span className="px-2 py-0.5 rounded-full text-[11px] font-bold" style={{ background: C.copper, color: C.bg }}>{waiting.length}</span> : <span className="text-[11.5px]" style={{ color: C.inkFaint }}>{done.length} delivered today</span>}
+                {waiting.length > 0 ? <span className="px-2 py-0.5 rounded-full text-[11px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>{waiting.length}</span> : <span className="text-[11.5px]" style={{ color: C.inkFaint }}>{done.length} delivered today</span>}
               </div>
               <div className="space-y-2">
                 {waiting.map((r) => (
@@ -6724,7 +6824,7 @@ function XorlaApp() {
                       <span className="block text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{r.guest_name} · {fmt(r.total)} on their bill · {ago(r.created_at)}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(r.shop_id)}` : ''}</span>
                       {r.note && <span className="block text-[12px] mt-1" style={{ color: C.ink }}>"{r.note}"</span>}
                     </span>
-                    <button disabled={bookingBusy} onClick={() => runBooking(() => sbRpc('deliver_room_order', session.access_token, { p_id: r.id }))} className="shrink-0 h-9 px-3 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>Delivered</button>
+                    <button disabled={bookingBusy} onClick={() => runBooking(() => sbRpc('deliver_room_order', session.access_token, { p_id: r.id }))} className="shrink-0 h-9 px-3 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: bookingBusy ? 0.6 : 1 }}>Delivered</button>
                   </div>
                 ))}
                 {!waiting.length && done.slice(0, 3).map((r) => (
@@ -6757,14 +6857,14 @@ function XorlaApp() {
             </button>
           );
         })()}
-        {!(quietDay && !bookingRequests.length) && <div className="rounded-2xl p-3" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+        {!(quietDay && !bookingRequests.length) && <div className="rounded-2xl p-3" style={{ background: C.card, border: `1px solid ${C.line}` }}>
           <div className="flex items-center justify-between px-1 mb-2.5">
             <span className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Today</span>
             <span className="text-[12px]" style={{ color: C.inkDim }}><strong className="cx-mono" style={{ color: freeRoomsNow > 0 ? C.sage : C.rust }}>{freeRoomsNow}</strong> of {totalRooms} {word} free</span>
           </div>
           <div className="grid grid-cols-4 gap-1.5">
             {tiles.map(([key, id, l, n, col, Ic]) => (
-              <button key={key} onClick={() => n && jump(id)} className="rounded-xl py-2.5 px-1 flex flex-col items-center gap-0.5" style={{ background: n ? 'rgba(0,0,0,0.25)' : 'transparent', border: `1px solid ${n ? C.line : 'transparent'}` }}>
+              <button key={key} onClick={() => n && jump(id)} className="rounded-xl py-2.5 px-1 flex flex-col items-center gap-0.5" style={{ background: n ? 'rgba(var(--c-lo),calc(0.25 * var(--c-lok)))' : 'transparent', border: `1px solid ${n ? C.line : 'transparent'}` }}>
                 <Ic size={14} style={{ color: n ? col : C.inkFaint }} />
                 <span className="text-[19px] font-bold cx-mono leading-none mt-1" style={{ color: n ? (col === C.ink ? C.ink : col) : C.inkFaint }}>{n}</span>
                 <span className="text-[10.5px] font-medium" style={{ color: n ? C.inkDim : C.inkFaint }}>{l}</span>
@@ -6796,24 +6896,24 @@ function XorlaApp() {
             <div className="relative overflow-hidden rounded-2xl p-4" style={{ background: 'radial-gradient(120% 140% at 100% 0%, rgba(31,217,196,0.16) 0%, rgba(31,217,196,0.04) 45%, transparent 70%), ' + C.surfaceRaised, border: `1px solid ${C.line}` }}>
               <span aria-hidden className="absolute -right-6 -top-6 w-28 h-28 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.18), transparent 70%)' }} />
               <div className="relative flex items-start gap-3.5">
-                <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><Sparkles size={20} style={{ color: C.bg }} /></span>
+                <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.sageFill }}><Sparkles size={20} style={{ color: C.onAccent }} /></span>
                 <span className="min-w-0">
                   <span className="block text-[15px] font-bold">All calm today</span>
                   <span className="block text-[12.5px] leading-snug mt-0.5" style={{ color: C.inkDim }}>No arrivals, guests in house or check-outs. A good moment to get {serviceKind === 'rentals' ? 'items' : 'rooms'} ready.</span>
                 </span>
               </div>
               <div className="relative grid grid-cols-2 gap-2 mt-3.5">
-                <div className="rounded-xl px-3 py-2.5" style={{ background: 'rgba(0,0,0,0.18)' }}>
+                <div className="rounded-xl px-3 py-2.5" style={{ background: 'rgba(var(--c-lo),calc(0.18 * var(--c-lok)))' }}>
                   <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Free tonight</div>
                   <div className="text-[18px] font-bold cx-mono mt-0.5" style={{ color: freeRoomsNow > 0 ? C.sage : C.rust }}>{freeRoomsNow}<span className="text-[12px] font-medium" style={{ color: C.inkFaint }}> of {totalRooms}</span></div>
                 </div>
-                <div className="rounded-xl px-3 py-2.5 min-w-0" style={{ background: 'rgba(0,0,0,0.18)' }}>
+                <div className="rounded-xl px-3 py-2.5 min-w-0" style={{ background: 'rgba(var(--c-lo),calc(0.18 * var(--c-lok)))' }}>
                   <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Next arrival</div>
                   {next ? <div className="text-[13px] font-semibold mt-1 truncate">{String(next.customer_name || '').split(' ')[0]} · {daysTo === 1 ? 'tomorrow' : nextDay.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</div> : <div className="text-[13px] mt-1" style={{ color: C.inkFaint }}>None booked yet</div>}
                 </div>
               </div>
               <div className="relative flex gap-2 mt-3">
-                <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : openNewBooking())} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copper, color: C.bg }}><Plus size={15} /> Walk-in guest</button>
+                <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : openNewBooking())} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={15} /> Walk-in guest</button>
                 {storeLink && <button onClick={() => copyText('quiet-link', storeLink)} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.sage, border: '1px solid rgba(31,217,196,0.35)' }}>{copiedKey === 'quiet-link' ? <><Check size={15} /> Link copied</> : <><Copy size={14} /> Copy booking link</>}</button>}
               </div>
             </div>
@@ -6888,7 +6988,7 @@ function XorlaApp() {
                 <div className="text-[15px] font-semibold">Halls & events</div>
                 <div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{spacesHere.map((x) => x.name).join(', ') || 'Events booked here'}</div>
               </div>
-              {spacesHere.length > 0 && <button onClick={() => openSpaceBooking()} className="shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={14} />Book</button>}
+              {spacesHere.length > 0 && <button onClick={() => openSpaceBooking()} className="shrink-0 flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={14} />Book</button>}
             </div>
             {eventsNow.length > 0 && section('Today', C.sage, eventsNow, '', (b) => renderBookingRow(b, b.status === 'checked_in'
               ? [actBtn('Add to bill', () => openBill(b)), actBtn('Finish', () => openAct(b, 'check_out'), true)]
@@ -6908,14 +7008,14 @@ function XorlaApp() {
           const outcome = (b) => b.deposit_status === 'kept' ? [`Deposit kept: ${fmt(b.deposit_paid)}`, C.copper, C.copperSoft]
             : b.deposit_status === 'refund_due' ? [`Refund due: ${fmt(b.refund_amount)}`, C.rust, C.rustSoft]
             : b.deposit_status === 'refunded' ? [`Refunded ${fmt(b.refund_amount)}`, C.sage, C.sageSoft]
-            : ['No deposit paid', C.inkFaint, 'rgba(255,255,255,0.05)'];
+            : ['No deposit paid', C.inkFaint, 'rgba(var(--c-hi),0.05)'];
           const when = (t) => (t ? new Date(t).toLocaleString('en-GB', { ...LAGOS_TIME, weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '');
           const list = showAllCancelled ? gone : gone.slice(0, 3);
           return (
             <div id="bk-cancelled" className="scroll-mt-24">
               <div className="flex items-center gap-2 mb-2.5">
                 <span className="text-[14px] font-semibold" style={{ color: C.inkDim }}>Cancelled recently</span>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold cx-mono" style={{ background: 'rgba(255,255,255,0.06)', color: C.inkDim }}>{gone.length}</span>
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold cx-mono" style={{ background: 'rgba(var(--c-hi),0.06)', color: C.inkDim }}>{gone.length}</span>
                 <span className="ml-auto text-[11.5px]" style={{ color: C.inkFaint }}>Last 3 days</span>
               </div>
               <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
@@ -6964,16 +7064,16 @@ function XorlaApp() {
         <div className="space-y-3">
           {spacesHere.length > 1 && (
             <div className="flex flex-wrap gap-2">
-              {spacesHere.map((x) => <button key={x.id} type="button" onClick={() => set({ productId: x.id, mode: x.hourPrice ? f.mode : 'day' })} className="px-3 py-2 rounded-xl text-left" style={x.id === f.productId ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}><span className="block text-[13px] font-semibold leading-tight">{x.name}</span><span className="block text-[11px]" style={{ color: x.id === f.productId ? C.bg : C.inkFaint }}>{fmt(priceAt(x, deskShopId))}/day{x.capacity ? ` · ${x.capacity} guests` : ''}</span></button>)}
+              {spacesHere.map((x) => <button key={x.id} type="button" onClick={() => set({ productId: x.id, mode: x.hourPrice ? f.mode : 'day' })} className="px-3 py-2 rounded-xl text-left" style={x.id === f.productId ? { background: C.copperFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}><span className="block text-[13px] font-semibold leading-tight">{x.name}</span><span className="block text-[11px]" style={{ color: x.id === f.productId ? C.onAccent : C.inkFaint }}>{fmt(priceAt(x, deskShopId))}/day{x.capacity ? ` · ${x.capacity} guests` : ''}</span></button>)}
             </div>
           )}
           {spacesHere.length === 1 && p && <div className="text-[13px]" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>{p.name}</strong> · {fmt(priceAt(p, deskShopId))} a day{p.hourPrice ? `, ${fmt(p.hourPrice)} an hour` : ''}{p.capacity ? ` · holds ${p.capacity}` : ''}</div>}
           <label className="block text-[11.5px]" style={{ color: C.inkFaint }}>Date of the event
-            <input type="date" min={bkToday} value={f.date} onChange={(e) => e.target.value && set({ date: e.target.value })} className={`${sel} outline-none`} style={{ ...field, colorScheme: 'dark' }} />
+            <input type="date" min={bkToday} value={f.date} onChange={(e) => e.target.value && set({ date: e.target.value })} className={`${sel} outline-none`} style={{ ...field, colorScheme: 'var(--c-scheme)' }} />
           </label>
           {p?.hourPrice ? (
             <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-              {[['day', 'Full day'], ['hour', 'By the hour']].map(([v, l]) => <button key={v} type="button" onClick={() => set({ mode: v })} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={(hourly ? 'hour' : 'day') === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+              {[['day', 'Full day'], ['hour', 'By the hour']].map(([v, l]) => <button key={v} type="button" onClick={() => set({ mode: v })} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={(hourly ? 'hour' : 'day') === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>)}
             </div>
           ) : null}
           {hourly ? (
@@ -7033,9 +7133,9 @@ function XorlaApp() {
           </BrandSelect>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.checkIn || 'From'}
-              <input type="date" min={bkToday} value={f.checkIn} onChange={(e) => { const v = e.target.value; if (!v) return; setBookingForm({ ...f, checkIn: v, checkOut: addDays(v, Math.max(1, n || 1)) }); }} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
+              <input type="date" min={bkToday} value={f.checkIn} onChange={(e) => { const v = e.target.value; if (!v) return; setBookingForm({ ...f, checkIn: v, checkOut: addDays(v, Math.max(1, n || 1)) }); }} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} /></label>
             <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.checkOut || 'Until'}
-              <input type="date" min={f.checkIn ? addDays(f.checkIn, 1) : bkToday} value={f.checkOut} onChange={(e) => setBookingForm({ ...f, checkOut: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} /></label>
+              <input type="date" min={f.checkIn ? addDays(f.checkIn, 1) : bkToday} value={f.checkOut} onChange={(e) => setBookingForm({ ...f, checkOut: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} /></label>
           </div>
           {(() => {
             const unitWord = p?.priceUnit === 'day' || serviceKind === 'rentals' ? 'day' : 'night';
@@ -7053,7 +7153,7 @@ function XorlaApp() {
                 </div>
                 <div className="flex gap-1.5 mt-2.5">
                   {(unitWord === 'day' ? [1, 2, 3, 7] : [1, 2, 3, 7, 14]).map((k) => (
-                    <button key={k} type="button" onClick={() => setNights(k)} className="flex-1 py-1.5 rounded-lg text-[12px] font-semibold" style={n === k ? { background: C.copper, color: C.bg } : { background: C.bg, color: C.inkDim, border: `1px solid ${C.line}` }}>{k === 7 ? '1 week' : k === 14 ? '2 weeks' : `${k} ${unitWord}${k !== 1 ? 's' : ''}`}</button>
+                    <button key={k} type="button" onClick={() => setNights(k)} className="flex-1 py-1.5 rounded-lg text-[12px] font-semibold" style={n === k ? { background: C.copperFill, color: C.onAccent } : { background: C.bg, color: C.inkDim, border: `1px solid ${C.line}` }}>{k === 7 ? '1 week' : k === 14 ? '2 weeks' : `${k} ${unitWord}${k !== 1 ? 's' : ''}`}</button>
                   ))}
                 </div>
                 {f.checkOut && <div className="text-[11.5px] mt-2" style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.checkOut || 'Until'}: <strong style={{ color: C.inkDim }}>{new Date(`${f.checkOut}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}</strong></div>}
@@ -7108,9 +7208,9 @@ function XorlaApp() {
                 {free.length ? (
                   <>
                     <div className="flex flex-wrap gap-2">
-                      {free.map((r) => <button key={r.id} type="button" onClick={() => toggle(r.id)} className="min-w-[52px] px-3 py-1.5 rounded-xl text-[13.5px] font-bold cx-mono" style={adding.includes(r.id) ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{r.label}</button>)}
+                      {free.map((r) => <button key={r.id} type="button" onClick={() => toggle(r.id)} className="min-w-[52px] px-3 py-1.5 rounded-xl text-[13.5px] font-bold cx-mono" style={adding.includes(r.id) ? { background: C.sageFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{r.label}</button>)}
                     </div>
-                    {adding.length > 0 && <button type="button" disabled={bookingBusy} onClick={() => runBooking(() => sbRpc('assign_rooms', session.access_token, { p_booking: b.id, p_room_ids: [...have, ...adding] }), () => setActForm((f) => ({ ...f, addRooms: [] })))} className="mt-2.5 w-full h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>Give {String(b.customer_name).split(' ')[0]} room{adding.length !== 1 ? 's' : ''} {adding.map((id) => named.find((r) => r.id === id)?.label).join(', ')}</button>}
+                    {adding.length > 0 && <button type="button" disabled={bookingBusy} onClick={() => runBooking(() => sbRpc('assign_rooms', session.access_token, { p_booking: b.id, p_room_ids: [...have, ...adding] }), () => setActForm((f) => ({ ...f, addRooms: [] })))} className="mt-2.5 w-full h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: bookingBusy ? 0.6 : 1 }}>Give {String(b.customer_name).split(' ')[0]} room{adding.length !== 1 ? 's' : ''} {adding.map((id) => named.find((r) => r.id === id)?.label).join(', ')}</button>}
                   </>
                 ) : <div className="text-[12px]" style={{ color: C.inkFaint }}>No {b.item_name.toLowerCase()} is free right now.</div>}
               </div>
@@ -7138,7 +7238,7 @@ function XorlaApp() {
                 {need > 1 && free.length < need && <div className="rounded-xl px-3 py-2 mb-2 text-[12px]" style={{ background: C.copperSoft, color: C.copper }}>Only {free.length} {b.item_name.toLowerCase()}{free.length !== 1 ? 's are' : ' is'} free right now. Check them in to these, and add the other room{need - free.length !== 1 ? 's' : ''} from their bill once {need - free.length !== 1 ? 'they are' : 'it is'} free.</div>}
                 <div className="flex flex-wrap gap-2">
                   {free.map((r) => (
-                    <button key={r.id} type="button" onClick={() => toggle(r.id)} className="min-w-[56px] px-3 py-2 rounded-xl text-[14px] font-bold cx-mono" style={picked.includes(r.id) ? { background: C.sage, color: C.bg } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{r.label}</button>
+                    <button key={r.id} type="button" onClick={() => toggle(r.id)} className="min-w-[56px] px-3 py-2 rounded-xl text-[14px] font-bold cx-mono" style={picked.includes(r.id) ? { background: C.sageFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>{r.label}</button>
                   ))}
                 </div>
               </div>
@@ -7154,7 +7254,7 @@ function XorlaApp() {
                 {canRun ? (
                   <div className="flex gap-1 p-1 mt-2.5 rounded-xl" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                     {['stayed', 'one_night', 'full'].map((v) => (
-                      <button key={v} type="button" onClick={() => setActForm({ ...actForm, earlyRule: v })} className="flex-1 py-1.5 px-1 rounded-lg text-[11.5px] font-semibold leading-tight" style={leaving.rule === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{v === 'stayed' ? `${nw[0].toUpperCase()}${nw.slice(1)}s used` : v === 'one_night' ? `One extra ${nw}` : 'Full booking'}</button>
+                      <button key={v} type="button" onClick={() => setActForm({ ...actForm, earlyRule: v })} className="flex-1 py-1.5 px-1 rounded-lg text-[11.5px] font-semibold leading-tight" style={leaving.rule === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{v === 'stayed' ? `${nw[0].toUpperCase()}${nw.slice(1)}s used` : v === 'one_night' ? `One extra ${nw}` : 'Full booking'}</button>
                     ))}
                   </div>
                 ) : <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Your {serviceKind === 'rentals' ? 'business' : 'hotel'}'s rule: {earlyRuleWords[leaving.rule].toLowerCase()}. If this guest should be charged differently, ask the owner or a manager to check them out.</div>}
@@ -7221,13 +7321,13 @@ function XorlaApp() {
                           {billExtras.map((x) => {
                             const on = !f.custom && f.productId === x.id;
                             return (
-                              <button key={x.id} type="button" onClick={() => setChargeForm({ ...f, productId: x.id, custom: false })} className="px-3 py-2 rounded-xl text-left" style={on ? { background: C.copper, color: C.bg } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}>
+                              <button key={x.id} type="button" onClick={() => setChargeForm({ ...f, productId: x.id, custom: false })} className="px-3 py-2 rounded-xl text-left" style={on ? { background: C.copperFill, color: C.onAccent } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}>
                                 <span className="block text-[12.5px] font-semibold leading-tight">{x.name}</span>
-                                <span className="block text-[11px] cx-mono" style={{ color: on ? C.bg : C.inkFaint }}>{fmt(priceAt(x, b.shop_id))}</span>
+                                <span className="block text-[11px] cx-mono" style={{ color: on ? C.onAccent : C.inkFaint }}>{fmt(priceAt(x, b.shop_id))}</span>
                               </button>
                             );
                           })}
-                          {canRun && <button type="button" onClick={() => setChargeForm({ ...f, custom: true })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.custom ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px dashed ${C.line}` }}>Other charge</button>}
+                          {canRun && <button type="button" onClick={() => setChargeForm({ ...f, custom: true })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.custom ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px dashed ${C.line}` }}>Other charge</button>}
                         </div>
                       )}
                       {f.custom && (
@@ -7242,7 +7342,7 @@ function XorlaApp() {
                           <span className="w-8 text-center text-[14px] font-semibold cx-mono">{qty}</span>
                           <button type="button" aria-label="More" onClick={() => setChargeForm({ ...f, qty: Math.min(100, qty + 1) })} className="w-10 h-10 text-[18px]" style={{ color: C.inkDim }}>+</button>
                         </div>
-                        <button type="button" onClick={() => addCharge(b)} disabled={bookingBusy} className="flex-1 h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: bookingBusy ? 0.6 : 1 }}>
+                        <button type="button" onClick={() => addCharge(b)} disabled={bookingBusy} className="flex-1 h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: bookingBusy ? 0.6 : 1 }}>
                           Add{linePrice > 0 ? ` ${fmt(linePrice * qty)}` : ''} to bill
                         </button>
                       </div>
@@ -7281,7 +7381,7 @@ function XorlaApp() {
                   {creditLeft > 0 && <div className="text-[11px] pt-0.5" style={{ color: C.inkFaint }}>The guest paid ahead. Extras come out of this; what's left is given back at check-out.</div>}
                   <div className="flex gap-2 pt-2.5">
                     <input type="text" inputMode="decimal" placeholder="Guest paid now? (₦)" value={formatNumInput(chargeForm.pay || '')} onChange={(e) => setChargeForm({ ...chargeForm, pay: parseNumInput(e.target.value) })} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
-                    <button type="button" onClick={() => payDuringStay(b)} disabled={bookingBusy || !Number(parseNumInput(chargeForm.pay || ''))} className="shrink-0 px-3.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: bookingBusy || !Number(parseNumInput(chargeForm.pay || '')) ? 0.45 : 1 }}>Save payment</button>
+                    <button type="button" onClick={() => payDuringStay(b)} disabled={bookingBusy || !Number(parseNumInput(chargeForm.pay || ''))} className="shrink-0 px-3.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: bookingBusy || !Number(parseNumInput(chargeForm.pay || '')) ? 0.45 : 1 }}>Save payment</button>
                   </div>
                 </div>
               </>
@@ -7323,7 +7423,7 @@ function XorlaApp() {
       );
     }
     return (
-      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={close}>
+      <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={close}>
         <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-4">
             <div className="text-[16px] font-semibold cx-display">{title}</div>
@@ -7331,7 +7431,7 @@ function XorlaApp() {
           </div>
           {body}
           {bookingError && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
-          <button onClick={submit} disabled={bookingBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: spaceForm && submitLabel === 'That time is taken' ? C.surfaceRaised : ['cancel', 'decline', 'no_show'].includes(bookingAct?.action) ? C.rust : C.copper, color: spaceForm && submitLabel === 'That time is taken' ? C.inkFaint : C.bg, opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? 'Saving…' : submitLabel}</button>
+          <button onClick={submit} disabled={bookingBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: spaceForm && submitLabel === 'That time is taken' ? C.surfaceRaised : ['cancel', 'decline', 'no_show'].includes(bookingAct?.action) ? C.rustFill : C.copperFill, color: spaceForm && submitLabel === 'That time is taken' ? C.inkFaint : C.onAccent, opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? 'Saving…' : submitLabel}</button>
         </div>
       </div>
     );
@@ -7340,9 +7440,9 @@ function XorlaApp() {
   const renderSalesSwitch = () => hasOrderables && (
     <div className="lg:hidden flex gap-1 p-1 mb-5 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
       {[['sales', T.salesTab, 0], ['orders', T.orders, ordersBadge]].map(([id, label, count]) => (
-        <button key={id} onClick={() => setTab(id)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === id ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
+        <button key={id} onClick={() => setTab(id)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={tab === id ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>
           {label}
-          {count > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={tab === id ? { background: C.bg, color: C.copper } : { background: C.copper, color: C.bg }}>{count}</span>}
+          {count > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={tab === id ? { background: C.bg, color: C.copper } : { background: C.copperFill, color: C.onAccent }}>{count}</span>}
         </button>
       ))}
     </div>
@@ -7378,13 +7478,13 @@ function XorlaApp() {
     if (variant === 'side') return (
       <button onClick={() => setHelpOpen({})} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim }}>
         <LifeBuoy size={15} /> Help & support
-        {supportUnread > 0 ? <span className="ml-auto px-1.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: C.copper, color: C.bg }}>{supportUnread}</span> : newsUnread > 0 ? <span className="ml-auto w-2 h-2 rounded-full" style={{ background: C.copper }} /> : null}
+        {supportUnread > 0 ? <span className="ml-auto px-1.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: C.copperFill, color: C.onAccent }}>{supportUnread}</span> : newsUnread > 0 ? <span className="ml-auto w-2 h-2 rounded-full" style={{ background: C.copperFill }} /> : null}
       </button>
     );
     return (
       <button onClick={() => setHelpOpen({})} aria-label={`Help and support${supportUnread ? `, ${supportUnread} new repl${supportUnread > 1 ? 'ies' : 'y'}` : ''}`} className="relative flex items-center gap-1.5 shrink-0 pl-2 pr-2.5 h-8 rounded-full text-[12.5px] font-semibold" style={{ color: dot ? C.copper : C.inkDim, background: dot ? C.copperSoft : C.surfaceRaised, border: `1px solid ${dot ? 'rgba(255,176,32,0.3)' : C.line}` }}>
         <LifeBuoy size={15} /> Help
-        {dot && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full" style={{ background: C.copper, border: `2px solid ${C.bg}` }} />}
+        {dot && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full" style={{ background: C.copperFill, border: `2px solid ${C.bg}` }} />}
       </button>
     );
   };
@@ -7404,18 +7504,18 @@ function XorlaApp() {
           </button>
         )}
         {anns.map((a) => { const st = SPOT_TONES[a.tone] || SPOT_TONES.info; const Ic = st.Icon; return (
-          <div key={a.id} className="relative rounded-2xl pl-3.5 pr-3 py-3 flex items-start gap-3 overflow-hidden" style={{ background: `radial-gradient(90% 140% at 100% 0%, ${st.glow.replace(/0\.\d+\)$/, '0.22)')}, transparent 60%), linear-gradient(135deg, ${st.from}, ${st.to})`, border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 12px 28px -16px rgba(0,0,0,0.8)' }}>
-            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}><Ic size={18} style={{ color: '#fff' }} /></span>
+          <div data-xt="dark" key={a.id} className="relative rounded-2xl pl-3.5 pr-3 py-3 flex items-start gap-3 overflow-hidden" style={{ background: `radial-gradient(90% 140% at 100% 0%, ${st.glow.replace(/0\.\d+\)$/, '0.22)')}, transparent 60%), linear-gradient(135deg, ${st.from}, ${st.to})`, border: '1px solid rgba(var(--c-hi),0.12)', boxShadow: '0 12px 28px -16px rgba(var(--c-lo),calc(0.8 * var(--c-lok)))' }}>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(var(--c-hi),0.12)', border: '1px solid rgba(var(--c-hi),0.18)' }}><Ic size={18} style={{ color: '#fff' }} /></span>
             <button onClick={() => setSpotlight({ kind: 'ann', item: a })} className="flex-1 min-w-0 text-left">
-              <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase" style={{ color: 'rgba(255,255,255,0.7)' }}>{st.eyebrow}</span>
+              <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase" style={{ color: 'rgba(var(--c-hi),0.7)' }}>{st.eyebrow}</span>
               <span className="block text-[14px] font-semibold leading-snug" style={{ color: '#fff' }}>{a.title || a.message}</span>
-              {a.title && <span className="block text-[12.5px] leading-snug mt-0.5" style={{ color: 'rgba(255,255,255,0.78)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{a.message}</span>}
+              {a.title && <span className="block text-[12.5px] leading-snug mt-0.5" style={{ color: 'rgba(var(--c-hi),0.78)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{a.message}</span>}
             </button>
-            <button onClick={() => hideNotice(a.id)} aria-label="Dismiss" className="shrink-0 p-1 -m-1" style={{ color: 'rgba(255,255,255,0.6)' }}><X size={15} /></button>
+            <button onClick={() => hideNotice(a.id)} aria-label="Dismiss" className="shrink-0 p-1 -m-1" style={{ color: 'rgba(var(--c-hi),0.6)' }}><X size={15} /></button>
           </div>
         ); })}
         {showNew && (
-          <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+          <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: C.card, border: `1px solid ${C.line}` }}>
             <Gift size={16} style={{ color: C.sage }} className="shrink-0" />
             <button onClick={() => setHelpOpen({ view: 'updates' })} className="flex-1 min-w-0 text-left text-[13px]"><span className="font-semibold">New in Xorla: </span><span style={{ color: C.inkDim }}>{latest.title}</span> <span className="font-semibold whitespace-nowrap" style={{ color: C.copper }}>See what's new</span></button>
             <button onClick={() => hideNotice(`u-${latest.id}`)} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={15} /></button>
@@ -7444,30 +7544,30 @@ function XorlaApp() {
     <>
       {arrival && (
         <div className="fixed left-0 right-0 z-[96] flex justify-center px-3 pointer-events-none" style={{ top: 'max(12px, env(safe-area-inset-top))' }}>
-          <div role="alert" className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.copper}`, boxShadow: '0 12px 32px rgba(0,0,0,0.45)', color: C.ink }}>
-            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><Bell size={19} style={{ color: C.bg }} /></span>
+          <div role="alert" className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.copper}`, boxShadow: '0 12px 32px rgba(var(--c-lo),calc(0.45 * var(--c-lok)))', color: C.ink }}>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill }}><Bell size={19} style={{ color: C.onAccent }} /></span>
             <button onClick={() => { const t = arrival.tab; setArrival(null); if (t === 'orders') setReqFilter('open'); setTab(t); window.scrollTo(0, 0); }} className="flex-1 min-w-0 text-left">
               <span className="block text-[14px] font-semibold">{arrival.title}</span>
               <span className="block text-[12px] truncate" style={{ color: C.inkDim }}>{arrival.text}</span>
             </button>
-            <button onClick={() => { const t = arrival.tab; setArrival(null); if (t === 'orders') setReqFilter('open'); setTab(t); window.scrollTo(0, 0); }} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: C.copper, color: C.bg }}>View</button>
+            <button onClick={() => { const t = arrival.tab; setArrival(null); if (t === 'orders') setReqFilter('open'); setTab(t); window.scrollTo(0, 0); }} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>View</button>
             <button onClick={() => setArrival(null)} aria-label="Dismiss" className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg" style={{ color: C.inkFaint }}><X size={15} /></button>
           </div>
         </div>
       )}
       {!netOnline && (
         <div className="fixed left-0 right-0 z-[94] flex justify-center px-3 pointer-events-none" style={{ bottom: 'calc(84px + env(safe-area-inset-bottom))' }}>
-          <div className="rounded-full px-4 py-2 text-[12.5px] font-semibold flex items-center gap-2" style={{ background: C.rust, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>You're offline. New bookings and requests will show when you're back online.</div>
+          <div className="rounded-full px-4 py-2 text-[12.5px] font-semibold flex items-center gap-2" style={{ background: C.rustFill, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>You're offline. New bookings and requests will show when you're back online.</div>
         </div>
       )}
     </>, document.body
   );
   const renderSupportToast = () => supportToast && !helpOpen && createPortal(
     <div className="fixed left-0 right-0 z-[95] flex justify-center px-3 pointer-events-none" style={{ top: 'max(12px, env(safe-area-inset-top))' }}>
-      <button onClick={() => { setSupportToast(false); setHelpOpen({}); }} className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 text-left xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(255,176,32,0.45)', boxShadow: '0 18px 40px -12px rgba(0,0,0,0.7)' }}>
+      <button data-xt="dark" onClick={() => { setSupportToast(false); setHelpOpen({}); }} className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 text-left xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(255,176,32,0.45)', boxShadow: '0 18px 40px -12px rgba(var(--c-lo),calc(0.7 * var(--c-lok)))' }}>
         <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: '#0B211D' }}><XorlaMark size={22} /></span>
         <span className="flex-1 min-w-0"><span className="block text-[14px] font-semibold">Xorla Support replied</span><span className="block text-[12px]" style={{ color: C.inkDim }}>Tap to read it</span></span>
-        <span className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: C.copper, color: C.bg }}>Open</span>
+        <span className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>Open</span>
       </button>
     </div>, document.body
   );
@@ -7481,14 +7581,14 @@ function XorlaApp() {
     <button onClick={() => setNotifOpen((o) => !o)} aria-label={`Notifications${notifItems.length ? `, ${notifItems.length} waiting` : ''}`} aria-expanded={notifOpen} className={`relative flex items-center justify-center shrink-0 ${extraClass}`} style={{ color: notifOpen ? C.copper : C.inkDim }}>
       <Bell size={16} />
       {notifItems.length > 0 && (
-        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: notifUrgent ? C.rust : C.copper, color: C.bg }}>{notifItems.length}</span>
+        <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: notifUrgent ? C.rustFill : C.copperFill, color: C.onAccent }}>{notifItems.length}</span>
       )}
     </button>
   );
   const renderNotifPanel = () => notifOpen && (
     <>
       <div className="fixed inset-0 z-[88]" onClick={() => setNotifOpen(false)} />
-      <div role="dialog" aria-label="Notifications" className="fixed z-[89] right-3 left-3 sm:left-auto sm:w-[360px] lg:top-[72px] rounded-2xl overflow-hidden xorla-fade-up" style={{ top: 'calc(64px + env(safe-area-inset-top))', background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
+      <div role="dialog" aria-label="Notifications" className="fixed z-[89] right-3 left-3 sm:left-auto sm:w-[360px] lg:top-[72px] rounded-2xl overflow-hidden xorla-fade-up" style={{ top: 'calc(64px + env(safe-area-inset-top))', background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 20px 50px rgba(var(--c-lo),calc(0.5 * var(--c-lok)))' }}>
         <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
           <span className="text-[14px] font-semibold cx-display">Needs your attention</span>
           <button onClick={() => setNotifOpen(false)} aria-label="Close" style={{ color: C.inkFaint }}><X size={16} /></button>
@@ -7571,7 +7671,7 @@ function XorlaApp() {
         <div className="text-[12px] leading-relaxed mb-2.5" style={{ color: C.inkDim }}>
           <strong style={{ color: C.ink }}>Notifications on Android work reliably in Chrome.</strong> {PUSH_UNRELIABLE_BROWSER} on Android may say they're on but never deliver them — a known issue with the browser, not your phone.
         </div>
-        <a href={`intent://${window.location.host}/#Intent;scheme=https;package=com.android.chrome;end`} className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Open Xorla in Chrome</a>
+        <a href={`intent://${window.location.host}/#Intent;scheme=https;package=com.android.chrome;end`} className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Open Xorla in Chrome</a>
         {pushState === 'on' && <button onClick={disablePush} disabled={pushBusy} className="w-full mt-2 text-[12px] font-medium" style={{ color: C.inkFaint }}>Turn off here</button>}
         {note}
       </div>
@@ -7590,7 +7690,7 @@ function XorlaApp() {
     );
     if (pushState === 'off') return (
       <div>
-        <button onClick={enablePush} disabled={pushBusy} className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: pushBusy ? 0.6 : 1 }}><Bell size={15} /> {pushBusy ? 'Turning on…' : `Get these on this ${DEVICE_WORD}`}</button>
+        <button onClick={enablePush} disabled={pushBusy} className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: pushBusy ? 0.6 : 1 }}><Bell size={15} /> {pushBusy ? 'Turning on…' : `Get these on this ${DEVICE_WORD}`}</button>
         {note}
       </div>
     );
@@ -7647,7 +7747,7 @@ function XorlaApp() {
               : cap === 0 ? <span className="text-[13px] font-medium" style={{ color: C.inkFaint }}>{note || 'Not included'}</span>
               : <>{used} <span className="text-[12px] font-normal" style={{ color: C.inkFaint }}>of {cap}</span></>}
           </div>
-          {cap ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(234,245,242,0.08)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, pct)}%`, background: pct >= 90 ? C.rust : C.sage }} /></div> : null}
+          {cap ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(var(--c-ink-rgb),0.08)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, pct)}%`, background: pct >= 90 ? C.rustFill : C.sageFill }} /></div> : null}
           {cap && used > cap ? <div className="text-[11px] mt-1.5 leading-snug" style={{ color: C.rust }}>{used - cap} more than your plan covers</div> : null}
         </div>
       );
@@ -7700,7 +7800,7 @@ function XorlaApp() {
         {billingBusy === 'verify' && <div className="rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>Confirming your payment with Paystack…</div>}
 
         {/* Membership card */}
-        <div className="relative overflow-hidden rounded-[24px] p-5" style={{ background: 'linear-gradient(150deg, #134A43 0%, #0E2E29 55%, #0B2420 100%)', border: '1px solid rgba(31,217,196,0.22)' }}>
+        <div data-xt="dark" className="relative overflow-hidden rounded-[24px] p-5" style={{ background: 'linear-gradient(150deg, #134A43 0%, #0E2E29 55%, #0B2420 100%)', border: '1px solid rgba(31,217,196,0.22)' }}>
           <div aria-hidden="true" className="absolute -right-10 -top-12 w-44 h-44 rounded-full" style={{ background: 'radial-gradient(circle, rgba(31,217,196,0.18), transparent 70%)' }} />
           <div className="relative flex items-start justify-between gap-3">
             <div>
@@ -7718,7 +7818,7 @@ function XorlaApp() {
           {effPlan !== 'free' && planDaysLeft !== null && (
             <div className="relative mt-4">
               <div className="flex justify-between text-[12px] mb-1.5"><span style={{ color: C.inkDim }}>{onTrial ? 'Trial' : 'This period'}</span><span className="font-semibold">{planDaysLeft} day{planDaysLeft !== 1 ? 's' : ''} left</span></div>
-              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(234,245,242,0.08)' }}><div className="h-full rounded-full" style={{ width: `${leftPct}%`, background: planDaysLeft <= 3 ? C.copper : C.sage }} /></div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(var(--c-ink-rgb),0.08)' }}><div className="h-full rounded-full" style={{ width: `${leftPct}%`, background: planDaysLeft <= 3 ? C.copperFill : C.sageFill }} /></div>
             </div>
           )}
           {effPlan === 'business' && !onTrial && s.status === 'active' && (() => {
@@ -7731,7 +7831,7 @@ function XorlaApp() {
               catch (e) { brandAlert(/set_renewal_locations|schema cache/i.test(e.message) ? 'This needs a quick update on our side. Please try again later.' : e.message); }
             };
             return (
-              <div className="relative mt-4 pt-3.5" style={{ borderTop: '1px solid rgba(234,245,242,0.1)' }}>
+              <div className="relative mt-4 pt-3.5" style={{ borderTop: '1px solid rgba(var(--c-ink-rgb),0.1)' }}>
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-[13px] font-semibold">Locations: {liveLocations.length} open of {3 + extra}</div>
@@ -7739,9 +7839,9 @@ function XorlaApp() {
                   </div>
                   {extra > minNext && (
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <button onClick={() => setNext(Math.max(minNext, next - 1))} disabled={next <= minNext} aria-label="Renew with one fewer location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: '1px solid rgba(234,245,242,0.18)', opacity: next <= minNext ? 0.35 : 1 }}>−</button>
+                      <button onClick={() => setNext(Math.max(minNext, next - 1))} disabled={next <= minNext} aria-label="Renew with one fewer location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: '1px solid rgba(var(--c-ink-rgb),0.18)', opacity: next <= minNext ? 0.35 : 1 }}>−</button>
                       <span className="w-6 text-center text-[14px] font-bold tabular-nums">{3 + next}</span>
-                      <button onClick={() => setNext(Math.min(extra, next + 1))} disabled={next >= extra} aria-label="Renew with one more location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: '1px solid rgba(234,245,242,0.18)', opacity: next >= extra ? 0.35 : 1 }}>+</button>
+                      <button onClick={() => setNext(Math.min(extra, next + 1))} disabled={next >= extra} aria-label="Renew with one more location" className="w-8 h-8 rounded-lg text-[16px] font-bold" style={{ border: '1px solid rgba(var(--c-ink-rgb),0.18)', opacity: next >= extra ? 0.35 : 1 }}>+</button>
                     </div>
                   )}
                 </div>
@@ -7750,7 +7850,7 @@ function XorlaApp() {
             );
           })()}
           {(earlyActive || (effPlan !== 'free' && s.auto_renew)) && (
-            <div className="relative flex items-center justify-between gap-3 mt-4 pt-3.5" style={{ borderTop: '1px solid rgba(234,245,242,0.1)' }}>
+            <div className="relative flex items-center justify-between gap-3 mt-4 pt-3.5" style={{ borderTop: '1px solid rgba(var(--c-ink-rgb),0.1)' }}>
               <span className="text-[12.5px]" style={{ color: earlyActive ? C.copper : C.inkDim }}>{earlyActive ? `Early-supporter price until ${fmtDate(s.early_supporter_until)}` : 'Auto-renew is on'}</span>
               {effPlan !== 'free' && s.auto_renew && <button onClick={turnOffAutoRenew} disabled={!!billingBusy} className="text-[12.5px] font-medium shrink-0" style={{ color: C.inkFaint }}>Turn off auto-renew</button>}
             </div>
@@ -7833,7 +7933,7 @@ function XorlaApp() {
               {[['once', 'Pay now', 'Card, transfer or USSD. Renew when you choose.'], ['auto', 'Auto-renew', 'Saved card. Turn it off anytime.']].map(([k, l, d]) => (
                 <button key={k} onClick={() => setPayMode(k)} role="radio" aria-checked={payMode === k} className="rounded-2xl p-3.5 text-left" style={{ background: C.surface, border: `1.5px solid ${payMode === k ? C.copper : C.line}` }}>
                   <span className="flex items-center gap-2 text-[13.5px] font-semibold" style={{ color: payMode === k ? C.copper : C.ink }}>
-                    <span className="w-4 h-4 rounded-full flex items-center justify-center" style={{ border: `2px solid ${payMode === k ? C.copper : C.inkFaint}` }}>{payMode === k && <span className="w-2 h-2 rounded-full" style={{ background: C.copper }} />}</span>{l}
+                    <span className="w-4 h-4 rounded-full flex items-center justify-center" style={{ border: `2px solid ${payMode === k ? C.copper : C.inkFaint}` }}>{payMode === k && <span className="w-2 h-2 rounded-full" style={{ background: C.copperFill }} />}</span>{l}
                   </span>
                   <span className="block text-[11.5px] mt-1 leading-snug" style={{ color: C.inkFaint }}>{d}</span>
                 </button>
@@ -7879,12 +7979,12 @@ function XorlaApp() {
   };
 
   const renderLimitPrompt = () => limitPrompt && (
-    <div className="fixed inset-0 z-[92] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={() => setLimitPrompt(null)}>
+    <div className="fixed inset-0 z-[92] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={() => setLimitPrompt(null)}>
       <div className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-6 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
         <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-4" style={{ background: C.copperSoft }}><Sparkles size={20} style={{ color: C.copper }} /></div>
         <div className="text-[17px] font-bold cx-display mb-1.5">{limitPrompt.title}</div>
         <div className="text-[13px] leading-relaxed mb-5" style={{ color: C.inkDim }}>{limitPrompt.body}</div>
-        <button onClick={openPlanPage} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-2" style={{ background: C.copper, color: C.bg }}>{limitPrompt.cta || 'See plans'}</button>
+        <button onClick={openPlanPage} className="w-full rounded-xl py-3 text-[13.5px] font-semibold mb-2" style={{ background: C.copperFill, color: C.onAccent }}>{limitPrompt.cta || 'See plans'}</button>
         <button onClick={() => setLimitPrompt(null)} className="w-full py-2.5 text-[13px] font-medium" style={{ color: C.inkFaint }}>Not now</button>
       </div>
     </div>
@@ -7909,7 +8009,7 @@ function XorlaApp() {
       catch (e) { setAddLoc((x) => x && { ...x, busy: false, error: e.message }); }
     };
     return (
-      <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.82)' }} onClick={close}>
+      <div className="fixed inset-0 z-[93] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.82)' }} onClick={close}>
         <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
           <div className="flex items-start gap-3 mb-4">
             <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft, color: C.copper }}><Store size={20} /></div>
@@ -7927,18 +8027,18 @@ function XorlaApp() {
               <button onClick={() => setAddLoc({ ...a, count: Math.min(20, a.count + 1) })} disabled={a.busy} aria-label="One more" className="w-9 h-9 rounded-xl text-[18px] font-bold" style={{ background: C.surface, border: `1px solid ${C.line}` }}>+</button>
             </div>
           </div>
-          <div className="rounded-2xl p-4 mb-3" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 60%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)' }}>
+          <div data-xt="dark" className="rounded-2xl p-4 mb-3" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 60%, #0B211D 100%)', border: '1px solid rgba(var(--c-hi),0.09)' }}>
             {!q && !a.error ? <div className="flex items-center gap-2 text-[13px]" style={{ color: C.inkFaint }}><Loader2 size={15} className="animate-spin" /> Working out the price…</div> : q ? (
               <>
                 <div className="text-[12px]" style={{ color: C.inkDim }}>Pay today</div>
                 <div className="text-[32px] font-extrabold tabular-nums leading-tight" style={{ color: '#FFD27A', letterSpacing: '-0.02em' }}>{fmt(q.amount)}</div>
                 <div className="text-[12.5px] leading-relaxed mt-1" style={{ color: C.inkDim }}>Only for the {q.daysLeft} day{q.daysLeft === 1 ? '' : 's'} left until your plan renews on <strong style={{ color: C.ink }}>{fmtDate(q.periodEnd)}</strong>.</div>
-                <div className="mt-3 pt-3 text-[12.5px] leading-relaxed" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', color: C.inkDim }}>From then, your plan is <strong style={{ color: C.ink }}>{fmt(q.nextRenewal)} a {per}</strong> (Business with {extraNow + a.count} extra location{extraNow + a.count === 1 ? '' : 's'}). You can choose fewer at renewal.</div>
+                <div className="mt-3 pt-3 text-[12.5px] leading-relaxed" style={{ borderTop: '1px solid rgba(var(--c-hi),0.08)', color: C.inkDim }}>From then, your plan is <strong style={{ color: C.ink }}>{fmt(q.nextRenewal)} a {per}</strong> (Business with {extraNow + a.count} extra location{extraNow + a.count === 1 ? '' : 's'}). You can choose fewer at renewal.</div>
               </>
             ) : null}
           </div>
           {a.error && <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
-          <button onClick={pay} disabled={!q || a.busy} className="w-full h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: !q || a.busy ? 0.55 : 1 }}>{a.busy ? <><Loader2 size={17} className="animate-spin" /> Opening payment…</> : q ? `Pay ${fmt(q.amount)} and add` : 'Add locations'}</button>
+          <button onClick={pay} disabled={!q || a.busy} className="w-full h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, opacity: !q || a.busy ? 0.55 : 1 }}>{a.busy ? <><Loader2 size={17} className="animate-spin" /> Opening payment…</> : q ? `Pay ${fmt(q.amount)} and add` : 'Add locations'}</button>
           <div className="text-[11.5px] text-center mt-2.5" style={{ color: C.inkFaint }}>Card, bank transfer or USSD, through Paystack. Your renewal date doesn't change.{a.reopening || a.adding?.name ? ` ${a.reopening ? locName(a.reopening) : a.adding.name} opens by itself once the payment is confirmed.` : ''}</div>
           <button onClick={() => { setAddLoc(null); openPlanPage(); }} className="w-full mt-3 py-2 text-[12.5px] font-medium" style={{ color: C.copper }}>See my plan instead</button>
         </div>
@@ -7987,7 +8087,7 @@ function XorlaApp() {
   };
 
   const renderReceiptModal = () => receipt && (
-    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center p-0 sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={() => setReceipt(null)}>
+    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center p-0 sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={() => setReceipt(null)}>
       <div className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 text-[15px] font-semibold cx-display"><Check size={17} style={{ color: C.sage }} /> {T.sale === 'job' ? 'Job' : 'Sale'} saved</div>
@@ -7995,7 +8095,7 @@ function XorlaApp() {
         </div>
 
         <div className="flex justify-center mb-4 rounded-2xl py-4" style={{ background: C.bg }}>
-          <div className="xorla-print-area" style={{ width: paperWidth === '80' ? 300 : 230, background: '#fff', color: '#111', fontFamily: "'Courier New', ui-monospace, monospace", fontSize: 11.5, lineHeight: 1.45, padding: '14px 12px', boxShadow: '0 6px 20px rgba(0,0,0,0.35)' }}>
+          <div className="xorla-print-area" style={{ width: paperWidth === '80' ? 300 : 230, background: '#fff', color: '#111', fontFamily: "'Courier New', ui-monospace, monospace", fontSize: 11.5, lineHeight: 1.45, padding: '14px 12px', boxShadow: '0 6px 20px rgba(var(--c-lo),calc(0.35 * var(--c-lok)))' }}>
             <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 14 }}>{settings.businessName}</div>
             {receipt.shopName && <div style={{ textAlign: 'center' }}>{receipt.shopName}</div>}
             {settings.businessAddress && <div style={{ textAlign: 'center' }}>{settings.businessAddress}</div>}
@@ -8026,12 +8126,12 @@ function XorlaApp() {
           <span className="text-[12px]" style={{ color: C.inkDim }}>Receipt paper</span>
           <div className="flex gap-1 p-1 rounded-lg" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
             {['58', '80'].map((w) => (
-              <button key={w} onClick={() => { setPaperWidth(w); try { localStorage.setItem('xorla:paper', w); } catch (e) {} }} className="px-3 py-1 rounded-md text-[12px] font-semibold" style={paperWidth === w ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{w}mm</button>
+              <button key={w} onClick={() => { setPaperWidth(w); try { localStorage.setItem('xorla:paper', w); } catch (e) {} }} className="px-3 py-1 rounded-md text-[12px] font-semibold" style={paperWidth === w ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{w}mm</button>
             ))}
           </div>
         </div>
         <div className="space-y-2">
-          <button onClick={printReceipt} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Print receipt</button>
+          <button onClick={printReceipt} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Print receipt</button>
           <a href={`https://wa.me/${receipt.customerPhone ? toWhatsAppNumber(receipt.customerPhone) : ''}?text=${encodeURIComponent(receiptText(receipt))}`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Send size={15} /> Send on WhatsApp</a>
           <button onClick={() => setReceipt(null)} className="w-full py-2.5 text-[13px] font-medium" style={{ color: C.inkFaint }}>Done</button>
         </div>
@@ -8047,7 +8147,7 @@ function XorlaApp() {
                     {cartItems.map((it, idx) => (
                       <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
                         {saleProducts.length > 0 && (
-                          <BrandSelect value={it.productId} onChange={(e) => applyProductToCartRow(idx, e.target.value)} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value={it.productId} onChange={(e) => applyProductToCartRow(idx, e.target.value)} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                             <option value="">Pick {T.Item === 'Item' ? 'an' : 'a'} {T.item}… (optional)</option>
                             {saleProducts.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                           </BrandSelect>
@@ -8084,7 +8184,7 @@ function XorlaApp() {
     <div className="flex items-center gap-2 flex-wrap">
       <span className="text-[11.5px] font-medium" style={{ color: C.inkDim }}>For {L.one}:</span>
       {shops.filter((s) => !isPausedLocation(s.id)).map((s) => (
-        <button key={s.id} type="button" onClick={() => { setRecordShopId(s.id); setSaleForm((f) => { if (!f.productId) return f; const base = productsAll.find((p) => p.id === f.productId); if (!base) return f; const qty = Math.max(1, Number(f.quantity) || 1); return { ...f, amount: String(priceAt(base, s.id) * qty) }; }); setCartItems((items) => items.map((it) => { if (!it.productId) return it; const base = productsAll.find((p) => p.id === it.productId); return base ? { ...it, unitPrice: String(priceAt(base, s.id)) } : it; })); }} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={targetShopId === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)}</button>
+        <button key={s.id} type="button" onClick={() => { setRecordShopId(s.id); setSaleForm((f) => { if (!f.productId) return f; const base = productsAll.find((p) => p.id === f.productId); if (!base) return f; const qty = Math.max(1, Number(f.quantity) || 1); return { ...f, amount: String(priceAt(base, s.id) * qty) }; }); setCartItems((items) => items.map((it) => { if (!it.productId) return it; const base = productsAll.find((p) => p.id === it.productId); return base ? { ...it, unitPrice: String(priceAt(base, s.id)) } : it; })); }} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={targetShopId === s.id ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)}</button>
       ))}
     </div>
   );
@@ -8117,7 +8217,7 @@ function XorlaApp() {
     return (
       <div className="min-h-screen cx-body" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
-        <div className="sticky top-0 z-30" style={{ paddingTop: 'env(safe-area-inset-top)', background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}` }}>
+        <div className="sticky top-0 z-30" style={{ paddingTop: 'env(safe-area-inset-top)', background: 'rgba(var(--c-bg-rgb),0.98)', borderBottom: `1px solid ${C.line}` }}>
           <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 py-3">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 min-w-0">
@@ -8129,13 +8229,14 @@ function XorlaApp() {
                   {staffTabs.map(({ id, label, Icon, badge }) => (
                     <button key={id} onClick={() => setTab(id)} className="relative flex items-center gap-2 h-10 px-4 rounded-xl text-[13px] font-semibold" style={staffTab === id ? { background: C.copperSoft, color: C.copper } : { color: C.inkDim }}>
                       <Icon size={16} />{label}
-                      {badge > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: C.copper, color: C.bg }}>{badge > 9 ? '9+' : badge}</span>}
+                      {badge > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>{badge > 9 ? '9+' : badge}</span>}
                     </button>
                   ))}
                 </nav>
               )}
               <div className="flex items-center gap-2 shrink-0">
                 <span className="hidden lg:block text-right leading-tight mr-1"><span className="block text-[13px] font-semibold">{settings.activeStaff}</span><span className="block text-[11px]" style={{ color: C.inkFaint }}>{shopNameOf(activeShopId || targetShopId)}</span></span>
+                <ThemeToggle />
                 {renderHelpButton()}
                 <button onClick={logout} aria-label="Log out" className="flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LogOut size={13} /><span className="hidden sm:inline">Log out</span></button>
               </div>
@@ -8212,7 +8313,7 @@ function XorlaApp() {
                 <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                   <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>{T.pickLabel || `PICK ${T.Item === 'Item' ? 'AN' : 'A'} ${T.Item.toUpperCase()} (OPTIONAL)`}</div>
                   <div className="flex gap-2">
-                    <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                    <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                       <option value="">{T.pickChoose || `Choose ${T.Item === 'Item' ? 'an' : 'a'} ${T.item}…`}</option>
                       {saleProducts.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                     </BrandSelect>
@@ -8236,8 +8337,8 @@ function XorlaApp() {
               <div>
                 <div className="text-[11.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>Did they pay the full amount?</div>
                 <div className="flex gap-1.5">
-                  <button type="button" onClick={() => setSaleForm({ ...saleForm, fullyPaid: true })} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={saleForm.fullyPaid ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Yes, in full</button>
-                  <button type="button" onClick={() => setSaleForm({ ...saleForm, fullyPaid: false })} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={!saleForm.fullyPaid ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>No, owes some</button>
+                  <button type="button" onClick={() => setSaleForm({ ...saleForm, fullyPaid: true })} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={saleForm.fullyPaid ? { background: C.sageFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Yes, in full</button>
+                  <button type="button" onClick={() => setSaleForm({ ...saleForm, fullyPaid: false })} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={!saleForm.fullyPaid ? { background: C.rustFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>No, owes some</button>
                 </div>
               </div>
               {!saleForm.fullyPaid && (
@@ -8251,7 +8352,7 @@ function XorlaApp() {
                     </div>
                     <div className="w-1/2">
                       <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>DUE DATE — when they'll pay</div>
-                      <input type="date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                      <input type="date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} />
                     </div>
                   </div>
                   <div className="text-[10.5px]" style={{ color: C.inkFaint }}>Leave the date blank and we'll default to 7 days from now.</div>
@@ -8260,7 +8361,7 @@ function XorlaApp() {
                   )}
                 </div>
               )}
-              <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
+              <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
             </div>
           </div>
           {settings.allowStaffExpenses && (
@@ -8279,7 +8380,7 @@ function XorlaApp() {
                 <input type="text" inputMode="decimal" placeholder="Amount (₦)" value={formatNumInput(expenseForm.amount)} onChange={(e) => setExpenseForm({ ...expenseForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <div className="flex flex-wrap gap-1.5">
                   {EXPENSE_CATEGORIES.map((c) => (
-                    <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
+                    <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rustFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
                   ))}
                 </div>
                 <button onClick={addExpense} disabled={savingExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ border: `1px solid ${C.rust}`, color: C.rust, opacity: savingExpense ? 0.6 : 1 }}>{savingExpense ? "Saving…" : "Save expense"}</button>
@@ -8328,7 +8429,7 @@ function XorlaApp() {
                     <div className="text-[13.5px] font-semibold cx-display truncate">Stock for {shopNameOf(activeShopId || targetShopId)}</div>
                     <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Running low? Ask for more here.</div>
                   </div>
-{multiLocationOn ?                   <button onClick={() => { setStockError(''); setRequestForm({ lines: [{ productId: '', qty: '' }], note: '' }); setStockPanel('request'); }} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}><PackagePlus size={15} /> Request stock</button> : <span className="shrink-0 text-[11.5px] text-right max-w-[160px]" style={{ color: C.inkFaint }}>Requests are part of the Business plan</span>}
+{multiLocationOn ?                   <button onClick={() => { setStockError(''); setRequestForm({ lines: [{ productId: '', qty: '' }], note: '' }); setStockPanel('request'); }} className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}><PackagePlus size={15} /> Request stock</button> : <span className="shrink-0 text-[11.5px] text-right max-w-[160px]" style={{ color: C.inkFaint }}>Requests are part of the Business plan</span>}
                 </div>
                 {stockError && !stockPanel && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{stockError}</div>}
                 {pushState !== 'on' && pushState !== 'checking' && pushState !== 'unsupported' && (
@@ -8367,12 +8468,12 @@ function XorlaApp() {
         </div>
         {/* Phones: the sections sit at the bottom, in reach of the thumb */}
         {staffTabs.length > 1 && (
-          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(10,31,28,0.97)', borderTop: `1px solid ${C.line}`, paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(var(--c-bg-rgb),0.97)', borderTop: `1px solid ${C.line}`, paddingBottom: 'env(safe-area-inset-bottom)' }}>
             {staffTabs.map(({ id, label, Icon, badge }) => (
               <button key={id} onClick={() => { setTab(id); window.scrollTo(0, 0); }} className="flex-1 flex flex-col items-center gap-1 py-2.5 relative">
                 <Icon size={21} style={{ color: staffTab === id ? C.copper : C.inkFaint }} />
                 <span className="text-[10px] font-medium" style={{ color: staffTab === id ? C.copper : C.inkFaint }}>{label}</span>
-                {badge > 0 && <span className="absolute top-1.5 right-[24%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{badge > 9 ? '9+' : badge}</span>}
+                {badge > 0 && <span className="absolute top-1.5 right-[24%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>{badge > 9 ? '9+' : badge}</span>}
               </button>
             ))}
           </div>
@@ -8408,7 +8509,7 @@ function XorlaApp() {
   };
   const issueRow = (it, i, onFix) => (
     <div key={i} className="flex items-start gap-3 py-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
-      <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: it.level === 'must' ? C.rust : it.level === 'should' ? C.copper : C.inkFaint }} />
+      <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: it.level === 'must' ? C.rustFill : it.level === 'should' ? C.copperFill : C.inkFaint }} />
       <span className="flex-1 text-[12.5px] leading-relaxed" style={{ color: it.level === 'soft' ? C.inkDim : C.ink }}>{it.text}</span>
       {onFix && <button onClick={() => onFix(it.fix)} className="shrink-0 text-[12px] font-semibold" style={{ color: C.copper }}>{it.fixLabel}</button>}
     </div>
@@ -8418,14 +8519,14 @@ function XorlaApp() {
     const issues = storefrontIssues();
     const blocking = issues.some((x) => x.level === 'must');
     return (
-      <div className="fixed inset-0 z-[88] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.8)' }} onClick={() => setReadyCheck(null)}>
+      <div className="fixed inset-0 z-[88] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={() => setReadyCheck(null)}>
         <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
           <div className="text-[16px] font-semibold cx-display mb-1">Before customers see your store</div>
           <div className="text-[12.5px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{blocking ? 'Fix the red items first, or customers may not be able to reach you.' : 'Your store works. These would make it look better to customers.'}</div>
           <div className="rounded-xl px-3.5" style={{ background: C.surfaceRaised }}>{issues.map((it, i) => issueRow(it, i, runFix))}</div>
           <div className="grid gap-2 mt-4" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.3fr)' }}>
             <button onClick={() => setReadyCheck(null)} className="h-11 rounded-xl text-[13px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>Not yet</button>
-            <button onClick={() => { const go = readyCheck.onGoLive; setReadyCheck(null); go && go(); }} className="h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: blocking ? C.surfaceRaised : C.sage, border: blocking ? `1px solid ${C.line}` : 'none', color: blocking ? C.ink : C.bg }}>{blocking ? 'Go live anyway' : 'Go live'}</button>
+            <button onClick={() => { const go = readyCheck.onGoLive; setReadyCheck(null); go && go(); }} className="h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: blocking ? C.surfaceRaised : C.sageFill, border: blocking ? `1px solid ${C.line}` : 'none', color: blocking ? C.ink : C.onAccent }}>{blocking ? 'Go live anyway' : 'Go live'}</button>
           </div>
         </div>
       </div>
@@ -8465,7 +8566,7 @@ function XorlaApp() {
     if (!left.length) {
       return (
         <div className="rounded-2xl p-4 mb-5 flex items-center gap-3 xorla-fade-up" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.25)' }}>
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><Check size={18} style={{ color: C.bg }} /></div>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageFill }}><Check size={18} style={{ color: C.onAccent }} /></div>
           <div className="flex-1 min-w-0"><div className="text-[13.5px] font-semibold cx-display">{settings.businessName} is fully set up</div><div className="text-[11.5px]" style={{ color: C.inkDim }}>Everything customers and staff need is in place.</div></div>
           <button onClick={() => updateSettings({ checklistHidden: true })} className="text-[12px] font-semibold shrink-0" style={{ color: C.sage }}>Hide</button>
         </div>
@@ -8481,11 +8582,11 @@ function XorlaApp() {
           </div>
           <span className="cx-mono text-[13px] font-bold shrink-0" style={{ color: C.copper }}>{pct}%</span>
         </div>
-        <div className="h-1.5 rounded-full overflow-hidden mb-3" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${C.copper}, ${C.sage})` }} /></div>
+        <div className="h-1.5 rounded-full overflow-hidden mb-3" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${C.copperFill}, ${C.sageFill})` }} /></div>
         <div className="space-y-1.5">
           {shown.map((it) => (
             <button key={it.id} onClick={it.done ? undefined : it.go} disabled={it.done} className="w-full flex items-start gap-3 rounded-xl px-3 py-2.5 text-left" style={{ background: it.done ? 'transparent' : C.surfaceRaised }}>
-              <span className="mt-0.5 w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={it.done ? { background: C.sage } : { border: `2px solid ${C.inkFaint}` }}>{it.done && <Check size={12} style={{ color: C.bg }} />}</span>
+              <span className="mt-0.5 w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={it.done ? { background: C.sageFill } : { border: `2px solid ${C.inkFaint}` }}>{it.done && <Check size={12} style={{ color: C.onAccent }} />}</span>
               <span className="flex-1 min-w-0">
                 <span className="block text-[13px] font-semibold" style={{ color: it.done ? C.inkFaint : C.ink, textDecoration: it.done ? 'line-through' : 'none' }}>{it.label}{it.optional && !it.done ? <span className="font-normal" style={{ color: C.inkFaint }}> (optional)</span> : ''}</span>
                 {!it.done && <span className="block text-[11.5px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>{it.why}</span>}
@@ -8600,13 +8701,13 @@ function XorlaApp() {
     const close = () => { if (t.busy || t.stage === 'reading') return; t.files.forEach((x) => URL.revokeObjectURL(x.url)); setListTool(null); };
     const setItem = (k, patch) => setListTool((x) => x && { ...x, error: '', items: x.items.map((it, j) => (j === k ? { ...it, ...patch } : it)) });
     const HEAD = "'Plus Jakarta Sans', 'Inter', sans-serif";
-    const fieldS = { background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink };
+    const fieldS = { background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink };
     const selectable = t.items.filter((it) => !it.exists);
     const onCount = t.items.filter((it) => it.on && !it.exists).length;
     const unsureCount = t.items.filter((it) => it.unsure && !it.exists).length;
     const showDur = apptMode;
     return (
-      <div className="fixed inset-0 z-[87] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.82)', backdropFilter: 'blur(4px)' }} onClick={close}>
+      <div className="fixed inset-0 z-[87] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.82)', backdropFilter: 'blur(4px)' }} onClick={close}>
         <style>{'@keyframes xorlaScan{0%{top:2%}50%{top:94%}100%{top:2%}}'}</style>
         <div className="w-full sm:max-w-xl rounded-t-[28px] sm:rounded-[28px] flex flex-col max-h-[94vh] xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.lineStrong}` }} onClick={(e) => e.stopPropagation()}>
           <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-3">
@@ -8619,7 +8720,7 @@ function XorlaApp() {
                   : t.stage === 'reading' ? 'This takes about 20 seconds.' : staysScan ? 'Your room rates, your extras (bar, kitchen, laundry, pickup…), or both: a photo, screenshot or PDF. Oga sorts each line into room types, halls and extras with their prices, and you check everything before it is added.' : 'A handwritten list, printed menu or wall board all work. Oga reads it and you check everything before it is added.'}
               </div>
             </div>
-            <button onClick={close} aria-label="Close" className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.05)', color: C.inkDim }}><X size={17} /></button>
+            <button onClick={close} aria-label="Close" className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(var(--c-hi),0.05)', color: C.inkDim }}><X size={17} /></button>
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 pb-4">
@@ -8639,25 +8740,25 @@ function XorlaApp() {
                 )}
                 {t.files.length < 3 && (
                   <div className="rounded-3xl p-6 text-center" style={{ background: 'linear-gradient(160deg, rgba(255,176,32,0.10), rgba(255,176,32,0.02))', border: `1.5px dashed rgba(255,176,32,0.35)` }}>
-                    <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: C.copper }}><Camera size={24} style={{ color: C.bg }} /></div>
+                    <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: C.copperFill }}><Camera size={24} style={{ color: C.onAccent }} /></div>
                     <div className="text-[15px] font-semibold">{t.files.length ? 'Add another page' : staysScan ? 'Your rate card or price list' : 'Take a photo of your list'}</div>
                     <div className="text-[12.5px] mt-1 mb-4" style={{ color: C.inkDim }}>Up to 3 photos for a long list.</div>
                     <div className="grid grid-cols-2 gap-2.5 max-w-sm mx-auto">
-                      <label className="h-11 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-2 cursor-pointer" style={{ background: C.copper, color: C.bg }}><Camera size={16} /> Take photo<input type="file" accept="image/*" capture="environment" className="hidden" onChange={addScanFiles} /></label>
-                      <label className="h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2 cursor-pointer" style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.lineStrong}`, color: C.ink }}><ImagePlus size={16} /> {staysScan ? 'Photo or PDF' : 'From gallery'}<input type="file" accept={staysScan ? 'image/*,application/pdf' : 'image/*'} multiple className="hidden" onChange={addScanFiles} /></label>
+                      <label className="h-11 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-2 cursor-pointer" style={{ background: C.copperFill, color: C.onAccent }}><Camera size={16} /> Take photo<input type="file" accept="image/*" capture="environment" className="hidden" onChange={addScanFiles} /></label>
+                      <label className="h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2 cursor-pointer" style={{ background: 'rgba(var(--c-hi),0.05)', border: `1px solid ${C.lineStrong}`, color: C.ink }}><ImagePlus size={16} /> {staysScan ? 'Photo or PDF' : 'From gallery'}<input type="file" accept={staysScan ? 'image/*,application/pdf' : 'image/*'} multiple className="hidden" onChange={addScanFiles} /></label>
                     </div>
                   </div>
                 )}
                 <div className="grid grid-cols-3 gap-2 text-center">
                   {[['Lay it flat', 'and fill the frame'], ['Good light', 'no shadows or glare'], ['Sharp photo', 'hold steady']].map(([a, b]) => (
-                    <div key={a} className="rounded-2xl px-2 py-3" style={{ background: 'rgba(255,255,255,0.03)' }}><div className="text-[12.5px] font-semibold">{a}</div><div className="text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{b}</div></div>
+                    <div key={a} className="rounded-2xl px-2 py-3" style={{ background: 'rgba(var(--c-hi),0.03)' }}><div className="text-[12.5px] font-semibold">{a}</div><div className="text-[11px] mt-0.5" style={{ color: C.inkFaint }}>{b}</div></div>
                   ))}
                 </div>
               </div>
             )}
             {t.stage === 'reading' && (
               <div className="py-4">
-                <div className="relative mx-auto rounded-3xl overflow-hidden" style={{ width: 'min(260px, 70vw)', aspectRatio: '3 / 4', background: C.surfaceRaised, boxShadow: '0 30px 60px -30px rgba(0,0,0,0.8)' }}>
+                <div className="relative mx-auto rounded-3xl overflow-hidden" style={{ width: 'min(260px, 70vw)', aspectRatio: '3 / 4', background: C.surfaceRaised, boxShadow: '0 30px 60px -30px rgba(var(--c-lo),calc(0.8 * var(--c-lok)))' }}>
                   {t.files[0] && (t.files[0].file?.type === 'application/pdf' ? <div className="w-full h-full flex items-center justify-center"><FileText size={56} style={{ color: C.inkFaint }} /></div> : <img src={t.files[0].url} alt="" className="w-full h-full object-cover" style={{ filter: 'saturate(0.6) brightness(0.8)' }} />)}
                   <div className="absolute left-0 right-0 h-16 -translate-y-1/2 pointer-events-none" style={{ animation: 'xorlaScan 2.4s ease-in-out infinite', background: 'linear-gradient(180deg, transparent, rgba(255,176,32,0.35) 48%, rgba(255,200,90,0.9) 50%, rgba(255,176,32,0.35) 52%, transparent)' }} />
                 </div>
@@ -8672,9 +8773,9 @@ function XorlaApp() {
                 </div>
                 <div className="space-y-2">
                   {t.items.map((it, k) => (
-                    <div key={k} className="rounded-2xl p-3" style={{ background: it.on ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.02)', border: `1px solid ${it.unsure && !it.exists ? 'rgba(255,176,32,0.45)' : C.line}`, opacity: it.exists ? 0.55 : 1 }}>
+                    <div key={k} className="rounded-2xl p-3" style={{ background: it.on ? 'rgba(var(--c-hi),0.045)' : 'rgba(var(--c-hi),0.02)', border: `1px solid ${it.unsure && !it.exists ? 'rgba(255,176,32,0.45)' : C.line}`, opacity: it.exists ? 0.55 : 1 }}>
                       <div className="flex items-center gap-2.5">
-                        <button onClick={() => !it.exists && setItem(k, { on: !it.on })} disabled={it.exists} role="checkbox" aria-checked={it.on} aria-label={`Include ${it.name}`} className="w-6 h-6 rounded-lg shrink-0 flex items-center justify-center" style={it.on ? { background: C.copper } : { border: `1.5px solid ${C.inkFaint}` }}>{it.on && <Check size={14} strokeWidth={3} style={{ color: C.bg }} />}</button>
+                        <button onClick={() => !it.exists && setItem(k, { on: !it.on })} disabled={it.exists} role="checkbox" aria-checked={it.on} aria-label={`Include ${it.name}`} className="w-6 h-6 rounded-lg shrink-0 flex items-center justify-center" style={it.on ? { background: C.copperFill } : { border: `1.5px solid ${C.inkFaint}` }}>{it.on && <Check size={14} strokeWidth={3} style={{ color: C.onAccent }} />}</button>
                         <input value={it.name} disabled={it.exists} onChange={(e) => setItem(k, { name: e.target.value, on: true })} className="flex-1 min-w-0 rounded-xl px-3 h-10 text-[14px] outline-none" style={fieldS} aria-label="Name" />
                         <div className="relative w-[118px] shrink-0">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px]" style={{ color: C.inkFaint }}>₦</span>
@@ -8684,7 +8785,7 @@ function XorlaApp() {
                       {staysScan && !it.exists && (
                         <div className="flex items-center flex-wrap gap-1.5 mt-2 pl-[34px]">
                           {[['room', serviceKind === 'accommodation' ? 'Room type' : 'Rented by the day'], ['hall', 'Hall'], ['extra', 'Extra']].map(([g, l]) => (
-                            <button key={g} type="button" onClick={() => setItem(k, { group: g })} className="px-2.5 h-7 rounded-full text-[11.5px] font-semibold" style={it.group === g ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>
+                            <button key={g} type="button" onClick={() => setItem(k, { group: g })} className="px-2.5 h-7 rounded-full text-[11.5px] font-semibold" style={it.group === g ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>
                           ))}
                           <span className="text-[11.5px]" style={{ color: C.inkFaint }}>{it.group === 'room' ? (serviceKind === 'accommodation' ? 'per night' : 'per day') : it.group === 'hall' ? 'per day' : 'each'}</span>
                           {it.group === 'room' && serviceKind === 'accommodation' && (
@@ -8723,14 +8824,14 @@ function XorlaApp() {
             {t.error && <div className="mb-3 rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.rustSoft, color: C.rust }}>{t.error}</div>}
             {t.stage === 'pick' && (
               <>
-                <button onClick={readScan} disabled={!t.files.length} className="w-full h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: t.files.length ? 1 : 0.4 }}><Sparkles size={17} /> Read my list</button>
+                <button onClick={readScan} disabled={!t.files.length} className="w-full h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, opacity: t.files.length ? 1 : 0.4 }}><Sparkles size={17} /> Read my list</button>
                 <div className="text-[11.5px] text-center mt-2" style={{ color: C.inkFaint }}>Uses one Oga question from your plan.</div>
               </>
             )}
             {t.stage === 'review' && (
               <div className="flex gap-2.5">
-                {t.source === 'photo' && <button onClick={() => setListTool({ ...t, stage: 'pick', items: [], error: '' })} disabled={t.busy} className="h-[52px] px-5 rounded-2xl text-[13.5px] font-semibold" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.inkDim }}>Retake</button>}
-                <button onClick={saveListTool} disabled={t.busy || !onCount} className="flex-1 h-[52px] rounded-2xl text-[15px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: t.busy || !onCount ? 0.45 : 1 }}>{t.busy ? 'Adding…' : onCount ? `Add ${onCount} ${staysScan ? (onCount === 1 ? 'item' : 'items') : onCount === 1 ? T.item : T.catalog.toLowerCase()}` : 'Tick what you offer'}</button>
+                {t.source === 'photo' && <button onClick={() => setListTool({ ...t, stage: 'pick', items: [], error: '' })} disabled={t.busy} className="h-[52px] px-5 rounded-2xl text-[13.5px] font-semibold" style={{ background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.lineStrong}`, color: C.inkDim }}>Retake</button>}
+                <button onClick={saveListTool} disabled={t.busy || !onCount} className="flex-1 h-[52px] rounded-2xl text-[15px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, opacity: t.busy || !onCount ? 0.45 : 1 }}>{t.busy ? 'Adding…' : onCount ? `Add ${onCount} ${staysScan ? (onCount === 1 ? 'item' : 'items') : onCount === 1 ? T.item : T.catalog.toLowerCase()}` : 'Tick what you offer'}</button>
               </div>
             )}
           </div>
@@ -8746,7 +8847,7 @@ function XorlaApp() {
       const pos = Math.max(1, realSteps.indexOf(setupIds[setup.step]) + 1);
       return (
         <div className="fixed z-[60] inset-x-0 bottom-[150px] lg:bottom-6 flex justify-center px-4 pointer-events-none">
-          <button onClick={() => { if (tab === 'settings') setTab('overview'); setSetup({ ...setup, paused: false }); }} className="pointer-events-auto max-w-full flex items-center gap-2 pl-4 pr-5 py-3 rounded-full whitespace-nowrap text-[13px] font-semibold xorla-fade-up" style={{ background: C.ink, color: C.bg, boxShadow: '0 12px 30px rgba(0,0,0,0.45)' }}>
+          <button onClick={() => { if (tab === 'settings') setTab('overview'); setSetup({ ...setup, paused: false }); }} className="pointer-events-auto max-w-full flex items-center gap-2 pl-4 pr-5 py-3 rounded-full whitespace-nowrap text-[13px] font-semibold xorla-fade-up" style={{ background: C.ink, color: C.bg, boxShadow: '0 12px 30px rgba(var(--c-lo),calc(0.45 * var(--c-lok)))' }}>
             <ChevronLeft size={16} className="shrink-0" /> <span className="truncate">Back to setup, step {pos} of {realSteps.length}</span>
           </button>
         </div>
@@ -8814,40 +8915,40 @@ function XorlaApp() {
     };
     const pause = (fn) => { setSetup({ ...setup, f, paused: true }); fn(); };
     const HEAD = "'Plus Jakarta Sans', 'Inter', sans-serif";
-    const sfield = { background: 'rgba(255,255,255,0.035)', border: `1px solid ${C.lineStrong}`, color: C.ink };
+    const sfield = { background: 'rgba(var(--c-hi),0.035)', border: `1px solid ${C.lineStrong}`, color: C.ink };
     const inputCls = 'w-full rounded-2xl px-4 h-[52px] text-[15px] outline-none transition-colors focus:border-[#FFB020]';
     const label = (t, hint) => <div className="mb-2"><div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>{t}</div>{hint && <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>{hint}</div>}</div>;
     const option = (on, onClick, { title, desc, Icon, compact }) => (
       <button type="button" onClick={onClick} aria-pressed={on} className={`relative w-full text-left rounded-2xl transition-all ${compact ? 'p-3' : 'p-4'} flex items-start gap-3`}
-        style={{ background: on ? 'linear-gradient(160deg, rgba(255,176,32,0.14), rgba(255,176,32,0.04))' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${on ? C.copper : C.line}`, boxShadow: on ? '0 10px 30px -14px rgba(255,176,32,0.55)' : 'none' }}>
-        {Icon && <span className={`${compact ? 'w-9 h-9 rounded-xl' : 'w-11 h-11 rounded-2xl'} shrink-0 flex items-center justify-center`} style={{ background: on ? C.copper : C.surfaceRaised }}><Icon size={compact ? 17 : 20} style={{ color: on ? C.bg : C.inkDim }} /></span>}
+        style={{ background: on ? 'linear-gradient(160deg, rgba(255,176,32,0.14), rgba(255,176,32,0.04))' : 'rgba(var(--c-hi),0.03)', border: `1.5px solid ${on ? C.copper : C.line}`, boxShadow: on ? '0 10px 30px -14px rgba(255,176,32,0.55)' : 'none' }}>
+        {Icon && <span className={`${compact ? 'w-9 h-9 rounded-xl' : 'w-11 h-11 rounded-2xl'} shrink-0 flex items-center justify-center`} style={{ background: on ? C.copperFill : C.surfaceRaised }}><Icon size={compact ? 17 : 20} style={{ color: on ? C.onAccent : C.inkDim }} /></span>}
         <span className="min-w-0 flex-1 pr-5">
           <span className={`block font-semibold ${compact ? 'text-[13px]' : 'text-[15px]'}`} style={{ color: on ? C.ink : C.ink }}>{title}</span>
           {desc && <span className={`block leading-snug mt-0.5 ${compact ? 'text-[11px]' : 'text-[12.5px]'}`} style={{ color: C.inkDim }}>{desc}</span>}
         </span>
-        {on && <span className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: C.copper }}><Check size={12} strokeWidth={3} style={{ color: C.bg }} /></span>}
+        {on && <span className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: C.copperFill }}><Check size={12} strokeWidth={3} style={{ color: C.onAccent }} /></span>}
       </button>
     );
     const seg = (opts, value, onPick) => (
-      <div className="flex gap-1 p-1 rounded-2xl" style={{ background: 'rgba(255,255,255,0.035)', border: `1px solid ${C.line}` }}>
-        {opts.map(([v, l]) => <button key={String(v)} onClick={() => onPick(v)} className="flex-1 h-11 rounded-xl text-[13px] font-semibold transition-all" style={value === v ? { background: C.copper, color: C.bg, boxShadow: '0 6px 18px -8px rgba(255,176,32,0.7)' } : { color: C.inkDim }}>{l}</button>)}
+      <div className="flex gap-1 p-1 rounded-2xl" style={{ background: 'rgba(var(--c-hi),0.035)', border: `1px solid ${C.line}` }}>
+        {opts.map(([v, l]) => <button key={String(v)} onClick={() => onPick(v)} className="flex-1 h-11 rounded-xl text-[13px] font-semibold transition-all" style={value === v ? { background: C.copperFill, color: C.onAccent, boxShadow: '0 6px 18px -8px rgba(255,176,32,0.7)' } : { color: C.inkDim }}>{l}</button>)}
       </div>
     );
 
     // The card that fills in as they answer: the business taking shape
     const hoursText = (settings.setupSteps || []).includes('hours') || i > setupIds.indexOf('hours') && setupIds.includes('hours') ? `${daysLabel(f.days)}, ${hhmmLabel(f.open)} to ${hhmmLabel(f.close)}` : '';
     const branchCount = shops.length + (f.multi ? f.newBranches.filter((x) => x.trim()).length : 0);
-    const bar = (w) => <span className="inline-block h-2.5 rounded-full align-middle" style={{ width: w, background: 'rgba(255,255,255,0.08)' }} />;
+    const bar = (w) => <span className="inline-block h-2.5 rounded-full align-middle" style={{ width: w, background: 'rgba(var(--c-hi),0.08)' }} />;
     const card = (big) => (
-      <div className="relative w-full overflow-hidden" style={{ minHeight: big ? 236 : undefined, borderRadius: big ? 28 : 22, background: 'linear-gradient(150deg, #174339 0%, #0F2C27 48%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)', boxShadow: big ? '0 40px 80px -30px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+      <div data-xt="dark" className="relative w-full overflow-hidden" style={{ minHeight: big ? 236 : undefined, borderRadius: big ? 28 : 22, background: 'linear-gradient(150deg, #174339 0%, #0F2C27 48%, #0B211D 100%)', border: '1px solid rgba(var(--c-hi),0.09)', boxShadow: big ? '0 40px 80px -30px rgba(var(--c-lo),calc(0.8 * var(--c-lok))), inset 0 1px 0 rgba(var(--c-hi),0.08)' : 'inset 0 1px 0 rgba(var(--c-hi),0.06)' }}>
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(115deg, transparent 38%, rgba(255,176,32,0.10) 50%, transparent 62%)' }} />
         <div className="absolute -right-10 -bottom-12 opacity-[0.07] pointer-events-none"><XorlaMark size={big ? 200 : 120} /></div>
         <div className={`relative h-full flex flex-col ${big ? 'p-6' : 'p-4'}`}>
           <div className="flex items-start justify-between gap-3">
             {settings.logoUrl
-              ? <img src={settings.logoUrl} alt="" className={`${big ? 'w-14 h-14' : 'w-10 h-10'} rounded-2xl object-cover`} style={{ border: '1px solid rgba(255,255,255,0.12)' }} />
-              : <span className={`${big ? 'w-14 h-14 text-[24px]' : 'w-10 h-10 text-[17px]'} rounded-2xl flex items-center justify-center font-extrabold`} style={{ fontFamily: HEAD, background: `linear-gradient(140deg, #FFC85A, ${C.copper})`, color: C.bg }}>{(nameFor[0] || 'X').toUpperCase()}</span>}
-            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full" style={settings.storefrontEnabled ? { background: C.sageSoft, color: C.sage } : { background: 'rgba(255,255,255,0.06)', color: C.inkFaint }}>{settings.storefrontEnabled ? 'Storefront live' : 'Storefront off'}</span>
+              ? <img src={settings.logoUrl} alt="" className={`${big ? 'w-14 h-14' : 'w-10 h-10'} rounded-2xl object-cover`} style={{ border: '1px solid rgba(var(--c-hi),0.12)' }} />
+              : <span className={`${big ? 'w-14 h-14 text-[24px]' : 'w-10 h-10 text-[17px]'} rounded-2xl flex items-center justify-center font-extrabold`} style={{ fontFamily: HEAD, background: `linear-gradient(140deg, #FFC85A, ${C.copperFill})`, color: C.onAccent }}>{(nameFor[0] || 'X').toUpperCase()}</span>}
+            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full" style={settings.storefrontEnabled ? { background: C.sageSoft, color: C.sage } : { background: 'rgba(var(--c-hi),0.06)', color: C.inkFaint }}>{settings.storefrontEnabled ? 'Storefront live' : 'Storefront off'}</span>
           </div>
           <div className={big ? 'mt-auto' : 'mt-3'}>
             <div className={`font-extrabold leading-[1.1] ${big ? 'text-[26px]' : 'text-[18px]'} truncate`} style={{ fontFamily: HEAD, letterSpacing: '-0.025em', color: C.ink }}>{nameFor}</div>
@@ -8922,7 +9023,7 @@ function XorlaApp() {
             <div className="relative"><MapPin size={16} className="absolute left-4 top-[18px]" style={{ color: C.inkFaint }} />
               <textarea rows={2} placeholder="Street, area, city" value={f.address} onChange={(e) => setF({ address: e.target.value })} className="w-full rounded-2xl pl-11 pr-4 py-3.5 text-[15px] outline-none resize-none focus:border-[#FFB020]" style={sfield} /></div>
           </div>
-          <label className="flex items-center gap-4 rounded-2xl p-3.5 cursor-pointer transition-colors" style={{ background: 'rgba(255,255,255,0.03)', border: `1.5px dashed ${C.lineStrong}` }}>
+          <label className="flex items-center gap-4 rounded-2xl p-3.5 cursor-pointer transition-colors" style={{ background: 'rgba(var(--c-hi),0.03)', border: `1.5px dashed ${C.lineStrong}` }}>
             {settings.logoUrl ? <img src={settings.logoUrl} alt="" className="w-14 h-14 rounded-2xl object-cover" /> : <span className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: C.surfaceRaised }}>{logoUploading ? <Loader2 size={20} className="animate-spin" style={{ color: C.inkDim }} /> : <ImagePlus size={20} style={{ color: C.copper }} />}</span>}
             <span className="flex-1"><span className="block text-[14px] font-semibold" style={{ color: C.ink }}>{logoUploading ? 'Uploading…' : settings.logoUrl ? 'Change your logo' : 'Add your logo'}</span><span className="block text-[12px]" style={{ color: C.inkFaint }}>Optional. Shows on receipts, invoices and your storefront.</span></span>
             <input type="file" accept="image/*" className="hidden" onChange={handleLogoSelect} disabled={logoUploading} />
@@ -8952,14 +9053,14 @@ function XorlaApp() {
       if (id === 'hours') return (
         <div className="space-y-6">
           <div>{label('Days you open')}
-            <div className="grid grid-cols-7 gap-1.5">{[1, 2, 3, 4, 5, 6, 7].map((d) => { const on = f.days.includes(d); return <button key={d} onClick={() => setF({ days: on ? f.days.filter((x) => x !== d) : [...f.days, d].sort() })} aria-pressed={on} className="h-12 rounded-xl text-[12.5px] font-semibold transition-all" style={on ? { background: C.copper, color: C.bg } : { background: 'rgba(255,255,255,0.03)', color: C.inkDim, border: `1px solid ${C.line}` }}>{DAY_SHORT[d]}</button>; })}</div>
+            <div className="grid grid-cols-7 gap-1.5">{[1, 2, 3, 4, 5, 6, 7].map((d) => { const on = f.days.includes(d); return <button key={d} onClick={() => setF({ days: on ? f.days.filter((x) => x !== d) : [...f.days, d].sort() })} aria-pressed={on} className="h-12 rounded-xl text-[12.5px] font-semibold transition-all" style={on ? { background: C.copperFill, color: C.onAccent } : { background: 'rgba(var(--c-hi),0.03)', color: C.inkDim, border: `1px solid ${C.line}` }}>{DAY_SHORT[d]}</button>; })}</div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[['open', 'Opens'], ['close', 'Closes']].map(([k, l]) => (
               <div key={k}>{label(l)}<BrandSelect value={f[k]} onChange={(e) => setF({ [k]: e.target.value })} className="w-full rounded-2xl px-4 h-[52px] text-[15px]" style={sfield} aria-label={l}>{HALF_HOURS.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}</BrandSelect></div>
             ))}
           </div>
-          <div className="flex items-center gap-4 rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.line}` }}>
+          <div className="flex items-center gap-4 rounded-2xl p-4" style={{ background: 'rgba(var(--c-hi),0.03)', border: `1px solid ${C.line}` }}>
             <div className="flex-1"><div className="text-[14px] font-semibold">Customers at the same time</div><div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>How many you can serve at once, for example chairs or {PW.many}.</div></div>
             <div className="flex items-center rounded-xl shrink-0" style={{ background: C.surfaceRaised }}>
               <button aria-label="Fewer" onClick={() => setF({ cap: Math.max(1, f.cap - 1) })} className="w-10 h-11 text-[18px]" style={{ color: C.inkDim }}>−</button>
@@ -8984,7 +9085,7 @@ function XorlaApp() {
         const n = listItems.length;
         const isHotel = serviceKind === 'accommodation';
         const tile = (Icon, tint, title, desc, onClick) => (
-          <button onClick={onClick} className="w-full flex items-center gap-4 rounded-2xl p-4 text-left transition-colors" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.lineStrong}` }}>
+          <button onClick={onClick} className="w-full flex items-center gap-4 rounded-2xl p-4 text-left transition-colors" style={{ background: 'rgba(var(--c-hi),0.03)', border: `1px solid ${C.lineStrong}` }}>
             <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: tint[0] }}><Icon size={20} style={{ color: tint[1] }} /></span>
             <span className="flex-1 min-w-0"><span className="block text-[15px] font-semibold">{title}</span><span className="block text-[12.5px] leading-snug mt-0.5" style={{ color: C.inkDim }}>{desc}</span></span>
             <ChevronRight size={18} style={{ color: C.inkFaint }} className="shrink-0" />
@@ -9004,7 +9105,7 @@ function XorlaApp() {
                   {!n && (
                     <div className="relative">
                       {tile(Camera, [C.copper, C.bg], 'Upload your rate card', 'A photo, screenshot or PDF of your room rates. Oga reads the room types, halls and extras, and you check them.', openScan)}
-                      <span className="absolute -top-2 right-4 text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: C.copper, color: C.bg }}>Fastest</span>
+                      <span className="absolute -top-2 right-4 text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: C.copperFill, color: C.onAccent }}>Fastest</span>
                     </div>
                   )}
                   {tile(BedDouble, [C.copperSoft, C.copper], n ? 'Add another room type' : 'Add a room type', 'Standard, Deluxe, Suite: the price per night and how many you have.', () => pause(() => openCatalogForm('room')))}
@@ -9014,7 +9115,7 @@ function XorlaApp() {
                 <>
                   <div className="relative">
                     {tile(Camera, [C.copper, C.bg], 'Snap your price list', 'Take a photo of your menu, price board or handwritten list. Oga reads it and you check it.', openScan)}
-                    <span className="absolute -top-2 right-4 text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: C.copper, color: C.bg }}>Fastest</span>
+                    <span className="absolute -top-2 right-4 text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: C.copperFill, color: C.onAccent }}>Fastest</span>
                   </div>
                   {starterList && tile(Sparkles, [C.sageSoft, C.sage], `Pick from common ${T2.catalog.toLowerCase()}`, `${starterList.title}: tick what you offer and type your prices.`, openStarter)}
                   {tile(Receipt, [C.copperSoft, C.copper], 'Type or paste your list', "One per line with its price, e.g. Men's haircut, 3000. Copy from Excel or your phone notes.", () => openImport())}
@@ -9037,14 +9138,14 @@ function XorlaApp() {
             {f.storeOn && (
               <div className="space-y-5 xorla-fade-up">
                 <div>{label('Tagline', 'Optional. One line under your name that tells customers what you do.')}<input maxLength={80} placeholder={examplesFor(f.type === 'products' ? null : serviceKind).tagline.replace(/^e\.g\.\s*/, '')} value={f.tagline} onChange={(e) => setF({ tagline: e.target.value })} className={inputCls} style={sfield} /></div>
-                <div className="flex items-center gap-3 rounded-2xl px-4 py-3.5" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.line}` }}>
+                <div className="flex items-center gap-3 rounded-2xl px-4 py-3.5" style={{ background: 'rgba(var(--c-hi),0.03)', border: `1px solid ${C.line}` }}>
                   <Link2 size={16} style={{ color: C.sage }} className="shrink-0" />
                   <span className="text-[13.5px] truncate font-medium" style={{ color: C.sage }}>{window.location.host}/store/{settings.businessCode}</span>
                 </div>
                 {issues.length > 0 && (
                   <div>
                     <div className="text-[13px] font-semibold mb-1">Customers will notice</div>
-                    <div className="rounded-2xl px-4" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.line}` }}>{issues.map((it, k) => issueRow(it, k, null))}</div>
+                    <div className="rounded-2xl px-4" style={{ background: 'rgba(var(--c-hi),0.03)', border: `1px solid ${C.line}` }}>{issues.map((it, k) => issueRow(it, k, null))}</div>
                     <div className="text-[12px] mt-2" style={{ color: C.inkFaint }}>These are on your checklist too, so you can fix them after setup.</div>
                   </div>
                 )}
@@ -9064,8 +9165,8 @@ function XorlaApp() {
               <div className="text-[12px] mt-1.5" style={{ color: C.inkFaint }}>You approve each person before they get in.</div>
             </div>
             <div className="grid gap-2.5" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.5fr)' }}>
-              <button onClick={() => copyText('code', settings.staffCode)} className="h-12 rounded-2xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: copiedKey === 'code' ? C.sage : C.ink }}>{copiedKey === 'code' ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy code</>}</button>
-              <a href={`https://wa.me/?text=${encodeURIComponent(invite)}`} target="_blank" rel="noopener noreferrer" className="h-12 rounded-2xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><Send size={15} /> Invite on WhatsApp</a>
+              <button onClick={() => copyText('code', settings.staffCode)} className="h-12 rounded-2xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.lineStrong}`, color: copiedKey === 'code' ? C.sage : C.ink }}>{copiedKey === 'code' ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy code</>}</button>
+              <a href={`https://wa.me/?text=${encodeURIComponent(invite)}`} target="_blank" rel="noopener noreferrer" className="h-12 rounded-2xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageFill, color: C.onAccent }}><Send size={15} /> Invite on WhatsApp</a>
             </div>
             {settings.staffList.length > 0 && <div className="text-[13px] flex items-center gap-2" style={{ color: C.sage }}><Check size={15} /> {settings.staffList.length} staff already joined</div>}
           </div>
@@ -9076,7 +9177,7 @@ function XorlaApp() {
         <div className="grid sm:grid-cols-2 gap-x-4">
           {readyItems.map((it) => (
             <div key={it.id} className="flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>
-              <span className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={it.done ? { background: C.sage } : { border: `1.5px solid ${C.inkFaint}` }}>{it.done && <Check size={12} strokeWidth={3} style={{ color: C.bg }} />}</span>
+              <span className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={it.done ? { background: C.sageFill } : { border: `1.5px solid ${C.inkFaint}` }}>{it.done && <Check size={12} strokeWidth={3} style={{ color: C.onAccent }} />}</span>
               <span className="text-[13px]" style={{ color: it.done ? C.ink : C.inkDim }}>{it.label}{!it.done && it.optional ? ' (optional)' : ''}</span>
             </div>
           ))}
@@ -9093,7 +9194,7 @@ function XorlaApp() {
     return (
       <div className="fixed inset-0 z-[80] flex cx-body" style={{ background: C.bg, color: C.ink }}>
         {/* Left: the business taking shape (computers) */}
-        <aside className="hidden lg:flex w-[44%] max-w-[620px] flex-col justify-between relative overflow-hidden px-12 py-10" style={{ background: 'radial-gradient(120% 80% at 10% 0%, #143A33 0%, #0B221E 55%, #081A17 100%)', borderRight: `1px solid ${C.line}` }}>
+        <aside data-xt="dark" className="hidden lg:flex w-[44%] max-w-[620px] flex-col justify-between relative overflow-hidden px-12 py-10" style={{ background: 'radial-gradient(120% 80% at 10% 0%, #143A33 0%, #0B221E 55%, #081A17 100%)', borderRight: `1px solid ${C.line}` }}>
           <div className="absolute -top-40 -left-40 w-[520px] h-[520px] rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(31,217,196,0.16), transparent 65%)' }} />
           <div className="relative flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span></div>
           <div className="relative">
@@ -9103,7 +9204,7 @@ function XorlaApp() {
                 const m = META[sid]; const doneStep = stepPos > k || id === 'done'; const cur = sid === id;
                 return (
                   <div key={sid} className="flex items-center gap-3 py-1.5">
-                    <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold transition-all" style={doneStep ? { background: C.sage, color: C.bg } : cur ? { background: C.copper, color: C.bg } : { border: `1.5px solid ${C.lineStrong}`, color: C.inkFaint }}>{doneStep ? <Check size={12} strokeWidth={3} /> : k + 1}</span>
+                    <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold transition-all" style={doneStep ? { background: C.sageFill, color: C.onAccent } : cur ? { background: C.copperFill, color: C.onAccent } : { border: `1.5px solid ${C.lineStrong}`, color: C.inkFaint }}>{doneStep ? <Check size={12} strokeWidth={3} /> : k + 1}</span>
                     <span className="text-[13.5px]" style={{ color: cur ? C.ink : doneStep ? C.inkDim : C.inkFaint, fontWeight: cur ? 600 : 400 }}>{m.label}</span>
                   </div>
                 );
@@ -9122,7 +9223,7 @@ function XorlaApp() {
             </div>
             {stepPos >= 0 && (
               <div className="max-w-xl w-full mx-auto px-5 lg:px-10">
-                <div className="flex gap-1.5">{realSteps.map((sid, k) => <span key={sid} className="flex-1 h-1 rounded-full transition-all duration-500" style={{ background: k < stepPos ? C.sage : k === stepPos ? C.copper : 'rgba(255,255,255,0.08)' }} />)}</div>
+                <div className="flex gap-1.5">{realSteps.map((sid, k) => <span key={sid} className="flex-1 h-1 rounded-full transition-all duration-500" style={{ background: k < stepPos ? C.sageFill : k === stepPos ? C.copperFill : 'rgba(var(--c-hi),0.08)' }} />)}</div>
                 <div className="text-[12px] mt-2.5" style={{ color: C.inkFaint }}>{META[id].label}, {stepPos + 1} of {realSteps.length}</div>
               </div>
             )}
@@ -9136,13 +9237,13 @@ function XorlaApp() {
               {body}
             </div>
           </div>
-          <footer className="shrink-0" style={{ borderTop: `1px solid ${C.line}`, background: 'rgba(10,31,28,0.98)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          <footer className="shrink-0" style={{ borderTop: `1px solid ${C.line}`, background: 'rgba(var(--c-bg-rgb),0.98)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
             <div className="max-w-xl w-full mx-auto px-5 lg:px-10 py-4">
               {setup.error && <div className="mb-3 rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.rustSoft, color: C.rust }}>{setup.error}</div>}
               <div className="flex gap-2.5">
-                {i > 0 && id !== 'done' && <button onClick={() => go(i - 1)} disabled={setup.busy} aria-label="Back" className="h-[54px] w-[54px] shrink-0 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.inkDim }}><ChevronLeft size={20} /></button>}
+                {i > 0 && id !== 'done' && <button onClick={() => go(i - 1)} disabled={setup.busy} aria-label="Back" className="h-[54px] w-[54px] shrink-0 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.lineStrong}`, color: C.inkDim }}><ChevronLeft size={20} /></button>}
                 <button onClick={id === 'welcome' ? () => go(i + 1) : next} disabled={setup.busy || typeBlocked} className="flex-1 h-[54px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
-                  style={{ ...(quiet ? { background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink } : { background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, boxShadow: '0 14px 30px -12px rgba(255,176,32,0.65), inset 0 1px 0 rgba(255,255,255,0.35)' }), opacity: setup.busy || typeBlocked ? 0.4 : 1 }}>
+                  style={{ ...(quiet ? { background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink } : { background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, boxShadow: '0 14px 30px -12px rgba(255,176,32,0.65), inset 0 1px 0 rgba(255,255,255,0.35)' }), opacity: setup.busy || typeBlocked ? 0.4 : 1 }}>
                   {primaryLabel}{!setup.busy && !quiet && id !== 'done' && <ArrowRight size={18} />}
                 </button>
               </div>
@@ -9174,7 +9275,7 @@ function XorlaApp() {
         return (
           <button key={opt.id} onClick={() => onPick(opt.id)} className="w-full text-left rounded-2xl p-4 flex items-start gap-3 transition-colors active:scale-[0.99]" style={{ background: on ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${on ? C.copper : C.line}` }}>
             <span className="mt-0.5 w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={{ border: `2px solid ${on ? C.copper : C.inkFaint}` }}>
-              {on && <span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copper }} />}
+              {on && <span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copperFill }} />}
             </span>
             <span>
               <span className="block text-[14.5px] font-semibold mb-0.5">{opt.title}</span>
@@ -9198,7 +9299,7 @@ function XorlaApp() {
               </div>
               <span className="flex-1 text-left text-[14.5px] font-medium" style={{ color: r.danger ? C.rust : C.ink }}>{r.label}</span>
               {r.toggle ? (
-                <span className="shrink-0 w-12 h-7 rounded-full relative transition-colors" style={{ background: r.on ? C.sage : C.line }}>
+                <span className="shrink-0 w-12 h-7 rounded-full relative transition-colors" style={{ background: r.on ? C.sageFill : C.line }}>
                   <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: r.on ? '24px' : '4px' }} />
                 </span>
               ) : !r.danger && (
@@ -9257,8 +9358,8 @@ function XorlaApp() {
     let navMode = 'list';
     const navRowClick = (r) => (r.toggle ? r.onToggle : r.action ? r.action : () => setSettingsPage(r.id));
     const toggleKnob = (on, small) => (
-      <span className={`shrink-0 ${small ? 'w-10 h-6' : 'w-12 h-7'} rounded-full relative transition-colors`} style={{ background: on ? C.sage : 'rgba(255,255,255,0.12)' }}>
-        <span className={`absolute ${small ? 'top-[3px] w-[18px] h-[18px]' : 'top-1 w-5 h-5'} rounded-full transition-all`} style={{ background: '#fff', left: on ? (small ? '19px' : '24px') : (small ? '3px' : '4px'), boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+      <span className={`shrink-0 ${small ? 'w-10 h-6' : 'w-12 h-7'} rounded-full relative transition-colors`} style={{ background: on ? C.sageFill : 'rgba(var(--c-hi),0.12)' }}>
+        <span className={`absolute ${small ? 'top-[3px] w-[18px] h-[18px]' : 'top-1 w-5 h-5'} rounded-full transition-all`} style={{ background: '#fff', left: on ? (small ? '19px' : '24px') : (small ? '3px' : '4px'), boxShadow: '0 1px 3px rgba(var(--c-lo),calc(0.3 * var(--c-lok)))' }} />
       </span>
     );
     // Phones: grouped cards. Computers: a compact sidebar with the open page highlighted.
@@ -9267,14 +9368,14 @@ function XorlaApp() {
         return (
           <div key={title || 'end'}>
             {title && <div className="text-[12.5px] font-semibold px-1.5 mb-2" style={{ color: C.inkDim }}>{title}</div>}
-            <div className="rounded-2xl p-1.5" style={{ background: 'rgba(255,255,255,0.025)', border: `1px solid ${C.line}` }}>
+            <div className="rounded-2xl p-1.5" style={{ background: 'rgba(var(--c-hi),0.025)', border: `1px solid ${C.line}` }}>
               {rows.map((r, i) => {
                 const active = r.id && r.id === settingsPage;
                 return (
                   <button key={r.label} onClick={navRowClick(r)} role={r.toggle ? 'switch' : undefined} aria-checked={r.toggle ? r.on : undefined} aria-current={active ? 'page' : undefined}
-                    className="relative w-full flex items-center gap-3 pl-2 pr-3 h-11 rounded-xl text-left transition-colors hover:bg-white/[0.045]" style={active ? { background: 'rgba(255,176,32,0.12)' } : undefined}>
-                    {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full" style={{ background: C.copper }} />}
-                    <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: r.danger ? C.rustSoft : active ? C.copper : 'rgba(255,176,32,0.09)' }}><r.Icon size={15} style={{ color: r.danger ? C.rust : active ? C.bg : C.copper }} /></span>
+                    className="relative w-full flex items-center gap-3 pl-2 pr-3 h-11 rounded-xl text-left transition-colors cx-hov" style={active ? { background: 'rgba(255,176,32,0.12)' } : undefined}>
+                    {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full" style={{ background: C.copperFill }} />}
+                    <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: r.danger ? C.rustSoft : active ? C.copperFill : 'rgba(255,176,32,0.09)' }}><r.Icon size={15} style={{ color: r.danger ? C.rust : active ? C.onAccent : C.copper }} /></span>
                     <span className="flex-1 min-w-0 truncate text-[14px]" style={{ color: r.danger ? C.rust : active ? C.ink : C.ink, fontWeight: active ? 650 : 500 }}>{r.label}</span>
                     {r.toggle ? toggleKnob(r.on, true) : r.value && !r.danger ? <span className="shrink-0 max-w-[120px] truncate text-[12.5px]" style={{ color: r.valueColor || C.inkFaint }}>{r.value}</span> : null}
                   </button>
@@ -9287,9 +9388,9 @@ function XorlaApp() {
       return (
         <div key={title || 'end'}>
           {title && <div className="text-[13px] font-semibold px-1 mb-2" style={{ color: C.inkDim }}>{title}</div>}
-          <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+          <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
             {rows.map((r, i) => (
-              <button key={r.label} onClick={navRowClick(r)} role={r.toggle ? 'switch' : undefined} aria-checked={r.toggle ? r.on : undefined} className="w-full flex items-center gap-3.5 px-4 min-h-[58px] py-2.5 active:bg-white/[0.04] text-left" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
+              <button key={r.label} onClick={navRowClick(r)} role={r.toggle ? 'switch' : undefined} aria-checked={r.toggle ? r.on : undefined} className="w-full flex items-center gap-3.5 px-4 min-h-[58px] py-2.5 cx-act text-left" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: r.danger ? C.rustSoft : 'rgba(255,176,32,0.10)' }}><r.Icon size={17} style={{ color: r.danger ? C.rust : C.copper }} /></span>
                 <span className="flex-1 min-w-0 truncate text-[15px] font-medium" style={{ color: r.danger ? C.rust : C.ink }}>{r.label}</span>
                 {r.toggle ? toggleKnob(r.on) : !r.danger && (
@@ -9350,6 +9451,9 @@ function XorlaApp() {
                   ...(isOwnerRole && settings.staffList.some((x) => x.role === 'manager') ? [{ toggle: true, Icon: ShieldCheck, label: 'Approve managers\' price changes first', on: !!draft.approveManagerPrices, onToggle: () => setDraft({ ...draft, approveManagerPrices: !draft.approveManagerPrices }) }] : []),
                   ...(!isManager && (hasBookables || apptMode) ? [{ toggle: true, Icon: CalendarClock, label: hasBookables && apptMode ? 'Let staff confirm bookings and appointments' : apptMode ? 'Let staff accept appointment requests' : 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
                 ])}
+                {navGroup('Appearance', [
+                  { id: 'appearance', Icon: themeMode === 'light' ? Sun : Moon, label: 'Light or dark mode', value: themePref === 'auto' ? 'Match my phone' : themePref === 'light' ? 'Light' : 'Dark' },
+                ])}
                 {navGroup('Security', [
                   { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
                 ])}
@@ -9379,24 +9483,24 @@ function XorlaApp() {
       const planText = !planKnown ? '' : onTrial ? `Free trial, ${planDaysLeft} day${planDaysLeft === 1 ? '' : 's'} left` : `${PLAN_INFO[effPlan].name} plan`;
       const left = readyItems.filter((x) => !x.done).length;
       return (
-        <div className="relative overflow-hidden" style={{ borderRadius: big ? 28 : 24, background: 'linear-gradient(150deg, #174339 0%, #0F2C27 48%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)', boxShadow: big ? '0 30px 60px -30px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+        <div data-xt="dark" className="relative overflow-hidden" style={{ borderRadius: big ? 28 : 24, background: 'linear-gradient(150deg, #174339 0%, #0F2C27 48%, #0B211D 100%)', border: '1px solid rgba(var(--c-hi),0.09)', boxShadow: big ? '0 30px 60px -30px rgba(var(--c-lo),calc(0.8 * var(--c-lok))), inset 0 1px 0 rgba(var(--c-hi),0.08)' : 'inset 0 1px 0 rgba(var(--c-hi),0.06)' }}>
           <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(115deg, transparent 40%, rgba(255,176,32,0.09) 52%, transparent 64%)' }} />
           <div className="absolute -right-8 -bottom-10 opacity-[0.07] pointer-events-none"><XorlaMark size={big ? 190 : 130} /></div>
           <div className={`relative ${big ? 'p-7' : 'p-5'}`}>
             <div className="flex items-center gap-4">
               {settings.logoUrl
-                ? <img src={settings.logoUrl} alt="" className={`${big ? 'w-16 h-16' : 'w-14 h-14'} rounded-2xl object-cover shrink-0`} style={{ border: '1px solid rgba(255,255,255,0.12)' }} />
-                : <span className={`${big ? 'w-16 h-16 text-[27px]' : 'w-14 h-14 text-[23px]'} rounded-2xl flex items-center justify-center font-extrabold shrink-0`} style={{ fontFamily: HEADF, background: 'linear-gradient(140deg, #FFC85A, #FFB020)', color: C.bg }}>{(nm.trim()[0] || 'X').toUpperCase()}</span>}
+                ? <img src={settings.logoUrl} alt="" className={`${big ? 'w-16 h-16' : 'w-14 h-14'} rounded-2xl object-cover shrink-0`} style={{ border: '1px solid rgba(var(--c-hi),0.12)' }} />
+                : <span className={`${big ? 'w-16 h-16 text-[27px]' : 'w-14 h-14 text-[23px]'} rounded-2xl flex items-center justify-center font-extrabold shrink-0`} style={{ fontFamily: HEADF, background: 'linear-gradient(140deg, #FFC85A, #FFB020)', color: C.onAccent }}>{(nm.trim()[0] || 'X').toUpperCase()}</span>}
               <div className="min-w-0 flex-1">
                 <div className={`font-extrabold leading-tight break-words ${big ? 'text-[26px]' : 'text-[20px]'}`} style={{ fontFamily: HEADF, letterSpacing: '-0.025em' }}>{nm}</div>
                 <div className="text-[13px] mt-0.5 truncate" style={{ color: C.inkDim }}>{kindLabel}{settings.role !== 'owner' ? `, signed in as ${settings.activeStaff || 'staff'}` : ''}</div>
               </div>
-              {isOwnerRole && <button onClick={() => setSettingsPage('branding')} className="shrink-0 text-[12.5px] font-semibold px-3 py-1.5 rounded-full" style={{ color: C.ink, background: 'rgba(255,255,255,0.07)' }}>Edit</button>}
+              {isOwnerRole && <button onClick={() => setSettingsPage('branding')} className="shrink-0 text-[12.5px] font-semibold px-3 py-1.5 rounded-full" style={{ color: C.ink, background: 'rgba(var(--c-hi),0.07)' }}>Edit</button>}
             </div>
             <div className="flex flex-wrap gap-2 mt-5">
               {planText && <button onClick={() => isOwnerRole && setSettingsPage('plan')} className="text-[12px] font-semibold px-3 py-1.5 rounded-full" style={{ background: 'rgba(255,176,32,0.12)', color: C.copper }}>{planText}</button>}
-              <button onClick={() => setSettingsPage('storefront')} className="text-[12px] font-semibold px-3 py-1.5 rounded-full" style={settings.storefrontEnabled ? { background: C.sageSoft, color: C.sage } : { background: 'rgba(255,255,255,0.06)', color: C.inkDim }}>{settings.storefrontEnabled ? 'Storefront live' : 'Storefront off'}</button>
-              {isOwnerRole && settings.setupDoneAt !== undefined && left > 0 && <button onClick={() => { setTab('overview'); setSetup({ step: 2, f: null, busy: false, error: '', paused: false }); }} className="text-[12px] font-semibold px-3 py-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.06)', color: C.ink }}>{left} thing{left > 1 ? 's' : ''} left to set up</button>}
+              <button onClick={() => setSettingsPage('storefront')} className="text-[12px] font-semibold px-3 py-1.5 rounded-full" style={settings.storefrontEnabled ? { background: C.sageSoft, color: C.sage } : { background: 'rgba(var(--c-hi),0.06)', color: C.inkDim }}>{settings.storefrontEnabled ? 'Storefront live' : 'Storefront off'}</button>
+              {isOwnerRole && settings.setupDoneAt !== undefined && left > 0 && <button onClick={() => { setTab('overview'); setSetup({ step: 2, f: null, busy: false, error: '', paused: false }); }} className="text-[12px] font-semibold px-3 py-1.5 rounded-full" style={{ background: 'rgba(var(--c-hi),0.06)', color: C.ink }}>{left} thing{left > 1 ? 's' : ''} left to set up</button>}
             </div>
           </div>
         </div>
@@ -9407,21 +9511,21 @@ function XorlaApp() {
     return (
       <div className="min-h-screen cx-body lg:flex lg:h-screen lg:overflow-hidden" style={{ background: C.bg, color: C.ink }}>
         {fontStyle}
-        <aside className="hidden lg:flex flex-col w-[380px] xl:w-[400px] shrink-0 h-screen overflow-y-auto" style={{ background: 'linear-gradient(180deg, #0D2622 0%, #091C19 100%)', borderRight: `1px solid ${C.line}` }}>
-          <div className="sticky top-0 z-10 px-5 pt-5 pb-4 flex items-center justify-between" style={{ background: '#0D2622', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-            <button onClick={leaveSettings} className="flex items-center gap-1.5 text-[13px] font-semibold px-2.5 py-1.5 -ml-2.5 rounded-lg hover:bg-white/[0.04]" style={{ color: C.inkDim }}><ChevronLeft size={17} /> Back to Xorla</button>
+        <aside className="hidden lg:flex flex-col w-[380px] xl:w-[400px] shrink-0 h-screen overflow-y-auto" style={{ background: C.surface, borderRight: `1px solid ${C.line}` }}>
+          <div className="sticky top-0 z-10 px-5 pt-5 pb-4 flex items-center justify-between" style={{ background: C.surface, borderBottom: '1px solid rgba(var(--c-hi),0.04)' }}>
+            <button onClick={leaveSettings} className="flex items-center gap-1.5 text-[13px] font-semibold px-2.5 py-1.5 -ml-2.5 rounded-lg cx-hov" style={{ color: C.inkDim }}><ChevronLeft size={17} /> Back to Xorla</button>
             <XorlaMark size={22} />
           </div>
           <div className="px-5 pb-1">
-            <button onClick={() => setSettingsPage(null)} className="w-full flex items-center gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-white/[0.04]" style={settingsPage === null ? { background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.lineStrong}` } : { border: '1px solid transparent' }}>
-              {settings.logoUrl ? <img src={settings.logoUrl} alt="" className="w-10 h-10 rounded-xl object-cover" /> : <span className="w-10 h-10 rounded-xl flex items-center justify-center text-[17px] font-extrabold" style={{ fontFamily: HEADF, background: 'linear-gradient(140deg, #FFC85A, #FFB020)', color: C.bg }}>{((settings.businessName || 'X').trim()[0] || 'X').toUpperCase()}</span>}
+            <button onClick={() => setSettingsPage(null)} className="w-full flex items-center gap-3 rounded-2xl p-3 text-left transition-colors cx-hov" style={settingsPage === null ? { background: 'rgba(var(--c-hi),0.05)', border: `1px solid ${C.lineStrong}` } : { border: '1px solid transparent' }}>
+              {settings.logoUrl ? <img src={settings.logoUrl} alt="" className="w-10 h-10 rounded-xl object-cover" /> : <span className="w-10 h-10 rounded-xl flex items-center justify-center text-[17px] font-extrabold" style={{ fontFamily: HEADF, background: 'linear-gradient(140deg, #FFC85A, #FFB020)', color: C.onAccent }}>{((settings.businessName || 'X').trim()[0] || 'X').toUpperCase()}</span>}
               <span className="min-w-0"><span className="block text-[14px] font-bold truncate" style={{ fontFamily: HEADF }}>{settings.businessName}</span><span className="block text-[12px]" style={{ color: C.inkFaint }}>Settings</span></span>
             </button>
           </div>
           <nav className="px-5 pt-5 pb-10 space-y-6">{settingsGroups('side')}</nav>
         </aside>
         <div className="flex-1 min-w-0 flex flex-col min-h-screen lg:h-screen lg:overflow-y-auto">
-          <div className="lg:hidden sticky top-0 z-20 flex items-center px-2" style={{ background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}`, paddingTop: 'env(safe-area-inset-top)', minHeight: 'calc(56px + env(safe-area-inset-top))' }}>
+          <div className="lg:hidden sticky top-0 z-20 flex items-center px-2" style={{ background: 'rgba(var(--c-bg-rgb),0.98)', borderBottom: `1px solid ${C.line}`, paddingTop: 'env(safe-area-inset-top)', minHeight: 'calc(56px + env(safe-area-inset-top))' }}>
             <button onClick={() => (settingsPage ? setSettingsPage(null) : leaveSettings())} className="flex items-center gap-0.5 pl-1 pr-4 min-h-[44px] rounded-lg active:opacity-60" style={{ color: C.copper }}>
               <ChevronLeft size={22} />
               <span className="text-[14px] font-medium">{settingsPage ? 'Settings' : 'Back'}</span>
@@ -9462,7 +9566,7 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'branding' && (
-              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   <div className="text-[13px] font-semibold mb-2 mt-3" style={{ color: C.ink }}>Your name</div>
                   <input type="text" maxLength={40} placeholder="e.g. Ikenna" value={draft.myName || ''} onChange={(e) => setDraft({ ...draft, myName: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -9494,13 +9598,13 @@ function XorlaApp() {
             {settingsPage === 'storefront' && (
               <div className="space-y-4">
                 {/* 1. The store itself: on or off, and its link */}
-                <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                <div className="rounded-[20px] p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
                       <div className="text-[15px] font-semibold">Your online store</div>
                       <div className="text-[12px] mt-0.5" style={{ color: C.inkFaint }}>{draft.storefrontEnabled ? 'Live. Anyone with the link can browse, order and book. No login needed.' : 'Off. Turn it on to get your shareable link.'}</div>
                     </div>
-                    <button disabled={!isOwnerRole} onClick={() => { if (!isOwnerRole) return; if (draft.storefrontEnabled) setDraft({ ...draft, storefrontEnabled: false }); else requestStorefrontOn(() => setDraft((d) => ({ ...d, storefrontEnabled: true }))); }} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.storefrontEnabled ? C.sage : C.line, opacity: isOwnerRole ? 1 : 0.5 }}>
+                    <button disabled={!isOwnerRole} onClick={() => { if (!isOwnerRole) return; if (draft.storefrontEnabled) setDraft({ ...draft, storefrontEnabled: false }); else requestStorefrontOn(() => setDraft((d) => ({ ...d, storefrontEnabled: true }))); }} className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: draft.storefrontEnabled ? C.sageFill : C.line, opacity: isOwnerRole ? 1 : 0.5 }}>
                       <div className="absolute top-0.5 w-5 h-5 rounded-full transition-all" style={{ background: C.bg, left: draft.storefrontEnabled ? '22px' : '2px' }} />
                     </button>
                   </div>
@@ -9527,7 +9631,7 @@ function XorlaApp() {
                           <div className="flex items-stretch rounded-xl overflow-hidden" style={{ border: `1px solid ${changed ? C.copper : C.line}`, background: C.surfaceRaised }}>
                             <span className="pl-3.5 pr-1 flex items-center text-[13px] cx-mono shrink-0" style={{ color: C.inkFaint }}>{window.location.host}/</span>
                             <input value={slug} onChange={(e) => { setSlugDraft(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30)); setSlugError(''); }} aria-label="Store name in the link" className="flex-1 min-w-0 bg-transparent py-2.5 pr-3 text-[13.5px] cx-mono font-semibold outline-none" style={{ color: C.sage }} />
-                            {changed && <button onClick={saveSlug} disabled={slugBusy} className="px-3.5 text-[12.5px] font-semibold shrink-0" style={{ background: C.copper, color: C.bg, opacity: slugBusy ? 0.6 : 1 }}>{slugBusy ? 'Saving…' : 'Save'}</button>}
+                            {changed && <button onClick={saveSlug} disabled={slugBusy} className="px-3.5 text-[12.5px] font-semibold shrink-0" style={{ background: C.copperFill, color: C.onAccent, opacity: slugBusy ? 0.6 : 1 }}>{slugBusy ? 'Saving…' : 'Save'}</button>}
                           </div>
                         ) : (
                           <div className="rounded-xl px-3.5 py-2.5 cx-mono text-[13px] truncate" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.sage }}>{link.replace(/^https?:\/\//, '')}</div>
@@ -9537,7 +9641,7 @@ function XorlaApp() {
                         <div className="grid grid-cols-3 gap-2 mt-2.5">
                           <button onClick={() => copyText('store', link)} className="h-10 rounded-xl text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: copiedKey === 'store' ? C.sage : C.ink }}>{copiedKey === 'store' ? <Check size={14} /> : <Copy size={14} />} {copiedKey === 'store' ? 'Copied' : 'Copy'}</button>
                           <a href={link} target="_blank" rel="noopener noreferrer" className="h-10 rounded-xl text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Globe size={14} /> Open</a>
-                          <a href={`https://wa.me/?text=${encodeURIComponent(`Shop with ${settings.businessName} online: ${link}`)}`} target="_blank" rel="noopener noreferrer" className="h-10 rounded-xl text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={14} /> Share</a>
+                          <a href={`https://wa.me/?text=${encodeURIComponent(`Shop with ${settings.businessName} online: ${link}`)}`} target="_blank" rel="noopener noreferrer" className="h-10 rounded-xl text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent }}><MessageCircle size={14} /> Share</a>
                         </div>
                       </div>
                     );
@@ -9546,7 +9650,7 @@ function XorlaApp() {
 
                 {/* 2. How the store looks */}
                 {settings.storefrontEnabled && (
-                  <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                  <div className="rounded-[20px] p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                     <div className="text-[15px] font-semibold mb-0.5">How it looks</div>
                     <div className="text-[12px] mb-3.5" style={{ color: C.inkFaint }}>The first thing customers see. Bright, wide photos of your shop, your best work or your rooms work best.</div>
                       <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Banner photos ({(settings.heroImages || []).length}/5)</div>
@@ -9575,7 +9679,7 @@ function XorlaApp() {
 
                 {/* 3. Orders: how customers get them */}
                 {settings.storefrontEnabled && !isManager && (
-                  <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                  <div className="rounded-[20px] p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                       {(() => {
                         // Same defaults as the database: hotels room + pick-up, shops and rentals pick-up + delivery, other services nothing
                         const hotel = serviceKind === 'accommodation';
@@ -9592,7 +9696,7 @@ function XorlaApp() {
                                 const on = cur.includes(v);
                                 return (
                                   <button key={v} type="button" disabled={!isOwnerRole} onClick={() => flip(v)} className="w-full flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${on ? 'rgba(31,217,196,0.4)' : C.line}`, opacity: isOwnerRole ? 1 : 0.7 }}>
-                                    <span className="w-5 h-5 rounded-md flex items-center justify-center shrink-0" style={{ background: on ? C.sage : 'transparent', border: `1.5px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.bg }} />}</span>
+                                    <span className="w-5 h-5 rounded-md flex items-center justify-center shrink-0" style={{ background: on ? C.sageFill : 'transparent', border: `1.5px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.onAccent }} />}</span>
                                     <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold">{l}</span><span className="block text-[11px]" style={{ color: C.inkFaint }}>{d}</span></span>
                                   </button>
                                 );
@@ -9607,7 +9711,7 @@ function XorlaApp() {
 
                 {/* 4. Shortcuts to the other storefront settings */}
                 {settings.storefrontEnabled && !isManager && (
-                  <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                  <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                     {[
                       ...((settings.businessType !== 'services' || ['accommodation', 'rentals'].includes(serviceKind)) ? [['delivery', Truck, 'Delivery & riders', riders.length || zones.length ? `${riders.length} rider${riders.length === 1 ? '' : 's'} · ${zones.length} area${zones.length === 1 ? '' : 's'}` : 'Not set up']] : []),
                       ...(isOwnerRole ? [['payments', CreditCard, 'Online payments', settings.payout ? 'On' : 'Off']] : []),
@@ -9626,7 +9730,7 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'messages' && (
-              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   <div className="mt-3">
                     <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Payment link</div>
@@ -9637,7 +9741,7 @@ function XorlaApp() {
                     <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Reminder tone</div>
                     <div className="flex flex-wrap gap-1.5">
                       {TONES.map((t) => (
-                        <button key={t.id} onClick={() => setDraft({ ...draft, tone: t.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.tone === t.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t.label}</button>
+                        <button key={t.id} onClick={() => setDraft({ ...draft, tone: t.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.tone === t.id ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{t.label}</button>
                       ))}
                     </div>
                     {draft.tone === 'custom' && (
@@ -9648,7 +9752,7 @@ function XorlaApp() {
                     <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>Language</div>
                     <div className="flex flex-wrap gap-1.5">
                       {LANGUAGES.map((l) => (
-                        <button key={l.id} onClick={() => setDraft({ ...draft, language: l.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.language === l.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
+                        <button key={l.id} onClick={() => setDraft({ ...draft, language: l.id })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={draft.language === l.id ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
                       ))}
                     </div>
                   </div>
@@ -9660,12 +9764,12 @@ function XorlaApp() {
                 <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Running more than one location? Add each {L.one} here. Everything you record is kept per {L.one}, and the switcher at the top lets you see one {L.one} or all of them together.</div>
                 {closedLocations.length > 0 && (
                   <div className="flex items-center gap-2 px-1 -mb-2">
-                    <span className="w-2 h-2 rounded-full" style={{ background: C.sage, boxShadow: `0 0 0 3px ${C.sageSoft}` }} />
+                    <span className="w-2 h-2 rounded-full" style={{ background: C.sageFill, boxShadow: `0 0 0 3px ${C.sageSoft}` }} />
                     <span className="text-[13px] font-semibold">Open {locations.some((x) => x.kind === 'warehouse') ? 'locations' : L.many}</span>
                     <span className="px-2 py-0.5 rounded-full text-[11px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>{locations.length}</span>
                   </div>
                 )}
-                <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                   {locations.map((s, i) => {
                     const isWarehouse = s.kind === 'warehouse';
                     const edit = shopEdits[s.id] || {};
@@ -9685,7 +9789,7 @@ function XorlaApp() {
                           <span className="flex items-center gap-3">
                             {s.id !== mainShopId && !changed && locationUnused(s.id) && <button onClick={() => deleteLocation(s)} className="text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Delete</button>}
                             {s.id !== mainShopId && !changed && <button onClick={() => closeLocation(s)} className="text-[11.5px] font-medium" style={{ color: C.rust }}>Close location</button>}
-                            {changed && <button onClick={() => saveShop(s)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>Save</button>}
+                            {changed && <button onClick={() => saveShop(s)} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Save</button>}
                           </span>
                         </div>
                       </div>
@@ -9693,7 +9797,7 @@ function XorlaApp() {
                   })}
                 </div>
                 {closedLocations.length > 0 && (
-                  <div className="rounded-[20px] p-3.5 pt-3" style={{ background: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.22) 0 10px, rgba(0,0,0,0.12) 10px 20px)', border: '1.5px dashed rgba(226,98,75,0.35)' }}>
+                  <div className="rounded-[20px] p-3.5 pt-3" style={{ background: 'repeating-linear-gradient(135deg, rgba(var(--c-lo),calc(0.22 * var(--c-lok))) 0 10px, rgba(var(--c-lo),calc(0.12 * var(--c-lok))) 10px 20px)', border: '1.5px dashed rgba(226,98,75,0.35)' }}>
                     <div className="flex items-center gap-2 px-1 mb-1">
                       <span className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.rustSoft }}><Lock size={13} style={{ color: C.rust }} /></span>
                       <span className="text-[13px] font-semibold" style={{ color: C.ink }}>Closed {closedLocations.some((x) => x.kind === 'warehouse') ? 'locations' : L.many}</span>
@@ -9702,8 +9806,8 @@ function XorlaApp() {
                     <div className="text-[11.5px] leading-relaxed px-1 mb-3" style={{ color: C.inkFaint }}>Not open for sales and not counted on your plan. Their past records stay in your reports.</div>
                     <div className="space-y-2">
                       {closedLocations.map((s) => (
-                        <div key={s.id} className="rounded-2xl px-3.5 py-3 flex items-center gap-3" style={{ background: 'rgba(10,31,28,0.85)', border: `1px solid ${C.line}` }}>
-                          <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.03)', border: `1px dashed ${C.lineStrong}` }}>{s.kind === 'warehouse' ? <Warehouse size={16} style={{ color: C.inkFaint }} /> : <Store size={16} style={{ color: C.inkFaint }} />}</span>
+                        <div key={s.id} className="rounded-2xl px-3.5 py-3 flex items-center gap-3" style={{ background: 'rgba(var(--c-bg-rgb),0.85)', border: `1px solid ${C.line}` }}>
+                          <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(var(--c-hi),0.03)', border: `1px dashed ${C.lineStrong}` }}>{s.kind === 'warehouse' ? <Warehouse size={16} style={{ color: C.inkFaint }} /> : <Store size={16} style={{ color: C.inkFaint }} />}</span>
                           <span className="flex-1 min-w-0">
                             <span className="block text-[13.5px] font-semibold leading-snug" style={{ color: C.inkDim, overflowWrap: 'anywhere' }}>{locName(s)}</span>
                             <span className="flex items-center gap-1.5 mt-1 text-[11px]" style={{ color: C.inkFaint }}><span className="px-1.5 py-px rounded text-[9.5px] font-bold tracking-wide" style={{ background: C.rustSoft, color: C.rust }}>CLOSED</span>{s.kind === 'warehouse' ? 'Warehouse' : L.One}</span>
@@ -9717,17 +9821,17 @@ function XorlaApp() {
                     </div>
                   </div>
                 )}
-                <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                   <div className="text-[13.5px] font-semibold mb-2.5">Add a location</div>
                   <div className="flex gap-1 p-1 mb-2 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                     {[['shop', L.One], ['warehouse', 'Warehouse']].map(([k, l]) => (
-                      <button key={k} onClick={() => setNewShopKind(k)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={newShopKind === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+                      <button key={k} onClick={() => setNewShopKind(k)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={newShopKind === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>
                     ))}
                   </div>
                   <div className="text-[11.5px] mb-3" style={{ color: C.inkFaint }}>{newShopKind === 'warehouse' ? `A warehouse stores stock and sends it to your ${L.many}. It never sells, and customers never see it.` : `A ${L.one} serves customers, can have staff, and appears on your storefront.`}</div>
                   <div className="flex gap-2">
                     <input placeholder={newShopKind === 'warehouse' ? 'e.g. Main warehouse, Lagos' : 'e.g. Ariaria branch'} value={newShopName} onChange={(e) => setNewShopName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addShop()} className="flex-1 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                    <button onClick={addShop} disabled={!newShopName.trim() || shopBusy} className="px-4 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: !newShopName.trim() || shopBusy ? 0.5 : 1 }}>{shopBusy ? 'Adding…' : 'Add'}</button>
+                    <button onClick={addShop} disabled={!newShopName.trim() || shopBusy} className="px-4 rounded-xl text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: !newShopName.trim() || shopBusy ? 0.5 : 1 }}>{shopBusy ? 'Adding…' : 'Add'}</button>
                   </div>
                   <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>Locations save instantly. For each {L.one}, choose which staff work there under Staff & join code.</div>
                 </div>
@@ -9758,7 +9862,7 @@ function XorlaApp() {
               return (
                 <div className="space-y-4">
                   <button onClick={() => openPastImport()} className="w-full rounded-[20px] p-4 sm:p-5 flex items-center gap-4 text-left" style={{ background: 'linear-gradient(135deg, rgba(255,176,32,0.12), rgba(31,217,196,0.06))', border: '1px solid rgba(255,176,32,0.28)' }}>
-                    <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><History size={22} /></span>
+                    <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}><History size={22} /></span>
                     <span className="flex-1 min-w-0">
                       <span className="block text-[15px] font-semibold">Bring in past sales</span>
                       <span className="block text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>Selling before Xorla? Add your old records from Excel or CSV so your reports show your whole history.</span>
@@ -9767,7 +9871,7 @@ function XorlaApp() {
                   </button>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] px-1 pt-2" style={{ color: C.inkFaint }}>Download</div>
                   <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Your records belong to you. Download any of them as a spreadsheet file that opens in Excel or Google Sheets, for your accountant, a backup, or to take elsewhere. Every {L.one} is included.</div>
-                  <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                  <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                     {sets.map(([label, sub, rows, run], i) => (
                       <button key={label} onClick={run} disabled={!rows.length} className="w-full flex items-center gap-3 px-4 py-3.5 text-left" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: rows.length ? 1 : 0.5 }}>
                         <span className="flex-1 min-w-0"><span className="block text-[14px] font-semibold">{label}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{rows.length ? `${rows.length >= 1000 ? '1,000+' : rows.length} record${rows.length !== 1 ? 's' : ''}, ${sub}` : 'Nothing recorded yet'}</span></span>
@@ -9784,13 +9888,13 @@ function XorlaApp() {
               const bad = (draft.closeTime || '18:00') <= (draft.openTime || '08:00');
               return (
                 <div className="space-y-4">
-                  <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                  <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                     <button onClick={() => setDraft({ ...draft, apptEnabled: draft.apptEnabled === false })} role="switch" aria-checked={draft.apptEnabled !== false} className="w-full flex items-start gap-3 px-4 py-4 text-left">
                       <div className="flex-1">
                         <div className="text-[14.5px] font-semibold mb-1">Let customers pick a time</div>
                         <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>Your storefront shows only the times you're free. You still accept or decline each request.</div>
                       </div>
-                      <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.apptEnabled !== false ? C.sage : C.line }}>
+                      <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.apptEnabled !== false ? C.sageFill : C.line }}>
                         <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: draft.apptEnabled !== false ? '24px' : '4px' }} />
                       </span>
                     </button>
@@ -9799,7 +9903,7 @@ function XorlaApp() {
                       <div className="grid grid-cols-7 gap-1.5">
                         {[[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']].map(([d, l]) => {
                           const on = days.includes(d);
-                          return <button key={d} onClick={() => setDraft({ ...draft, openDays: on ? days.filter((x) => x !== d) : [...days, d].sort() })} aria-pressed={on} className="py-2 rounded-lg text-[12px] font-semibold" style={on ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>;
+                          return <button key={d} onClick={() => setDraft({ ...draft, openDays: on ? days.filter((x) => x !== d) : [...days, d].sort() })} aria-pressed={on} className="py-2 rounded-lg text-[12px] font-semibold" style={on ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>;
                         })}
                       </div>
                     </div>
@@ -9841,7 +9945,7 @@ function XorlaApp() {
             {settingsPage === 'payments' && (
               <div className="space-y-4">
                 <PayoutSetup forOrders={!hasBookables} payout={settings.payout} callBilling={callBilling} onSaved={(payout) => setSettings((prev) => ({ ...prev, payout }))} />
-                <div className="rounded-[20px] p-4 space-y-3 text-[12.5px] leading-relaxed" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}`, color: C.inkDim }}>
+                <div className="rounded-[20px] p-4 space-y-3 text-[12.5px] leading-relaxed" style={{ background: C.card, border: `1px solid ${C.line}`, color: C.inkDim }}>
                   <div className="text-[14px] font-semibold" style={{ color: C.ink }}>How it works</div>
                   <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>1</span><span>A customer sends {/^[aeiou]/.test(T.order) ? 'an' : 'a'} {T.order} from your storefront. Nothing is paid yet.</span></div>
                   <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>2</span><span>You check you have it, add a delivery fee if you deliver, and tap <strong style={{ color: C.ink }}>Ask to pay online</strong>. Xorla gives you a WhatsApp message with their payment link.</span></div>
@@ -9880,14 +9984,14 @@ function XorlaApp() {
                         <input type="tel" placeholder="WhatsApp number" value={riderForm.phone} onChange={(e) => setRiderForm({ ...riderForm, phone: e.target.value })} className="min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                         <input type="text" placeholder="Areas (optional)" value={riderForm.areas} onChange={(e) => setRiderForm({ ...riderForm, areas: e.target.value })} className="min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                       </div>
-                      <button onClick={addRider} className="w-full h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><Plus size={15} /> Add rider</button>
+                      <button onClick={addRider} className="w-full h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent }}><Plus size={15} /> Add rider</button>
                     </div>
                   )}
                 </div>
-                <div className="relative overflow-hidden rounded-2xl p-4" style={{ background: 'linear-gradient(140deg, rgba(255,176,32,0.12), rgba(31,217,196,0.07) 60%, rgba(255,255,255,0.02))', border: `1px solid ${C.line}` }}>
+                <div className="relative overflow-hidden rounded-2xl p-4" style={{ background: 'linear-gradient(140deg, rgba(255,176,32,0.12), rgba(31,217,196,0.07) 60%, rgba(var(--c-hi),0.02))', border: `1px solid ${C.line}` }}>
                   <span aria-hidden className="absolute -right-8 -top-10 w-36 h-36 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.2), transparent 70%)' }} />
                   <div className="relative flex items-start gap-3">
-                    <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><Bike size={19} style={{ color: C.bg }} /></span>
+                    <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill }}><Bike size={19} style={{ color: C.onAccent }} /></span>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap"><span className="text-[14.5px] font-semibold">Xorla rider network</span><span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>Coming soon</span></div>
                       <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>Verified riders near you, each checked by Xorla: ID, selfie, guarantor and bank. When it opens in your area, you can send a delivery to the network as well as to your own riders. <strong style={{ color: C.ink }}>Your own list above stays exactly as it is.</strong></div>
@@ -9912,7 +10016,7 @@ function XorlaApp() {
                     <div className="grid grid-cols-[1fr_110px_auto] gap-2">
                       <input type="text" placeholder="Area, e.g. Aba town" value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} className="min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                       <input type="text" inputMode="decimal" placeholder="Fee (₦)" value={formatNumInput(zoneForm.fee)} onChange={(e) => setZoneForm({ ...zoneForm, fee: parseNumInput(e.target.value) })} className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none cx-mono" style={field} />
-                      <button onClick={addZone} aria-label="Add area" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: C.sage, color: C.bg }}><Plus size={16} /></button>
+                      <button onClick={addZone} aria-label="Add area" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: C.sageFill, color: C.onAccent }}><Plus size={16} /></button>
                     </div>
                   )}
                 </div>
@@ -9927,7 +10031,7 @@ function XorlaApp() {
               const pills = (options, value, key) => (
                 <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                   {options.map(([v, l]) => (
-                    <button key={v} onClick={() => setDraft({ ...draft, [key]: v })} className="flex-1 py-2 px-1 rounded-lg text-[12.5px] font-semibold leading-tight" style={(typeof v === 'string' ? value === v : Number(value) === v) ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+                    <button key={v} onClick={() => setDraft({ ...draft, [key]: v })} className="flex-1 py-2 px-1 rounded-lg text-[12.5px] font-semibold leading-tight" style={(typeof v === 'string' ? value === v : Number(value) === v) ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>
                   ))}
                 </div>
               );
@@ -9935,7 +10039,7 @@ function XorlaApp() {
               return (
                 <div className="space-y-4">
                   <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>A deposit holds a booking firmly. Your team records it when the guest pays by cash or transfer, and Xorla keeps track of what is owed back if plans change.</div>
-                  <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                  <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                     <div className="px-4 py-4">
                       <div className="text-[14.5px] font-semibold mb-1">Deposit</div>
                       <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>How much of the {stayWord} the guest pays to confirm it.</div>
@@ -9990,7 +10094,7 @@ function XorlaApp() {
 
                   {pct > 0 && <PayoutSetup payout={settings.payout} callBilling={callBilling} onSaved={(payout) => setSettings((prev) => ({ ...prev, payout }))} />}
                   {pct > 0 && (
-                    <div className="rounded-[20px] p-4 space-y-2.5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                    <div className="rounded-[20px] p-4 space-y-2.5" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                       <div>
                         <div className="text-[14.5px] font-semibold">{settings.payout ? 'Bank transfer instead (optional)' : 'How guests pay the deposit'}</div>
                         <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>Shown to guests on your storefront and on their booking page, so they can transfer it straight away.</div>
@@ -10019,11 +10123,11 @@ function XorlaApp() {
                 {planKnown && effPlan === 'free' && (
                   <div className="rounded-2xl px-4 py-3.5 flex items-center justify-between gap-3" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
                     <span className="text-[12.5px]" style={{ color: C.ink }}>Automatic WhatsApp is part of <strong>Pro</strong> and <strong>Business</strong>.</span>
-                    <button onClick={openPlanPage} className="shrink-0 px-3.5 py-2 rounded-xl text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>See plans</button>
+                    <button onClick={openPlanPage} className="shrink-0 px-3.5 py-2 rounded-xl text-[12px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>See plans</button>
                   </div>
                 )}
                 <div className="rounded-2xl px-4 py-3.5 flex items-start gap-3" style={{ background: waConnected ? C.sageSoft : C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                  <span className="mt-1 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: waConnected === null ? C.inkFaint : waConnected ? C.sage : C.copper }} />
+                  <span className="mt-1 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: waConnected === null ? C.inkFaint : waConnected ? C.sageFill : C.copperFill }} />
                   <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
                     {waConnected === null ? 'Checking connection…' : waConnected
                       ? <><strong style={{ color: C.ink }}>Connected.</strong> {['accommodation', 'rentals'].includes(serviceKind) ? 'Booking confirmations go out straight away; reminders and summaries every morning at 9am.' : 'Xorla sends automatic messages every morning at 9am.'}</>
@@ -10031,14 +10135,14 @@ function XorlaApp() {
                   </div>
                 </div>
 
-                <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                   {['accommodation', 'rentals'].includes(serviceKind) && (
                     <button onClick={() => setDraft({ ...draft, waBookingConfirm: draft.waBookingConfirm === false })} role="switch" aria-checked={draft.waBookingConfirm !== false} className="w-full flex items-start gap-3 px-4 py-4 text-left" style={{ borderBottom: `1px solid ${C.line}` }}>
                       <div className="flex-1">
                         <div className="text-[14.5px] font-semibold mb-1">Booking confirmations</div>
                         <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>The moment a booking is confirmed (or booked in at the desk), the guest gets a WhatsApp message with what they booked, the dates, the total and a link to their booking page. Each booking shows whether it was sent.</div>
                       </div>
-                      <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.waBookingConfirm !== false ? C.sage : C.line }}>
+                      <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.waBookingConfirm !== false ? C.sageFill : C.line }}>
                         <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: draft.waBookingConfirm !== false ? '24px' : '4px' }} />
                       </span>
                     </button>
@@ -10048,7 +10152,7 @@ function XorlaApp() {
                       <div className="text-[14.5px] font-semibold mb-1">Automatic payment reminders</div>
                       <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>Customers with an overdue balance and a phone number get a polite WhatsApp reminder, at most every 3 days and 3 times in total. After that, Xorla stops and flags them for you to call.</div>
                     </div>
-                    <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.autoReminders ? C.sage : C.line }}>
+                    <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.autoReminders ? C.sageFill : C.line }}>
                       <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: draft.autoReminders ? '24px' : '4px' }} />
                     </span>
                   </button>
@@ -10057,7 +10161,7 @@ function XorlaApp() {
                     <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>Sales, expenses, profit, and money owed to you, sent to {draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'your business number'}.</div>
                     <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                       {[['off', 'Off'], ['weekly', 'Weekly'], ['monthly', 'Monthly']].map(([v, l]) => (
-                        <button key={v} onClick={() => setDraft({ ...draft, summaryFrequency: v })} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={draft.summaryFrequency === v ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+                        <button key={v} onClick={() => setDraft({ ...draft, summaryFrequency: v })} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold" style={draft.summaryFrequency === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>
                       ))}
                     </div>
                     <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>{draft.summaryFrequency === 'weekly' ? 'Every Monday morning, covering the past 7 days.' : draft.summaryFrequency === 'monthly' ? 'On the 1st of each month, covering the month before.' : 'No summaries will be sent.'}</div>
@@ -10080,7 +10184,7 @@ function XorlaApp() {
 
                 <div>
                     <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Recent automatic messages</div>
-                    <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                    <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                       {waLog.length === 0 && (
                         <div className="px-4 py-5 text-center text-[12.5px] leading-relaxed" style={{ color: C.inkFaint }}>No automatic messages yet. Every reminder and summary Xorla sends will be listed here, marked Sent or Failed.</div>
                       )}
@@ -10098,9 +10202,15 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'plan' && renderPlanPage()}
+            {settingsPage === 'appearance' && (
+              <div className="space-y-4">
+                <p className="text-[13px] leading-relaxed" style={{ color: C.inkDim }}>Pick how Xorla looks on this {typeof window !== 'undefined' && window.innerWidth < 1024 ? 'phone' : 'computer'}. You can also tap the sun or moon at the top of the screen any time.</p>
+                <AppearancePicker />
+              </div>
+            )}
             {settingsPage === 'notifications' && (
               <div className="space-y-4">
-                <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                   <div className="text-[14.5px] font-semibold mb-1">Notifications on this {DEVICE_WORD}</div>
                   <div className="text-[12px] leading-relaxed mb-4" style={{ color: C.inkFaint }}>Only the things worth interrupting you for. Each phone or computer is turned on separately — this only turns them on for the {DEVICE_WORD} you're using now.</div>
                   {renderPushControl(false)}
@@ -10120,7 +10230,7 @@ function XorlaApp() {
                     </ol>
                   </div>
                 )}
-                <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                   <div className="text-[12px] font-semibold uppercase tracking-wide mb-2.5" style={{ color: C.inkFaint }}>What you'll get</div>
                   <div className="space-y-2 text-[12.5px]" style={{ color: C.inkDim }}>
                     {(canRun ? [
@@ -10155,7 +10265,7 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'contact' && (
-              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   <div className="mt-3">
                     <div className="text-[13px] font-semibold mb-2" style={{ color: C.ink }}>WhatsApp number</div>
@@ -10181,7 +10291,7 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'team' && (
-              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   {staffRequests.length > 0 && (
                     <div className="mt-3 mb-4">
@@ -10194,7 +10304,7 @@ function XorlaApp() {
                               <div className="text-[11.5px] truncate" style={{ color: C.inkFaint }}>{r.email || ''}{r.requested_at ? ` · ${new Date(r.requested_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</div>
                             </div>
                             <button onClick={() => answerStaffRequest(r, false)} className="text-[12px] font-medium" style={{ color: C.inkFaint }}>Decline</button>
-                            <button onClick={() => answerStaffRequest(r, true)} className="px-3.5 py-1.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Approve</button>
+                            <button onClick={() => answerStaffRequest(r, true)} className="px-3.5 py-1.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>Approve</button>
                           </div>
                         ))}
                       </div>
@@ -10241,14 +10351,14 @@ function XorlaApp() {
             {settingsPage === 'team' && shops.length > 1 && teamList.length > 0 && (
               <div className="mt-4">
                 <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: C.inkFaint }}>Which {L.many} each person works in</div>
-                <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+                <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                   {teamList.filter((st) => isOwnerRole || st.role !== 'manager').map((st, i) => (
                     <div key={st.id} className="px-4 py-3.5" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                       <div className="text-[13.5px] font-semibold mb-2">{st.name}</div>
                       <div className="flex flex-wrap gap-1.5">
                         {shops.map((s) => {
                           const on = staffShops.some((ss) => ss.profile_id === st.id && ss.shop_id === s.id);
-                          return <button key={s.id} onClick={() => toggleStaffShop(st.id, s.id)} aria-pressed={on} className="px-3 py-1.5 rounded-full text-[12px] font-medium flex items-center gap-1" style={on ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{on && <Check size={12} />}{locName(s)}</button>;
+                          return <button key={s.id} onClick={() => toggleStaffShop(st.id, s.id)} aria-pressed={on} className="px-3 py-1.5 rounded-full text-[12px] font-medium flex items-center gap-1" style={on ? { background: C.sageFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{on && <Check size={12} />}{locName(s)}</button>;
                         })}
                       </div>
                     </div>
@@ -10258,7 +10368,7 @@ function XorlaApp() {
               </div>
             )}
             {settingsPage === 'security' && (
-              <div className="rounded-[20px] overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+              <div className="rounded-[20px] overflow-hidden" style={{ background: C.card, border: `1px solid ${C.line}` }}>
                 <div className="px-4 pb-5 pt-1">
                   <div className="flex items-center gap-3 mt-3 mb-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: settings.pin ? C.sageSoft : C.surfaceRaised }}>
@@ -10274,11 +10384,11 @@ function XorlaApp() {
                   </div>
                   {settings.pin ? (
                     <div className="flex gap-2">
-                      <button onClick={() => setPinFlow('change')} className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Change PIN</button>
+                      <button onClick={() => setPinFlow('change')} className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Change PIN</button>
                       <button onClick={() => setPinFlow('remove')} className="flex-1 rounded-xl py-2.5 text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Turn off</button>
                     </div>
                   ) : (
-                    <button onClick={() => setPinFlow('set')} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Set up PIN</button>
+                    <button onClick={() => setPinFlow('set')} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Set up PIN</button>
                   )}
                   {pinNotice && <div className="text-[12px] mt-3 font-medium" style={{ color: C.sage }}>✓ {pinNotice}</div>}
                 </div>
@@ -10288,18 +10398,18 @@ function XorlaApp() {
 
           {settingsDirty ? (
             <div className="sticky bottom-0 z-20 w-full px-3 lg:px-10 pb-3 lg:pb-6 xorla-fade-up" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
-              <div className="max-w-2xl mx-auto flex items-center gap-2.5 rounded-2xl pl-4 pr-2 py-2" style={{ background: 'rgba(19,50,44,0.96)', backdropFilter: 'blur(14px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 18px 40px -16px rgba(0,0,0,0.75)' }}>
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: C.copper }} />
+              <div className="max-w-2xl mx-auto flex items-center gap-2.5 rounded-2xl pl-4 pr-2 py-2" style={{ background: 'rgba(var(--c-raised-rgb),0.96)', backdropFilter: 'blur(14px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 18px 40px -16px rgba(var(--c-lo),calc(0.75 * var(--c-lok)))' }}>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: C.copperFill }} />
                 <span className="flex-1 text-[13px] font-medium" style={{ color: C.ink }}>Unsaved changes</span>
                 <button onClick={() => setDraft({ ...settings })} className="px-4 h-10 rounded-xl text-[13px] font-semibold" style={{ color: C.inkDim }}>Discard</button>
-                <button onClick={saveSettingsDraft} className="px-5 h-10 rounded-xl text-[13.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>Save changes</button>
+                <button onClick={saveSettingsDraft} className="px-5 h-10 rounded-xl text-[13.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}>Save changes</button>
               </div>
             </div>
           ) : ['deposits', 'hours'].includes(settingsPage) && !(settings.setupSteps || []).includes(settingsPage) && !saveNotice ? (
             <div className="sticky bottom-0 z-20 w-full px-3 lg:px-10 pb-3 lg:pb-6 xorla-fade-up" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
-              <div className="max-w-2xl mx-auto flex items-center gap-2.5 rounded-2xl pl-4 pr-2 py-2" style={{ background: 'rgba(19,50,44,0.96)', backdropFilter: 'blur(14px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 18px 40px -16px rgba(0,0,0,0.75)' }}>
+              <div className="max-w-2xl mx-auto flex items-center gap-2.5 rounded-2xl pl-4 pr-2 py-2" style={{ background: 'rgba(var(--c-raised-rgb),0.96)', backdropFilter: 'blur(14px)', border: `1px solid ${C.lineStrong}`, boxShadow: '0 18px 40px -16px rgba(var(--c-lo),calc(0.75 * var(--c-lok)))' }}>
                 <span className="flex-1 text-[13px] font-medium" style={{ color: C.inkDim }}>Happy with these?</span>
-                <button onClick={() => { updateSettings({ setupSteps: [...new Set([...(settings.setupSteps || []), settingsPage])] }); setSettingsPage(null); setSaveNotice('Done. Ticked off your setup list'); setTimeout(() => setSaveNotice(''), 3000); }} className="px-5 h-10 rounded-xl text-[13.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}>Use these settings</button>
+                <button onClick={() => { updateSettings({ setupSteps: [...new Set([...(settings.setupSteps || []), settingsPage])] }); setSettingsPage(null); setSaveNotice('Done. Ticked off your setup list'); setTimeout(() => setSaveNotice(''), 3000); }} className="px-5 h-10 rounded-xl text-[13.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}>Use these settings</button>
               </div>
             </div>
           ) : saveNotice ? (
@@ -10319,7 +10429,7 @@ function XorlaApp() {
   return (
     <div className="min-h-screen flex cx-body relative overflow-x-clip" style={{ background: `radial-gradient(circle at 15% 0%, ${C.surface} 0%, ${C.bg} 45%)`, color: C.ink }}>
       {fontStyle}
-      <div className="xorla-orb" style={{ width: 500, height: 500, top: '-15%', left: '20%', background: C.sage, opacity: 0.06, position: 'fixed' }} />
+      <div className="xorla-orb" style={{ width: 500, height: 500, top: '-15%', left: '20%', background: C.sageFill, opacity: 0.06, position: 'fixed' }} />
 
       {/* Sidebar — desktop only */}
       <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen px-5 py-6 z-20" style={{ borderRight: `1px solid ${C.line}` }}>
@@ -10344,19 +10454,19 @@ function XorlaApp() {
             <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: C.sageSoft, color: C.sage } : { color: C.inkDim }}>
               <Icon size={16} /> {label}
               {id === 'invoices' && needsAttention.length > 0 && (
-                <span title="Need action now" className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
+                <span title="Need action now" className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rustFill, color: C.onAccent }}>{needsAttention.length}</span>
               )}
               {id === 'invoices' && needsAttention.length === 0 && unpaidInvoiceCount > 0 && (
                 <span title="Unpaid invoices" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ border: `1.5px solid ${C.copper}`, color: C.copper }}>{unpaidInvoiceCount}</span>
               )}
               {id === 'products' && products.filter((p) => p.isLow).length > 0 && (
-                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.isLow).length}</span>
+                <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rustFill, color: C.onAccent }}>{products.filter((p) => p.isLow).length}</span>
               )}
               {id === 'bookings' && bookingsBadge > 0 && (
-                <span title="New since you last looked" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{bookingsBadge}</span>
+                <span title="New since you last looked" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>{bookingsBadge}</span>
               )}
               {id === 'orders' && ordersBadge > 0 && (
-                <span title="New since you last looked" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copper, color: C.bg }}>{ordersBadge}</span>
+                <span title="New since you last looked" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>{ordersBadge}</span>
               )}
             </button>
           ))}
@@ -10367,7 +10477,7 @@ function XorlaApp() {
           <Sparkles size={16} style={{ color: C.copper }} className="mb-2" />
           <div className="text-[12.5px] font-semibold mb-1">Let AI chase for you</div>
           <div className="text-[11px] leading-relaxed mb-3" style={{ color: C.inkDim }}>Reminders that sound like you, in the language your customers speak.</div>
-          <button onClick={() => setTab('invoices')} className="w-full rounded-lg py-2 text-[11.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Try it</button>
+          <button onClick={() => setTab('invoices')} className="w-full rounded-lg py-2 text-[11.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Try it</button>
         </div>}
         </div>
 
@@ -10385,12 +10495,13 @@ function XorlaApp() {
       <div className="flex-1 min-w-0 relative z-10">
 
         {/* Mobile brand bar */}
-        <div className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-5 pb-3" style={{ paddingTop: 'max(16px, calc(env(safe-area-inset-top) + 8px))', background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}` }}>
+        <div className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-5 pb-3" style={{ paddingTop: 'max(16px, calc(env(safe-area-inset-top) + 8px))', background: 'rgba(var(--c-bg-rgb),0.98)', borderBottom: `1px solid ${C.line}` }}>
           <div className="flex items-center gap-2">
             <XorlaMark size={26} />
             <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
           </div>
           <div className="flex items-center gap-4">
+            <ThemeToggle size={16} className="!w-8 !h-8" />
             {renderBell('sm:hidden')}
             {settings.pin && <button onClick={() => setLocked(true)} style={{ color: C.inkFaint }}><Lock size={16} /></button>}
             {renderHelpButton()}
@@ -10404,7 +10515,7 @@ function XorlaApp() {
           {activeShopId && isPausedLocation(activeShopId) && (
             <div className="rounded-2xl px-4 py-3 mb-4 flex items-center justify-between gap-3" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.3)' }}>
               <span className="text-[12.5px] leading-relaxed" style={{ color: C.ink }}><strong>{shopNameOf(activeShopId)} is paused on your plan.</strong> You can see its records, but new sales can't be recorded here.</span>
-              {isOwnerRole && <button onClick={openPlanPage} className="shrink-0 px-3.5 py-2 rounded-xl text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>See plans</button>}
+              {isOwnerRole && <button onClick={openPlanPage} className="shrink-0 px-3.5 py-2 rounded-xl text-[12px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>See plans</button>}
             </div>
           )}
 
@@ -10431,7 +10542,7 @@ function XorlaApp() {
                   </button>
                 );
                 return (
-                  <div className="absolute left-0 right-0 lg:left-auto lg:w-[360px] top-full mt-2 z-40 rounded-2xl overflow-hidden max-h-[60vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 16px 40px rgba(0,0,0,0.45)' }}>
+                  <div className="absolute left-0 right-0 lg:left-auto lg:w-[360px] top-full mt-2 z-40 rounded-2xl overflow-hidden max-h-[60vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 16px 40px rgba(var(--c-lo),calc(0.45 * var(--c-lok)))' }}>
                     {none && <div className="px-4 py-5 text-[12.5px] text-center" style={{ color: C.inkFaint }}>Nothing matches "{searchQuery.trim()}"</div>}
                     {inv.length > 0 && <>{head('Invoices')}{inv.map((i) => row(i.id, i.clientName, `#${i.invoiceNo} · ${fmt(Math.max(0, Number(i.amount) - Number(i.paidAmount || 0)))}`, () => setTab('invoices')))}</>}
                     {prods.length > 0 && <>{head(T.catalog)}{prods.map((p) => row(p.id, p.name, fmt(p.sellingPrice), () => { setSearchQuery(''); setTab('products'); }))}</>}
@@ -10441,11 +10552,12 @@ function XorlaApp() {
               })()}
             </div>
             {stripTeam.length > 0 && <div className="hidden md:flex">{renderTeamPresence(true)}</div>}
+            <ThemeToggle className="hidden lg:flex" />
             <span className="hidden sm:flex w-9 h-9 rounded-xl items-center justify-center shrink-0" style={{ border: `1px solid ${notifOpen ? C.copper : C.line}` }}>{renderBell()}</span>
             {tab !== 'bookings' && (
             <button
               onClick={() => { if (tab === 'expenses') setShowExpenseForm(true); else if (tab === 'invoices') setShowForm(true); else { setTab('sales'); setShowSaleForm(true); } }}
-              className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-semibold shrink-0" style={{ background: C.sage, color: C.bg }}>
+              className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-semibold shrink-0" style={{ background: C.sageFill, color: C.onAccent }}>
               <Plus size={14} /> New
             </button>
             )}
@@ -10464,7 +10576,7 @@ function XorlaApp() {
               {canRun && pendingRequests.length > 0 && (
                 <button onClick={() => setTab('products')} className="w-full flex items-center justify-between rounded-2xl p-4 mb-5 xorla-fade-up text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><PackagePlus size={18} style={{ color: C.bg }} /></div>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill }}><PackagePlus size={18} style={{ color: C.onAccent }} /></div>
                     <div>
                       <div className="text-[13.5px] font-semibold cx-display">{pendingRequests.length} stock request{pendingRequests.length !== 1 ? 's' : ''} from your {L.many}</div>
                       <div className="text-[11.5px]" style={{ color: C.inkDim }}>Tap to approve or decline</div>
@@ -10476,8 +10588,8 @@ function XorlaApp() {
               {orders.filter((o) => o.status === 'pending').length > 0 && (
                 <button onClick={() => setTab('orders')} className="w-full flex items-center justify-between rounded-2xl p-4 mb-5 xorla-fade-up text-left" style={{ background: C.sageSoft, border: `1px solid rgba(44,235,214,0.25)` }}>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}>
-                      <ShoppingBag size={18} style={{ color: C.bg }} />
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageFill }}>
+                      <ShoppingBag size={18} style={{ color: C.onAccent }} />
                     </div>
                     <div>
                       <div className="text-[13.5px] font-semibold cx-display">{pendingOrderCount} new {T.order}{pendingOrderCount !== 1 ? 's' : ''} from your storefront</div>
@@ -10490,7 +10602,7 @@ function XorlaApp() {
               {isOwnerRole && (() => {
                 // Only one tip at a time, most important first; the next appears once this one is dismissed
                 if (onTrial && planDaysLeft > 7 && tipReady('trialWelcome')) return (
-                  <div className="rounded-[22px] p-5 mb-5 xorla-fade-up relative overflow-hidden" style={{ background: 'linear-gradient(150deg, #134A43 0%, #0E2E29 60%, #0B2420 100%)', border: '1px solid rgba(31,217,196,0.25)' }}>
+                  <div data-xt="dark" className="rounded-[22px] p-5 mb-5 xorla-fade-up relative overflow-hidden" style={{ background: 'linear-gradient(150deg, #134A43 0%, #0E2E29 60%, #0B2420 100%)', border: '1px solid rgba(31,217,196,0.25)' }}>
                     <div aria-hidden="true" className="absolute -right-12 -top-14 w-48 h-48 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.16), transparent 70%)' }} />
                     <div className="relative flex items-start justify-between gap-3">
                       <div>
@@ -10509,7 +10621,7 @@ function XorlaApp() {
                     </div>
                     <div className="relative text-[12px] leading-relaxed mt-4" style={{ color: C.inkDim }}>No card needed. When the trial ends, choose the plan that fits. Anything beyond it pauses, and nothing is ever deleted.</div>
                     <div className="relative flex gap-2 mt-4">
-                      <button onClick={() => dismissTip('trialWelcome')} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>Got it</button>
+                      <button onClick={() => dismissTip('trialWelcome')} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>Got it</button>
                       <button onClick={openPlanPage} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>See plans</button>
                     </div>
                   </div>
@@ -10529,11 +10641,11 @@ function XorlaApp() {
                 if (!b) return null;
                 return (
                   <div className="rounded-2xl p-4 mb-5 flex items-start gap-3 xorla-fade-up" style={{ background: b.tone === 'copper' ? C.copperSoft : C.surfaceRaised, border: `1px solid ${b.tone === 'copper' ? 'rgba(255,176,32,0.25)' : C.line}` }}>
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: b.tone === 'copper' ? C.copper : C.surface }}><Sparkles size={18} style={{ color: b.tone === 'copper' ? C.bg : C.copper }} /></div>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: b.tone === 'copper' ? C.copperFill : C.surface }}><Sparkles size={18} style={{ color: b.tone === 'copper' ? C.onAccent : C.copper }} /></div>
                     <div className="flex-1 min-w-0">
                       <div className="text-[13.5px] font-semibold cx-display">{b.title}</div>
                       <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{b.body}</div>
-                      <button onClick={openPlanPage} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>{b.cta}</button>
+                      <button onClick={openPlanPage} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>{b.cta}</button>
                     </div>
                     <button onClick={() => setPlanBannerHidden(true)} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
                   </div>
@@ -10541,14 +10653,14 @@ function XorlaApp() {
               })()}
               {showLangIntro && tourStep === null && (
                 <div className="rounded-2xl p-4 mb-5 flex items-start gap-3 xorla-fade-up" style={{ background: `linear-gradient(135deg, ${C.copperSoft}, ${C.surface})`, border: '1px solid rgba(255,176,32,0.25)' }}>
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}><Globe size={18} style={{ color: C.bg }} /></div>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill }}><Globe size={18} style={{ color: C.onAccent }} /></div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold" style={{ background: C.copper, color: C.bg }}>NEW</span>
+                      <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>NEW</span>
                       <span className="text-[13.5px] font-semibold cx-display">Oga now speaks your language</span>
                     </div>
                     <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkDim }}>Ask Oga for advice, and send reminders to customers, in English, Pidgin, Yoruba, Igbo, or Hausa.</div>
-                    <button onClick={() => { dismissLangIntro(); setPreviousTab(tab); setTab('advisor'); }} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Choose my language</button>
+                    <button onClick={() => { dismissLangIntro(); setPreviousTab(tab); setTab('advisor'); }} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Choose my language</button>
                   </div>
                   <button onClick={dismissLangIntro} aria-label="Dismiss" className="shrink-0" style={{ color: C.inkFaint }}><X size={16} /></button>
                 </div>
@@ -10563,10 +10675,10 @@ function XorlaApp() {
                 const counts = {}; week.forEach((x) => { const k = String(x.item || '').replace(/\s*[×x]\d+$/, '').replace(/\s*\(.*\)$/, '').trim(); if (k) counts[k] = (counts[k] || 0) + Number(x.quantity || 1); });
                 const best = Object.entries(counts).sort((p, q) => q[1] - p[1])[0];
                 return (
-                  <button onClick={() => setTab('reports')} className="w-full text-left rounded-[22px] p-4 lg:p-5 mb-5 xorla-fade-up relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #1B4A40 0%, #12332D 55%, #2A2410 100%)', border: '1px solid rgba(255,176,32,0.35)', boxShadow: '0 16px 36px -18px rgba(0,0,0,0.8)' }}>
+                  <button data-xt="dark" onClick={() => setTab('reports')} className="w-full text-left rounded-[22px] p-4 lg:p-5 mb-5 xorla-fade-up relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #1B4A40 0%, #12332D 55%, #2A2410 100%)', border: '1px solid rgba(255,176,32,0.35)', boxShadow: '0 16px 36px -18px rgba(var(--c-lo),calc(0.8 * var(--c-lok)))' }}>
                     <span aria-hidden className="absolute -right-6 -top-8 w-32 h-32 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.25), transparent 70%)' }} />
                     <div className="relative flex items-center gap-3.5">
-                      <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})` }}><TrendingUp size={22} style={{ color: C.bg }} /></span>
+                      <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})` }}><TrendingUp size={22} style={{ color: C.onAccent }} /></span>
                       <span className="flex-1 min-w-0">
                         <span className="block text-[16px] font-bold cx-display">Your reports</span>
                         <span className="block text-[12.5px] leading-snug" style={{ color: C.inkDim }}>Profit, best sellers and how you're growing</span>
@@ -10575,7 +10687,7 @@ function XorlaApp() {
                     </div>
                     <div className="relative grid grid-cols-3 gap-2 mt-3.5">
                       {[['Last 7 days', fmt(wkSales), C.ink], ['Profit on sales', fmt(wkProfit), wkProfit >= 0 ? C.sage : C.rust], ['Best seller', best ? best[0] : '—', C.copper]].map(([l, v, col]) => (
-                        <span key={l} className="rounded-xl px-2.5 py-2 min-w-0" style={{ background: 'rgba(0,0,0,0.25)' }}>
+                        <span key={l} className="rounded-xl px-2.5 py-2 min-w-0" style={{ background: 'rgba(var(--c-lo),calc(0.25 * var(--c-lok)))' }}>
                           <span className="block text-[10.5px]" style={{ color: C.inkFaint }}>{l}</span>
                           <span className="block text-[13px] font-bold truncate cx-mono" style={{ color: col }}>{v}</span>
                         </span>
@@ -10604,7 +10716,7 @@ function XorlaApp() {
                             <span className="cx-mono font-semibold">{fmt(r.total)} <span className="text-[11px] font-normal" style={{ color: C.inkFaint }}>· {r.count} {r.count === 1 ? T.sale : `${T.sale}s`}</span></span>
                           </div>
                           <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}>
-                            <div className="h-full rounded-full" style={{ width: `${(r.total / top) * 100}%`, background: C.sage, transition: 'width 0.5s' }} />
+                            <div className="h-full rounded-full" style={{ width: `${(r.total / top) * 100}%`, background: C.sageFill, transition: 'width 0.5s' }} />
                           </div>
                         </button>
                       ))}
@@ -10616,14 +10728,14 @@ function XorlaApp() {
                 <div className="rounded-2xl p-4 mb-5 xorla-fade-up" style={{ background: `linear-gradient(135deg, ${C.copperSoft}, ${C.surface})`, border: `1px solid rgba(255,176,32,0.25)` }}>
                   {!showIOSSteps ? (
                     <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper }}>
-                        <Download size={18} style={{ color: C.bg }} />
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill }}>
+                        <Download size={18} style={{ color: C.onAccent }} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-[13.5px] font-semibold cx-display mb-0.5">Add Xorla to your home screen</div>
                         <div className="text-[11.5px] leading-relaxed mb-3" style={{ color: C.inkDim }}>Opens instantly, no browser tabs or typing the address again — feels like a real app.</div>
                         <div className="flex gap-2">
-                          <button onClick={handleInstallClick} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>{isIOS ? 'How to add' : 'Install now'}</button>
+                          <button onClick={handleInstallClick} className="px-4 py-2 rounded-xl text-[12.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>{isIOS ? 'How to add' : 'Install now'}</button>
                           <button onClick={dismissInstallBanner} className="px-3 py-2 rounded-xl text-[12.5px] font-medium" style={{ color: C.inkFaint }}>Not now</button>
                         </div>
                       </div>
@@ -10686,7 +10798,7 @@ function XorlaApp() {
                     {last7.map((d) => <span key={d.key} className="text-[9.5px]" style={{ color: C.inkFaint }}>{d.label}</span>)}
                   </div>
                   {canRun && (
-                    <button onClick={() => setTab('reports')} className="w-full mt-4 flex items-center justify-between rounded-xl px-3.5 py-3 text-left" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>
+                    <button onClick={() => setTab('reports')} className="w-full mt-4 flex items-center justify-between rounded-xl px-3.5 py-3 text-left" style={{ background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.line}` }}>
                       <span className="flex items-center gap-2.5"><TrendingUp size={16} style={{ color: C.copper }} /><span className="text-[13px] font-semibold">Reports</span><span className="text-[12px]" style={{ color: C.inkFaint }}>profit, best sellers, any period</span></span>
                       <ChevronRight size={16} style={{ color: C.inkFaint }} />
                     </button>
@@ -10700,7 +10812,7 @@ function XorlaApp() {
                     {saleProducts.length === 0 && T.saleHint ? renderExtrasEmpty() : null}
                     {saleProducts.length > 0 && (
                       <div className="flex gap-2">
-                        <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                        <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                           <option value="">Pick {T.Item === 'Item' ? 'an' : 'a'} {T.item}…</option>
                           {saleProducts.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                         </BrandSelect>
@@ -10718,7 +10830,7 @@ function XorlaApp() {
                       <input type="text" inputMode="decimal" placeholder={T.amountPh} value={formatNumInput(saleForm.amount)} onChange={(e) => setSaleForm({ ...saleForm, amount: parseNumInput(e.target.value) })} className={`${T.costPh ? "w-1/2" : "w-full"} rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono`} style={field} />
                       {T.costPh ? <input type="text" inputMode="decimal" placeholder={T.costPh} value={formatNumInput(saleForm.cost)} onChange={(e) => setSaleForm({ ...saleForm, cost: parseNumInput(e.target.value) })} className="w-1/2 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} /> : null}
                     </div>
-                    <button onClick={addSale} disabled={savingSale} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
+                    <button onClick={addSale} disabled={savingSale} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : `Save ${T.sale}`}</button>
                     <button onClick={() => { setTab('sales'); setShowSaleForm(true); }} className="w-full text-[11.5px] font-medium" style={{ color: C.inkFaint }}>Need to record a partial payment? →</button>
                   </div>
                 </div>
@@ -10773,7 +10885,7 @@ function XorlaApp() {
                   <div className="cx-mono text-[20px] font-bold mb-3">{fmt(weekTotal)}</div>
                   <div className="flex items-end gap-1 h-10">
                     {last7.map((d, i) => (
-                      <div key={d.key} className="flex-1 rounded-sm" style={{ height: `${Math.max(10, (d.total / maxDay) * 100)}%`, background: i === 6 ? C.sage : C.line }} />
+                      <div key={d.key} className="flex-1 rounded-sm" style={{ height: `${Math.max(10, (d.total / maxDay) * 100)}%`, background: i === 6 ? C.sageFill : C.line }} />
                     ))}
                   </div>
                 </div>
@@ -10789,7 +10901,7 @@ function XorlaApp() {
                   <div className="text-[13px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{summaryText}</div>
                   <div className="flex gap-2">
                     {settings.ownerPhone ? (
-                      <a href={`https://wa.me/${toWhatsAppNumber(settings.ownerPhone)}?text=${encodeURIComponent(summaryText)}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-medium" style={{ background: C.sage, color: C.bg }}>
+                      <a href={`https://wa.me/${toWhatsAppNumber(settings.ownerPhone)}?text=${encodeURIComponent(summaryText)}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-medium" style={{ background: C.sageFill, color: C.onAccent }}>
                         <Send size={12} /> Send to my WhatsApp
                       </a>
                     ) : (
@@ -10817,7 +10929,7 @@ function XorlaApp() {
               <div className="flex items-end justify-between gap-1.5 h-14">
                 {last7.map((d, i) => (
                   <div key={d.key} className="flex-1 flex flex-col items-center gap-1.5">
-                    <div className="w-full rounded-full" style={{ height: `${Math.max(8, (d.total / maxDay) * 100)}%`, background: i === 6 ? C.copper : C.line, minHeight: '4px' }} />
+                    <div className="w-full rounded-full" style={{ height: `${Math.max(8, (d.total / maxDay) * 100)}%`, background: i === 6 ? C.copperFill : C.line, minHeight: '4px' }} />
                     <div className="text-[9px]" style={{ color: C.inkFaint }}>{d.label}</div>
                   </div>
                 ))}
@@ -10844,7 +10956,7 @@ function XorlaApp() {
             )}
 
             {!showSaleForm ? (
-              <button onClick={() => setShowSaleForm(true)} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.sale}</button>
+              <button onClick={() => setShowSaleForm(true)} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={16} /> Add {T.sale}</button>
             ) : (
               <div className="rounded-2xl p-5 mb-6 space-y-3" style={card}>
                 <div className="flex items-center justify-between mb-1">
@@ -10863,7 +10975,7 @@ function XorlaApp() {
                       <div className="rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
                         <div className="text-[10.5px] font-medium mb-1.5" style={{ color: C.inkDim }}>{T.pickLabel || `PICK ${T.Item === 'Item' ? 'AN' : 'A'} ${T.Item.toUpperCase()} (OPTIONAL)`}</div>
                         <div className="flex gap-2">
-                          <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value={saleForm.productId} onChange={(e) => applyProductToSale(e.target.value, saleForm.quantity)} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                             <option value="">{T.pickChoose || `Choose ${T.Item === 'Item' ? 'an' : 'a'} ${T.item}…`}</option>
                             {saleProducts.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                           </BrandSelect>
@@ -10895,8 +11007,8 @@ function XorlaApp() {
 
                 <div className="pt-1">
                   <div className="flex gap-1.5">
-                    <button onClick={() => setSaleForm({ ...saleForm, fullyPaid: true })} className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold" style={saleForm.fullyPaid ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Paid in full</button>
-                    <button onClick={() => setSaleForm({ ...saleForm, fullyPaid: false })} className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold" style={!saleForm.fullyPaid ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Still owes some</button>
+                    <button onClick={() => setSaleForm({ ...saleForm, fullyPaid: true })} className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold" style={saleForm.fullyPaid ? { background: C.sageFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Paid in full</button>
+                    <button onClick={() => setSaleForm({ ...saleForm, fullyPaid: false })} className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold" style={!saleForm.fullyPaid ? { background: C.rustFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Still owes some</button>
                   </div>
                 </div>
 
@@ -10921,7 +11033,7 @@ function XorlaApp() {
                       </div>
                       <div className="w-1/2">
                         <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>DUE DATE — when they'll pay</div>
-                        <input type="date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink, colorScheme: 'dark' }} />
+                        <input type="date" value={saleForm.dueDate} onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink, colorScheme: 'var(--c-scheme)' }} />
                       </div>
                     </div>
                     {(cartMode ? cartItems.reduce((a, it) => a + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0) : Number(saleForm.amount)) > 0 && (
@@ -10931,7 +11043,7 @@ function XorlaApp() {
                     )}
                   </div>
                 )}
-                <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : cartMode ? `Save ${cartItems.length > 1 ? 'items' : 'item'}` : `Save ${T.sale}`}</button>
+                <button onClick={cartMode ? addCartSale : addSale} disabled={savingSale} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingSale ? 0.6 : 1 }}>{savingSale ? "Saving…" : cartMode ? `Save ${cartItems.length > 1 ? 'items' : 'item'}` : `Save ${T.sale}`}</button>
               </div>
             )}
 
@@ -10939,7 +11051,7 @@ function XorlaApp() {
               <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(viewDate)}'s sales</div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setViewDate(shiftDate(viewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
-                <input type="date" value={viewDate} max={todayKey()} onChange={(e) => e.target.value && setViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                <input type="date" value={viewDate} max={todayKey()} onChange={(e) => e.target.value && setViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} />
                 {viewDate !== todayKey() && <button onClick={() => setViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
                 <button onClick={() => setViewDate(shiftDate(viewDate, 1))} disabled={viewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: viewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: viewDate >= todayKey() ? 0.4 : 1 }}>›</button>
               </div>
@@ -10959,9 +11071,9 @@ function XorlaApp() {
             {settings.role === 'owner' && sellerOptions.length > 1 && (
               <div className="flex items-center gap-1.5 mb-4 overflow-x-auto">
                 <span className="text-[11px] font-medium shrink-0 mr-0.5" style={{ color: C.inkFaint }}>Recorded by</span>
-                <button onClick={() => setStaffFilter('')} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={!staffFilter ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Everyone</button>
+                <button onClick={() => setStaffFilter('')} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={!staffFilter ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Everyone</button>
                 {sellerOptions.map((name) => (
-                  <button key={name} onClick={() => setStaffFilter(name)} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={staffFilter === name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>
+                  <button key={name} onClick={() => setStaffFilter(name)} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={staffFilter === name ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>
                     {name === settings.myName ? 'You' : name}{!currentStaffNames.includes(name) && name !== settings.myName ? ' (former)' : ''}
                   </button>
                 ))}
@@ -11012,7 +11124,7 @@ function XorlaApp() {
             {renderApptTop()}
             {isOwnerRole && !settings.payout && orders.some((o) => o.status === 'pending' && !o.startAt) && (
               <button type="button" onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('payments'); setTab('settings'); }} className="w-full mb-3 rounded-2xl px-4 py-3 flex items-center gap-3 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>
-                <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><CreditCard size={17} style={{ color: C.bg }} /></span>
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageFill }}><CreditCard size={17} style={{ color: C.onAccent }} /></span>
                 <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">Let customers pay online</span><span className="block text-[12px] leading-snug" style={{ color: C.inkDim }}>Confirm {/^[aeiou]/.test(T.order) ? 'an' : 'a'} {T.order}, and they pay by card, transfer or USSD. The money goes to your bank.</span></span>
                 <ChevronRight size={17} style={{ color: C.sage }} className="shrink-0" />
               </button>
@@ -11032,8 +11144,8 @@ function XorlaApp() {
                 <>
                   <div className="flex gap-1 p-1 mb-3 rounded-xl" role="tablist" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                     {[['open', 'Open'], ['done', 'Done'], ['cancelled', 'Cancelled']].filter(([k]) => k !== 'cancelled' || groups.cancelled.length).map(([k, l]) => (
-                      <button key={k} role="tab" aria-selected={cur === k} onClick={() => setReqFilter(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={cur === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
-                        {l}<span className="text-[11px] cx-mono px-1.5 rounded-full" style={{ background: cur === k ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.06)' }}>{groups[k].length}</span>
+                      <button key={k} role="tab" aria-selected={cur === k} onClick={() => setReqFilter(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={cur === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>
+                        {l}<span className="text-[11px] cx-mono px-1.5 rounded-full" style={{ background: cur === k ? 'rgba(var(--c-lo),calc(0.15 * var(--c-lok)))' : 'rgba(var(--c-hi),0.06)' }}>{groups[k].length}</span>
                       </button>
                     ))}
                   </div>
@@ -11051,7 +11163,7 @@ function XorlaApp() {
           <>
             <div className="flex gap-1 p-1 mb-4 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
               {[['list', T.catalog], ['insights', 'Insights']].map(([k, l]) => (
-                <button key={k} onClick={() => setProductsView(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={productsView === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>
+                <button key={k} onClick={() => setProductsView(k)} className="flex-1 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5" style={productsView === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>
                   {k === 'insights' && <TrendingUp size={14} />}{l}
                 </button>
               ))}
@@ -11070,19 +11182,19 @@ function XorlaApp() {
               T.saleHint ? (
                 <div className="mb-6 space-y-3">
                   {isOwnerRole && (listItems.length === 0 ? (
-                    <div className="relative rounded-[22px] overflow-hidden" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(255,176,32,0.35)' }}>
+                    <div data-xt="dark" className="relative rounded-[22px] overflow-hidden" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(255,176,32,0.35)' }}>
                       <span aria-hidden className="absolute -right-10 -top-12 w-44 h-44 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.22), transparent 65%)' }} />
                       <div className="relative p-4 sm:p-5">
                         <div className="flex items-start gap-3.5">
-                          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})` }}><Camera size={21} style={{ color: C.bg }} /></span>
+                          <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})` }}><Camera size={21} style={{ color: C.onAccent }} /></span>
                           <div className="min-w-0">
                             <div className="text-[16.5px] font-bold leading-tight">Add everything at once</div>
                             <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>Snap your rate card or price list. Oga reads your {serviceKind === 'accommodation' ? 'rooms, halls and extras' : `${roomWord}s and extras`} with their prices, and you check them before anything is saved.</div>
                           </div>
                         </div>
                         <div className="flex gap-2 mt-3.5">
-                          <button onClick={openScan} className="flex-1 h-11 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><Camera size={15} /> Photo or PDF</button>
-                          <button onClick={openImport} className="h-11 px-4 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.12)', color: C.ink }}><Copy size={14} /> Paste a list</button>
+                          <button onClick={openScan} className="flex-1 h-11 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}><Camera size={15} /> Photo or PDF</button>
+                          <button onClick={openImport} className="h-11 px-4 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: 'rgba(var(--c-lo),calc(0.25 * var(--c-lok)))', border: '1px solid rgba(var(--c-hi),0.12)', color: C.ink }}><Copy size={14} /> Paste a list</button>
                         </div>
                       </div>
                     </div>
@@ -11098,14 +11210,14 @@ function XorlaApp() {
                       ...(serviceKind === 'accommodation' ? [['space', Building2, 'A hall', 'By day or hour', '#7FB3FF']] : []),
                       ['extra', Sparkles, 'An extra', serviceKind === 'rentals' ? 'Delivery, hours' : 'Laundry, bar', C.sage]].map(([k, Ic, l, sub, col]) => (
                       <button key={k} onClick={() => (k === 'extra' && isOwnerRole && listItems.length === 0 ? setExtrasPick(true) : openCatalogForm(k))} className="rounded-2xl p-3 text-left flex flex-col gap-2 min-w-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-                        <span className="flex items-center justify-between"><span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${col}22` }}><Ic size={17} style={{ color: col }} /></span><Plus size={15} style={{ color: C.inkFaint }} /></span>
+                        <span className="flex items-center justify-between"><span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: tint(col, 0.13) }}><Ic size={17} style={{ color: col }} /></span><Plus size={15} style={{ color: C.inkFaint }} /></span>
                         <span className="min-w-0"><span className="block text-[13.5px] font-semibold truncate">{l}</span><span className="block text-[11px] truncate" style={{ color: C.inkFaint }}>{sub}</span></span>
                       </button>
                     ))}
                   </div>
                 </div>
               ) : (
-              <button onClick={() => { setEditingProductId(null); setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null, photos: [] }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add {T.item}</button>
+              <button onClick={() => { setEditingProductId(null); setProductForm({ where: defaultWhere(), ...({ name: '', costPrice: '', sellingPrice: '', stockQuantity: '', lowStockThreshold: '5', category: '', kind: 'product', priceUnit: 'fixed', duration: '', description: '', imageBlob: null, imagePreview: null, photos: [] }), kind: settings.businessType === 'services' ? 'service' : 'product', priceUnit: settings.businessType !== 'products' ? (SERVICE_KINDS[serviceKind]?.unit || 'fixed') : 'fixed', units: '1' }); setShowProductForm(true); }} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={16} /> Add {T.item}</button>
               )
             )}
             {!T.saleHint && isOwnerRole && (
@@ -11120,7 +11232,7 @@ function XorlaApp() {
                     <div className={fieldLabel} style={{ color: C.inkFaint }}>THIS IS A</div>
                     <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                       {[['product', 'Product'], ['service', 'Service']].map(([k, l]) => (
-                        <button key={k} onClick={() => setProductForm({ ...productForm, kind: k })} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={productForm.kind === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+                        <button key={k} onClick={() => setProductForm({ ...productForm, kind: k })} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={productForm.kind === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>
                       ))}
                     </div>
                   </div>
@@ -11138,7 +11250,7 @@ function XorlaApp() {
                         {productForm.photos.map((ph, i) => (
                           <div key={ph.url || i} className="relative rounded-xl overflow-hidden" style={{ aspectRatio: '1 / 1', background: C.bg, border: `1.5px solid ${i === 0 ? C.copper : C.line}` }}>
                             <img src={ph.preview || ph.url} alt={i === 0 ? 'Cover photo' : `Photo ${i + 1}`} className="w-full h-full object-cover" />
-                            {i === 0 ? <span className="absolute bottom-0 inset-x-0 text-center text-[9.5px] font-bold py-0.5" style={{ background: C.copper, color: C.bg }}>COVER</span>
+                            {i === 0 ? <span className="absolute bottom-0 inset-x-0 text-center text-[9.5px] font-bold py-0.5" style={{ background: C.copperFill, color: C.onAccent }}>COVER</span>
                               : <button type="button" onClick={() => movePhoto(i, 0)} className="absolute bottom-0 inset-x-0 text-center text-[9.5px] font-semibold py-0.5" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>Make cover</button>}
                             <button type="button" onClick={() => movePhoto(i, null)} aria-label={`Remove photo ${i + 1}`} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.65)', color: '#fff' }}><X size={11} /></button>
                           </div>
@@ -11201,7 +11313,7 @@ function XorlaApp() {
                       <div className={fieldLabel} style={{ color: C.inkFaint }}>YOUR RATE</div>
                       <div className="flex gap-2">
                         <input type="text" inputMode="decimal" placeholder="₦ amount" value={formatNumInput(productForm.sellingPrice)} onChange={(e) => setProductForm({ ...productForm, sellingPrice: parseNumInput(e.target.value) })} className="w-1/2 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
-                        <BrandSelect value={productForm.priceUnit} onChange={(e) => setProductForm({ ...productForm, priceUnit: e.target.value })} className="w-1/2 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                        <BrandSelect value={productForm.priceUnit} onChange={(e) => setProductForm({ ...productForm, priceUnit: e.target.value })} className="w-1/2 min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                           {PRICE_UNITS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                         </BrandSelect>
                       </div>
@@ -11237,7 +11349,7 @@ function XorlaApp() {
                     ) : (
                     <div>
                       <div className={fieldLabel} style={{ color: C.inkFaint }}>HOW LONG IT TAKES (OPTIONAL)</div>
-                      <BrandSelect value={productForm.duration} onChange={(e) => setProductForm({ ...productForm, duration: e.target.value })} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                      <BrandSelect value={productForm.duration} onChange={(e) => setProductForm({ ...productForm, duration: e.target.value })} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                         <option value="">Not specified</option>
                         {DURATIONS.map((d) => <option key={d} value={d}>{d}</option>)}
                       </BrandSelect>
@@ -11287,7 +11399,7 @@ function XorlaApp() {
                     <div className="flex flex-wrap gap-1.5 mt-1">
                       {[...(isOwnerRole ? [['', `Every ${L.one}`]] : []), ...(isManager ? myShops : shops).map((sh) => [sh.id, `Only ${locName(sh)}`])].map(([v, l]) => {
                         const on = (productForm.where ?? '') === v || (isManager && !productForm.where && v === (activeShopId || myShops[0]?.id));
-                        return <button key={v || 'all'} type="button" onClick={() => setProductForm({ ...productForm, where: v })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={on ? { background: C.sage, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>;
+                        return <button key={v || 'all'} type="button" onClick={() => setProductForm({ ...productForm, where: v })} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={on ? { background: C.sageFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>;
                       })}
                     </div>
                     <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>{(productForm.where ?? '') === '' && isOwnerRole ? `Shared by every ${L.one}. You can still set a different price for a ${L.one} below.` : `Only this ${L.one} offers it, with its own name, photo and price. Other ${L.many} don't see it.`}</div>
@@ -11307,7 +11419,7 @@ function XorlaApp() {
                     </div>
                   </div>
                 )}
-                <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : editingProductId ? 'Save changes' : productForm.mode === 'space' ? 'Save hall' : productForm.mode === 'room' ? `Save ${roomWord}` : productForm.mode === 'extra' ? 'Save extra' : formIsService ? 'Save service' : 'Save product'}</button>
+                <button onClick={addProduct} disabled={savingProduct} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingProduct ? 0.6 : 1 }}>{savingProduct ? 'Saving…' : editingProductId ? 'Save changes' : productForm.mode === 'space' ? 'Save hall' : productForm.mode === 'room' ? `Save ${roomWord}` : productForm.mode === 'extra' ? 'Save extra' : formIsService ? 'Save service' : 'Save product'}</button>
               </div>
               </Sheet>
             )}
@@ -11330,8 +11442,8 @@ function XorlaApp() {
                 const isOut = p.stockQuantity === 0;
                 const isRestocking = restockingId === p.id;
                 return (
-                  <div key={p.id} className="relative rounded-2xl p-4 mb-4 overflow-hidden" style={{ background: 'linear-gradient(180deg, #143630, #102C27)', border: `1px solid ${isOut || isLow ? 'rgba(226,98,75,0.38)' : C.lineStrong}`, boxShadow: '0 1px 0 rgba(255,255,255,0.05) inset, 0 10px 24px -14px rgba(0,0,0,0.75)' }}>
-                    <span aria-hidden className="absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full" style={{ background: isOut || isLow ? C.rust : kindOf(p, settings.businessType) === 'service' ? C.copper : C.sage, opacity: 0.85 }} />
+                  <div key={p.id} className="relative rounded-2xl p-4 mb-4 overflow-hidden" style={{ background: C.card, border: `1px solid ${isOut || isLow ? 'rgba(226,98,75,0.38)' : C.lineStrong}`, boxShadow: '0 1px 0 rgba(var(--c-hi),0.05) inset, 0 10px 24px -14px rgba(var(--c-lo),calc(0.75 * var(--c-lok)))' }}>
+                    <span aria-hidden className="absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full" style={{ background: isOut || isLow ? C.rustFill : kindOf(p, settings.businessType) === 'service' ? C.copperFill : C.sageFill, opacity: 0.85 }} />
                     <div className="flex items-start gap-3">
                       {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-14 h-14 rounded-xl object-cover shrink-0" style={{ background: '#fff' }} /> : <div className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Package size={18} style={{ color: C.inkFaint }} /></div>}
                       <div className="flex-1 min-w-0">
@@ -11364,7 +11476,7 @@ function XorlaApp() {
                         <div className="mt-3">
                           <div className="flex flex-wrap gap-1.5">
                             {shown.map(([v, q]) => (
-                              <span key={v} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11.5px]" style={{ background: q <= 0 ? 'rgba(226,98,75,0.12)' : 'rgba(0,0,0,0.18)', border: `1px solid ${q <= 0 ? 'rgba(226,98,75,0.25)' : 'rgba(255,255,255,0.05)'}`, color: q <= 0 ? C.rust : C.inkDim }}>
+                              <span key={v} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11.5px]" style={{ background: q <= 0 ? 'rgba(226,98,75,0.12)' : 'rgba(var(--c-lo),calc(0.18 * var(--c-lok)))', border: `1px solid ${q <= 0 ? 'rgba(226,98,75,0.25)' : 'rgba(var(--c-hi),0.05)'}`, color: q <= 0 ? C.rust : C.inkDim }}>
                                 {v}<strong className="cx-mono" style={{ color: q <= 0 ? C.rust : q <= lowAt ? C.copper : C.ink }}>{q}</strong>
                               </span>
                             ))}
@@ -11380,7 +11492,7 @@ function XorlaApp() {
                           const q = stockAt(p, sh.id);
                           const low = q <= p.lowStockThreshold;
                           return (
-                            <div key={sh.id} className="rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2 min-w-0" style={{ background: low ? 'rgba(226,98,75,0.08)' : 'rgba(0,0,0,0.18)', border: `1px solid ${low ? 'rgba(226,98,75,0.22)' : 'rgba(255,255,255,0.04)'}` }}>
+                            <div key={sh.id} className="rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2 min-w-0" style={{ background: low ? 'rgba(226,98,75,0.08)' : 'rgba(var(--c-lo),calc(0.18 * var(--c-lok)))', border: `1px solid ${low ? 'rgba(226,98,75,0.22)' : 'rgba(var(--c-hi),0.04)'}` }}>
                               <span className="text-[11.5px] truncate min-w-0" style={{ color: C.inkDim }}>{locName(sh)}</span>
                               <span className="cx-mono text-[12px] font-semibold shrink-0" style={{ color: low ? C.rust : C.ink }}>{Number(q).toLocaleString('en-NG')}</span>
                             </div>
@@ -11389,7 +11501,7 @@ function XorlaApp() {
                       </div>
                     )}
                     <div className="mt-3 pt-3 flex items-center gap-1.5 flex-wrap" style={{ borderTop: `1px solid ${C.line}` }}>
-                      {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(255,255,255,0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
+                      {(() => { const pill = (label, color, onClick, bg) => <button onClick={onClick} className="h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ color, background: bg || 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.line}` }}>{label}</button>; return (<>
                         {T.tracksStock && kindOf(p, settings.businessType) === 'product' && !p.madeToOrder && !isPausedLocation(activeShopId) && pill(p.stockQuantity === null ? 'Track stock' : 'Restock', C.bg, () => { setRestockingId(isRestocking ? null : p.id); setCorrectingId(null); setRestockAmount(''); setRestockOpts({}); setRestockCost(''); }, C.sage)}
                         {canRun && allLiveLocations.length > 1 && multiLocationOn && p.stockQuantity !== null && pill('Send', C.copper, () => openSend({ productId: p.id, from: activeShopId || '' }))}
                         {isManager && !p.shopId ? pill('Price & availability', C.ink, () => openLocPrice(p)) : pill('Edit', C.ink, () => { setEditingProductId(p.id); setProductForm({ where: p.shopId || '', name: p.name, costPrice: String(p.costPrice || ''), sellingPrice: String(p.basePrice || ''), shopPrices: Object.fromEntries(shops.map((s) => { const o = shopRow(p.id, s.id)?.price_override; return [s.id, o !== null && o !== undefined ? String(o) : '']; })), stockQuantity: '', lowStockThreshold: String(p.lowStockThreshold ?? 5), category: p.category || '', kind: kindOf(p, settings.businessType), priceUnit: p.priceUnit || 'fixed', units: String(p.units || 1), mode: p.isSpace ? 'space' : T.saleHint ? (isBookable(p) ? 'room' : 'extra') : undefined, hourPrice: p.hourPrice == null ? '' : String(p.hourPrice), capacity: p.capacity == null ? '' : String(p.capacity), duration: p.duration || '', description: p.description || '', imageBlob: null, imagePreview: p.imageUrl || null, photos: [p.imageUrl, ...(p.images || [])].filter(Boolean).map((url) => ({ url, preview: url })), options: (p.options || []).map((g) => ({ name: g.name, values: [...g.values], draft: '', prices: { ...(g.prices || {}) }, showPrices: !!g.prices })), madeToOrder: !!p.madeToOrder, customChoice: !!p.customChoice, leadTime: p.leadTime || '', countsTouched: false, optionCounts: countsByOption(p) ? Object.fromEntries(optionCombos(p.options).filter((v) => variantStock.some((r) => r.product_id === p.id && r.shop_id === targetShopId && r.variant === v)).map((v) => [v, String(optionAt(p.id, targetShopId, v))])) : {} }); setShowProductForm(true); })}
@@ -11401,19 +11513,19 @@ function XorlaApp() {
                       <div className="rounded-xl p-3 mt-2.5 space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                         <div className="text-[11.5px] font-semibold" style={{ color: C.inkDim }}>Move stock between {L.many}</div>
                         <div className="flex gap-2 items-center">
-                          <BrandSelect value={transferForm.from} onChange={(e) => setTransferForm({ ...transferForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value={transferForm.from} onChange={(e) => setTransferForm({ ...transferForm, from: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                             <option value="">From…</option>
                             {shops.map((s) => <option key={s.id} value={s.id}>{locName(s)} ({stockAt(p, s.id)})</option>)}
                           </BrandSelect>
                           <span style={{ color: C.inkFaint }}>→</span>
-                          <BrandSelect value={transferForm.to} onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value={transferForm.to} onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })} className="flex-1 min-w-0 rounded-lg px-2.5 py-2 text-[12.5px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                             <option value="">To…</option>
                             {shops.filter((s) => s.id !== transferForm.from).map((s) => <option key={s.id} value={s.id}>{locName(s)}</option>)}
                           </BrandSelect>
                         </div>
                         <div className="flex gap-2">
                           <input type="number" min="1" placeholder="How many?" value={transferForm.qty} onChange={(e) => setTransferForm({ ...transferForm, qty: e.target.value })} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
-                          <button onClick={() => handleTransfer(p)} disabled={!transferForm.from || !transferForm.to || !Number(transferForm.qty)} className="px-4 rounded-lg text-[12px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: !transferForm.from || !transferForm.to || !Number(transferForm.qty) ? 0.4 : 1 }}>Move</button>
+                          <button onClick={() => handleTransfer(p)} disabled={!transferForm.from || !transferForm.to || !Number(transferForm.qty)} className="px-4 rounded-lg text-[12px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: !transferForm.from || !transferForm.to || !Number(transferForm.qty) ? 0.4 : 1 }}>Move</button>
                         </div>
                       </div>
                     )}
@@ -11432,7 +11544,7 @@ function XorlaApp() {
                                 <div className="text-[11px] font-medium tracking-wide uppercase mb-1.5" style={{ color: C.inkFaint }}>Into</div>
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
-                                    <button key={s.id} onClick={() => setRestockShopId(s.id)} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={(restockShopId || mainShopId) === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)}</button>
+                                    <button key={s.id} onClick={() => setRestockShopId(s.id)} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={(restockShopId || mainShopId) === s.id ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)}</button>
                                   ))}
                                 </div>
                               </div>
@@ -11462,7 +11574,7 @@ function XorlaApp() {
                                 ? costExplainer(p.id, qty, uc, avg)
                                 : 'Paid a different price this time? Add the cost per unit. It only affects your profit figures — your selling price stays yours to set.'}
                             </div>
-                            <button onClick={() => handleRestock(p)} disabled={byOption ? !(qty > 0) : (!(qty >= 0) || restockAmount === '')} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: (byOption ? !(qty > 0) : restockAmount === '') ? 0.45 : 1 }}>{p.stockQuantity === null ? 'Start tracking' : qty > 0 ? `Add ${qty.toLocaleString('en-NG')} to stock` : 'Save'}</button>
+                            <button onClick={() => handleRestock(p)} disabled={byOption ? !(qty > 0) : (!(qty >= 0) || restockAmount === '')} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: (byOption ? !(qty > 0) : restockAmount === '') ? 0.45 : 1 }}>{p.stockQuantity === null ? 'Start tracking' : qty > 0 ? `Add ${qty.toLocaleString('en-NG')} to stock` : 'Save'}</button>
                           </div>
                         </Sheet>
                       );
@@ -11476,7 +11588,7 @@ function XorlaApp() {
                             {viewAllShops && hasManyLocations && (
                               <div className="flex flex-wrap gap-1.5">
                                 {locations.filter((s) => !isPausedLocation(s.id)).map((s) => (
-                                  <button key={s.id} onClick={() => setCorrectShopId(s.id)} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={cShop === s.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)} ({stockAt(p, s.id)})</button>
+                                  <button key={s.id} onClick={() => setCorrectShopId(s.id)} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={cShop === s.id ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{locName(s)} ({stockAt(p, s.id)})</button>
                                 ))}
                               </div>
                             )}
@@ -11498,7 +11610,7 @@ function XorlaApp() {
                             </div>
                             )}
                             <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>For fixing a typing mistake, or after counting what's really on the shelf. It's saved as a correction, so your stock history stays honest.</div>
-                            <button onClick={() => handleCorrectCount(p)} disabled={countsByOption(p) ? !Object.values(correctOpts).some((q) => q !== '') : correctQty === ''} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: (countsByOption(p) ? !Object.values(correctOpts).some((q) => q !== '') : correctQty === '') ? 0.45 : 1 }}>Save count</button>
+                            <button onClick={() => handleCorrectCount(p)} disabled={countsByOption(p) ? !Object.values(correctOpts).some((q) => q !== '') : correctQty === ''} className="w-full rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: (countsByOption(p) ? !Object.values(correctOpts).some((q) => q !== '') : correctQty === '') ? 0.45 : 1 }}>Save count</button>
                           </div>
                         </Sheet>
                       );
@@ -11521,7 +11633,7 @@ function XorlaApp() {
             </div>
 
             {!showExpenseForm ? (
-              <button onClick={() => setShowExpenseForm(true)} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add expense</button>
+              <button onClick={() => setShowExpenseForm(true)} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={16} /> Add expense</button>
             ) : (
               <div className="rounded-2xl p-5 mb-6 space-y-3" style={card}>
                 <div className="flex items-center justify-between mb-1">
@@ -11533,11 +11645,11 @@ function XorlaApp() {
                 <input type="text" inputMode="decimal" placeholder="Amount (₦)" value={formatNumInput(expenseForm.amount)} onChange={(e) => setExpenseForm({ ...expenseForm, amount: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} />
                 <div className="flex flex-wrap gap-1.5">
                   {EXPENSE_CATEGORIES.map((c) => (
-                    <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rust, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
+                    <button key={c} onClick={() => setExpenseForm((f) => ({ ...f, category: c, item: f.item.trim() ? f.item : c }))} className="px-3 py-1.5 rounded-full text-[12px] font-medium" style={expenseForm.category === c ? { background: C.rustFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{c}</button>
                   ))}
                 </div>
                 <div className="text-[10.5px] -mt-1.5" style={{ color: C.inkFaint }}>Picking a category fills in the description too — type your own to override.</div>
-                <button onClick={addExpense} disabled={savingExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingExpense ? 0.6 : 1 }}>{savingExpense ? "Saving…" : "Save expense"}</button>
+                <button onClick={addExpense} disabled={savingExpense} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingExpense ? 0.6 : 1 }}>{savingExpense ? "Saving…" : "Save expense"}</button>
               </div>
             )}
 
@@ -11545,7 +11657,7 @@ function XorlaApp() {
               <div className="text-[13px] font-semibold cx-display" style={{ color: C.inkDim }}>{formatViewDate(viewDate)}'s expenses</div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setViewDate(shiftDate(viewDate, -1))} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>‹</button>
-                <input type="date" value={viewDate} max={todayKey()} onChange={(e) => e.target.value && setViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                <input type="date" value={viewDate} max={todayKey()} onChange={(e) => e.target.value && setViewDate(e.target.value)} className="rounded-lg px-2 py-1 text-[11.5px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} />
                 {viewDate !== todayKey() && <button onClick={() => setViewDate(todayKey())} className="text-[11px] font-medium" style={{ color: C.sage }}>Today</button>}
                 <button onClick={() => setViewDate(shiftDate(viewDate, 1))} disabled={viewDate >= todayKey()} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: viewDate >= todayKey() ? C.inkFaint : C.inkDim, opacity: viewDate >= todayKey() ? 0.4 : 1 }}>›</button>
               </div>
@@ -11565,9 +11677,9 @@ function XorlaApp() {
             {settings.role === 'owner' && sellerOptions.length > 1 && (
               <div className="flex items-center gap-1.5 mb-4 overflow-x-auto">
                 <span className="text-[11px] font-medium shrink-0 mr-0.5" style={{ color: C.inkFaint }}>Recorded by</span>
-                <button onClick={() => setStaffFilter('')} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={!staffFilter ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Everyone</button>
+                <button onClick={() => setStaffFilter('')} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={!staffFilter ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>Everyone</button>
                 {sellerOptions.map((name) => (
-                  <button key={name} onClick={() => setStaffFilter(name)} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={staffFilter === name ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>
+                  <button key={name} onClick={() => setStaffFilter(name)} className="px-3 py-1.5 rounded-full text-[12px] font-medium shrink-0" style={staffFilter === name ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>
                     {name === settings.myName ? 'You' : name}{!currentStaffNames.includes(name) && name !== settings.myName ? ' (former)' : ''}
                   </button>
                 ))}
@@ -11599,7 +11711,7 @@ function XorlaApp() {
         {tab === 'invoices' && (
           <>
             {!showForm ? (
-              <button onClick={() => setShowForm(true)} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={16} /> Add invoice</button>
+              <button onClick={() => setShowForm(true)} className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={16} /> Add invoice</button>
             ) : (
               <div className="rounded-2xl p-5 mb-6 space-y-3" style={card}>
                 <div className="flex items-center justify-between mb-1">
@@ -11641,7 +11753,7 @@ function XorlaApp() {
                     {form.items.map((it, idx) => (
                       <div key={idx} className="space-y-1.5" style={idx > 0 ? { paddingTop: '8px', borderTop: `1px dashed ${C.line}` } : {}}>
                         {saleProducts.length > 0 && (
-                          <BrandSelect value="" onChange={(e) => { const product = products.find((p) => p.id === e.target.value); if (!product) return; const items = [...form.items]; items[idx] = { ...items[idx], description: product.name, unitPrice: String(product.sellingPrice) }; setForm({ ...form, items }); }} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'dark' }}>
+                          <BrandSelect value="" onChange={(e) => { const product = products.find((p) => p.id === e.target.value); if (!product) return; const items = [...form.items]; items[idx] = { ...items[idx], description: product.name, unitPrice: String(product.sellingPrice) }; setForm({ ...form, items }); }} className="w-full min-w-0 rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
                             <option value="">Pick from your {T.catalog.toLowerCase()}… (optional)</option>
                             {saleProducts.map((p) => <option key={p.id} value={p.id}>{p.name} — {fmt(p.sellingPrice)}</option>)}
                           </BrandSelect>
@@ -11670,7 +11782,7 @@ function XorlaApp() {
                 <div className="flex gap-2">
                   <div className="w-1/2">
                     <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>DUE DATE — when payment is expected</div>
-                    <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                    <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} />
                   </div>
                   <div className="w-1/2">
                     <div className="text-[10.5px] font-medium mb-1" style={{ color: C.inkFaint }}>PHONE (OPTIONAL)</div>
@@ -11679,7 +11791,7 @@ function XorlaApp() {
                 </div>
                 <textarea placeholder="Billing address (optional)" value={form.clientAddress} onChange={(e) => setForm({ ...form, clientAddress: e.target.value })} rows={2} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
                 <textarea placeholder="Note to add at the bottom of the invoice (optional) — e.g. 'Thank you for your business!'" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none resize-none" style={field} />
-                <button onClick={addInvoice} disabled={savingInvoice} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: savingInvoice ? 0.6 : 1 }}>{savingInvoice ? "Saving…" : "Save invoice"}</button>
+                <button onClick={addInvoice} disabled={savingInvoice} className="w-full rounded-xl py-3 text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: savingInvoice ? 0.6 : 1 }}>{savingInvoice ? "Saving…" : "Save invoice"}</button>
               </div>
             )}
 
@@ -11688,8 +11800,8 @@ function XorlaApp() {
               <span className="cx-mono text-[11px]" style={{ color: C.inkFaint }}>{invoices.length} total</span>
             </div>
             <div className="flex gap-1.5 mb-4 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
-              <button onClick={() => setInvoiceView('active')} className="flex-1 py-2 rounded-lg text-[12px] font-semibold" style={invoiceView === 'active' ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>Active</button>
-              <button onClick={() => setInvoiceView('paid')} className="flex-1 py-2 rounded-lg text-[12px] font-semibold" style={invoiceView === 'paid' ? { background: C.sage, color: C.bg } : { color: C.inkDim }}>Paid {paidInvoiceCount > 0 ? `(${paidInvoiceCount})` : ''}</button>
+              <button onClick={() => setInvoiceView('active')} className="flex-1 py-2 rounded-lg text-[12px] font-semibold" style={invoiceView === 'active' ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>Active</button>
+              <button onClick={() => setInvoiceView('paid')} className="flex-1 py-2 rounded-lg text-[12px] font-semibold" style={invoiceView === 'paid' ? { background: C.sageFill, color: C.onAccent } : { color: C.inkDim }}>Paid {paidInvoiceCount > 0 ? `(${paidInvoiceCount})` : ''}</button>
             </div>
             {sortedInvoices.length === 0 && <div className="text-center text-[13px] py-10 rounded-2xl" style={{ color: C.inkFaint, border: `1px dashed ${C.line}` }}>{invoiceView === 'paid' ? 'No paid invoices yet.' : 'Nothing active — nice.'}</div>}
 
@@ -11727,7 +11839,7 @@ function XorlaApp() {
 
                       {inv.paidAmount > 0 && !isPaid && (
                         <div className="mb-2.5">
-                          <div className="h-[3px] rounded-full overflow-hidden" style={{ background: C.bg }}><div className="h-full rounded-full" style={{ width: `${paidPct}%`, background: C.sage }} /></div>
+                          <div className="h-[3px] rounded-full overflow-hidden" style={{ background: C.bg }}><div className="h-full rounded-full" style={{ width: `${paidPct}%`, background: C.sageFill }} /></div>
                           <div className="text-[10.5px] mt-1" style={{ color: C.inkFaint }}>₦{Number(inv.paidAmount).toLocaleString('en-NG')} of {fmt(inv.amount)} paid</div>
                         </div>
                       )}
@@ -11757,19 +11869,19 @@ function XorlaApp() {
                       {payingId === inv.id && (
                         <div className="flex gap-2 mb-3">
                           <input type="text" inputMode="decimal" autoFocus placeholder={`Max ${fmt(bal)}`} value={formatNumInput(payAmount)} onChange={(e) => setPayAmount(parseNumInput(e.target.value))} className="flex-1 min-w-0 rounded-xl px-3 py-2 text-[12.5px] outline-none cx-mono" style={field} />
-                          <button onClick={() => recordPayment(inv.id)} className="px-3 rounded-xl text-[12px] font-medium" style={{ background: C.sage, color: C.bg }}>Save</button>
+                          <button onClick={() => recordPayment(inv.id)} className="px-3 rounded-xl text-[12px] font-medium" style={{ background: C.sageFill, color: C.onAccent }}>Save</button>
                           <button onClick={() => { setPayingId(null); setPayAmount(''); }} className="px-2" style={{ color: C.inkFaint }}><X size={14} /></button>
                         </div>
                       )}
 
                       <div className="flex items-center gap-3">
                         {status === 'critical' && inv.phone && (
-                          <a href={`tel:${inv.phone.replace(/[^0-9+]/g, '')}`} className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ background: C.rust, color: C.bg }}>
+                          <a href={`tel:${inv.phone.replace(/[^0-9+]/g, '')}`} className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ background: C.rustFill, color: C.onAccent }}>
                             <PhoneCall size={13} /> Call now
                           </a>
                         )}
                         {inv.phone && status !== 'critical' && (
-                          <a href={`https://wa.me/${toWhatsAppNumber(inv.phone)}?text=${encodeURIComponent(isPaid ? thankMsg : message)}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ background: C.sage, color: C.bg }}>
+                          <a href={`https://wa.me/${toWhatsAppNumber(inv.phone)}?text=${encodeURIComponent(isPaid ? thankMsg : message)}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>
                             <Phone size={13} /> {isPaid ? 'Send thanks' : 'WhatsApp'}
                           </a>
                         )}
@@ -11813,7 +11925,7 @@ function XorlaApp() {
               <div className="flex items-center gap-1.5 text-[11.5px] font-semibold mb-2" style={{ color: C.inkDim }}><Globe size={13} style={{ color: C.copper }} /> Oga answers in</div>
               <div className="flex flex-wrap gap-1.5">
                 {LANGUAGES.map((l) => (
-                  <button key={l.id} onClick={() => updateSettings({ language: l.id })} aria-pressed={settings.language === l.id} className="px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors" style={settings.language === l.id ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
+                  <button key={l.id} onClick={() => updateSettings({ language: l.id })} aria-pressed={settings.language === l.id} className="px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors" style={settings.language === l.id ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l.label}</button>
                 ))}
               </div>
               <div className="text-[11px] mt-2" style={{ color: C.inkFaint }}>Your AI reminders, thank-you notes, and summaries use this language too.</div>
@@ -11835,7 +11947,7 @@ function XorlaApp() {
                 className="flex-1 rounded-xl px-3.5 py-2.5 text-sm outline-none"
                 style={field}
               />
-              <button onClick={() => runAdvisor(advisorQuestion)} disabled={advisorLoading || !advisorQuestion.trim()} className="px-4 rounded-xl text-[12.5px] font-semibold flex items-center gap-1.5" style={{ background: C.copper, color: C.bg, opacity: advisorLoading || !advisorQuestion.trim() ? 0.4 : 1 }}>
+              <button onClick={() => runAdvisor(advisorQuestion)} disabled={advisorLoading || !advisorQuestion.trim()} className="px-4 rounded-xl text-[12.5px] font-semibold flex items-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent, opacity: advisorLoading || !advisorQuestion.trim() ? 0.4 : 1 }}>
                 {advisorLoading ? <Loader2 size={14} className="animate-spin" /> : 'Ask'}
               </button>
             </div>
@@ -11856,7 +11968,7 @@ function XorlaApp() {
           data-tour="oga"
           onClick={() => { setPreviousTab(tab); setTab('advisor'); }}
           className="fixed bottom-24 lg:bottom-6 right-5 lg:right-6 z-40 flex items-center gap-2 pl-3.5 pr-4 py-3 rounded-full transition-transform active:scale-95"
-          style={{ background: C.copper, color: C.bg, boxShadow: '0 8px 24px rgba(255,176,32,0.35)' }}
+          style={{ background: C.copperFill, color: C.onAccent, boxShadow: '0 8px 24px rgba(255,176,32,0.35)' }}
         >
           <Lightbulb size={17} />
           <span className="text-[12.5px] font-semibold">Ask Oga</span>
@@ -11866,13 +11978,13 @@ function XorlaApp() {
       {renderSetup()}
       {renderReadyCheck()}
       {settings.loggedIn && settings.role === 'owner' && settings.businessType === null && settings.setupDoneAt === undefined && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-5" style={{ background: 'rgba(3,10,9,0.8)', backdropFilter: 'blur(6px)' }}>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-5" style={{ background: 'rgba(var(--c-scrim),0.8)', backdropFilter: 'blur(6px)' }}>
           <div className="w-full max-w-md rounded-3xl p-6 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
             <div className="text-[20px] font-bold cx-display mb-1.5">What does {settings.businessName || 'your business'} do?</div>
             <div className="text-[13px] mb-5" style={{ color: C.inkDim }}>We'll set Xorla up to fit how you work. You can change this later in Settings.</div>
             {renderBusinessTypeChoices(pendingBusinessType, setPendingBusinessType)}
             {(pendingBusinessType === 'services' || pendingBusinessType === 'both') && renderServiceKindChoices(pendingServiceKind, setPendingServiceKind)}
-            <button onClick={() => pendingBusinessType && updateSettings({ businessType: pendingBusinessType, ...(pendingServiceKind && pendingBusinessType !== 'products' ? { serviceKind: pendingServiceKind } : {}) })} disabled={!pendingBusinessType} className="w-full mt-5 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: pendingBusinessType ? 1 : 0.4 }}>Continue</button>
+            <button onClick={() => pendingBusinessType && updateSettings({ businessType: pendingBusinessType, ...(pendingServiceKind && pendingBusinessType !== 'products' ? { serviceKind: pendingServiceKind } : {}) })} disabled={!pendingBusinessType} className="w-full mt-5 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: pendingBusinessType ? 1 : 0.4 }}>Continue</button>
           </div>
         </div>
       )}
@@ -11894,12 +12006,12 @@ function XorlaApp() {
         const isLast = tourStep === tourSteps.length - 1;
         return (
           <div className="fixed inset-0 z-[80]" role="dialog" aria-modal="true" aria-label="App tour">
-            <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} style={tourRect ? {} : { background: 'rgba(3,10,9,0.78)' }} />
+            <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} style={tourRect ? {} : { background: 'rgba(var(--c-scrim),0.78)' }} />
             {tourRect && (
-              <div className="absolute rounded-2xl pointer-events-none transition-all duration-300" style={{ top: tourRect.top - pad, left: tourRect.left - pad, width: tourRect.width + pad * 2, height: tourRect.height + pad * 2, boxShadow: '0 0 0 9999px rgba(3,10,9,0.78)', border: `2px solid ${C.copper}` }} />
+              <div className="absolute rounded-2xl pointer-events-none transition-all duration-300" style={{ top: tourRect.top - pad, left: tourRect.left - pad, width: tourRect.width + pad * 2, height: tourRect.height + pad * 2, boxShadow: '0 0 0 9999px rgba(var(--c-scrim),0.78)', border: `2px solid ${C.copper}` }} />
             )}
             <div className="absolute" style={cardStyle}>
-            <div className="w-full rounded-2xl p-5 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 20px 50px rgba(0,0,0,0.45)' }}>
+            <div className="w-full rounded-2xl p-5 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 20px 50px rgba(var(--c-lo),calc(0.45 * var(--c-lok)))' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-semibold" style={{ color: C.copper }}>{tourStep + 1} of {tourSteps.length}</span>
                 {!isLast && <button onClick={endTour} className="text-[12px] font-medium" style={{ color: C.inkFaint }}>Skip tour</button>}
@@ -11911,10 +12023,10 @@ function XorlaApp() {
                 {isLast ? (
                   <>
                     <button onClick={endTour} className="px-4 py-2.5 rounded-xl text-[13px] font-medium" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Finish</button>
-                    <button onClick={() => { endTour(); setTab('products'); setEditingProductId(null); setShowProductForm(true); }} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>Add my first {T.item}</button>
+                    <button onClick={() => { endTour(); setTab('products'); setEditingProductId(null); setShowProductForm(true); }} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Add my first {T.item}</button>
                   </>
                 ) : (
-                  <button onClick={() => setTourStep(tourStep + 1)} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copper, color: C.bg }}>{tourStep === 0 ? "Show me around" : 'Next'}</button>
+                  <button onClick={() => setTourStep(tourStep + 1)} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>{tourStep === 0 ? "Show me around" : 'Next'}</button>
                 )}
               </div>
             </div>
@@ -11935,7 +12047,7 @@ function XorlaApp() {
       {renderNotifPanel()}
       {renderLimitPrompt()}{renderAddLocations()}
       {aiNotice && (
-        <div role="status" className="fixed left-4 right-4 lg:left-auto lg:right-6 lg:w-[380px] bottom-24 lg:bottom-6 z-50 rounded-2xl px-4 py-3.5 flex items-start gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 12px 32px rgba(0,0,0,0.4)' }}>
+        <div role="status" className="fixed left-4 right-4 lg:left-auto lg:right-6 lg:w-[380px] bottom-24 lg:bottom-6 z-50 rounded-2xl px-4 py-3.5 flex items-start gap-3 xorla-fade-up" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 12px 32px rgba(var(--c-lo),calc(0.4 * var(--c-lok)))' }}>
           <Lightbulb size={17} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
           <div className="flex-1 text-[13px] leading-relaxed" style={{ color: C.ink }}>{aiNotice}</div>
           <button onClick={() => setAiNotice('')} aria-label="Dismiss" style={{ color: C.inkFaint }}><X size={16} /></button>
@@ -11943,7 +12055,7 @@ function XorlaApp() {
       )}
 
       {/* Fixed bottom nav — mobile only, WhatsApp-style: always visible, never scrolls */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(10,31,28,0.97)', borderTop: `1px solid ${C.line}` }}>
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex" style={{ background: 'rgba(var(--c-bg-rgb),0.97)', borderTop: `1px solid ${C.line}` }}>
         {(hasBookables ? [
           { id: 'overview', label: 'Overview', Icon: Home },
           { id: 'bookings', label: 'Bookings', Icon: CalendarClock },
@@ -11961,19 +12073,19 @@ function XorlaApp() {
             <Icon size={21} style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || (tab === 'bookings' && !hasBookables))) || (id === 'bookings' && tab === 'products')) ? C.copper : C.inkFaint }} />
             <span className="text-[10px] font-medium" style={{ color: (tab === id || (id === 'sales' && (tab === 'orders' || (tab === 'bookings' && !hasBookables))) || (id === 'bookings' && tab === 'products')) ? C.copper : C.inkFaint }}>{label}</span>
             {id === 'bookings' && bookingsBadge > 0 && (
-              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{bookingsBadge > 9 ? '9+' : bookingsBadge}</span>
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>{bookingsBadge > 9 ? '9+' : bookingsBadge}</span>
             )}
             {id === 'sales' && ordersBadge + (hasBookables ? 0 : bookingsBadge) > 0 && (
-              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{Math.min(99, ordersBadge + (hasBookables ? 0 : bookingsBadge)) > 9 ? '9+' : ordersBadge + (hasBookables ? 0 : bookingsBadge)}</span>
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>{Math.min(99, ordersBadge + (hasBookables ? 0 : bookingsBadge)) > 9 ? '9+' : ordersBadge + (hasBookables ? 0 : bookingsBadge)}</span>
             )}
             {id === 'invoices' && needsAttention.length > 0 && (
-              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{needsAttention.length}</span>
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rustFill, color: C.onAccent }}>{needsAttention.length}</span>
             )}
             {id === 'invoices' && needsAttention.length === 0 && unpaidInvoiceCount > 0 && (
               <span className="absolute top-1.5 right-[22%] min-w-[16px] h-4 px-0.5 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.bg, border: `1.5px solid ${C.copper}`, color: C.copper }}>{unpaidInvoiceCount}</span>
             )}
             {id === 'products' && products.filter((p) => p.isLow).length > 0 && (
-              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rust, color: C.bg }}>{products.filter((p) => p.isLow).length}</span>
+              <span className="absolute top-1.5 right-[22%] w-4 h-4 rounded-full flex items-center justify-center text-[8.5px] font-bold" style={{ background: C.rustFill, color: C.onAccent }}>{products.filter((p) => p.isLow).length}</span>
             )}
           </button>
         ))}
@@ -13802,7 +13914,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
     <div className={`${openId ? 'hidden lg:flex' : 'flex'} flex-col min-h-0 lg:w-[380px] lg:shrink-0`}>
       <div className="flex gap-1 p-1 rounded-xl mb-2.5 overflow-x-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
         {[['open', 'Needs reply', counts.open], ['mine', 'Mine', counts.mine], ['unassigned', 'Unassigned', counts.unassigned], ['waiting', 'Waiting', counts.waiting], ['solved', 'Solved'], ['all', 'All']].map(([k, l, n]) => (
-          <button key={k} onClick={() => setStatus(k)} className="shrink-0 px-3 py-2 rounded-lg text-[12px] font-semibold whitespace-nowrap" style={status === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{n ? ` ${n}` : ''}</button>
+          <button key={k} onClick={() => setStatus(k)} className="shrink-0 px-3 py-2 rounded-lg text-[12px] font-semibold whitespace-nowrap" style={status === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}{n ? ` ${n}` : ''}</button>
         ))}
       </div>
       <div className="relative mb-2.5">
@@ -13819,7 +13931,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
               <button key={x.id} onClick={() => setOpenId(x.id)} className="w-full text-left px-4 py-3 flex gap-3" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', background: openId === x.id ? 'rgba(255,176,32,0.07)' : 'transparent' }}>
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative" style={{ background: x.topic === 'billing' || x.topic === 'complaint' ? C.copperSoft : C.surfaceRaised }}>
                   <T2.Icon size={15} style={{ color: x.topic === 'billing' || x.topic === 'complaint' ? C.copper : C.inkDim }} />
-                  {x.agent_unread && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: C.copper, border: `2px solid ${C.surface}` }} />}
+                  {x.agent_unread && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: C.copperFill, border: `2px solid ${C.surface}` }} />}
                 </span>
                 <span className="flex-1 min-w-0">
                   <span className="flex items-center gap-2"><span className="text-[13px] font-semibold truncate">{x.business_name || x.user_name || 'Customer'}</span><span className="ml-auto text-[11px] shrink-0" style={{ color: C.inkFaint }}>{supportWhen(x.last_message_at)}</span></span>
@@ -13866,7 +13978,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
             if (t.status === 'solved' && !t.assigned_to) return null;
             if (t.mine) return bar('sage', Check, <><strong>You're handling this.</strong> The customer gets replies from you{viewer ? <span style={{ color: C.inkDim }}> · {viewer.split(' ')[0]} is looking at it too</span> : null}.</>, <button onClick={() => assign('release')} className="shrink-0 text-[12px] font-semibold" style={{ color: C.inkDim }}>Hand back</button>);
             if (t.assigned_to) return bar('dim', Users, <><strong>{t.assigned_name || 'Someone'} is handling this{viewer && viewer === t.assigned_name ? ' and has it open now' : ''}.</strong> Only reply if you're taking it over.</>, <button onClick={() => assign('take')} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-semibold" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}>Take over</button>);
-            return bar('copper', Info, <><strong>Nobody has taken this yet.</strong>{viewer ? ` ${viewer.split(' ')[0]} is looking at it now.` : ' Reply or take it so others know it\'s yours.'}</>, <button onClick={() => assign('take')} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-semibold" style={{ background: C.copper, color: C.bg }}>Take it</button>);
+            return bar('copper', Info, <><strong>Nobody has taken this yet.</strong>{viewer ? ` ${viewer.split(' ')[0]} is looking at it now.` : ' Reply or take it so others know it\'s yours.'}</>, <button onClick={() => assign('take')} className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Take it</button>);
           })()}
           <div className="grid grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_230px] gap-4 flex-1 min-h-0 pt-3 [&>*]:min-w-0">
             <div className="flex flex-col min-h-0 relative">
@@ -13884,7 +13996,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
                 {t.customer_typing && <TypingBubble avatar={false} name={(t.user_name || 'Customer').split(' ')[0]} />}
                 <div ref={endRef} />
               </div>
-              {newBelow && <button onClick={() => toBottom(true)} className="absolute left-1/2 -translate-x-1/2 bottom-[150px] z-10 px-3.5 py-2 rounded-full text-[12px] font-bold flex items-center gap-1.5 xorla-fade-up" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -8px rgba(0,0,0,0.6)' }}>New message <ChevronRight size={14} className="rotate-90" /></button>}
+              {newBelow && <button onClick={() => toBottom(true)} className="absolute left-1/2 -translate-x-1/2 bottom-[150px] z-10 px-3.5 py-2 rounded-full text-[12px] font-bold flex items-center gap-1.5 xorla-fade-up" style={{ background: C.copperFill, color: C.onAccent, boxShadow: '0 10px 24px -8px rgba(var(--c-lo),calc(0.6 * var(--c-lok)))' }}>New message <ChevronRight size={14} className="rotate-90" /></button>}
               <div className="shrink-0 pt-2" style={{ borderTop: `1px solid ${C.line}` }}>
                 <div className="h-6 flex items-center text-[11.5px]" aria-live="polite" style={{ color: C.inkFaint }}>
                   {t.customer_typing
@@ -13897,7 +14009,7 @@ function SupportInbox({ call, token, agentName, initialTicket, onCounts }) {
                 </div>
                 <textarea ref={(el) => { if (el && !reply) el.style.height = ''; }} value={reply} onChange={(e) => { setReply(e.target.value); noteTyping(); growBox(e.target); }} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send('waiting'); } }} rows={2} placeholder={`Reply as ${first || 'you'} from Xorla Support…`} className="w-full rounded-xl px-3.5 py-3 text-[13.5px] outline-none resize-none" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink, minHeight: 52, maxHeight: 180 }} />
                 <div className="flex flex-wrap gap-2 mt-2">
-                  <button onClick={() => send('waiting')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-10 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, opacity: !reply.trim() || busy ? 0.5 : 1 }}><SendHorizontal size={15} /> {t.assigned_to && !t.mine ? 'Take over and send' : 'Send'}</button>
+                  <button onClick={() => send('waiting')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-10 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copperFill, color: C.onAccent, opacity: !reply.trim() || busy ? 0.5 : 1 }}><SendHorizontal size={15} /> {t.assigned_to && !t.mine ? 'Take over and send' : 'Send'}</button>
                   <button onClick={() => send('solved')} disabled={!reply.trim() || busy} className="flex-1 min-w-[140px] h-10 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageSoft, color: C.sage, opacity: !reply.trim() || busy ? 0.5 : 1 }}><Check size={15} /> Send and mark solved</button>
                 </div>
                 <div className="text-[10.5px] mt-1.5 truncate" style={{ color: C.inkFaint }}>They get a phone notification · Never ask for passwords, PINs or card details<span className="hidden lg:inline"> · Ctrl+Enter sends</span></div>
@@ -13969,38 +14081,38 @@ function XorlaSpotlight({ spot, canPlan = true, onClose, preview = false }) {
   const body = isAnn ? it.message : it.body;
   const Ic = tone.Icon;
   const card = (
-    <div className="w-full max-w-[360px] rounded-[28px] overflow-hidden xorla-spot-in" style={{ background: C.surface, border: `1px solid ${C.lineStrong}`, boxShadow: `0 30px 80px -20px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.03), 0 0 60px -20px ${tone.glow}` }} onClick={(e) => e.stopPropagation()}>
-      <div className="relative h-[168px] overflow-hidden" style={{ background: `radial-gradient(120% 90% at 85% 0%, ${tone.glow} 0%, transparent 55%), linear-gradient(160deg, ${tone.from}, ${tone.to})` }}>
+    <div className="w-full max-w-[360px] rounded-[28px] overflow-hidden xorla-spot-in" style={{ background: C.surface, border: `1px solid ${C.lineStrong}`, boxShadow: `0 30px 80px -20px rgba(var(--c-lo),calc(0.85 * var(--c-lok))), 0 0 0 1px rgba(255,255,255,0.03), 0 0 60px -20px ${tone.glow}` }} onClick={(e) => e.stopPropagation()}>
+      <div data-xt="dark" className="relative h-[168px] overflow-hidden" style={{ background: `radial-gradient(120% 90% at 85% 0%, ${tone.glow} 0%, transparent 55%), linear-gradient(160deg, ${tone.from}, ${tone.to})` }}>
         <div className="absolute -left-10 -bottom-16 w-48 h-48 rounded-full" style={{ border: '1px solid rgba(255,255,255,0.10)' }} />
         <div className="absolute -left-2 -bottom-8 w-32 h-32 rounded-full" style={{ border: '1px solid rgba(255,255,255,0.08)' }} />
         <div className="absolute right-6 top-7 w-2 h-2 rounded-full" style={{ background: 'rgba(255,255,255,0.5)' }} />
         <div className="absolute right-14 top-16 w-1.5 h-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.35)' }} />
         <div className="absolute left-5 top-5 flex items-center gap-2">
-          <span className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.28)' }}><XorlaMark size={16} /></span>
+          <span className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(var(--c-lo),calc(0.28 * var(--c-lok)))' }}><XorlaMark size={16} /></span>
           <span className="text-[11px] font-bold tracking-[0.14em] uppercase" style={{ color: 'rgba(255,255,255,0.85)' }}>{tone.eyebrow}</span>
         </div>
-        <div className="absolute left-1/2 top-[58%] -translate-x-1/2 -translate-y-1/2 w-[76px] h-[76px] rounded-[24px] flex items-center justify-center xorla-spot-float" style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.22)', boxShadow: '0 14px 30px -10px rgba(0,0,0,0.6)' }}>
+        <div className="absolute left-1/2 top-[58%] -translate-x-1/2 -translate-y-1/2 w-[76px] h-[76px] rounded-[24px] flex items-center justify-center xorla-spot-float" style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.22)', boxShadow: '0 14px 30px -10px rgba(var(--c-lo),calc(0.6 * var(--c-lok)))' }}>
           <Ic size={34} style={{ color: '#fff' }} strokeWidth={2.2} />
         </div>
-        {!isAnn && it.kind && <span className="absolute right-4 top-4 px-2.5 py-1 rounded-full text-[11px] font-bold" style={{ background: C.copper, color: C.bg }}>{UPDATE_KIND[it.kind] || 'New'}</span>}
+        {!isAnn && it.kind && <span className="absolute right-4 top-4 px-2.5 py-1 rounded-full text-[11px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>{UPDATE_KIND[it.kind] || 'New'}</span>}
       </div>
       <div className="px-6 pt-5 pb-6 text-center">
         <div className="text-[20px] font-bold leading-tight cx-display" style={{ color: C.ink, overflowWrap: 'anywhere' }}>{title || 'Your headline'}</div>
         <div className="mt-2.5 text-[14px] leading-relaxed whitespace-pre-wrap" style={{ color: C.inkDim, display: '-webkit-box', WebkitLineClamp: 6, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{body || 'Your message shows here.'}</div>
         {cta ? (
           <>
-            <button onClick={() => onClose(cta)} className="mt-5 w-full h-12 rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -10px rgba(255,176,32,0.7)' }}>{SPOT_CTA[cta] || 'Open'} <ArrowRight size={16} /></button>
+            <button onClick={() => onClose(cta)} className="mt-5 w-full h-12 rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: C.copperFill, color: C.onAccent, boxShadow: '0 10px 24px -10px rgba(255,176,32,0.7)' }}>{SPOT_CTA[cta] || 'Open'} <ArrowRight size={16} /></button>
             <button onClick={() => onClose(null)} className="mt-2 w-full h-10 text-[13.5px] font-semibold" style={{ color: C.inkDim }}>Not now</button>
           </>
         ) : (
-          <button onClick={() => onClose(null)} className="mt-5 w-full h-12 rounded-2xl text-[15px] font-bold" style={{ background: C.copper, color: C.bg, boxShadow: '0 10px 24px -10px rgba(255,176,32,0.7)' }}>Got it</button>
+          <button onClick={() => onClose(null)} className="mt-5 w-full h-12 rounded-2xl text-[15px] font-bold" style={{ background: C.copperFill, color: C.onAccent, boxShadow: '0 10px 24px -10px rgba(255,176,32,0.7)' }}>Got it</button>
         )}
       </div>
     </div>
   );
   if (preview) return card;
   return (
-    <div className="fixed inset-0 z-[96] flex flex-col items-center justify-center px-5" style={{ background: 'rgba(2,8,7,0.78)', backdropFilter: 'blur(6px)', fontFamily: "'Inter', system-ui, sans-serif", color: C.ink }} onClick={() => onClose(null)} role="dialog" aria-modal="true" aria-label={title}>
+    <div className="fixed inset-0 z-[96] flex flex-col items-center justify-center px-5" style={{ background: 'rgba(var(--c-scrim),0.78)', backdropFilter: 'blur(6px)', fontFamily: "'Inter', system-ui, sans-serif", color: C.ink }} onClick={() => onClose(null)} role="dialog" aria-modal="true" aria-label={title}>
       <style>{`@keyframes xorlaSpotIn{from{opacity:0;transform:translateY(18px) scale(.94)}to{opacity:1;transform:none}}@keyframes xorlaSpotFloat{0%,100%{transform:translate(-50%,-50%)}50%{transform:translate(-50%,-56%)}}.xorla-spot-in{animation:xorlaSpotIn .38s cubic-bezier(.2,.9,.3,1.2) both}.xorla-spot-float{animation:xorlaSpotFloat 3.2s ease-in-out infinite}@media (prefers-reduced-motion: reduce){.xorla-spot-in,.xorla-spot-float{animation:none}}`}</style>
       {card}
       <button onClick={() => onClose(null)} aria-label="Close" className="mt-5 w-11 h-11 rounded-full flex items-center justify-center xorla-spot-in" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff' }}><X size={20} /></button>
@@ -14054,14 +14166,14 @@ function SupportPublishing({ call }) {
   const box = { background: C.surface, border: `1px solid ${C.line}` };
   const lbl = (t) => <div className="text-[12px] font-semibold mb-1.5 mt-3" style={{ color: C.inkFaint }}>{t}</div>;
   const seg = (value, options, onPick) => (
-    <div className="flex flex-wrap gap-1.5">{options.map(([k, l]) => <button key={k} onClick={() => onPick(k)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={value === k ? { background: C.copper, color: C.bg } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}</div>
+    <div className="flex flex-wrap gap-1.5">{options.map(([k, l]) => <button key={k} onClick={() => onPick(k)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={value === k ? { background: C.copperFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}</div>
   );
   const seenBar = (seen, of) => {
     const pct = of ? Math.min(100, Math.round((Number(seen) / Number(of)) * 100)) : 0;
     return (
       <div className="mt-2">
         <div className="flex items-center justify-between text-[11.5px]" style={{ color: C.inkDim }}><span className="inline-flex items-center gap-1"><Eye size={12} /> Seen by <strong style={{ color: C.ink }}>{Number(seen || 0).toLocaleString('en-NG')}</strong> of {Number(of || 0).toLocaleString('en-NG')}</span><span>{pct}%</span></div>
-        <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${C.sage}, ${C.copper})` }} /></div>
+        <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(var(--c-hi),0.06)' }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${C.sageFill}, ${C.copperFill})` }} /></div>
       </div>
     );
   };
@@ -14075,11 +14187,11 @@ function SupportPublishing({ call }) {
       <div className="flex items-center justify-between gap-2 mb-1">
         <div className="text-[15px] font-semibold flex items-center gap-2"><Smartphone size={16} style={{ color: C.copper }} /> What they'll see</div>
         <div className="flex gap-1 p-1 rounded-lg" style={{ background: C.surface }}>
-          {[['ann', 'Announcement'], ['update', "What's new"]].map(([k, l]) => <button key={k} onClick={() => setPreviewOf(k)} className="px-2.5 py-1 rounded-md text-[11.5px] font-semibold" style={previewOf === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+          {[['ann', 'Announcement'], ['update', "What's new"]].map(([k, l]) => <button key={k} onClick={() => setPreviewOf(k)} className="px-2.5 py-1 rounded-md text-[11.5px] font-semibold" style={previewOf === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>)}
         </div>
       </div>
       <div className="text-[12px] mb-4" style={{ color: C.inkDim }}>A pop-up over their home screen the next time they open Xorla, shown once to each person. Changes as you type.</div>
-      <div className="flex justify-center py-5 px-3 rounded-2xl" style={{ background: 'rgba(2,8,7,0.7)' }}>
+      <div className="flex justify-center py-5 px-3 rounded-2xl" style={{ background: 'rgba(var(--c-scrim),0.7)' }}>
         <XorlaSpotlight preview spot={previewOf === 'ann' ? { kind: 'ann', item: { title: an.title, message: an.message, tone: an.tone, cta: an.cta } } : { kind: 'update', item: { title: up.title || 'Your feature title', body: up.body, kind: up.kind } }} onClose={() => {}} />
       </div>
     </div>
@@ -14107,7 +14219,7 @@ function SupportPublishing({ call }) {
           {reachBox(an.audience)}
           {lbl('Show for')}
           {seg(an.days, [['1', '1 day'], ['3', '3 days'], ['7', '1 week'], ['30', '1 month']], (k) => setAn({ ...an, days: k }))}
-          <button onClick={postAnn} disabled={an.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: an.busy ? 0.6 : 1 }}>{an.busy ? 'Sending…' : 'Send announcement'}</button>
+          <button onClick={postAnn} disabled={an.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: an.busy ? 0.6 : 1 }}>{an.busy ? 'Sending…' : 'Send announcement'}</button>
           <div className="mt-5 space-y-2">
             {(data?.announcements || []).map((a) => (
               <div key={a.id} className="rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, opacity: a.live ? 1 : 0.6 }}>
@@ -14139,7 +14251,7 @@ function SupportPublishing({ call }) {
           {lbl('Who sees it')}
           {seg(up.audience, [['all', 'Everyone'], ['owners', 'Owners only'], ['products', 'Shops'], ['services', 'Service businesses']], (k) => { setUp({ ...up, audience: k }); setPreviewOf('update'); })}
           {reachBox(up.audience)}
-          <button onClick={postUpdate} disabled={up.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: up.busy ? 0.6 : 1 }}>{up.busy ? 'Publishing…' : 'Publish update'}</button>
+          <button onClick={postUpdate} disabled={up.busy} className="w-full mt-4 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: up.busy ? 0.6 : 1 }}>{up.busy ? 'Publishing…' : 'Publish update'}</button>
           <div className="mt-5 space-y-2">
             {(data?.updates || []).map((u) => (
               <div key={u.id} className="rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised }}>
@@ -14181,7 +14293,7 @@ function SupportTeamAdmin({ call }) {
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Their name, e.g. Ada Nwosu" className="rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
           <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Their email" className="rounded-xl px-3.5 py-3 text-[13.5px] outline-none" style={field} />
         </div>
-        <button onClick={add} disabled={form.busy || !form.name.trim() || !form.email.trim()} className="w-full mt-2.5 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: form.busy || !form.name.trim() || !form.email.trim() ? 0.5 : 1 }}>{form.busy ? 'Adding…' : 'Add to support team'}</button>
+        <button onClick={add} disabled={form.busy || !form.name.trim() || !form.email.trim()} className="w-full mt-2.5 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: form.busy || !form.name.trim() || !form.email.trim() ? 0.5 : 1 }}>{form.busy ? 'Adding…' : 'Add to support team'}</button>
         <div className="mt-5 space-y-2">
           {team === null ? <div className="flex justify-center py-6" style={{ color: C.inkFaint }}><Loader2 size={17} className="animate-spin" /></div>
             : !team.length ? <div className="text-[12.5px] py-2" style={{ color: C.inkFaint }}>Nobody added yet. You can answer everything yourself from the Support tab.</div>
@@ -14322,7 +14434,7 @@ const CAC_STATUS = {
 function CacCertificate({ name, bn, preview = false, compact = false }) {
   const nm = String(name || '').trim() || 'Your Business Name';
   return (
-    <div className={`relative rounded-2xl ${compact ? 'p-4' : 'p-5 sm:p-6'} overflow-hidden`} style={{ background: 'linear-gradient(160deg, #FBF6EA 0%, #F3EBD7 100%)', color: '#1F2A26', boxShadow: '0 24px 50px -24px rgba(0,0,0,0.65), inset 0 0 0 1px rgba(120,90,30,0.18)' }}>
+    <div className={`relative rounded-2xl ${compact ? 'p-4' : 'p-5 sm:p-6'} overflow-hidden`} style={{ background: 'linear-gradient(160deg, #FBF6EA 0%, #F3EBD7 100%)', color: '#1F2A26', boxShadow: '0 24px 50px -24px rgba(var(--c-lo),calc(0.65 * var(--c-lok))), inset 0 0 0 1px rgba(120,90,30,0.18)' }}>
       <div className="absolute inset-2 rounded-xl pointer-events-none" style={{ border: '1.5px solid rgba(150,110,40,0.35)' }} />
       <div className="absolute inset-[13px] rounded-lg pointer-events-none" style={{ border: '1px solid rgba(150,110,40,0.2)' }} />
       <div className="relative text-center">
@@ -14349,7 +14461,7 @@ function CacCertificate({ name, bn, preview = false, compact = false }) {
 function CacMiniCert({ name, width = 132, tilt = -6 }) {
   const u = width / 132;
   return (
-    <div aria-hidden className="relative" style={{ width, transform: `rotate(${tilt}deg)`, background: 'linear-gradient(160deg, #FBF6EA 0%, #EEE2C4 100%)', borderRadius: 10 * u, padding: `${10 * u}px ${9 * u}px ${8 * u}px`, color: '#1F2A26', boxShadow: '0 16px 30px -12px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(120,90,30,0.22)' }}>
+    <div aria-hidden className="relative" style={{ width, transform: `rotate(${tilt}deg)`, background: 'linear-gradient(160deg, #FBF6EA 0%, #EEE2C4 100%)', borderRadius: 10 * u, padding: `${10 * u}px ${9 * u}px ${8 * u}px`, color: '#1F2A26', boxShadow: '0 16px 30px -12px rgba(var(--c-lo),calc(0.7 * var(--c-lok))), inset 0 0 0 1px rgba(120,90,30,0.22)' }}>
       <div className="absolute pointer-events-none" style={{ inset: 4 * u, borderRadius: 7 * u, border: '1px solid rgba(150,110,40,0.38)' }} />
       <div className="text-center font-bold uppercase" style={{ fontSize: 6.6 * u, letterSpacing: '0.2em', color: '#8A6A2A' }}>Certificate</div>
       <div className="text-center uppercase" style={{ fontSize: 5.4 * u, letterSpacing: '0.14em', color: '#8A6A2A', opacity: 0.8, marginTop: 1 }}>Business name</div>
@@ -14517,7 +14629,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
           <div className="flex-1 min-w-0">
             <div className="text-[13.5px] font-semibold flex items-center gap-1.5">{title}{f[kind] && <Check size={14} style={{ color: C.sage }} />}</div>
             <div className="text-[11.5px] mt-0.5 leading-relaxed" style={{ color: C.inkFaint }}>{hint}</div>
-            <label className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-lg text-[12px] font-semibold cursor-pointer" style={{ background: f[kind] ? 'transparent' : C.copper, color: f[kind] ? C.inkDim : C.bg, border: f[kind] ? `1px solid ${C.line}` : 'none' }}>
+            <label className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-lg text-[12px] font-semibold cursor-pointer" style={{ background: f[kind] ? 'transparent' : C.copperFill, color: f[kind] ? C.inkDim : C.onAccent, border: f[kind] ? `1px solid ${C.line}` : 'none' }}>
               {busy === kind ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} {f[kind] ? 'Change' : 'Upload'}
               <input type="file" accept={accept} className="hidden" onChange={(e) => upload(kind, e)} disabled={!!busy} />
             </label>
@@ -14530,13 +14642,13 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
         {backLink}
         {other && <div className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: 'rgba(31,217,196,0.12)', color: C.sage }}><Users size={12} /> For someone else{String(f.owner_name || '').trim() ? `: ${String(f.owner_name).trim()}` : ''}</div>}
         <div>
-          <div className="flex gap-1.5">{CAC_STEPS.map((s, i) => <span key={s[0]} className="flex-1 h-1.5 rounded-full transition-all duration-500" style={{ background: i < step ? C.sage : i === step ? C.copper : 'rgba(255,255,255,0.08)' }} />)}</div>
+          <div className="flex gap-1.5">{CAC_STEPS.map((s, i) => <span key={s[0]} className="flex-1 h-1.5 rounded-full transition-all duration-500" style={{ background: i < step ? C.sageFill : i === step ? C.copperFill : 'rgba(var(--c-hi),0.08)' }} />)}</div>
           <div className="text-[12px] mt-2 flex items-center justify-between" style={{ color: C.inkFaint }}><span>Step {step + 1} of {CAC_STEPS.length}</span><span className="hidden sm:inline">{CAC_STEPS.map((x) => x[1]).join('  ·  ')}</span></div>
         </div>
-        <div className="rounded-[22px] p-4 sm:p-5 space-y-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+        <div className="rounded-[22px] p-4 sm:p-5 space-y-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
           {(() => { const [Ic, t, d] = { names: [Store, 'Your business', 'The name you want, and what the business does.'], place: [MapPin, 'Where it is', 'The address CAC records for the business.'], owner: [Users, other ? 'About the owner' : 'About you', other ? 'The person the business belongs to. Must match their ID exactly.' : 'The owner. Must match your ID exactly.'], docs: [Camera, 'Documents', other ? "The owner's ID, photo and signature. They stay private." : 'Clear photos. They stay private.'], review: [ShieldCheck, 'Check and send', 'Make sure everything is right before it goes to CAC.'] }[id]; return (
             <div className="flex items-center gap-3 pb-1">
-              <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})` }}><Ic size={19} style={{ color: C.bg }} /></span>
+              <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})` }}><Ic size={19} style={{ color: C.onAccent }} /></span>
               <span className="min-w-0"><span className="block text-[17px] font-bold leading-tight">{t}</span><span className="block text-[12px] mt-0.5" style={{ color: C.inkFaint }}>{d}</span></span>
             </div>
           ); })()}
@@ -14578,8 +14690,8 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
                 <div>
                   <span className={label} style={{ color: C.inkFaint }}>Type</span>
                   <div className="flex flex-wrap gap-1.5">
-                    {types.map((t) => <button key={t} type="button" onClick={() => { setTypeOther(false); set('sub_category', t); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={!other && f.sub_category === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}
-                    <button type="button" onClick={() => { setTypeOther(true); set('sub_category', ''); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1" style={other ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim, borderStyle: 'dashed' }}><Plus size={13} /> Other</button>
+                    {types.map((t) => <button key={t} type="button" onClick={() => { setTypeOther(false); set('sub_category', t); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={!other && f.sub_category === t ? { background: C.sageFill, color: C.onAccent } : { ...field, color: C.inkDim }}>{t}</button>)}
+                    <button type="button" onClick={() => { setTypeOther(true); set('sub_category', ''); }} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1" style={other ? { background: C.sageFill, color: C.onAccent } : { ...field, color: C.inkDim, borderStyle: 'dashed' }}><Plus size={13} /> Other</button>
                   </div>
                   {other && <input autoFocus value={f.sub_category || ''} onChange={(e) => set('sub_category', e.target.value)} maxLength={60} placeholder="Type what kind, e.g. Hair extensions sales" className="w-full mt-2 rounded-xl px-3.5 py-3 text-[15px] outline-none" style={field} />}
                 </div>
@@ -14592,16 +14704,16 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
             </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>When the business started</span>
-              <input type="date" value={f.commencement_date || ''} max={new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10)} onChange={(e) => set('commencement_date', e.target.value)} className="w-full rounded-xl px-3 py-3 text-[15px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+              <input type="date" value={f.commencement_date || ''} max={new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10)} onChange={(e) => set('commencement_date', e.target.value)} className="w-full rounded-xl px-3 py-3 text-[15px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} />
               <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>If you haven't started yet, choose the day you plan to.</div>
             </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>How many people work in it</span>
-              <div className="flex flex-wrap gap-1.5">{CAC_STAFF.map((t) => <button key={t} type="button" onClick={() => set('staff_size', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.staff_size === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
+              <div className="flex flex-wrap gap-1.5">{CAC_STAFF.map((t) => <button key={t} type="button" onClick={() => set('staff_size', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.staff_size === t ? { background: C.sageFill, color: C.onAccent } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
             </div>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>Where the money for the business comes from</span>
-              <div className="flex flex-wrap gap-1.5">{CAC_FUNDS.map((t) => <button key={t} type="button" onClick={() => set('fund_source', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.fund_source === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
+              <div className="flex flex-wrap gap-1.5">{CAC_FUNDS.map((t) => <button key={t} type="button" onClick={() => set('fund_source', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.fund_source === t ? { background: C.sageFill, color: C.onAccent } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
             </div>
           </>)}
           {id === 'place' && (<>
@@ -14642,11 +14754,11 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
             <div className="grid grid-cols-2 gap-2.5">
               <div className="min-w-0">
                 <span className={label} style={{ color: C.inkFaint }}>Date of birth</span>
-                <input type="date" value={f.owner_dob || ''} max={new Date(Date.now() - 18 * 365.25 * 86400000).toISOString().slice(0, 10)} onChange={(e) => set('owner_dob', e.target.value)} className="w-full min-w-0 rounded-xl px-3 py-3 text-[15px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                <input type="date" value={f.owner_dob || ''} max={new Date(Date.now() - 18 * 365.25 * 86400000).toISOString().slice(0, 10)} onChange={(e) => set('owner_dob', e.target.value)} className="w-full min-w-0 rounded-xl px-3 py-3 text-[15px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} />
               </div>
               <div className="min-w-0">
                 <span className={label} style={{ color: C.inkFaint }}>Gender</span>
-                <div className="flex gap-1.5">{['Male', 'Female'].map((g) => <button key={g} type="button" onClick={() => set('owner_gender', g)} className="flex-1 py-3 rounded-xl text-[14px] font-semibold" style={f.owner_gender === g ? { background: C.sage, color: C.bg } : { ...field }}>{g}</button>)}</div>
+                <div className="flex gap-1.5">{['Male', 'Female'].map((g) => <button key={g} type="button" onClick={() => set('owner_gender', g)} className="flex-1 py-3 rounded-xl text-[14px] font-semibold" style={f.owner_gender === g ? { background: C.sageFill, color: C.onAccent } : { ...field }}>{g}</button>)}</div>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2.5">
@@ -14682,7 +14794,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
           {id === 'docs' && (<>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>{other ? 'Which ID is the owner using?' : 'Which ID are you using?'}</span>
-              <div className="flex flex-wrap gap-1.5">{CAC_ID_TYPES.map((t) => <button key={t} type="button" onClick={() => set('id_type', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.id_type === t ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
+              <div className="flex flex-wrap gap-1.5">{CAC_ID_TYPES.map((t) => <button key={t} type="button" onClick={() => set('id_type', t)} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={f.id_type === t ? { background: C.sageFill, color: C.onAccent } : { ...field, color: C.inkDim }}>{t}</button>)}</div>
             </div>
             {docTile('id_doc', other ? "The owner's ID" : 'Your ID', 'A clear photo of the front, with all four corners showing. A PDF works too.', 'image/*,application/pdf')}
             {docTile('passport_doc', 'Passport photograph', other ? 'Their face, looking straight at the camera, against a plain white or light background.' : 'Your face, looking straight at the camera, against a plain white or light background.', 'image/*')}
@@ -14703,7 +14815,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
                 </div>
               ))}
               <button type="button" onClick={() => set('attest', !f.attest)} role="checkbox" aria-checked={!!f.attest} className="w-full text-left flex items-start gap-3 rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1.5px solid ${f.attest ? C.sage : C.line}` }}>
-                <span className="mt-0.5 w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: f.attest ? C.sage : 'transparent', border: `2px solid ${f.attest ? C.sage : C.inkFaint}` }}>{f.attest && <Check size={13} style={{ color: C.bg }} />}</span>
+                <span className="mt-0.5 w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: f.attest ? C.sageFill : 'transparent', border: `2px solid ${f.attest ? C.sage : C.inkFaint}` }}>{f.attest && <Check size={13} style={{ color: C.onAccent }} />}</span>
                 <span className="text-[12.5px] leading-relaxed" style={{ color: C.ink }}>{other ? `I confirm these details are true and belong to ${String(f.owner_name || '').trim() || 'the owner'}, that I have their permission to register this business name for them, and that Xorla and its accredited agent may file it with CAC on their behalf.` : 'I declare that these details are true and belong to me, and I agree to Xorla and its accredited agent filing this registration with CAC on my behalf.'}</span>
               </button>
               <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed" style={{ background: C.surfaceRaised, color: C.inkDim }}>
@@ -14716,8 +14828,8 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
         <div className="flex gap-2.5">
           <button onClick={() => { if (step > 0) { setStep(step - 1); return; } setStep(null); if (!req) setCur(null); else if (req.status === 'draft' && many) setCur(null); }} disabled={!!busy} className="h-12 px-5 rounded-xl text-[13.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>{step === 0 ? 'Close' : 'Back'}</button>
           {id === 'review'
-            ? <button onClick={submit} disabled={!!busy} className="flex-1 h-12 rounded-xl text-[14.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: busy ? 0.6 : 1 }}>{busy === 'send' ? 'Sending…' : status === 'query' ? 'Send the fix' : 'Send my details'}</button>
-            : <button onClick={next} disabled={!!busy} className="flex-1 h-12 rounded-xl text-[14.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: busy ? 0.6 : 1 }}>{busy === 'save' ? 'Saving…' : 'Continue'}</button>}
+            ? <button onClick={submit} disabled={!!busy} className="flex-1 h-12 rounded-xl text-[14.5px] font-bold" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, opacity: busy ? 0.6 : 1 }}>{busy === 'send' ? 'Sending…' : status === 'query' ? 'Send the fix' : 'Send my details'}</button>
+            : <button onClick={next} disabled={!!busy} className="flex-1 h-12 rounded-xl text-[14.5px] font-bold" style={{ background: C.sageFill, color: C.onAccent, opacity: busy ? 0.6 : 1 }}>{busy === 'save' ? 'Saving…' : 'Continue'}</button>}
         </div>
         <div className="text-[11.5px] text-center" style={{ color: C.inkFaint }}>Saved as you go. Come back any time to finish.</div>
       </div>
@@ -14732,15 +14844,15 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
       <div className="space-y-4">
         {backLink}
         {status === 'registered' && <div className="max-w-md mx-auto w-full pt-1 pb-2"><CacCertificate name={req.registered_name || req.name_1} bn={req.bn_number} /></div>}
-        <div className="rounded-[22px] p-5" style={{ background: status === 'registered' ? 'linear-gradient(150deg, #174339, #0F2C27)' : C.surfaceRaised, border: `1px solid ${status === 'registered' ? 'rgba(31,217,196,0.35)' : C.line}` }}>
-          <div className="flex items-center gap-2 flex-wrap"><span className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: tone }}>{word}</span>{req.for_other && <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.07)', color: C.inkDim }}>For {req.owner_name || 'someone else'}</span>}</div>
+        <div data-xt={status === 'registered' ? 'dark' : undefined} className="rounded-[22px] p-5" style={{ background: status === 'registered' ? 'linear-gradient(150deg, #174339, #0F2C27)' : C.surfaceRaised, border: `1px solid ${status === 'registered' ? 'rgba(31,217,196,0.35)' : C.line}` }}>
+          <div className="flex items-center gap-2 flex-wrap"><span className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: tone }}>{word}</span>{req.for_other && <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: 'rgba(var(--c-hi),0.07)', color: C.inkDim }}>For {req.owner_name || 'someone else'}</span>}</div>
           <div className="text-[21px] font-extrabold mt-1 leading-tight" style={{ letterSpacing: '-0.02em', overflowWrap: 'anywhere' }}>{status === 'registered' ? (req.registered_name || req.name_1) : req.name_1}</div>
           {status !== 'registered' && <div className="text-[12.5px] mt-0.5" style={{ color: C.inkFaint }}>Second choice: {req.name_2}</div>}
           {status === 'registered' && req.bn_number && <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-[14px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}><BadgeCheckIcon /> {req.bn_number}</div>}
           <div className="mt-5 space-y-2.5">
             {stages.map(([l, done], i) => (
               <div key={l} className="flex items-center gap-3">
-                <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={done ? { background: C.sage } : { border: `1.5px solid ${C.line}` }}>{done ? <Check size={13} strokeWidth={3} style={{ color: C.bg }} /> : <span className="text-[10.5px] font-bold" style={{ color: C.inkFaint }}>{i + 1}</span>}</span>
+                <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={done ? { background: C.sageFill } : { border: `1.5px solid ${C.line}` }}>{done ? <Check size={13} strokeWidth={3} style={{ color: C.onAccent }} /> : <span className="text-[10.5px] font-bold" style={{ color: C.inkFaint }}>{i + 1}</span>}</span>
                 <span className="text-[13.5px]" style={{ color: done ? C.ink : C.inkFaint, fontWeight: done ? 600 : 400 }}>{l}</span>
               </div>
             ))}
@@ -14750,7 +14862,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
           <div className="rounded-2xl p-4" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.35)' }}>
             <div className="text-[13.5px] font-semibold" style={{ color: C.rust }}>What needs fixing</div>
             <div className="text-[13.5px] mt-1 leading-relaxed whitespace-pre-line" style={{ color: C.ink }}>{req.message}</div>
-            <button onClick={() => { setStep(0); setError(''); }} className="mt-3 h-11 px-4 rounded-xl text-[13.5px] font-bold" style={{ background: C.copper, color: C.bg }}>Fix my details</button>
+            <button onClick={() => { setStep(0); setError(''); }} className="mt-3 h-11 px-4 rounded-xl text-[13.5px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>Fix my details</button>
           </div>
         )}
         {status === 'rejected' && <div className="rounded-2xl p-4 text-[13.5px] leading-relaxed whitespace-pre-line" style={{ background: C.rustSoft, color: C.ink }}>{req.message}</div>}
@@ -14758,7 +14870,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
           <div className="rounded-2xl p-4" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.3)' }}>
             <div className="text-[14px] font-semibold">Pay to start your registration</div>
             <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>{fmt(price)} in total, CAC's fee included. Pay by card, transfer or USSD. It usually takes {offer.turnaround} after payment.{req.for_other ? ' If they are paying you back, collect it before you pay.' : ''}</div>
-            <button onClick={pay} disabled={busy === 'pay'} className="mt-3 w-full h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: busy === 'pay' ? 0.6 : 1 }}>{busy === 'pay' ? 'Opening Paystack…' : <><Lock size={15} /> Pay {fmt(price)}</>}</button>
+            <button onClick={pay} disabled={busy === 'pay'} className="mt-3 w-full h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, opacity: busy === 'pay' ? 0.6 : 1 }}>{busy === 'pay' ? 'Opening Paystack…' : <><Lock size={15} /> Pay {fmt(price)}</>}</button>
           </div>
         ) : (
           <div className="rounded-2xl p-4 text-[13px] leading-relaxed" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}><strong style={{ color: C.ink }}>Your details are saved.</strong> Registration through Xorla opens soon, and we'll notify you the moment it does. You won't pay anything until then.</div>
@@ -14767,7 +14879,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
         {status === 'filed' && <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>Your registration is with CAC. It usually takes {offer.turnaround}. CAC may also email {req.owner_email}.</div>}
         {status === 'registered' && (
           <div className="space-y-2.5">
-            {req.certificate_doc && <button onClick={() => openDoc(req.certificate_doc)} className="w-full h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><Download size={16} /> Download your certificate</button>}
+            {req.certificate_doc && <button onClick={() => openDoc(req.certificate_doc)} className="w-full h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: C.sageFill, color: C.onAccent }}><Download size={16} /> Download your certificate</button>}
             {req.status_report_doc && <button onClick={() => openDoc(req.status_report_doc)} className="w-full h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Download the status report</button>}
             {req.tin && <div className="rounded-xl px-3.5 py-3 flex items-center justify-between gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}><span className="text-[12.5px]" style={{ color: C.inkDim }}>Tax ID (TIN)</span><span className="text-[14px] font-bold cx-mono">{req.tin}</span></div>}
             {req.message && <div className="text-[12.5px] leading-relaxed px-1 whitespace-pre-line" style={{ color: C.inkDim }}>{req.message}</div>}
@@ -14795,7 +14907,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
   if (!req && cur !== 'new' && (all || []).length > 1) {
     return (
       <div className="space-y-4">
-        <div className="relative rounded-[22px] p-5 overflow-hidden" style={{ background: 'radial-gradient(120% 90% at 0% 0%, #1B4A40 0%, #10302A 55%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div data-xt="dark" className="relative rounded-[22px] p-5 overflow-hidden" style={{ background: 'radial-gradient(120% 90% at 0% 0%, #1B4A40 0%, #10302A 55%, #0B221E 100%)', border: '1px solid rgba(var(--c-hi),0.08)' }}>
           <span aria-hidden className="absolute -right-6 -top-2 opacity-90 hidden sm:block"><CacMiniCert name={all[0].registered_name || all[0].name_1 || businessName} width={120} tilt={8} /></span>
           <div className="relative sm:pr-36">
             <div className="text-[20px] font-extrabold leading-tight" style={{ letterSpacing: '-0.02em' }}>Your registrations</div>
@@ -14805,17 +14917,17 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
         <div className="space-y-2">
           {all.map((r) => { const [w, tn] = CAC_STATUS[r.status] || ['', C.inkFaint]; return (
             <button key={r.id} onClick={() => openReq(r)} className="w-full text-left rounded-2xl p-3.5 flex items-center gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${r.status === 'query' ? 'rgba(226,98,75,0.4)' : C.line}` }}>
-              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: r.status === 'registered' ? C.sage : 'rgba(255,255,255,0.06)' }}>{r.for_other ? <Users size={17} style={{ color: r.status === 'registered' ? C.bg : C.copper }} /> : <Store size={17} style={{ color: r.status === 'registered' ? C.bg : C.copper }} />}</span>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: r.status === 'registered' ? C.sageFill : 'rgba(var(--c-hi),0.06)' }}>{r.for_other ? <Users size={17} style={{ color: r.status === 'registered' ? C.onAccent : C.copper }} /> : <Store size={17} style={{ color: r.status === 'registered' ? C.onAccent : C.copper }} />}</span>
               <span className="flex-1 min-w-0">
                 <span className="block text-[14px] font-semibold truncate">{r.registered_name || r.name_1 || 'Not named yet'}</span>
                 <span className="block text-[11.5px] mt-0.5 truncate" style={{ color: C.inkFaint }}>{r.for_other ? `For ${r.owner_name || 'someone else'}` : 'Your business'}{r.bn_number ? ` · ${r.bn_number}` : ''}</span>
               </span>
-              <span className="text-[11px] font-semibold px-2 py-1 rounded-full shrink-0" style={{ background: 'rgba(255,255,255,0.05)', color: tn }}>{w}</span>
+              <span className="text-[11px] font-semibold px-2 py-1 rounded-full shrink-0" style={{ background: 'rgba(var(--c-hi),0.05)', color: tn }}>{w}</span>
               <ChevronRight size={16} className="shrink-0" style={{ color: C.inkFaint }} />
             </button>
           ); })}
         </div>
-        <button onClick={() => startNew(false)} className="w-full h-12 rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><Plus size={16} /> Register another business name</button>
+        <button onClick={() => startNew(false)} className="w-full h-12 rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}><Plus size={16} /> Register another business name</button>
         <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>You can register for yourself, or for a relative, friend or customer with their permission.</div>
       </div>
     );
@@ -14826,7 +14938,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
   const needs = [[Store, 'Two name choices'], [ShieldCheck, 'Your NIN'], [Camera, 'Photo of your ID'], [Users, 'Passport photograph'], [Receipt, 'Your signature']];
   return (
     <div className="space-y-5">
-      <div className="relative rounded-[26px] overflow-hidden" style={{ background: 'radial-gradient(120% 90% at 0% 0%, #1B4A40 0%, #10302A 50%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div data-xt="dark" className="relative rounded-[26px] overflow-hidden" style={{ background: 'radial-gradient(120% 90% at 0% 0%, #1B4A40 0%, #10302A 50%, #0B221E 100%)', border: '1px solid rgba(var(--c-hi),0.08)' }}>
         <span aria-hidden className="absolute -right-16 -top-16 w-64 h-64 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.18), transparent 65%)' }} />
         <div className="relative p-5 sm:p-7 grid gap-6 sm:grid-cols-[1.15fr_1fr] items-center">
           <div>
@@ -14845,7 +14957,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
         {stepsHow.map(([Ic, a, b], i) => (
           <div key={a} className="relative rounded-2xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
             <div className="flex items-center justify-between mb-2.5">
-              <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: i === 3 ? C.sage : 'rgba(255,255,255,0.06)' }}><Ic size={17} style={{ color: i === 3 ? C.bg : C.copper }} /></span>
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: i === 3 ? C.sageFill : 'rgba(var(--c-hi),0.06)' }}><Ic size={17} style={{ color: i === 3 ? C.onAccent : C.copper }} /></span>
               <span className="text-[11px] font-bold cx-mono" style={{ color: C.inkFaint }}>0{i + 1}</span>
             </div>
             <div className="text-[13.5px] font-semibold">{a}</div>
@@ -14854,7 +14966,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
         ))}
       </div>
 
-      <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` }}>
+      <div className="rounded-[20px] p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
         <div className="text-[12px] font-semibold uppercase tracking-wide mb-3" style={{ color: C.inkFaint }}>Have these ready</div>
         <div className="flex flex-wrap gap-2">
           {needs.map(([Ic, l]) => <span key={l} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-[12.5px] font-medium" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Ic size={14} style={{ color: C.sage }} /> {l}</span>)}
@@ -14867,7 +14979,7 @@ function CacRegistration({ onOpenVault, token, businessId, businessName, ownerPh
       </div>
 
       {backLink}
-      <button onClick={() => { if (req) { setStep(0); setError(''); } else startNew(false); }} className="w-full h-[54px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, boxShadow: '0 12px 28px -14px rgba(255,176,32,0.7)' }}>{req ? 'Continue where I stopped' : 'Start registration'} <ArrowRight size={17} /></button>
+      <button onClick={() => { if (req) { setStep(0); setError(''); } else startNew(false); }} className="w-full h-[54px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, boxShadow: '0 12px 28px -14px rgba(255,176,32,0.7)' }}>{req ? 'Continue where I stopped' : 'Start registration'} <ArrowRight size={17} /></button>
       <div className="flex items-center justify-center gap-1.5 text-[11.5px] text-center" style={{ color: C.inkFaint }}><Lock size={12} /> Your documents are private, seen only by you and Xorla's registration team.</div>
       {<button onClick={() => startNew(true)} className="w-full rounded-2xl p-3.5 flex items-center gap-3 text-left" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
         <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.12)' }}><Users size={18} style={{ color: C.sage }} /></span>
@@ -14927,7 +15039,7 @@ const vaultLink = (token) => `${typeof window !== 'undefined' ? window.location.
 // A small stack of papers, used as the vault's picture
 function VaultArt({ size = 1 }) {
   const card = (rot, x, y, bg, children, z) => (
-    <div className="absolute rounded-xl" style={{ width: 92 * size, height: 118 * size, left: x * size, top: y * size, transform: `rotate(${rot}deg)`, background: bg, boxShadow: '0 16px 30px -12px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(0,0,0,0.08)', zIndex: z, padding: 9 * size }}>{children}</div>
+    <div className="absolute rounded-xl" style={{ width: 92 * size, height: 118 * size, left: x * size, top: y * size, transform: `rotate(${rot}deg)`, background: bg, boxShadow: '0 16px 30px -12px rgba(var(--c-lo),calc(0.7 * var(--c-lok))), inset 0 0 0 1px rgba(var(--c-lo),calc(0.08 * var(--c-lok)))', zIndex: z, padding: 9 * size }}>{children}</div>
   );
   const lines = (c, n = 4) => Array.from({ length: n }, (_, i) => <div key={i} style={{ height: 3 * size, width: `${[86, 70, 92, 55][i % 4]}%`, background: c, borderRadius: 4, marginTop: 6 * size }} />);
   return (
@@ -14940,7 +15052,7 @@ function VaultArt({ size = 1 }) {
         {lines('rgba(150,110,40,0.35)', 2)}
         <svg width={20 * size} height={20 * size} viewBox="0 0 46 46" style={{ position: 'absolute', right: 8 * size, bottom: 8 * size }}><circle cx="23" cy="23" r="21" fill="#0F6B5A" /><path d="M15.5 23.5l5 5 10-11" fill="none" stroke="#F6E7B8" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </>, 3)}
-      <div className="absolute rounded-2xl flex items-center justify-center" style={{ zIndex: 4, width: 44 * size, height: 44 * size, right: 2 * size, bottom: 0, background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, boxShadow: '0 10px 20px -8px rgba(255,176,32,0.8)' }}><Lock size={20 * size} style={{ color: C.bg }} /></div>
+      <div className="absolute rounded-2xl flex items-center justify-center" style={{ zIndex: 4, width: 44 * size, height: 44 * size, right: 2 * size, bottom: 0, background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, boxShadow: '0 10px 20px -8px rgba(255,176,32,0.8)' }}><Lock size={20 * size} style={{ color: C.onAccent }} /></div>
     </div>
   );
 }
@@ -15057,12 +15169,12 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
 
   if (docs === undefined) return <div className="py-16 flex justify-center"><Loader2 className="animate-spin" size={20} style={{ color: C.inkFaint }} /></div>;
 
-  const kindTile = (kind, sz = 40) => { const [, Ic, col] = VAULT_KINDS[kind] || VAULT_KINDS.other; return <span className="rounded-xl flex items-center justify-center shrink-0" style={{ width: sz, height: sz, background: `${col}22`, border: `1px solid ${col}44` }}><Ic size={Math.round(sz * 0.45)} style={{ color: col }} /></span>; };
+  const kindTile = (kind, sz = 40) => { const [, Ic, col] = VAULT_KINDS[kind] || VAULT_KINDS.other; return <span className="rounded-xl flex items-center justify-center shrink-0" style={{ width: sz, height: sz, background: tint(col, 0.13), border: `1px solid ${tint(col, 0.27)}` }}><Ic size={Math.round(sz * 0.45)} style={{ color: col }} /></span>; };
   const docCard = (d) => {
     const ex = vaultExpiry(d); const on = picked.includes(d.id);
     return (
       <button key={d.id} onClick={() => (picking ? setPicked((p) => (on ? p.filter((x) => x !== d.id) : [...p, d.id])) : setOpen(d))} className="w-full text-left rounded-2xl p-3 flex items-center gap-3 transition-colors" style={{ background: on ? 'rgba(31,217,196,0.08)' : C.surfaceRaised, border: `1px solid ${on ? C.sage : ex?.urgent ? (ex.tone === C.rust ? 'rgba(226,98,75,0.4)' : 'rgba(255,176,32,0.35)') : C.line}` }}>
-        {picking && <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: on ? C.sage : 'transparent', border: `2px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.bg }} />}</span>}
+        {picking && <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: on ? C.sageFill : 'transparent', border: `2px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.onAccent }} />}</span>}
         {preview[d.id] ? <span className="w-11 h-11 rounded-xl overflow-hidden shrink-0" style={{ border: `1px solid ${C.line}` }}><img src={preview[d.id]} alt="" className="w-full h-full object-cover" onError={() => setPreview((p) => ({ ...p, [d.id]: '' }))} /></span> : kindTile(d.kind, 44)}
         <span className="flex-1 min-w-0">
           <span className="block text-[14px] font-semibold truncate">{d.title}</span>
@@ -15084,7 +15196,7 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
   return (
     <div className="space-y-4 pb-24">
       {/* The vault */}
-      <div className="relative rounded-[26px] overflow-hidden" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div data-xt="dark" className="relative rounded-[26px] overflow-hidden" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(var(--c-hi),0.08)' }}>
         <span aria-hidden className="absolute -right-10 -top-14 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.22), transparent 65%)' }} />
         <div className="relative p-5 sm:p-6 flex items-center gap-4">
           <div className="flex-1 min-w-0">
@@ -15092,7 +15204,7 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
             <div className="text-[22px] sm:text-[26px] font-extrabold leading-tight mt-2.5" style={{ letterSpacing: '-0.03em' }}>Your important papers, in one safe place</div>
             <div className="text-[13px] mt-2 leading-relaxed max-w-md" style={{ color: C.inkDim }}>{isOwner ? 'Share them with a bank, supplier or landlord in one tap, with a link that stops working when you choose. Xorla reminds you before anything expires.' : 'Papers the owner has shared with managers.'}</div>
             <div className="flex flex-wrap gap-1.5 mt-3.5">
-              <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: 'rgba(0,0,0,0.25)', color: C.ink }}>{docs.length} document{docs.length === 1 ? '' : 's'}</span>
+              <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: 'rgba(var(--c-lo),calc(0.25 * var(--c-lok)))', color: C.ink }}>{docs.length} document{docs.length === 1 ? '' : 's'}</span>
               {due.length > 0 && <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: C.copperSoft, color: C.copper }}>{due.length} need{due.length === 1 ? 's' : ''} renewing</span>}
               {isOwner && shares.length > 0 && <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: C.sageSoft, color: C.sage }}>{shares.length} live link{shares.length === 1 ? '' : 's'}</span>}
             </div>
@@ -15101,8 +15213,8 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
         </div>
         {isOwner && docs.length > 0 && (
           <div className="relative px-5 sm:px-6 pb-5 flex gap-2">
-            <button onClick={() => startAdd()} className="flex-1 sm:flex-none h-11 px-3 sm:px-4 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-1.5 whitespace-nowrap" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><Plus size={16} /> Add document</button>
-            <button onClick={() => { setPicking(!picking); setPicked([]); }} className="flex-1 sm:flex-none h-11 px-3 sm:px-4 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap" style={picking ? { background: C.sage, color: C.bg } : { background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.12)', color: C.ink }}><Share2 size={15} /> {picking ? 'Cancel' : 'Share papers'}</button>
+            <button onClick={() => startAdd()} className="flex-1 sm:flex-none h-11 px-3 sm:px-4 rounded-xl text-[13.5px] font-bold flex items-center justify-center gap-1.5 whitespace-nowrap" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}><Plus size={16} /> Add document</button>
+            <button onClick={() => { setPicking(!picking); setPicked([]); }} className="flex-1 sm:flex-none h-11 px-3 sm:px-4 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap" style={picking ? { background: C.sageFill, color: C.onAccent } : { background: 'rgba(var(--c-lo),calc(0.25 * var(--c-lok)))', border: '1px solid rgba(var(--c-hi),0.12)', color: C.ink }}><Share2 size={15} /> {picking ? 'Cancel' : 'Share papers'}</button>
           </div>
         )}
       </div>
@@ -15131,13 +15243,13 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {['cac_certificate', 'tin', 'permit', 'tenancy', 'insurance', 'id'].map((k) => { const [l, Ic, col] = VAULT_KINDS[k]; return (
               <button key={k} onClick={() => startAdd(k)} className="rounded-2xl p-3.5 text-left" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
-                <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${col}22` }}><Ic size={17} style={{ color: col }} /></span>
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: tint(col, 0.13) }}><Ic size={17} style={{ color: col }} /></span>
                 <span className="block text-[13px] font-semibold mt-2.5">{l}</span>
                 <span className="flex items-center gap-1 text-[11.5px] mt-0.5" style={{ color: C.copper }}><Plus size={12} /> Add</span>
               </button>
             ); })}
           </div>
-          <button onClick={() => startAdd()} className="w-full h-12 rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg }}><Plus size={16} /> Add a document</button>
+          <button onClick={() => startAdd()} className="w-full h-12 rounded-2xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}><Plus size={16} /> Add a document</button>
         </div>
       ) : <div className="rounded-2xl p-6 text-center text-[13px]" style={{ background: C.surfaceRaised, color: C.inkDim }}>Nothing here yet. The owner chooses which papers managers can see.</div>)}
 
@@ -15149,18 +15261,18 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
             {regs.map((g) => { const on = g.docs.every((d) => picked.includes(d.id)); return (
               <div key={g.id} className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(150deg, rgba(31,217,196,0.10), rgba(31,217,196,0.02))', border: `1px solid ${picking && on ? C.sage : 'rgba(31,217,196,0.25)'}` }}>
                 <div className="flex items-center gap-3 p-3.5">
-                  {picking ? <button onClick={() => setPicked((p) => (on ? p.filter((x) => !g.docs.some((d) => d.id === x)) : [...new Set([...p, ...g.docs.map((d) => d.id)])]))} className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: on ? C.sage : 'transparent', border: `2px solid ${on ? C.sage : C.inkFaint}` }} aria-label="Choose all">{on && <Check size={13} style={{ color: C.bg }} />}</button> : null}
-                  <span className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sage }}><BadgeCheck size={21} style={{ color: C.bg }} /></span>
+                  {picking ? <button onClick={() => setPicked((p) => (on ? p.filter((x) => !g.docs.some((d) => d.id === x)) : [...new Set([...p, ...g.docs.map((d) => d.id)])]))} className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: on ? C.sageFill : 'transparent', border: `2px solid ${on ? C.sage : C.inkFaint}` }} aria-label="Choose all">{on && <Check size={13} style={{ color: C.onAccent }} />}</button> : null}
+                  <span className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageFill }}><BadgeCheck size={21} style={{ color: C.onAccent }} /></span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-[14.5px] font-bold truncate">{g.name}</span>
                     <span className="block text-[11.5px] mt-0.5 truncate" style={{ color: C.inkDim }}>{g.bn ? <span className="cx-mono font-semibold" style={{ color: C.sage }}>{g.bn}</span> : 'Business name'}{g.forWho ? ` · for ${g.forWho}` : ''} · {g.docs.length} paper{g.docs.length === 1 ? '' : 's'}</span>
                   </span>
-                  {isOwner && !picking && <button onClick={() => setShare({ ids: g.docs.map((d) => d.id), days: 7, label: '', link: '' })} className="shrink-0 px-3 py-2 rounded-xl text-[12px] font-bold inline-flex items-center gap-1.5" style={{ background: C.sage, color: C.bg }}><Share2 size={13} /> Share all</button>}
+                  {isOwner && !picking && <button onClick={() => setShare({ ids: g.docs.map((d) => d.id), days: 7, label: '', link: '' })} className="shrink-0 px-3 py-2 rounded-xl text-[12px] font-bold inline-flex items-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent }}><Share2 size={13} /> Share all</button>}
                 </div>
                 <div style={{ borderTop: '1px solid rgba(31,217,196,0.15)' }}>
                   {g.docs.map((d, i) => { const on1 = picked.includes(d.id); const [kl, Ic] = VAULT_KINDS[d.kind] || VAULT_KINDS.other; return (
                     <button key={d.id} onClick={() => (picking ? setPicked((p) => (on1 ? p.filter((x) => x !== d.id) : [...p, d.id])) : setOpen(d))} className="w-full text-left flex items-center gap-3 px-3.5 py-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
-                      {picking && <span className="w-4 h-4 rounded shrink-0 flex items-center justify-center" style={{ background: on1 ? C.sage : 'transparent', border: `2px solid ${on1 ? C.sage : C.inkFaint}` }}>{on1 && <Check size={10} style={{ color: C.bg }} />}</span>}
+                      {picking && <span className="w-4 h-4 rounded shrink-0 flex items-center justify-center" style={{ background: on1 ? C.sageFill : 'transparent', border: `2px solid ${on1 ? C.sage : C.inkFaint}` }}>{on1 && <Check size={10} style={{ color: C.onAccent }} />}</span>}
                       <Ic size={16} className="shrink-0" style={{ color: C.sage }} />
                       <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">{kl}</span>
                       <span className="shrink-0 text-[11.5px] cx-mono" style={{ color: C.inkFaint }}>{d.kind === 'tin' ? d.number : d.file_path ? (d.file_type === 'pdf' ? 'PDF' : 'Photo') : ''}</span>
@@ -15208,8 +15320,8 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
 
       {/* Share bar while choosing */}
       {picking && createPortal(
-        <div className="fixed left-0 right-0 bottom-0 z-[80] px-4 pt-3 flex justify-center" style={{ paddingBottom: 'max(14px, env(safe-area-inset-bottom))', background: 'linear-gradient(180deg, transparent, rgba(5,18,16,0.95) 35%)' }}>
-          <button disabled={!picked.length} onClick={() => setShare({ ids: picked, days: 7, label: '', link: '' })} className="w-full max-w-md h-12 rounded-2xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: picked.length ? C.sage : C.surfaceRaised, color: picked.length ? C.bg : C.inkFaint, boxShadow: '0 12px 28px -12px rgba(0,0,0,0.8)', fontFamily: "'Inter', sans-serif" }}><Share2 size={16} /> {picked.length ? `Share ${picked.length} paper${picked.length === 1 ? '' : 's'}` : 'Choose papers to share'}</button>
+        <div className="fixed left-0 right-0 bottom-0 z-[80] px-4 pt-3 flex justify-center" style={{ paddingBottom: 'max(14px, env(safe-area-inset-bottom))', background: 'linear-gradient(180deg, transparent, rgba(var(--c-scrim),0.95) 35%)' }}>
+          <button disabled={!picked.length} onClick={() => setShare({ ids: picked, days: 7, label: '', link: '' })} className="w-full max-w-md h-12 rounded-2xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: picked.length ? C.sageFill : C.surfaceRaised, color: picked.length ? C.onAccent : C.inkFaint, boxShadow: '0 12px 28px -12px rgba(var(--c-lo),calc(0.8 * var(--c-lok)))', fontFamily: "'Inter', sans-serif" }}><Share2 size={16} /> {picked.length ? `Share ${picked.length} paper${picked.length === 1 ? '' : 's'}` : 'Choose papers to share'}</button>
         </div>, document.body)}
 
       {/* Looking at one paper */}
@@ -15230,13 +15342,13 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
             </div>
             <div className="grid grid-cols-2 gap-2">
               {d.file_path && <button onClick={() => viewFile(d, true)} className="h-11 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Download</button>}
-              {isOwner && <button onClick={() => { setOpen(null); setShare({ ids: [d.id], days: 7, label: '', link: '' }); }} className="h-11 rounded-xl text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><Share2 size={15} /> Share</button>}
+              {isOwner && <button onClick={() => { setOpen(null); setShare({ ids: [d.id], days: 7, label: '', link: '' }); }} className="h-11 rounded-xl text-[13px] font-bold flex items-center justify-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent }}><Share2 size={15} /> Share</button>}
             </div>
             {isOwner && (
               <>
                 <button onClick={() => toggleManagers(d)} role="switch" aria-checked={!!d.managers_can_see} className="w-full flex items-center justify-between gap-3 rounded-xl px-3.5 py-3 text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                   <span><span className="block text-[13.5px] font-semibold">Managers can see this</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>Staff never see the vault</span></span>
-                  <span className="w-11 h-6 rounded-full relative shrink-0 transition-colors" style={{ background: d.managers_can_see ? C.sage : 'rgba(255,255,255,0.12)' }}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: d.managers_can_see ? 22 : 2 }} /></span>
+                  <span className="w-11 h-6 rounded-full relative shrink-0 transition-colors" style={{ background: d.managers_can_see ? C.sageFill : 'rgba(var(--c-hi),0.12)' }}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: d.managers_can_see ? 22 : 2 }} /></span>
                 </button>
                 <div className="flex gap-2">
                   <button onClick={() => startEdit(d)} className="flex-1 h-11 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Pencil size={14} /> Change</button>
@@ -15257,7 +15369,7 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
                 <span className={label} style={{ color: C.inkFaint }}>What is it?</span>
                 <div className="flex flex-wrap gap-1.5">
                   {Object.entries(VAULT_KINDS).map(([k, [l, Ic, col]]) => (
-                    <button key={k} type="button" onClick={() => setEdit((x) => ({ ...x, kind: k, title: !x.title || Object.values(VAULT_KINDS).some((v) => v[0] === x.title) ? (k === 'other' ? '' : l) : x.title, expires: x.expires || ['cac_annual', 'nafdac', 'son', 'permit', 'fire', 'tenancy', 'insurance'].includes(k) }))} className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[12.5px] font-semibold" style={edit.kind === k ? { background: `${col}26`, border: `1.5px solid ${col}`, color: C.ink } : { ...field, color: C.inkDim }}>
+                    <button key={k} type="button" onClick={() => setEdit((x) => ({ ...x, kind: k, title: !x.title || Object.values(VAULT_KINDS).some((v) => v[0] === x.title) ? (k === 'other' ? '' : l) : x.title, expires: x.expires || ['cac_annual', 'nafdac', 'son', 'permit', 'fire', 'tenancy', 'insurance'].includes(k) }))} className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[12.5px] font-semibold" style={edit.kind === k ? { background: tint(col, 0.15), border: `1.5px solid ${col}`, color: C.ink } : { ...field, color: C.inkDim }}>
                       <Ic size={13} style={{ color: col }} /> {l}
                     </button>
                   ))}
@@ -15292,36 +15404,36 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
             <div className="grid grid-cols-2 gap-2.5">
               <div className="min-w-0">
                 <span className={label} style={{ color: C.inkFaint }}>Issued on</span>
-                <input type="date" value={edit.issued_on || ''} onChange={(e) => setEdit({ ...edit, issued_on: e.target.value })} className="w-full min-w-0 rounded-xl px-3 py-3 text-[14.5px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                <input type="date" value={edit.issued_on || ''} onChange={(e) => setEdit({ ...edit, issued_on: e.target.value })} className="w-full min-w-0 rounded-xl px-3 py-3 text-[14.5px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} />
               </div>
               <div className="min-w-0">
                 <span className={label} style={{ color: C.inkFaint }}>Expires</span>
-                <div className="flex gap-1.5">{[[false, 'Never'], [true, 'Yes']].map(([v, l]) => <button key={l} type="button" onClick={() => setEdit({ ...edit, expires: v })} className="flex-1 py-3 rounded-xl text-[13.5px] font-semibold" style={edit.expires === v ? { background: C.sage, color: C.bg } : field}>{l}</button>)}</div>
+                <div className="flex gap-1.5">{[[false, 'Never'], [true, 'Yes']].map(([v, l]) => <button key={l} type="button" onClick={() => setEdit({ ...edit, expires: v })} className="flex-1 py-3 rounded-xl text-[13.5px] font-semibold" style={edit.expires === v ? { background: C.sageFill, color: C.onAccent } : field}>{l}</button>)}</div>
               </div>
             </div>
             {edit.expires && (
               <div className="rounded-2xl p-3.5 space-y-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                 <div>
                   <span className={label} style={{ color: C.inkFaint }}>Expiry date</span>
-                  <input type="date" value={edit.expires_on || ''} onChange={(e) => setEdit({ ...edit, expires_on: e.target.value })} className="w-full rounded-xl px-3 py-3 text-[14.5px] outline-none" style={{ ...field, background: C.bg, colorScheme: 'dark' }} />
+                  <input type="date" value={edit.expires_on || ''} onChange={(e) => setEdit({ ...edit, expires_on: e.target.value })} className="w-full rounded-xl px-3 py-3 text-[14.5px] outline-none" style={{ ...field, background: C.bg, colorScheme: 'var(--c-scheme)' }} />
                 </div>
                 <div>
                   <span className={label} style={{ color: C.inkFaint }}>Remind me</span>
-                  <div className="flex flex-wrap gap-1.5">{[[14, '2 weeks before'], [30, '1 month before'], [60, '2 months before'], [90, '3 months before']].map(([v, l]) => <button key={v} type="button" onClick={() => setEdit({ ...edit, remind_days: v })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={Number(edit.remind_days) === v ? { background: C.sage, color: C.bg } : { ...field, background: C.bg, color: C.inkDim }}>{l}</button>)}</div>
+                  <div className="flex flex-wrap gap-1.5">{[[14, '2 weeks before'], [30, '1 month before'], [60, '2 months before'], [90, '3 months before']].map(([v, l]) => <button key={v} type="button" onClick={() => setEdit({ ...edit, remind_days: v })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={Number(edit.remind_days) === v ? { background: C.sageFill, color: C.onAccent } : { ...field, background: C.bg, color: C.inkDim }}>{l}</button>)}</div>
                   <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>Then again a week before, the day before, and on the day.</div>
                 </div>
               </div>
             )}
             <button type="button" onClick={() => setEdit({ ...edit, managers_can_see: !edit.managers_can_see })} role="switch" aria-checked={!!edit.managers_can_see} className="w-full flex items-center justify-between gap-3 rounded-xl px-3.5 py-3 text-left" style={field}>
               <span><span className="block text-[13.5px] font-semibold">Managers can see this</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>Off: only you. Staff never see the vault.</span></span>
-              <span className="w-11 h-6 rounded-full relative shrink-0" style={{ background: edit.managers_can_see ? C.sage : 'rgba(255,255,255,0.12)' }}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white" style={{ left: edit.managers_can_see ? 22 : 2 }} /></span>
+              <span className="w-11 h-6 rounded-full relative shrink-0" style={{ background: edit.managers_can_see ? C.sageFill : 'rgba(var(--c-hi),0.12)' }}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white" style={{ left: edit.managers_can_see ? 22 : 2 }} /></span>
             </button>
             <div>
               <span className={label} style={{ color: C.inkFaint }}>Note (optional)</span>
               <input value={edit.note} onChange={(e) => setEdit({ ...edit, note: e.target.value })} maxLength={300} placeholder="e.g. Original is in the office safe" className="w-full rounded-xl px-3.5 py-3 text-[14.5px] outline-none" style={field} />
             </div>
             {error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{error}</div>}
-            <button onClick={save} disabled={!!busy} className="w-full h-12 rounded-xl text-[14.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: busy ? 0.6 : 1 }}>{busy === 'save' ? 'Saving…' : busy === 'upload' ? 'Uploading…' : edit.id ? 'Save changes' : 'Save to my vault'}</button>
+            <button onClick={save} disabled={!!busy} className="w-full h-12 rounded-xl text-[14.5px] font-bold" style={{ background: C.sageFill, color: C.onAccent, opacity: busy ? 0.6 : 1 }}>{busy === 'save' ? 'Saving…' : busy === 'upload' ? 'Uploading…' : edit.id ? 'Save changes' : 'Save to my vault'}</button>
             <div className="flex items-center justify-center gap-1.5 text-[11.5px]" style={{ color: C.inkFaint }}><Lock size={12} /> Private. Only you{edit.managers_can_see ? ' and your managers' : ''} can open it, unless you share a link.</div>
           </div>
         </Sheet>
@@ -15339,17 +15451,17 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
               </div>
               <div>
                 <span className={label} style={{ color: C.inkFaint }}>The link works for</span>
-                <div className="grid grid-cols-4 gap-1.5">{[[1, '1 day'], [3, '3 days'], [7, '1 week'], [30, '1 month']].map(([v, l]) => <button key={v} type="button" onClick={() => setShare({ ...share, days: v })} className="py-2.5 rounded-xl text-[12.5px] font-semibold" style={share.days === v ? { background: C.sage, color: C.bg } : { ...field, color: C.inkDim }}>{l}</button>)}</div>
+                <div className="grid grid-cols-4 gap-1.5">{[[1, '1 day'], [3, '3 days'], [7, '1 week'], [30, '1 month']].map(([v, l]) => <button key={v} type="button" onClick={() => setShare({ ...share, days: v })} className="py-2.5 rounded-xl text-[12.5px] font-semibold" style={share.days === v ? { background: C.sageFill, color: C.onAccent } : { ...field, color: C.inkDim }}>{l}</button>)}</div>
                 <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>After that it stops working. You can also stop it any time.</div>
               </div>
               {share.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{share.error}</div>}
-              <button onClick={makeLink} disabled={share.busy} className="w-full h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg, opacity: share.busy ? 0.6 : 1 }}>{share.busy ? 'Making the link…' : <><Link2 size={16} /> Make the link</>}</button>
+              <button onClick={makeLink} disabled={share.busy} className="w-full h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: C.sageFill, color: C.onAccent, opacity: share.busy ? 0.6 : 1 }}>{share.busy ? 'Making the link…' : <><Link2 size={16} /> Make the link</>}</button>
             </div>
           ) : (
             <div className="space-y-3">
               <div className="rounded-xl px-3.5 py-3 flex items-center gap-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                 <span className="flex-1 min-w-0 text-[13px] cx-mono truncate">{share.link.replace(/^https?:\/\//, '')}</span>
-                <button onClick={() => copy(share.link, 'link')} className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-bold" style={{ background: copied === 'link' ? C.sage : C.copperSoft, color: copied === 'link' ? C.bg : C.copper }}>{copied === 'link' ? 'Copied' : 'Copy'}</button>
+                <button onClick={() => copy(share.link, 'link')} className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-bold" style={{ background: copied === 'link' ? C.sageFill : C.copperSoft, color: copied === 'link' ? C.onAccent : C.copper }}>{copied === 'link' ? 'Copied' : 'Copy'}</button>
               </div>
               <a href={`https://wa.me/?text=${encodeURIComponent(shareText(share))}`} target="_blank" rel="noopener noreferrer" className="w-full h-12 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: '#25D366', color: '#062B1E' }}><MessageCircle size={17} /> Send on WhatsApp</a>
               <a href={`mailto:?subject=${encodeURIComponent(`${businessName || 'Our'} documents`)}&body=${encodeURIComponent(shareText(share))}`} className="w-full h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Send size={15} /> Send by email</a>
@@ -15398,7 +15510,7 @@ function VaultShared({ token }) {
   );
   return shell(
     <>
-      <div className="relative rounded-[24px] overflow-hidden mt-2" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div data-xt="dark" className="relative rounded-[24px] overflow-hidden mt-2" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(var(--c-hi),0.08)' }}>
         <div className="relative p-5 flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <div className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: C.sage }}>Shared with you{v.label ? `, ${v.label}` : ''}</div>
@@ -15413,7 +15525,7 @@ function VaultShared({ token }) {
           <div key={d.id} className="rounded-2xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
             <div className="flex items-center gap-3">
               {thumbs[d.id] ? <button onClick={() => openDoc(d)} className="w-14 h-14 rounded-xl overflow-hidden shrink-0" style={{ border: `1px solid ${C.line}` }}><img src={thumbs[d.id]} alt="" className="w-full h-full object-cover" onError={() => setThumbs((t) => ({ ...t, [d.id]: '' }))} /></button>
-                : <span className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${col}22` }}><Ic size={22} style={{ color: col }} /></span>}
+                : <span className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0" style={{ background: tint(col, 0.13) }}><Ic size={22} style={{ color: col }} /></span>}
               <div className="flex-1 min-w-0">
                 <div className="text-[14.5px] font-semibold" style={{ overflowWrap: 'anywhere' }}>{d.title}</div>
                 {kl !== d.title && <div className="text-[11.5px] mt-0.5" style={{ color: C.inkFaint }}>{kl}</div>}
@@ -15423,7 +15535,7 @@ function VaultShared({ token }) {
             </div>
             {d.file_path && (
               <div className="grid grid-cols-2 gap-2 mt-3">
-                <button onClick={() => openDoc(d)} className="h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><Eye size={15} /> View</button>
+                <button onClick={() => openDoc(d)} className="h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent }}><Eye size={15} /> View</button>
                 <button onClick={() => openDoc(d, true)} className="h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Download</button>
               </div>
             )}
@@ -15577,7 +15689,7 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
         <div className="rounded-2xl p-4 space-y-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
           <div className="flex items-center justify-between gap-3">
             <div><div className="text-[14px] font-semibold">Business name registration</div><div className="text-[12px]" style={{ color: C.inkFaint }}>{st.open ? 'Open: owners can pay and send requests.' : 'Closed: owners can fill in details and are told it opens soon.'}</div></div>
-            <button onClick={() => saveSettings({ open: !st.open })} className="shrink-0 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={st.open ? { border: `1px solid ${C.line}`, color: C.inkDim } : { background: C.sage, color: C.bg }}>{st.open ? 'Close' : 'Open it'}</button>
+            <button onClick={() => saveSettings({ open: !st.open })} className="shrink-0 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={st.open ? { border: `1px solid ${C.line}`, color: C.inkDim } : { background: C.sageFill, color: C.onAccent }}>{st.open ? 'Close' : 'Open it'}</button>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
             {[['cac_fee', 'CAC + agent fee (₦)'], ['service_fee', 'Xorla charge (₦)']].map(([k, l]) => (
@@ -15621,7 +15733,7 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
                 <div className="text-[12px] mt-1" style={{ color: C.inkDim }}>{total ? `For ${owed.length} filed registration${owed.length === 1 ? '' : 's'}. ` : ''}{pay.waiting ? `${pay.waiting} more paid but not filed yet (owed once filed). ` : ''}Paid this month: <span className="cx-mono">{fmt(pay.paid_month)}</span></div>
               </div>
               <div className="flex gap-2 shrink-0">
-                {total > 0 && <button onClick={() => { setPayOpen(payOpen === 'pay' ? '' : 'pay'); setPayDone(null); }} className="px-3.5 py-2 rounded-xl text-[12.5px] font-bold" style={{ background: C.copper, color: C.bg }}>{payOpen === 'pay' ? 'Close' : 'Record a payment'}</button>}
+                {total > 0 && <button onClick={() => { setPayOpen(payOpen === 'pay' ? '' : 'pay'); setPayDone(null); }} className="px-3.5 py-2 rounded-xl text-[12.5px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>{payOpen === 'pay' ? 'Close' : 'Record a payment'}</button>}
                 {(pay.paid || []).length > 0 && <button onClick={() => setPayOpen(payOpen === 'history' ? '' : 'history')} className="px-3.5 py-2 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>{payOpen === 'history' ? 'Close' : 'Past payments'}</button>}
               </div>
             </div>
@@ -15638,20 +15750,20 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
                 <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
                   {owed.map((o, i) => { const on = payPick.includes(o.id); return (
                     <button key={o.id} onClick={() => setPayPick((p) => (on ? p.filter((x) => x !== o.id) : [...p, o.id]))} className="w-full text-left flex items-center gap-3 px-3.5 py-2.5" style={{ background: C.surface, borderTop: i ? `1px solid ${C.line}` : 'none' }}>
-                      <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: on ? C.sage : 'transparent', border: `2px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.bg }} />}</span>
+                      <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center" style={{ background: on ? C.sageFill : 'transparent', border: `2px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.onAccent }} />}</span>
                       <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold truncate">{o.name}</span><span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{o.business}{o.owner_name ? ` · ${o.owner_name}` : ''} · filed {new Date(o.filed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span></span>
                       <span className="shrink-0 cx-mono text-[13px] font-semibold">{fmt(o.amount)}</span>
                     </button>
                   ); })}
                 </div>
                 <input value={payRef} onChange={(e) => setPayRef(e.target.value)} maxLength={60} placeholder="Transfer reference or note (optional)" className="w-full rounded-xl px-3 py-2.5 text-[13px] outline-none" style={field} />
-                <button onClick={recordPay} disabled={!chosen.length || payBusy} className="w-full h-11 rounded-xl text-[13.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: !chosen.length || payBusy ? 0.5 : 1 }}>{payBusy ? 'Saving…' : chosen.length ? `I've sent ${fmt(chosenTotal)} for ${chosen.length}` : 'Choose what you paid for'}</button>
+                <button onClick={recordPay} disabled={!chosen.length || payBusy} className="w-full h-11 rounded-xl text-[13.5px] font-bold" style={{ background: C.sageFill, color: C.onAccent, opacity: !chosen.length || payBusy ? 0.5 : 1 }}>{payBusy ? 'Saving…' : chosen.length ? `I've sent ${fmt(chosenTotal)} for ${chosen.length}` : 'Choose what you paid for'}</button>
               </div>
             )}
             {payDone && (
               <div className="rounded-xl px-3.5 py-3 text-[12.5px] flex flex-wrap items-center gap-2" style={{ background: C.sageSoft, color: C.ink }}>
                 <span className="flex-1 min-w-0"><strong style={{ color: C.sage }}>Recorded:</strong> {fmt(payDone.total)} for {payDone.count} registration{payDone.count === 1 ? '' : 's'}.</span>
-                {st?.agent_phone && <a href={`https://wa.me/${toWhatsAppNumber(st.agent_phone)}?text=${encodeURIComponent(`Hello${st.agent_name ? ` ${st.agent_name.split(' ')[0]}` : ''}, I've sent ${fmt(payDone.total)} for: ${payDone.names.join(', ')}. Thank you.`)}`} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5" style={{ background: C.sage, color: C.bg }}><MessageCircle size={13} /> Tell {st.agent_name ? st.agent_name.split(' ')[0] : 'the agent'}</a>}
+                {st?.agent_phone && <a href={`https://wa.me/${toWhatsAppNumber(st.agent_phone)}?text=${encodeURIComponent(`Hello${st.agent_name ? ` ${st.agent_name.split(' ')[0]}` : ''}, I've sent ${fmt(payDone.total)} for: ${payDone.names.join(', ')}. Thank you.`)}`} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent }}><MessageCircle size={13} /> Tell {st.agent_name ? st.agent_name.split(' ')[0] : 'the agent'}</a>}
               </div>
             )}
             {payOpen === 'history' && (
@@ -15669,15 +15781,15 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
           </div>
         );
       })()}
-      <div className="flex flex-wrap gap-1.5">{chips.map(([v, l]) => <button key={v || 'all'} onClick={() => setFilter(v)} className="px-3 py-1.5 rounded-full text-[12px] font-semibold" style={filter === v ? { background: C.copper, color: C.bg } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}</div>
+      <div className="flex flex-wrap gap-1.5">{chips.map(([v, l]) => <button key={v || 'all'} onClick={() => setFilter(v)} className="px-3 py-1.5 rounded-full text-[12px] font-semibold" style={filter === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}</div>
       {list === null ? <Loader2 className="animate-spin" size={18} style={{ color: C.inkFaint }} /> : list.length === 0 ? <div className="text-[13px] py-8 text-center" style={{ color: C.inkFaint }}>No registrations here yet.</div> : (
         <div className="space-y-2">
           {list.map((r) => { const [w, t] = CAC_STATUS[r.status] || ['', C.inkDim]; return (
             <button key={r.id} onClick={() => show(r.id)} className="w-full text-left rounded-xl px-4 py-3 flex items-center gap-3" style={{ background: C.surface, border: `1px solid ${open?.id === r.id ? C.copper : C.line}` }}>
               <div className="flex-1 min-w-0"><div className="text-[14px] font-semibold truncate">{r.name_1}</div><div className="text-[12px] truncate" style={{ color: C.inkFaint }}>{r.business} · {r.for_other ? `for ${r.owner_name || "someone else"}` : r.owner_name} · {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</div></div>
-              {r.status === 'paid' && !r.sent_to_agent_at && <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: C.bg, background: C.copper }}>New</span>}
-              {r.status === 'paid' && r.sent_to_agent_at && r.fixed_at && new Date(r.fixed_at) > new Date(r.sent_to_agent_at) && <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: C.bg, background: C.copper }}>Fixed</span>}
-              <span className="shrink-0 text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ color: t, background: 'rgba(255,255,255,0.05)' }}>{w}</span>
+              {r.status === 'paid' && !r.sent_to_agent_at && <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: C.onAccent, background: C.copperFill }}>New</span>}
+              {r.status === 'paid' && r.sent_to_agent_at && r.fixed_at && new Date(r.fixed_at) > new Date(r.sent_to_agent_at) && <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: C.onAccent, background: C.copperFill }}>Fixed</span>}
+              <span className="shrink-0 text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ color: t, background: 'rgba(var(--c-hi),0.05)' }}>{w}</span>
             </button>
           ); })}
         </div>
@@ -15702,14 +15814,14 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
               <div className="text-[13.5px] font-semibold" style={{ color: C.copper }}>{open.owner_name || 'The owner'} fixed it. Tell the agent.</div>
               {(open.fixed_fields || []).length > 0 && <div className="text-[12.5px] mt-1" style={{ color: C.ink }}>Changed: {open.fixed_fields.join(', ')}</div>}
               <div className="flex flex-wrap gap-2 mt-2.5">
-                {st?.agent_phone && <button onClick={() => sendToAgent(open, 'whatsapp', true)} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-bold inline-flex items-center gap-1.5" style={{ background: C.copper, color: C.bg }}><MessageCircle size={14} /> Tell the agent on WhatsApp</button>}
+                {st?.agent_phone && <button onClick={() => sendToAgent(open, 'whatsapp', true)} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-bold inline-flex items-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><MessageCircle size={14} /> Tell the agent on WhatsApp</button>}
                 {st?.agent_email && <button onClick={() => sendToAgent(open, 'email', true)} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ border: '1px solid rgba(255,176,32,0.4)', color: C.ink }}><Send size={14} /> Email the agent</button>}
               </div>
             </div>
           )}
           <div className="flex flex-wrap gap-2">
             {open.paid_at ? (<>
-              {st?.agent_phone && <button onClick={() => sendToAgent(open, 'whatsapp')} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ background: C.sage, color: C.bg, opacity: sending ? 0.6 : 1 }}><MessageCircle size={14} /> {sending === 'whatsapp' ? 'Preparing…' : 'WhatsApp the agent'}</button>}
+              {st?.agent_phone && <button onClick={() => sendToAgent(open, 'whatsapp')} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent, opacity: sending ? 0.6 : 1 }}><MessageCircle size={14} /> {sending === 'whatsapp' ? 'Preparing…' : 'WhatsApp the agent'}</button>}
               {st?.agent_email && <button onClick={() => sendToAgent(open, 'email')} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.ink, opacity: sending ? 0.6 : 1 }}><Send size={14} /> {sending === 'email' ? 'Preparing…' : 'Email the agent'}</button>}
               <button onClick={() => sendToAgent(open, 'copy')} disabled={!!sending} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: copied === 'link' ? C.sage : C.ink }}><Link2 size={14} /> {copied === 'link' ? 'Link copied' : "Copy the agent's link"}</button>
               {!st?.agent_phone && !st?.agent_email && <span className="px-1 py-2 text-[12px]" style={{ color: C.inkFaint }}>{isFounder ? "Add your agent's WhatsApp or email above to send this in one tap." : 'The founder has not added the agent yet.'}</span>}
@@ -15731,7 +15843,7 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
           )}
           <div className="flex flex-wrap gap-1.5">
             {[['filed', 'Filed with CAC'], ['query', 'Ask the owner to fix'], ['registered', 'Registered'], ['rejected', 'Reject']].map(([m, l]) => (
-              <button key={m} onClick={() => setAct({ ...act, mode: act.mode === m ? '' : m, error: '' })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={act.mode === m ? { background: m === 'rejected' ? C.rust : C.copper, color: C.bg } : { border: `1px solid ${C.line}`, color: C.ink }}>{l}</button>
+              <button key={m} onClick={() => setAct({ ...act, mode: act.mode === m ? '' : m, error: '' })} className="px-3 py-2 rounded-xl text-[12.5px] font-semibold" style={act.mode === m ? { background: m === 'rejected' ? C.rustFill : C.copperFill, color: C.onAccent } : { border: `1px solid ${C.line}`, color: C.ink }}>{l}</button>
             ))}
           </div>
           {act.mode && (
@@ -15750,7 +15862,7 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
               )}
               {act.mode !== 'filed' && <textarea rows={3} value={act.message} onChange={(e) => setAct({ ...act, message: e.target.value })} placeholder={act.mode === 'query' ? 'What should the owner fix? e.g. Your ID photo is blurry. Please upload a clearer one.' : act.mode === 'rejected' ? "Why, and whether they'll get their money back" : 'A note for the owner (optional)'} className="w-full rounded-xl px-3 py-2.5 text-[13px] outline-none resize-none" style={field} />}
               {act.error && <div className="text-[12.5px]" style={{ color: C.rust }}>{act.error}</div>}
-              <button onClick={update} disabled={act.busy} className="w-full h-11 rounded-xl text-[13.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: act.busy ? 0.6 : 1 }}>{act.busy ? 'Saving…' : 'Save and notify the owner'}</button>
+              <button onClick={update} disabled={act.busy} className="w-full h-11 rounded-xl text-[13.5px] font-bold" style={{ background: C.sageFill, color: C.onAccent, opacity: act.busy ? 0.6 : 1 }}>{act.busy ? 'Saving…' : 'Save and notify the owner'}</button>
             </div>
           )}
         </div>
@@ -15759,7 +15871,7 @@ function CacAdmin({ call, token, isFounder = true, initialId = null, onCounts })
         <Sheet onClose={() => setEmailFor(null)} title="Email the agent">
           <div className="space-y-2.5">
             <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>To <strong style={{ color: C.ink }}>{emailFor.to}</strong>. Choose how to send it:</div>
-            <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(emailFor.to)}&su=${encodeURIComponent(emailFor.subject)}&body=${encodeURIComponent(emailFor.body)}`} target="_blank" rel="noopener noreferrer" onClick={() => setTimeout(() => setEmailFor(null), 300)} className="w-full h-12 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><Send size={16} /> Open in Gmail</a>
+            <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(emailFor.to)}&su=${encodeURIComponent(emailFor.subject)}&body=${encodeURIComponent(emailFor.body)}`} target="_blank" rel="noopener noreferrer" onClick={() => setTimeout(() => setEmailFor(null), 300)} className="w-full h-12 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: C.sageFill, color: C.onAccent }}><Send size={16} /> Open in Gmail</a>
             <a href={`mailto:${emailFor.to}?subject=${encodeURIComponent(emailFor.subject)}&body=${encodeURIComponent(emailFor.body)}`} onClick={() => setTimeout(() => setEmailFor(null), 300)} className="w-full h-11 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ border: `1px solid ${C.line}`, color: C.ink }}>Open my email app</a>
             <button onClick={async () => { try { await navigator.clipboard.writeText(`${emailFor.subject}\n\n${emailFor.body}`); } catch (e) { /* older phones */ } setCopied('email'); setTimeout(() => setCopied(false), 2000); }} className="w-full h-11 rounded-xl text-[13.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: copied === 'email' ? C.sage : C.inkDim }}>{copied === 'email' ? 'Copied. Paste it into any email' : 'Copy the message'}</button>
           </div>
@@ -15821,7 +15933,7 @@ function CacAgentPage({ token }) {
       <div className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: C.surfaceRaised }}><Lock size={24} style={{ color: C.inkFaint }} /></div>
       <div className="text-[19px] font-bold">{v.state === 'expired' ? 'This link has expired' : v.state === 'revoked' ? 'This link was stopped' : v.state === 'error' ? "Couldn't open this page" : "This link doesn't work"}</div>
       <div className="text-[13.5px] mt-2 max-w-sm mx-auto leading-relaxed" style={{ color: C.inkDim }}>{v.state === 'error' ? v.error : 'Ask Xorla to send you a new link.'}</div>
-      {v.state === 'error' && <button onClick={() => { setV(undefined); load(); }} className="mt-5 px-5 py-2.5 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Try again</button>}
+      {v.state === 'error' && <button onClick={() => { setV(undefined); load(); }} className="mt-5 px-5 py-2.5 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Try again</button>}
     </div>
   );
   const r = v.request; const d = v.docs || {};
@@ -15838,7 +15950,7 @@ function CacAgentPage({ token }) {
   return shell(
     <>
       {doneText && <div className="rounded-2xl px-4 py-3 mb-4 flex items-center gap-2.5 text-[13.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage, border: '1px solid rgba(31,217,196,0.3)' }}><Check size={17} /> {doneText}</div>}
-      <div className="rounded-[22px] p-5" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div data-xt="dark" className="rounded-[22px] p-5" style={{ background: 'radial-gradient(120% 100% at 100% 0%, #22604F 0%, #133A32 45%, #0B221E 100%)', border: '1px solid rgba(var(--c-hi),0.08)' }}>
         <div className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: tone }}>{word}</div>
         <div className="text-[23px] font-extrabold leading-tight mt-1" style={{ letterSpacing: '-0.02em', overflowWrap: 'anywhere' }}>{r.registered_name || r.name_1}</div>
         <div className="text-[13px] mt-1.5" style={{ color: C.inkDim }}>Business name registration for {r.owner_name}{v.agent_name ? `. Sent to ${v.agent_name}` : ''}.</div>
@@ -15885,7 +15997,7 @@ function CacAgentPage({ token }) {
           <div className="text-[12.5px] -mt-1.5" style={{ color: C.inkDim }}>They're notified straight away.</div>
           <div className="grid grid-cols-3 gap-2">
             {[['filed', 'Filed with CAC', Send], ['query', 'CAC needs a fix', AlertCircle], ['registered', 'Registered', BadgeCheck]].map(([m, l, Ic]) => (
-              <button key={m} onClick={() => setAct({ ...act, mode: act.mode === m ? '' : m, error: '', message: m === act.mode ? act.message : '' })} disabled={m === 'filed' && r.status === 'filed'} className="rounded-xl px-2 py-3 text-[12.5px] font-semibold flex flex-col items-center gap-1.5" style={act.mode === m ? { background: m === 'query' ? C.rust : m === 'registered' ? C.sage : C.copper, color: C.bg } : { ...field, opacity: m === 'filed' && r.status === 'filed' ? 0.4 : 1 }}><Ic size={17} /> {l}</button>
+              <button key={m} onClick={() => setAct({ ...act, mode: act.mode === m ? '' : m, error: '', message: m === act.mode ? act.message : '' })} disabled={m === 'filed' && r.status === 'filed'} className="rounded-xl px-2 py-3 text-[12.5px] font-semibold flex flex-col items-center gap-1.5" style={act.mode === m ? { background: m === 'query' ? C.rustFill : m === 'registered' ? C.sageFill : C.copperFill, color: C.onAccent } : { ...field, opacity: m === 'filed' && r.status === 'filed' ? 0.4 : 1 }}><Ic size={17} /> {l}</button>
             ))}
           </div>
           {act.mode === 'query' && (<>
@@ -15905,7 +16017,7 @@ function CacAgentPage({ token }) {
             </div>
           )}
           {act.error && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{act.error}</div>}
-          {act.mode && <button onClick={send} disabled={act.busy} className="w-full h-12 rounded-xl text-[14.5px] font-bold" style={{ background: C.sage, color: C.bg, opacity: act.busy ? 0.6 : 1 }}>{act.busy ? 'Sending…' : act.mode === 'filed' ? 'Confirm: filed with CAC' : act.mode === 'query' ? 'Send to the owner' : 'Confirm: registered'}</button>}
+          {act.mode && <button onClick={send} disabled={act.busy} className="w-full h-12 rounded-xl text-[14.5px] font-bold" style={{ background: C.sageFill, color: C.onAccent, opacity: act.busy ? 0.6 : 1 }}>{act.busy ? 'Sending…' : act.mode === 'filed' ? 'Confirm: filed with CAC' : act.mode === 'query' ? 'Send to the owner' : 'Confirm: registered'}</button>}
         </div>
       )}
       <div className="mt-6 flex items-center justify-center gap-1.5 text-[11.5px] text-center" style={{ color: C.inkFaint }}><Lock size={12} /> Private page. Please don't share this link.</div>
@@ -15914,6 +16026,7 @@ function CacAgentPage({ token }) {
 }
 
 function AdminDashboard() {
+  useXorlaTheme();
   const [state, setState] = useState({ phase: 'loading', error: '' });
   const [ov, setOv] = useState(null);
   const [list, setList] = useState([]);
@@ -16081,18 +16194,19 @@ function AdminDashboard() {
   };
   const shell = (body) => (
     <div className="min-h-screen cx-body" style={{ overflowX: 'clip', background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
-      <header className="sticky top-0 z-20" style={{ background: 'rgba(10,31,28,0.98)', borderBottom: `1px solid ${C.line}`, paddingTop: 'env(safe-area-inset-top)' }}>
+      <header className="sticky top-0 z-20" style={{ background: 'rgba(var(--c-bg-rgb),0.98)', borderBottom: `1px solid ${C.line}`, paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="max-w-6xl mx-auto px-5 py-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span><span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: role === 'agent' ? C.sageSoft : C.copperSoft, color: role === 'agent' ? C.sage : C.copper }}>{role === 'agent' ? 'Support' : 'Founder'}</span></div>
           {state.phase === 'ready' && (
             <nav className="hidden md:flex items-center gap-1 p-1 rounded-xl" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
               {(role === 'founder' ? [['overview', 'Overview'], ['support', 'Support'], ['cac', 'CAC'], ['riders', 'Riders'], ['publish', "What's new"], ['team', 'Support team']] : [['support', 'Support'], ['cac', 'CAC registrations'], ['riders', 'Riders']]).map(([k, l]) => (
-                <button key={k} onClick={() => setSection(k)} className="relative px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{(k === 'support' ? supportCounts?.open : k === 'cac' ? cacCounts?.todo : k === 'riders' ? riderCounts?.to_check : 0) ? <span className="ml-1.5 px-1.5 rounded-full text-[10.5px]" style={{ background: section === k ? C.bg : C.copper, color: section === k ? C.copper : C.bg }}>{k === 'support' ? supportCounts?.open : k === 'riders' ? riderCounts?.to_check : cacCounts?.todo}</span> : null}</button>
+                <button key={k} onClick={() => setSection(k)} className="relative px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={section === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}{(k === 'support' ? supportCounts?.open : k === 'cac' ? cacCounts?.todo : k === 'riders' ? riderCounts?.to_check : 0) ? <span className="ml-1.5 px-1.5 rounded-full text-[10.5px]" style={{ background: section === k ? C.bg : C.copperFill, color: section === k ? C.copper : C.onAccent }}>{k === 'support' ? supportCounts?.open : k === 'riders' ? riderCounts?.to_check : cacCounts?.todo}</span> : null}</button>
               ))}
             </nav>
           )}
           {['ready', 'denied', 'mfa-setup', 'mfa-code', 'error'].includes(state.phase) && (
             <div className="flex items-center gap-2">
+              <ThemeToggle />
               {state.phase === 'ready' && (
                 <button onClick={refreshNow} disabled={refreshing} aria-label="Get the latest numbers" title="Get the latest numbers and messages" className="flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg transition-colors" style={{ color: justUpdated ? C.sage : C.inkDim, border: `1px solid ${justUpdated ? 'rgba(31,217,196,0.4)' : C.line}` }}>
                   {justUpdated ? <Check size={14} /> : <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />}
@@ -16109,7 +16223,7 @@ function AdminDashboard() {
         <div className="md:hidden max-w-6xl mx-auto px-5 pt-4">
           <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
             {(role === 'founder' ? [['overview', 'Overview'], ['support', 'Support'], ['cac', 'CAC'], ['riders', 'Riders'], ['publish', "What's new"], ['team', 'Team']] : [['support', 'Support'], ['cac', 'CAC'], ['riders', 'Riders']]).map(([k, l]) => (
-              <button key={k} onClick={() => setSection(k)} className="flex-1 shrink-0 px-3 py-2 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={section === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{k === 'support' && supportCounts?.open ? ` ${supportCounts.open}` : ''}{k === 'cac' && cacCounts?.todo ? ` ${cacCounts.todo}` : ''}{k === 'riders' && riderCounts?.to_check ? ` ${riderCounts.to_check}` : ''}</button>
+              <button key={k} onClick={() => setSection(k)} className="flex-1 shrink-0 px-3 py-2 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={section === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}{k === 'support' && supportCounts?.open ? ` ${supportCounts.open}` : ''}{k === 'cac' && cacCounts?.todo ? ` ${cacCounts.todo}` : ''}{k === 'riders' && riderCounts?.to_check ? ` ${riderCounts.to_check}` : ''}</button>
             ))}
           </div>
         </div>
@@ -16146,13 +16260,13 @@ function AdminDashboard() {
           {f.create && <PasswordChecks password={f.password} confirm={f.confirm} />}
         </div>
         {f.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
-        <button onClick={submit} disabled={f.busy || !f.email.trim() || !f.password} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: f.busy || !f.email.trim() || !f.password ? 0.6 : 1 }}>{f.busy ? 'Please wait…' : f.create ? 'Create login' : 'Log in'}</button>
+        <button onClick={submit} disabled={f.busy || !f.email.trim() || !f.password} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: f.busy || !f.email.trim() || !f.password ? 0.6 : 1 }}>{f.busy ? 'Please wait…' : f.create ? 'Create login' : 'Log in'}</button>
         <button onClick={() => setLogin({ ...f, create: !f.create, error: '' })} className="w-full mt-3 text-[13px] font-medium" style={{ color: C.copper }}>{f.create ? 'Already have a login? Log in' : 'First time? Create your login'}</button>
       </div>
     );
   }
   if (state.phase === 'denied') return center("This page is for Xorla's team", "This account doesn't have access. If the founder just added you to the support team, make sure you logged in with that same email.", <div className="flex items-center justify-center gap-4"><a href="/" style={{ color: C.copper }}>Back to Xorla</a><button onClick={async () => { await saveSession(null); setLogin({ email: '', password: '', confirm: '', create: false, busy: false, error: '' }); setState({ phase: 'login', error: '' }); }} className="font-semibold" style={{ color: C.inkDim }}>Use another account</button></div>);
-  if (state.phase === 'error') return center("Couldn't load the dashboard", state.error, <button onClick={loadAll} className="px-5 py-3 rounded-xl font-semibold" style={{ background: C.copper, color: C.bg }}>Try again</button>);
+  if (state.phase === 'error') return center("Couldn't load the dashboard", state.error, <button onClick={loadAll} className="px-5 py-3 rounded-xl font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Try again</button>);
   if (state.phase === 'mfa-setup' || state.phase === 'mfa-code') {
     const setup = state.phase === 'mfa-setup';
     return shell(
@@ -16173,7 +16287,7 @@ function AdminDashboard() {
               {isPhone ? (
                 <>
                   <div className="mb-3">You're on your phone, so there's nothing to scan. Tap this and choose your authenticator app:</div>
-                  {mfa.uri && <a href={mfa.uri} className="flex items-center justify-center gap-2 w-full rounded-xl py-3 text-[14px] font-semibold" style={{ background: C.sage, color: C.bg }}><ShieldCheck size={16} /> Add to authenticator app</a>}
+                  {mfa.uri && <a href={mfa.uri} className="flex items-center justify-center gap-2 w-full rounded-xl py-3 text-[14px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}><ShieldCheck size={16} /> Add to authenticator app</a>}
                   <div className="mt-3 text-[12.5px]">If nothing opens: in the app tap <strong style={{ color: C.ink }}>+</strong> → <strong style={{ color: C.ink }}>Enter a setup key</strong>, name it <strong style={{ color: C.ink }}>Xorla</strong>, and paste this key:</div>
                 </>
               ) : (
@@ -16202,7 +16316,7 @@ function AdminDashboard() {
         <input inputMode="numeric" autoComplete="one-time-code" autoFocus maxLength={7} placeholder="123 456" value={mfa.code} onChange={(e) => setMfa({ ...mfa, code: e.target.value.replace(/[^0-9 ]/g, '') })} onKeyDown={(e) => e.key === 'Enter' && verifyCode()}
           className="w-full rounded-xl px-4 py-3.5 text-[22px] tracking-[0.3em] text-center outline-none cx-mono" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }} />
         {mfa.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{mfa.error}</div>}
-        <button onClick={verifyCode} disabled={mfa.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: mfa.busy ? 0.6 : 1 }}>{mfa.busy ? 'Checking…' : setup ? 'Turn on and continue' : 'Continue'}</button>
+        <button onClick={verifyCode} disabled={mfa.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: mfa.busy ? 0.6 : 1 }}>{mfa.busy ? 'Checking…' : setup ? 'Turn on and continue' : 'Continue'}</button>
         <p className="text-[12px] mt-4 leading-relaxed" style={{ color: C.inkFaint }}>{setup ? 'Keep your phone safe. If you lose it, you can remove the old authenticator in Supabase → Authentication → Users, then set up a new one here.' : 'Lost your phone? Remove the old authenticator in Supabase → Authentication → Users, then set up a new one here.'}</p>
       </div>
     );
@@ -16256,7 +16370,7 @@ function AdminDashboard() {
   const actionName = { extend_trial: 'Extended trial', storefront_off: 'Turned storefront off', storefront_on: 'Turned storefront on' };
 
   const HEADF = "'Plus Jakarta Sans', 'Inter', sans-serif";
-  const glass = { background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012))', border: `1px solid ${C.line}` };
+  const glass = { background: C.card, border: `1px solid ${C.line}` };
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' });
@@ -16284,7 +16398,7 @@ function AdminDashboard() {
       </div>
     );
   };
-  const meter = (pct, color) => <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, Math.min(100, pct))}%`, background: color }} /></div>;
+  const meter = (pct, color) => <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(var(--c-hi),0.06)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, Math.min(100, pct))}%`, background: color }} /></div>;
   const sectionTitle = (Icon, title, right, id) => (
     <div id={id} className="flex items-center justify-between gap-3 mb-4"><div className="flex items-center gap-2.5"><Icon size={16} style={{ color: C.inkFaint }} /><span className="text-[15px] font-semibold" style={{ fontFamily: HEADF }}>{title}</span></div>{right && <span className="text-[12px]" style={{ color: C.inkFaint }}>{right}</span>}</div>
   );
@@ -16296,11 +16410,11 @@ function AdminDashboard() {
           <div className="text-[13px]" style={{ color: C.inkFaint }}>{today}</div>
           <h1 className="text-[28px] lg:text-[34px] font-extrabold leading-tight" style={{ fontFamily: HEADF, letterSpacing: '-0.03em' }}>{greet}. Here's Xorla today.</h1>
         </div>
-        <div className="text-[12px] flex items-center gap-1.5" style={{ color: C.inkFaint }}><span className="w-2 h-2 rounded-full" style={{ background: C.sage, boxShadow: `0 0 0 3px ${C.sageSoft}` }} />Live from the database · your own test business left out</div>
+        <div className="text-[12px] flex items-center gap-1.5" style={{ color: C.inkFaint }}><span className="w-2 h-2 rounded-full" style={{ background: C.sageFill, boxShadow: `0 0 0 3px ${C.sageSoft}` }} />Live from the database · your own test business left out</div>
       </div>
 
       {/* The headline: money and businesses */}
-      <div className="relative overflow-hidden rounded-[28px] p-6 lg:p-8 mb-4" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 50%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)', boxShadow: '0 30px 60px -30px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08)' }}>
+      <div data-xt="dark" className="relative overflow-hidden rounded-[28px] p-6 lg:p-8 mb-4" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 50%, #0B211D 100%)', border: '1px solid rgba(var(--c-hi),0.09)', boxShadow: '0 30px 60px -30px rgba(var(--c-lo),calc(0.8 * var(--c-lok))), inset 0 1px 0 rgba(var(--c-hi),0.08)' }}>
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(115deg, transparent 38%, rgba(255,176,32,0.08) 50%, transparent 62%)' }} />
         <div className="absolute -right-10 -bottom-14 opacity-[0.07] pointer-events-none"><XorlaMark size={260} /></div>
         <div className="relative grid lg:grid-cols-[1.25fr_1fr] gap-7 lg:gap-10 items-end">
@@ -16322,7 +16436,7 @@ function AdminDashboard() {
                 </div>
                 {rv && <div className="mt-3 flex flex-wrap gap-1.5">
                   {kinds.map(([k, l, col]) => (
-                    <span key={k} className="inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1 rounded-full" style={{ background: 'rgba(0,0,0,0.22)', border: '1px solid rgba(255,255,255,0.07)', color: C.inkDim }}>
+                    <span key={k} className="inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1 rounded-full" style={{ background: 'rgba(var(--c-lo),calc(0.22 * var(--c-lok)))', border: '1px solid rgba(var(--c-hi),0.07)', color: C.inkDim }}>
                       <span className="w-2 h-2 rounded-full" style={{ background: col }} />{l} <span className="font-semibold tabular-nums" style={{ color: C.ink }}>{fmt(rv.by_kind?.[k]?.all || 0)}</span>
                     </span>
                   ))}
@@ -16331,7 +16445,7 @@ function AdminDashboard() {
                   <div className="flex items-end gap-2 h-[64px]">
                     {months.map((m) => { const tot = Number(m.plans) + Number(m.payments) + Number(m.cac); return (
                       <div key={m.month} className="flex-1 flex flex-col justify-end h-full" title={`${new Date(m.month + '-15').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}: ${fmt(tot)}`}>
-                        <div className="w-full rounded-t-md overflow-hidden flex flex-col-reverse" style={{ height: `${Math.max(tot ? 6 : 2, (tot / top) * 100)}%`, background: tot ? 'transparent' : 'rgba(255,255,255,0.08)' }}>
+                        <div className="w-full rounded-t-md overflow-hidden flex flex-col-reverse" style={{ height: `${Math.max(tot ? 6 : 2, (tot / top) * 100)}%`, background: tot ? 'transparent' : 'rgba(var(--c-hi),0.08)' }}>
                           {kinds.map(([k, , col]) => Number(m[k]) > 0 && <div key={k} style={{ height: `${(Number(m[k]) / tot) * 100}%`, background: col }} />)}
                         </div>
                       </div>
@@ -16344,12 +16458,12 @@ function AdminDashboard() {
             })()}
             <div className="mt-5 max-w-sm">
               <div className="flex justify-between text-[12px] mb-1.5"><span style={{ color: C.inkDim }}>Early supporters</span><span className="tabular-nums" style={{ color: C.ink }}>{n(early)} of 100 <span style={{ color: C.inkFaint }}>· {n(Math.max(0, 100 - early))} left</span></span></div>
-              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(1.5, early)}%`, background: `linear-gradient(90deg, ${C.sage}, ${C.copper})` }} /></div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(var(--c-hi),0.08)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(1.5, early)}%`, background: `linear-gradient(90deg, ${C.sageFill}, ${C.copperFill})` }} /></div>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2.5">
             {[['Businesses', n(ov.businesses), `+${n(ov.new_7d)} this week`], ['Paying', n(ov.paying), `${payRate}% of all`], ['Active', n(ov.active_7d), 'sold this week']].map(([l, v, sub]) => (
-              <div key={l} className="rounded-2xl p-3.5" style={{ background: 'rgba(0,0,0,0.18)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div key={l} className="rounded-2xl p-3.5" style={{ background: 'rgba(var(--c-lo),calc(0.18 * var(--c-lok)))', border: '1px solid rgba(var(--c-hi),0.07)' }}>
                 <div className="text-[11.5px]" style={{ color: C.inkFaint }}>{l}</div>
                 <div className="text-[24px] lg:text-[28px] font-extrabold tabular-nums leading-tight mt-0.5" style={{ fontFamily: HEADF, letterSpacing: '-0.02em' }}>{v}</div>
                 <div className="text-[11px] mt-0.5" style={{ color: C.sage }}>{sub}</div>
@@ -16364,7 +16478,7 @@ function AdminDashboard() {
         <div className={`grid gap-2.5 mb-4 ${attention.length === 2 ? 'md:grid-cols-2' : attention.length > 2 ? 'md:grid-cols-3' : ''}`}>
           {attention.map((a) => { const [bg, fg, bd] = toneOf(a.tone); return (
             <button key={a.title} onClick={a.go} className="rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left" style={{ background: bg, border: `1px solid ${bd}` }}>
-              <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(0,0,0,0.2)', color: fg }}><a.Icon size={17} /></span>
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(var(--c-lo),calc(0.2 * var(--c-lok)))', color: fg }}><a.Icon size={17} /></span>
               <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">{a.title}</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{a.sub}</span></span>
               <ChevronRight size={16} style={{ color: fg }} className="shrink-0" />
             </button>
@@ -16393,7 +16507,7 @@ function AdminDashboard() {
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={signups} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
                 <defs><linearGradient id="xaSign" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.sage} stopOpacity={0.4} /><stop offset="100%" stopColor={C.sage} stopOpacity={0} /></linearGradient></defs>
-                <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+                <CartesianGrid vertical={false} stroke="rgba(var(--c-hi),0.05)" />
                 <XAxis dataKey="label" tick={{ fill: C.inkFaint, fontSize: 11 }} tickLine={false} axisLine={false} interval={6} />
                 <YAxis allowDecimals={false} tick={{ fill: C.inkFaint, fontSize: 11 }} tickLine={false} axisLine={false} width={26} />
                 <Tooltip contentStyle={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, borderRadius: 12, fontSize: 12, color: C.ink }} labelStyle={{ color: C.inkDim }} formatter={(v) => [v, 'New businesses']} />
@@ -16406,7 +16520,7 @@ function AdminDashboard() {
           {sectionTitle(Shapes, 'Kinds of business', `${n(ov.businesses)} total`)}
           {types.length ? (
             <>
-              <div className="flex h-3 rounded-full overflow-hidden mb-4" style={{ background: 'rgba(255,255,255,0.05)' }}>
+              <div className="flex h-3 rounded-full overflow-hidden mb-4" style={{ background: 'rgba(var(--c-hi),0.05)' }}>
                 {types.map(([t, v], i) => <div key={t} style={{ width: `${(v / Math.max(1, types.reduce((a, [, x]) => a + x, 0))) * 100}%`, background: TYPE_COLORS[i % TYPE_COLORS.length] }} />)}
               </div>
               <div className="space-y-2.5">
@@ -16429,7 +16543,7 @@ function AdminDashboard() {
           {sectionTitle(AlertCircle, 'Renewals at risk', null, 'xa-risk')}
           {(ov.at_risk || []).length ? (
             <div className="space-y-2">{ov.at_risk.map((r) => (
-              <div key={r.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+              <div key={r.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(var(--c-hi),0.03)' }}>
                 <span className="w-8 h-8 rounded-lg flex items-center justify-center text-[13px] font-bold shrink-0" style={{ background: C.rustSoft, color: C.rust }}>{(r.name || '?')[0].toUpperCase()}</span>
                 <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold truncate">{r.name}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{r.plan === 'business' ? 'Business' : 'Pro'} · ends {short(r.current_period_end)}</span></span>
                 {r.owner_phone && <a href={nudge(r, `Hi, this is Ikenna from Xorla. Your ${r.plan === 'business' ? 'Business' : 'Pro'} plan for ${r.name} ends on ${short(r.current_period_end)}. Would you like help renewing, or is there anything we could do better?`)} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copperSoft, color: C.copper }}>Message</a>}
@@ -16440,7 +16554,7 @@ function AdminDashboard() {
           {sectionTitle(Wallet, 'Latest payments')}
           {(ov.recent_payments || []).length ? (
             <div className="space-y-2">{ov.recent_payments.map((p, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+              <div key={i} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(var(--c-hi),0.03)' }}>
                 <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.sageSoft, color: C.sage }}><ArrowDownRight size={15} /></span>
                 <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold truncate">{p.business}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{p.plan === 'business' ? 'Business' : 'Pro'}, {p.billing_interval} · {short(p.paid_at)}</span></span>
                 <span className="shrink-0 tabular-nums text-[13.5px] font-bold" style={{ color: C.sage }}>{fmt(p.amount)}</span>
@@ -16454,7 +16568,7 @@ function AdminDashboard() {
               <div className="absolute left-[3px] top-1.5 bottom-1.5 w-px" style={{ background: C.line }} />
               {ov.log.map((l, i) => (
                 <div key={i} className="relative text-[12.5px]">
-                  <span className="absolute -left-4 top-1.5 w-[7px] h-[7px] rounded-full" style={{ background: C.copper }} />
+                  <span className="absolute -left-4 top-1.5 w-[7px] h-[7px] rounded-full" style={{ background: C.copperFill }} />
                   <span className="font-medium">{actionName[l.action] || l.action}</span>{l.detail ? <span style={{ color: C.inkFaint }}> ({l.detail})</span> : null}<span style={{ color: C.inkDim }}> · {l.business || 'a business'}</span>
                   <div className="text-[11px]" style={{ color: C.inkFaint }}>{new Date(l.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}{l.admin ? ` · ${l.admin}` : ''}</div>
                 </div>))}
@@ -16466,14 +16580,14 @@ function AdminDashboard() {
       <div id="xa-biz" className="mt-6 rounded-[22px] overflow-hidden" style={glass}>
         <div className="p-4 lg:p-5 flex flex-col lg:flex-row lg:items-center gap-3" style={{ borderBottom: `1px solid ${C.line}` }}>
           <div className="flex items-center gap-2.5 flex-1"><Building2 size={16} style={{ color: C.inkFaint }} /><span className="text-[15px] font-semibold" style={{ fontFamily: HEADF }}>Businesses</span></div>
-          <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: 'rgba(0,0,0,0.2)', border: `1px solid ${C.line}` }}>
+          <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: 'rgba(var(--c-lo),calc(0.2 * var(--c-lok)))', border: `1px solid ${C.line}` }}>
             {[['all', 'All'], ['paying', 'Paying'], ['trial', 'On trial'], ['ending', 'Trial ending'], ['free', 'Free']].map(([k, l]) => (
-              <button key={k} onClick={() => setFilter(k)} className="shrink-0 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={filter === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>
+              <button key={k} onClick={() => setFilter(k)} className="shrink-0 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold" style={filter === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>
             ))}
           </div>
           <div className="relative lg:w-64">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
-            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, email or phone" className="w-full rounded-xl pl-9 pr-3 py-2.5 text-[13px] outline-none" style={{ background: 'rgba(0,0,0,0.2)', border: `1px solid ${C.line}`, color: C.ink }} />
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, email or phone" className="w-full rounded-xl pl-9 pr-3 py-2.5 text-[13px] outline-none" style={{ background: 'rgba(var(--c-lo),calc(0.2 * var(--c-lok)))', border: `1px solid ${C.line}`, color: C.ink }} />
           </div>
         </div>
         {loadingList && !list.length ? <div className="p-8 flex justify-center" style={{ color: C.inkFaint }}><Loader2 size={18} className="animate-spin" /></div>
@@ -16484,7 +16598,7 @@ function AdminDashboard() {
               return (
                 <div key={b.id} className="px-4 lg:px-5 py-3.5 grid gap-2.5 lg:grid-cols-[1.5fr_1.3fr_0.9fr_0.9fr_170px] lg:items-center" style={{ borderTop: i ? `1px solid ${C.line}` : 'none', opacity: loadingList ? 0.6 : 1 }}>
                   <button onClick={() => openDetail(b)} className="min-w-0 text-left flex items-center gap-3">
-                    <span className="w-9 h-9 rounded-xl flex items-center justify-center text-[14px] font-extrabold shrink-0" style={{ fontFamily: HEADF, background: 'linear-gradient(140deg, #FFC85A, #FFB020)', color: C.bg }}>{(b.name || '?').trim()[0].toUpperCase()}</span>
+                    <span className="w-9 h-9 rounded-xl flex items-center justify-center text-[14px] font-extrabold shrink-0" style={{ fontFamily: HEADF, background: 'linear-gradient(140deg, #FFC85A, #FFB020)', color: C.onAccent }}>{(b.name || '?').trim()[0].toUpperCase()}</span>
                     <span className="min-w-0"><span className="block text-[13.5px] font-semibold truncate underline-offset-2 hover:underline">{b.name}</span>
                     <span className="block text-[11.5px] truncate" style={{ color: C.inkFaint }}>{typeName[b.business_type === 'services' && b.service_kind ? b.service_kind : b.business_type || 'not set'] || b.business_type} · joined {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span></span>
                   </button>
@@ -16510,7 +16624,7 @@ function AdminDashboard() {
         const { b, data } = detail;
         const [pl, pbg, pfg, psub] = planOf(b);
         return (
-          <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(3,10,9,0.7)' }} onClick={() => setDetail(null)}>
+          <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(var(--c-scrim),0.7)' }} onClick={() => setDetail(null)}>
             <div className="w-full max-w-md h-full overflow-y-auto p-5 xorla-fade-up" style={{ background: C.surface, borderLeft: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div className="min-w-0"><div className="text-[18px] font-bold truncate">{b.name}</div><div className="text-[12px]" style={{ color: C.inkFaint }}>{typeName[b.business_type === 'services' && b.service_kind ? b.service_kind : b.business_type || 'not set']} · joined {short(b.created_at)}</div></div>
@@ -16538,7 +16652,7 @@ function AdminDashboard() {
                 </>
               )}
               <div className="space-y-2 pt-2" style={{ borderTop: `1px solid ${C.line}` }}>
-                {nudge(b) && <a href={nudge(b)} target="_blank" rel="noopener noreferrer" className="block w-full text-center rounded-xl py-2.5 text-[13px] font-semibold mt-3" style={{ background: C.copper, color: C.bg }}>Message the owner on WhatsApp</a>}
+                {nudge(b) && <a href={nudge(b)} target="_blank" rel="noopener noreferrer" className="block w-full text-center rounded-xl py-2.5 text-[13px] font-semibold mt-3" style={{ background: C.copperFill, color: C.onAccent }}>Message the owner on WhatsApp</a>}
                 {!(Number(b.monthly_value) > 0) && <button onClick={() => extendTrial(b)} className="w-full rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Extend trial by 14 days</button>}
                 {b.business_code && b.storefront_enabled && <a href={`/store/${b.business_code}`} target="_blank" rel="noopener noreferrer" className="block w-full text-center rounded-xl py-2.5 text-[13px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.line}` }}>Open their storefront</a>}
                 {b.storefront_enabled
@@ -16603,7 +16717,7 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
   const periodWord = period === 'today' ? 'yesterday' : period === 'week' ? 'last week' : period === 'month' ? 'the same days last month' : period === 'last_month' ? 'the month before' : period === 'year' ? 'the same days last year' : 'the period before';
   const unitWord = r?.unit === 'month' ? 'month' : r?.unit === 'week' ? 'week' : 'day';
   const series = (r?.series || []).map((p) => ({ ...p, sales: Number(p.sales), profit: Number(p.profit), label: r.unit === 'month' ? shortDate(p.d, { month: 'short' }) : shortDate(p.d, { day: 'numeric', month: 'short' }) }));
-  const card = { background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` };
+  const card = { background: C.card, border: `1px solid ${C.line}` };
 
   const delta = (pct, goodUp = true) => (pct === null || !isFinite(pct) ? <span className="text-[12px]" style={{ color: C.inkFaint }}>No earlier figures to compare</span> : (
     <span className="inline-flex items-center gap-1 text-[12px] font-semibold" style={{ color: (pct >= 0) === goodUp ? C.sage : C.rust }}>
@@ -16629,7 +16743,7 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
               <span className="shrink-0 tabular-nums font-semibold">{fmt(x[valueKey])}</span>
             </div>
             <div className="flex items-center gap-2 mt-1.5">
-              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, (Number(x[valueKey]) / max) * 100)}%`, background: color }} /></div>
+              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(var(--c-hi),0.06)' }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, (Number(x[valueKey]) / max) * 100)}%`, background: color }} /></div>
               {fmtRow && <span className="text-[11.5px] shrink-0 w-24 text-right" style={{ color: C.inkFaint }}>{fmtRow(x)}</span>}
             </div>
           </div>
@@ -16652,24 +16766,24 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
           {shops.length > 1 && (
-            <BrandSelect value={shop} onChange={(e) => setShop(e.target.value)} className="rounded-xl px-3 h-10 text-[13px]" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink }} aria-label={L.One}>
+            <BrandSelect value={shop} onChange={(e) => setShop(e.target.value)} className="rounded-xl px-3 h-10 text-[13px]" style={{ background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink }} aria-label={L.One}>
               <option value="">All {L.many}</option>
               {shops.map((s) => <option key={s.id} value={s.id}>{locName(s)}</option>)}
             </BrandSelect>
           )}
-          <button onClick={download} disabled={!r} className="h-10 px-3.5 rounded-xl text-[13px] font-semibold flex items-center gap-1.5" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink, opacity: r ? 1 : 0.4 }}><Download size={15} /> <span className="hidden sm:inline">Download</span></button>
+          <button onClick={download} disabled={!r} className="h-10 px-3.5 rounded-xl text-[13px] font-semibold flex items-center gap-1.5" style={{ background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink, opacity: r ? 1 : 0.4 }}><Download size={15} /> <span className="hidden sm:inline">Download</span></button>
         </div>
       </div>
       <div className="-mx-4 px-4 lg:mx-0 lg:px-0 overflow-x-auto mb-4" style={{ scrollbarWidth: 'none' }}>
-        <div className="flex gap-1.5 w-max p-1 rounded-2xl" style={{ background: 'rgba(255,255,255,0.035)', border: `1px solid ${C.line}` }}>
-          {REPORT_PERIODS.map(([k, l]) => <button key={k} onClick={() => setPeriod(k)} className="h-9 px-3.5 rounded-xl text-[13px] font-semibold whitespace-nowrap transition-colors" style={period === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}</button>)}
+        <div className="flex gap-1.5 w-max p-1 rounded-2xl" style={{ background: 'rgba(var(--c-hi),0.035)', border: `1px solid ${C.line}` }}>
+          {REPORT_PERIODS.map(([k, l]) => <button key={k} onClick={() => setPeriod(k)} className="h-9 px-3.5 rounded-xl text-[13px] font-semibold whitespace-nowrap transition-colors" style={period === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>)}
         </div>
       </div>
       {period === 'custom' && (
         <div className="grid grid-cols-2 gap-3 mb-4 max-w-md">
           {[['from', 'From'], ['to', 'To']].map(([k, l]) => (
             <label key={k} className="text-[12.5px] font-semibold">{l}
-              <input type="date" value={custom[k]} max={new Date().toLocaleDateString('sv-SE', LAGOS_TIME)} onChange={(e) => setCustom({ ...custom, [k]: e.target.value })} className="w-full mt-1.5 rounded-xl px-3 h-11 text-[14px] outline-none" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink, colorScheme: 'dark' }} />
+              <input type="date" value={custom[k]} max={new Date().toLocaleDateString('sv-SE', LAGOS_TIME)} onChange={(e) => setCustom({ ...custom, [k]: e.target.value })} className="w-full mt-1.5 rounded-xl px-3 h-11 text-[14px] outline-none" style={{ background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink, colorScheme: 'var(--c-scheme)' }} />
             </label>
           ))}
         </div>
@@ -16680,7 +16794,7 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
         <div className="space-y-4 transition-opacity" style={{ opacity: state.loading ? 0.55 : 1 }}>
           {onImportPast && !(Number(sales) > 0) && !['today', 'week'].includes(period) && (
             <button onClick={onImportPast} className="w-full rounded-[20px] px-4 py-3.5 flex items-center gap-3.5 text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.35)' }}>
-              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper, color: C.bg }}><History size={19} /></span>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill, color: C.onAccent }}><History size={19} /></span>
               <span className="flex-1 min-w-0">
                 <span className="block text-[14px] font-semibold">No sales recorded for this period</span>
                 <span className="block text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>Were you selling before Xorla? Bring in your old records from Excel to see them here.</span>
@@ -16688,13 +16802,13 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
               <ChevronRight size={17} style={{ color: C.copper }} className="shrink-0" />
             </button>
           )}
-          <div className="relative overflow-hidden rounded-[26px] p-5 lg:p-7" style={{ background: net >= 0 ? 'linear-gradient(150deg, #174339 0%, #0F2C27 55%, #0B211D 100%)' : 'linear-gradient(150deg, #3A2219 0%, #24160F 60%, #1A100B 100%)', border: '1px solid rgba(255,255,255,0.09)' }}>
+          <div data-xt="dark" className="relative overflow-hidden rounded-[26px] p-5 lg:p-7" style={{ background: net >= 0 ? 'linear-gradient(150deg, #174339 0%, #0F2C27 55%, #0B211D 100%)' : 'linear-gradient(150deg, #3A2219 0%, #24160F 60%, #1A100B 100%)', border: '1px solid rgba(var(--c-hi),0.09)' }}>
             <div className="absolute -right-8 -bottom-10 opacity-[0.06] pointer-events-none"><XorlaMark size={170} /></div>
             <div className="relative">
               <div className="text-[13px]" style={{ color: C.inkDim }}>{net >= 0 ? 'Profit' : 'Loss'} after costs and expenses</div>
               <div className="text-[38px] lg:text-[46px] font-extrabold tabular-nums leading-tight mt-1" style={{ fontFamily: HEAD, letterSpacing: '-0.03em', color: net >= 0 ? C.ink : '#FFB4A2' }}>{fmt(net)}</div>
               <div className="mt-1.5">{delta(change(net, prevNet))}</div>
-              <div className="grid grid-cols-3 gap-3 mt-5 pt-4 text-[12.5px]" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              <div className="grid grid-cols-3 gap-3 mt-5 pt-4 text-[12.5px]" style={{ borderTop: '1px solid rgba(var(--c-hi),0.08)' }}>
                 <div><div style={{ color: C.inkFaint }}>Money in</div><div className="text-[15px] font-bold tabular-nums mt-0.5">{fmt(sales)}</div></div>
                 <div><div style={{ color: C.inkFaint }}>Cost of {T.tracksStock ? 'goods' : 'materials'}</div><div className="text-[15px] font-bold tabular-nums mt-0.5">{fmt(cost)}</div></div>
                 <div><div style={{ color: C.inkFaint }}>Expenses</div><div className="text-[15px] font-bold tabular-nums mt-0.5">{fmt(expenses)}</div></div>
@@ -16713,8 +16827,8 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
               <div className="flex items-center justify-between gap-3 mb-3">
                 <div className="text-[14.5px] font-semibold">{T.salesTab} and profit, by {unitWord}</div>
                 <div className="flex items-center gap-3 text-[11.5px]" style={{ color: C.inkDim }}>
-                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: C.sage }} /> {T.salesTab}</span>
-                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copper }} /> Profit</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: C.sageFill }} /> {T.salesTab}</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copperFill }} /> Profit</span>
                 </div>
               </div>
               <div style={{ height: 230 }} role="img" aria-label={`${T.salesTab} and profit by ${unitWord} for ${rangeLabel(from, to)}`}>
@@ -16724,7 +16838,7 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
                       <linearGradient id="rpSales" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.sage} stopOpacity={0.35} /><stop offset="100%" stopColor={C.sage} stopOpacity={0} /></linearGradient>
                       <linearGradient id="rpProfit" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.copper} stopOpacity={0.25} /><stop offset="100%" stopColor={C.copper} stopOpacity={0} /></linearGradient>
                     </defs>
-                    <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+                    <CartesianGrid vertical={false} stroke="rgba(var(--c-hi),0.05)" />
                     <XAxis dataKey="label" tick={{ fill: C.inkFaint, fontSize: 11 }} axisLine={false} tickLine={false} minTickGap={18} />
                     <YAxis tick={{ fill: C.inkFaint, fontSize: 11 }} axisLine={false} tickLine={false} width={52} tickFormatter={compactNaira} />
                     <Tooltip contentStyle={{ background: C.surfaceRaised, border: `1px solid ${C.lineStrong}`, borderRadius: 12, fontSize: 12 }} labelStyle={{ color: C.inkDim }} formatter={(v, n) => [fmt(v), n === 'sales' ? T.salesTab : 'Profit']} />
@@ -16851,11 +16965,11 @@ function SupportImage({ path, token }) {
       .then((r) => (r.ok ? r.blob() : null)).then((b) => { if (b && !gone) { made = URL.createObjectURL(b); setUrl(made); } }).catch(() => {});
     return () => { gone = true; if (made) URL.revokeObjectURL(made); };
   }, [path, token]);
-  if (!url) return <div className="mt-2 w-40 h-24 rounded-xl flex items-center justify-center text-[11px]" style={{ background: 'rgba(0,0,0,0.2)', color: C.inkFaint }}><ImagePlus size={15} className="mr-1.5" /> Screenshot</div>;
+  if (!url) return <div className="mt-2 w-40 h-24 rounded-xl flex items-center justify-center text-[11px]" style={{ background: 'rgba(var(--c-lo),calc(0.2 * var(--c-lok)))', color: C.inkFaint }}><ImagePlus size={15} className="mr-1.5" /> Screenshot</div>;
   return (
     <>
-      <button onClick={() => setOpen(true)} className="mt-2 block"><img src={url} alt="Screenshot" className="max-w-[220px] max-h-[220px] rounded-xl object-cover" style={{ border: '1px solid rgba(255,255,255,0.12)' }} /></button>
-      {open && <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.9)' }} onClick={() => setOpen(false)}><img src={url} alt="Screenshot" className="max-w-full max-h-full rounded-xl" /></div>}
+      <button onClick={() => setOpen(true)} className="mt-2 block"><img src={url} alt="Screenshot" className="max-w-[220px] max-h-[220px] rounded-xl object-cover" style={{ border: '1px solid rgba(var(--c-hi),0.12)' }} /></button>
+      {open && <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ background: 'rgba(var(--c-lo),calc(0.9 * var(--c-lok)))' }} onClick={() => setOpen(false)}><img src={url} alt="Screenshot" className="max-w-full max-h-full rounded-xl" /></div>}
     </>
   );
 }
@@ -16898,7 +17012,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
   const endRef = useRef(null);
   const hours = supportHoursNow();
   const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
-  const card = { background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))', border: `1px solid ${C.line}` };
+  const card = { background: C.card, border: `1px solid ${C.line}` };
   const guides = helpGuides({ T, L, isOwner, apptMode, stays, tracksStock });
 
   const loadTickets = useCallback(async () => {
@@ -16998,7 +17112,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
   const closeBtn = <button onClick={onClose} aria-label="Close" className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ color: C.inkFaint }}><X size={18} /></button>;
   const hoursPill = (
     <div className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-[12px] leading-relaxed" style={{ background: hours.open ? C.sageSoft : C.surfaceRaised, color: hours.open ? C.sage : C.inkDim }}>
-      <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: hours.open ? C.sage : C.inkFaint, boxShadow: hours.open ? `0 0 0 3px ${C.sageSoft}` : 'none' }} />
+      <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: hours.open ? C.sageFill : C.inkFaint, boxShadow: hours.open ? `0 0 0 3px ${C.sageSoft}` : 'none' }} />
       <span>{hours.text} <span style={{ color: hours.open ? C.sage : C.inkFaint, opacity: 0.85 }}>Support hours: {SUPPORT.hoursText}.</span></span>
     </div>
   );
@@ -17009,7 +17123,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
     const q = guideQ.trim().toLowerCase();
     body = (
       <>
-        <div className="relative overflow-hidden rounded-[24px] p-5 sm:p-6 mb-4" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 55%, #0B211D 100%)', border: '1px solid rgba(255,255,255,0.09)' }}>
+        <div data-xt="dark" className="relative overflow-hidden rounded-[24px] p-5 sm:p-6 mb-4" style={{ background: 'linear-gradient(150deg, #174339 0%, #0F2C27 55%, #0B211D 100%)', border: '1px solid rgba(var(--c-hi),0.09)' }}>
           <div className="absolute -right-6 -bottom-10 opacity-[0.08] pointer-events-none"><XorlaMark size={170} /></div>
           <div className="relative">
             <div className="flex items-center justify-between gap-3 mb-4">
@@ -17026,9 +17140,9 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
           const unreadN = recent.reduce((x, t) => x + Number(t.user_unread || 0), 0);
           const openN = (tickets || []).filter((t) => t.status !== 'solved').length;
           return (
-            <div className="mb-5 rounded-[22px] overflow-hidden" style={{ background: unreadN ? 'linear-gradient(160deg, rgba(255,176,32,0.14), rgba(31,217,196,0.06) 60%)' : 'linear-gradient(160deg, rgba(31,217,196,0.10), rgba(255,255,255,0.02) 60%)', border: `1.5px solid ${unreadN ? 'rgba(255,176,32,0.45)' : 'rgba(31,217,196,0.3)'}`, boxShadow: unreadN ? '0 10px 30px -14px rgba(255,176,32,0.45)' : 'none' }}>
+            <div className="mb-5 rounded-[22px] overflow-hidden" style={{ background: unreadN ? 'linear-gradient(160deg, rgba(255,176,32,0.14), rgba(31,217,196,0.06) 60%)' : 'linear-gradient(160deg, rgba(31,217,196,0.10), rgba(var(--c-hi),0.02) 60%)', border: `1.5px solid ${unreadN ? 'rgba(255,176,32,0.45)' : 'rgba(31,217,196,0.3)'}`, boxShadow: unreadN ? '0 10px 30px -14px rgba(255,176,32,0.45)' : 'none' }}>
               <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-                <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: unreadN ? C.copper : C.sage, color: C.bg }}><MessageCircle size={19} /></span>
+                <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: unreadN ? C.copperFill : C.sageFill, color: C.onAccent }}><MessageCircle size={19} /></span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-[16px] font-bold cx-display">Your conversations</span>
                   <span className="block text-[12px]" style={{ color: unreadN ? C.copper : C.inkDim }}>{unreadN ? `${unreadN} new repl${unreadN > 1 ? 'ies' : 'y'} from Xorla Support` : openN ? `${openN} open · we'll notify you when we reply` : 'All sorted'}</span>
@@ -17038,10 +17152,10 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
                 {recent.map((t) => {
                   const fresh = t.user_unread > 0;
                   return (
-                    <button key={t.id} onClick={() => { setTicketId(t.id); setThread(null); setView('thread'); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left" style={{ background: fresh ? 'rgba(255,176,32,0.12)' : 'rgba(0,0,0,0.18)', border: `1px solid ${fresh ? 'rgba(255,176,32,0.35)' : 'rgba(255,255,255,0.05)'}` }}>
+                    <button key={t.id} onClick={() => { setTicketId(t.id); setThread(null); setView('thread'); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left" style={{ background: fresh ? 'rgba(255,176,32,0.12)' : 'rgba(var(--c-lo),calc(0.18 * var(--c-lok)))', border: `1px solid ${fresh ? 'rgba(255,176,32,0.35)' : 'rgba(var(--c-hi),0.05)'}` }}>
                       <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative" style={{ background: C.surfaceRaised }}>
                         {(() => { const I = (SUPPORT_TOPICS.find((x) => x.id === t.topic) || SUPPORT_TOPICS[2]).Icon; return <I size={16} style={{ color: fresh ? C.copper : C.inkDim }} />; })()}
-                        {fresh && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: C.copper, border: `2px solid ${C.surface}` }} />}
+                        {fresh && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full" style={{ background: C.copperFill, border: `2px solid ${C.surface}` }} />}
                       </span>
                       <span className="flex-1 min-w-0">
                         <span className="block text-[14px] truncate" style={{ color: C.ink, fontWeight: fresh ? 700 : 600 }}>{t.subject}</span>
@@ -17057,7 +17171,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
           );
         })()}
         <div className="grid grid-cols-2 gap-2.5 mb-5">
-          <button onClick={() => { setDraft((d) => ({ ...d, error: '' })); setView('new'); }} disabled={off} className="col-span-2 sm:col-span-1 rounded-2xl p-4 text-left flex items-center gap-3" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: off ? 0.5 : 1 }}>
+          <button onClick={() => { setDraft((d) => ({ ...d, error: '' })); setView('new'); }} disabled={off} className="col-span-2 sm:col-span-1 rounded-2xl p-4 text-left flex items-center gap-3" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, opacity: off ? 0.5 : 1 }}>
             <MessageCircle size={22} className="shrink-0" />
             <span><span className="block text-[15px] font-bold">Message us</span><span className="block text-[12px] opacity-80">Problems, payments, questions</span></span>
           </button>
@@ -17070,7 +17184,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
             <button onClick={() => setView('updates')} className="col-span-2 sm:col-span-1 rounded-2xl p-4 text-left flex items-center gap-3 relative" style={card}>
               <Gift size={20} style={{ color: C.sage }} className="shrink-0" />
               <span><span className="block text-[15px] font-bold">What's new</span><span className="block text-[12px]" style={{ color: C.inkDim }}>The latest in Xorla</span></span>
-              {unreadUpdates > 0 && <span className="absolute top-3 right-3 min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: C.copper, color: C.bg }}>{unreadUpdates}</span>}
+              {unreadUpdates > 0 && <span className="absolute top-3 right-3 min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: C.copperFill, color: C.onAccent }}>{unreadUpdates}</span>}
             </button>
           )}
         </div>
@@ -17126,7 +17240,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
         <textarea value={d.body} rows={5} maxLength={4000} onChange={(e) => setDraft({ ...d, body: e.target.value })} placeholder={d.topic === 'problem' ? 'What were you trying to do, and what happened instead? Anything on the screen helps.' : 'Tell us more…'} className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none resize-y" style={{ ...field, minHeight: 130 }} />
         <div className="flex items-center gap-3 mt-2.5">
           {d.preview ? (
-            <div className="relative"><img src={d.preview} alt="" className="w-16 h-16 rounded-xl object-cover" /><button onClick={() => setDraft({ ...d, file: null, preview: '' })} aria-label="Remove screenshot" className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: C.rust, color: '#fff' }}><X size={13} /></button></div>
+            <div className="relative"><img src={d.preview} alt="" className="w-16 h-16 rounded-xl object-cover" /><button onClick={() => setDraft({ ...d, file: null, preview: '' })} aria-label="Remove screenshot" className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: C.rustFill, color: '#fff' }}><X size={13} /></button></div>
           ) : (
             <label className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-[12.5px] font-semibold cursor-pointer whitespace-nowrap shrink-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>
               <Paperclip size={14} /> Add a screenshot<input type="file" accept="image/*" className="hidden" onChange={pickFile(setDraft)} />
@@ -17136,7 +17250,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
         </div>
         <div className="flex items-start gap-2 mt-4 text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}><ShieldCheck size={14} className="shrink-0 mt-0.5" style={{ color: C.sage }} />We'll see your business name, plan and the kind of phone you're using, so you don't have to explain. Xorla will never ask for your password or PIN.</div>
         {d.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{d.error}</div>}
-        <button onClick={sendNew} disabled={d.busy} className="w-full mt-4 h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copper})`, color: C.bg, opacity: d.busy ? 0.6 : 1 }}>{d.busy ? <><Loader2 size={17} className="animate-spin" /> Sending…</> : <><SendHorizontal size={17} /> Send message</>}</button>
+        <button onClick={sendNew} disabled={d.busy} className="w-full mt-4 h-[52px] rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent, opacity: d.busy ? 0.6 : 1 }}>{d.busy ? <><Loader2 size={17} className="animate-spin" /> Sending…</> : <><SendHorizontal size={17} /> Send message</>}</button>
         <div className="mt-3">{hoursPill}</div>
       </>
     );
@@ -17191,12 +17305,12 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
           <div ref={endRef} />
         </div>
         <div className="shrink-0 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
-          {reply.preview && <div className="relative inline-block mb-2"><img src={reply.preview} alt="" className="w-14 h-14 rounded-xl object-cover" /><button onClick={() => setReply({ ...reply, file: null, preview: '' })} aria-label="Remove screenshot" className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: C.rust, color: '#fff' }}><X size={13} /></button></div>}
+          {reply.preview && <div className="relative inline-block mb-2"><img src={reply.preview} alt="" className="w-14 h-14 rounded-xl object-cover" /><button onClick={() => setReply({ ...reply, file: null, preview: '' })} aria-label="Remove screenshot" className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: C.rustFill, color: '#fff' }}><X size={13} /></button></div>}
           {reply.error && <div className="mb-2 rounded-xl px-3 py-2 text-[12px]" style={{ background: C.rustSoft, color: C.rust }}>{reply.error}</div>}
           <div className="flex items-end gap-2">
             <label className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 cursor-pointer" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }} aria-label="Attach a screenshot"><Paperclip size={16} /><input type="file" accept="image/*" className="hidden" onChange={pickFile(setReply)} /></label>
             <textarea value={reply.body} onChange={(e) => { setReply({ ...reply, body: e.target.value }); noteTyping(); }} rows={1} placeholder="Write a reply…" className="flex-1 rounded-xl px-3.5 py-3 text-[14px] outline-none resize-none" style={{ ...field, maxHeight: 140 }} onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`; }} />
-            <button onClick={sendReply} disabled={reply.busy || (!reply.body.trim() && !reply.file)} aria-label="Send" className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copper, color: C.bg, opacity: reply.busy || (!reply.body.trim() && !reply.file) ? 0.45 : 1 }}>{reply.busy ? <Loader2 size={17} className="animate-spin" /> : <SendHorizontal size={17} />}</button>
+            <button onClick={sendReply} disabled={reply.busy || (!reply.body.trim() && !reply.file)} aria-label="Send" className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill, color: C.onAccent, opacity: reply.busy || (!reply.body.trim() && !reply.file) ? 0.45 : 1 }}>{reply.busy ? <Loader2 size={17} className="animate-spin" /> : <SendHorizontal size={17} />}</button>
           </div>
           {t && t.status !== 'solved' && <button onClick={() => resolve(null)} className="mt-2 text-[12px] font-medium" style={{ color: C.inkFaint }}>Sorted? Mark as solved</button>}
         </div>
@@ -17217,7 +17331,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
                 const fresh = !updates.seen_at || u.published_at > updates.seen_at;
                 return (
                   <div key={u.id} className="relative mb-4">
-                    <span className="absolute -left-5 top-4 w-[15px] h-[15px] rounded-full" style={{ background: fresh ? C.copper : C.surfaceRaised, border: `3px solid ${C.surface}` }} />
+                    <span className="absolute -left-5 top-4 w-[15px] h-[15px] rounded-full" style={{ background: fresh ? C.copperFill : C.surfaceRaised, border: `3px solid ${C.surface}` }} />
                     <div className="rounded-2xl p-4" style={fresh ? { ...card, border: '1px solid rgba(255,176,32,0.3)' } : card}>
                       <div className="flex items-center gap-2 mb-1.5">{chip(kindChip[u.kind][1], kindChip[u.kind][0])}<span className="text-[11.5px]" style={{ color: C.inkFaint }}>{new Date(u.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
                       <div className="text-[15px] font-semibold">{u.title}</div>
@@ -17232,7 +17346,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
     );
   }
   return (
-    <div className="fixed inset-0 z-[90] flex sm:items-center justify-center sm:p-5" style={{ background: 'rgba(3,10,9,0.82)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[90] flex sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.82)' }} onClick={onClose}>
       <div role="dialog" aria-label="Help and support" className={`w-full h-full sm:max-w-2xl sm:rounded-3xl px-4 sm:p-6 xorla-fade-up overscroll-contain ${view === 'thread' ? 'sm:h-[86vh] flex flex-col' : 'sm:h-auto sm:max-h-[90vh] overflow-y-auto'}`} style={{ background: C.surface, border: `1px solid ${C.line}`, paddingTop: 'max(16px, env(safe-area-inset-top))', paddingBottom: 'max(16px, env(safe-area-inset-bottom))', WebkitOverflowScrolling: 'touch' }} onClick={(e) => e.stopPropagation()}>
         {body}
       </div>
@@ -17768,7 +17882,7 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
   };
   const suggest = () => { const pct = form.kind === 'percent' ? (parseInt(form.value, 10) || 10) : ''; const m = new Date().toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(); setForm({ ...form, code: `${form.kind === 'percent' ? 'SAVE' : 'OFF'}${pct || ''}${m}`.slice(0, 16), error: '' }); };
 
-  const pill = (on) => (on ? { background: C.copper, color: C.bg } : { color: C.inkDim });
+  const pill = (on) => (on ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim });
   const tabs = (
     <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
       {[['codes', 'Discount codes'], ['poster', 'Poster'], ['status', 'Status cards']].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="flex-1 py-2 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={pill(view === k)}>{l}</button>)}
@@ -17781,7 +17895,7 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
           <div className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: C.copperSoft }}><Megaphone size={20} style={{ color: C.copper }} /></div>
           <div className="text-[15px] font-semibold mb-1">Turn on your storefront first</div>
           <div className="text-[12.5px] leading-relaxed mb-4" style={{ color: C.inkDim }}>Posters, Status cards and discount codes all send customers to your storefront, where they can {words.act} without calling.</div>
-          <button onClick={onOpenStorefront} className="px-5 py-3 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg }}>Set up storefront</button>
+          <button onClick={onOpenStorefront} className="px-5 py-3 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Set up storefront</button>
         </div>
       </div>
     );
@@ -17819,7 +17933,7 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
                 </div>
                 <div className="mt-3">
                   <div className="flex items-center justify-between text-[11.5px] mb-1" style={{ color: C.inkFaint }}><span>Used {d.uses} time{d.uses !== 1 ? 's' : ''} in total</span><span>{d.max_uses ? `${Math.max(0, d.max_uses - d.uses)} of ${d.max_uses} left` : 'No total limit'}</span></div>
-                  {d.max_uses ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full" style={{ width: `${Math.min(100, (d.uses / d.max_uses) * 100)}%`, background: C.copper }} /></div> : null}
+                  {d.max_uses ? <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full" style={{ width: `${Math.min(100, (d.uses / d.max_uses) * 100)}%`, background: C.copperFill }} /></div> : null}
                 </div>
                 {isOwner && (
                   <div className="grid grid-cols-4 gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
@@ -17867,7 +17981,7 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
                 </div>
               ))}
               <label className="block text-[12px]" style={{ color: C.inkFaint }}>Last day it works (optional)
-                <input type="date" value={form.ends} min={new Date().toLocaleDateString('sv-SE', LAGOS_TIME)} onChange={(e) => setForm({ ...form, ends: e.target.value })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[14px] outline-none" style={{ ...field, colorScheme: 'dark' }} />
+                <input type="date" value={form.ends} min={new Date().toLocaleDateString('sv-SE', LAGOS_TIME)} onChange={(e) => setForm({ ...form, ends: e.target.value })} className="w-full mt-1.5 rounded-xl px-3.5 py-2.5 text-[14px] outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} />
               </label>
               <div className="rounded-xl p-3.5" style={{ background: C.sageSoft, border: `1px solid rgba(31,217,196,0.25)` }}>
                 <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: C.sage }}>In plain words{form.code ? `: ${form.code}` : ''}</div>
@@ -17879,11 +17993,11 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
               <div className="grid gap-2" style={{ gridTemplateColumns: form.id ? 'minmax(0,1fr) minmax(0,1fr) minmax(0,2fr)' : 'minmax(0,1fr) minmax(0,2fr)' }}>
                 {form.id && <button onClick={() => { const d = codes.find((x) => x.id === form.id); setForm(null); if (d) deleteCode(d); }} className="h-11 rounded-xl text-[13px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.rust }}>Delete</button>}
                 <button onClick={() => setForm(null)} className="h-11 rounded-xl text-[13px] font-semibold" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>Cancel</button>
-                <button onClick={saveCode} disabled={form.busy} className="h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copper, color: C.bg, opacity: form.busy ? 0.6 : 1 }}>{form.busy ? 'Saving…' : form.id ? 'Save changes' : 'Create code'}</button>
+                <button onClick={saveCode} disabled={form.busy} className="h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, opacity: form.busy ? 0.6 : 1 }}>{form.busy ? 'Saving…' : form.id ? 'Save changes' : 'Create code'}</button>
               </div>
             </div>
           )}
-          {isOwner && !form && <button onClick={() => openForm(null)} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copper, color: C.bg }}><Plus size={17} /> New discount code</button>}
+          {isOwner && !form && <button onClick={() => openForm(null)} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-[14px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={17} /> New discount code</button>}
           {!isOwner && <div className="text-[12px] text-center" style={{ color: C.inkFaint }}>Only the owner can create or change codes.</div>}
         </>
       )}
@@ -17896,7 +18010,7 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
           {previewBox('1240 / 1754', 340)}
           <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
             <button onClick={() => savePng(`${promoSlug(settings.businessName)}-poster.png`)} disabled={preview.busy} className={btn} style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Save image</button>
-            <button onClick={posterPdf} disabled={preview.busy || working === 'pdf'} className={btn} style={{ background: C.copper, color: C.bg, opacity: preview.busy ? 0.6 : 1 }}>{working === 'pdf' ? 'Preparing…' : 'Download A4 PDF'}</button>
+            <button onClick={posterPdf} disabled={preview.busy || working === 'pdf'} className={btn} style={{ background: C.copperFill, color: C.onAccent, opacity: preview.busy ? 0.6 : 1 }}>{working === 'pdf' ? 'Preparing…' : 'Download A4 PDF'}</button>
           </div>
           <div className="text-[11.5px] text-center" style={{ color: C.inkFaint }}>Your name, tagline and logo come from Settings. Any print shop can print the PDF.</div>
         </>
@@ -17924,7 +18038,7 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
                 <>
                   <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
                     <button onClick={() => savePng(`${promoSlug(settings.businessName)}-${tpl}.png`)} disabled={preview.busy} className={btn} style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Save image</button>
-                    <button onClick={shareCard} disabled={preview.busy || working === 'share'} className={btn} style={{ background: C.copper, color: C.bg, opacity: preview.busy ? 0.6 : 1 }}><Share size={15} /> {working === 'share' ? 'Opening…' : 'Share'}</button>
+                    <button onClick={shareCard} disabled={preview.busy || working === 'share'} className={btn} style={{ background: C.copperFill, color: C.onAccent, opacity: preview.busy ? 0.6 : 1 }}><Share size={15} /> {working === 'share' ? 'Opening…' : 'Share'}</button>
                   </div>
                   <div className="text-[11.5px] text-center leading-relaxed" style={{ color: C.inkFaint }}>Tap Share, pick WhatsApp, then My status.</div>
                 </>
@@ -17932,7 +18046,7 @@ function PromotePage({ settings, products, codes, token, reload, storeLink, word
                 <>
                   <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)' }}>
                     <button onClick={() => savePng(`${promoSlug(settings.businessName)}-${tpl}.png`)} disabled={preview.busy} className={btn} style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink }}><Download size={15} /> Save image</button>
-                    <button onClick={copyPicture} disabled={preview.busy} className={btn} style={{ background: working === 'copied' ? C.sage : C.copper, color: C.bg, opacity: preview.busy ? 0.6 : 1 }}>{working === 'copied' ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy picture</>}</button>
+                    <button onClick={copyPicture} disabled={preview.busy} className={btn} style={{ background: working === 'copied' ? C.sageFill : C.copperFill, color: C.onAccent, opacity: preview.busy ? 0.6 : 1 }}>{working === 'copied' ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy picture</>}</button>
                   </div>
                   <a href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noopener noreferrer" className={`${btn} w-full`} style={{ border: `1px solid ${C.line}`, color: C.ink }}><Send size={15} /> Send the link on WhatsApp</a>
                   <div className="rounded-xl px-3.5 py-3 text-[12px] leading-relaxed" style={{ background: C.surfaceRaised, color: C.inkDim }}>
@@ -18194,7 +18308,7 @@ function BrandDialogHost() {
     <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-5" style={{ background: P.back }} onClick={() => close(d.kind === 'confirm' ? false : true)}>
       <div role="alertdialog" aria-modal="true" aria-label={title || 'Message'} className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-5 pb-6 xorla-fade-up" style={{ background: P.bg, border: `1px solid ${P.line}`, color: P.ink, fontFamily: 'Inter, sans-serif' }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3.5">
-          <span className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `${iconTone}22` }}><Icon size={18} style={{ color: iconTone }} /></span>
+          <span className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: tint(iconTone, 0.13) }}><Icon size={18} style={{ color: iconTone }} /></span>
           <div className="min-w-0 pt-0.5">
             {title && <div className="text-[16px] font-semibold leading-snug mb-1">{title}</div>}
             <div className="text-[13.5px] leading-relaxed whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: title ? P.dim : P.ink, overflowWrap: 'anywhere' }}>{body}</div>
@@ -18237,7 +18351,7 @@ function PayoutSetup({ payout, callBilling, onSaved, forOrders = false }) {
   };
   const field = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink };
   return (
-    <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(160deg, rgba(31,217,196,0.10), rgba(255,255,255,0.015))', border: `1px solid ${payout ? 'rgba(31,217,196,0.35)' : C.line}` }}>
+    <div className="rounded-[20px] p-4" style={{ background: 'linear-gradient(160deg, rgba(31,217,196,0.10), rgba(var(--c-hi),0.015))', border: `1px solid ${payout ? 'rgba(31,217,196,0.35)' : C.line}` }}>
       <div className="flex items-start gap-3">
         <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><CreditCard size={18} style={{ color: C.sage }} /></span>
         <div className="flex-1 min-w-0">
@@ -18246,7 +18360,7 @@ function PayoutSetup({ payout, callBilling, onSaved, forOrders = false }) {
         </div>
       </div>
       {payout && !editing && (
-        <div className="mt-3 rounded-xl px-3.5 py-3 flex items-center gap-3" style={{ background: 'rgba(0,0,0,0.22)' }}>
+        <div className="mt-3 rounded-xl px-3.5 py-3 flex items-center gap-3" style={{ background: 'rgba(var(--c-lo),calc(0.22 * var(--c-lok)))' }}>
           <span className="flex-1 min-w-0 text-[12.5px]" style={{ color: C.inkDim }}>Paid into <strong style={{ color: C.ink }}>{payout.bank}</strong> · <span className="cx-mono" style={{ color: C.ink }}>{payout.number}</span><span className="block truncate">{payout.name}</span></span>
           <button type="button" onClick={() => setEditing(true)} className="shrink-0 text-[12.5px] font-semibold" style={{ color: C.copper }}>Change</button>
         </div>
@@ -18284,7 +18398,7 @@ function PayoutSetup({ payout, callBilling, onSaved, forOrders = false }) {
           {f.error && <div className="text-[12px]" style={{ color: C.rust }}>{f.error}</div>}
           <div className="flex gap-2 pt-1">
             {payout && <button type="button" onClick={() => setEditing(false)} className="px-4 h-11 rounded-xl text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Cancel</button>}
-            <button type="button" onClick={connect} disabled={!f.name || f.busy} className="flex-1 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.sage, color: C.bg, opacity: !f.name || f.busy ? 0.45 : 1 }}>{f.busy && f.name ? 'Connecting…' : payout ? 'Save new account' : forOrders ? 'Turn on online payments' : 'Turn on online deposits'}</button>
+            <button type="button" onClick={connect} disabled={!f.name || f.busy} className="flex-1 h-11 rounded-xl text-[13.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: !f.name || f.busy ? 0.45 : 1 }}>{f.busy && f.name ? 'Connecting…' : payout ? 'Save new account' : forOrders ? 'Turn on online payments' : 'Turn on online deposits'}</button>
           </div>
           <div className="text-[11px] leading-relaxed" style={{ color: C.inkFaint }}>The name must match your business or your own name. Xorla never holds your money: Paystack pays it straight to this account.</div>
         </div>
@@ -19773,7 +19887,7 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
               <div className="text-[15px] font-semibold">{r.guarantor_name || '—'}</div>
               <div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>{r.guarantor_relationship}{r.guarantor_address ? ` · ${r.guarantor_address}` : ''}</div>
               {r.guarantor_phone && <div className="flex gap-2 mt-3">
-                <a href={`tel:${r.guarantor_phone}`} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sage, color: C.bg }}><Phone size={14} /> Call {formatPhoneDisplay(r.guarantor_phone)}</a>
+                <a href={`tel:${r.guarantor_phone}`} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.sageFill, color: C.onAccent }}><Phone size={14} /> Call {formatPhoneDisplay(r.guarantor_phone)}</a>
                 <a href={`https://wa.me/${toWhatsAppNumber(r.guarantor_phone)}?text=${encodeURIComponent(`Hello ${String(r.guarantor_name || '').split(' ')[0]}, this is the Xorla team. ${r.full_name} has applied to deliver for businesses with Xorla, and named you as their guarantor. Do you know them, and do you agree to stand for them?`)}`} target="_blank" rel="noopener noreferrer" className="h-10 px-3.5 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.sage, border: '1px solid rgba(31,217,196,0.35)' }}><MessageCircle size={14} /> WhatsApp</a>
               </div>}
             </div>
@@ -19796,14 +19910,14 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
               <div className="space-y-2">
                 {RIDER_CHECKS.map(([k, t, d]) => { const on = !!checks[k]; return (
                   <button key={k} type="button" disabled={!['submitted'].includes(r.status)} onClick={() => tick(k, !on)} className="w-full flex items-start gap-3 rounded-xl px-3 py-2.5 text-left" style={{ background: on ? C.sageSoft : C.surfaceRaised, border: `1px solid ${on ? 'rgba(31,217,196,0.35)' : C.line}` }}>
-                    <span className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5" style={{ background: on ? C.sage : 'transparent', border: `1.5px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.bg }} />}</span>
+                    <span className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5" style={{ background: on ? C.sageFill : 'transparent', border: `1.5px solid ${on ? C.sage : C.inkFaint}` }}>{on && <Check size={13} style={{ color: C.onAccent }} />}</span>
                     <span><span className="block text-[13.5px] font-semibold">{t}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{d}</span></span>
                   </button>
                 ); })}
               </div>
               {canDecide && !act.mode && (
                 <div className="mt-4 space-y-2">
-                  <button onClick={() => decide('approve')} disabled={!allChecked || act.busy} className="w-full h-11 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: allChecked ? C.sage : 'rgba(31,217,196,0.2)', color: allChecked ? C.bg : C.inkFaint }}><BadgeCheck size={16} /> Approve {String(r.full_name || '').split(' ')[0]}</button>
+                  <button onClick={() => decide('approve')} disabled={!allChecked || act.busy} className="w-full h-11 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: allChecked ? C.sageFill : 'rgba(31,217,196,0.2)', color: allChecked ? C.onAccent : C.inkFaint }}><BadgeCheck size={16} /> Approve {String(r.full_name || '').split(' ')[0]}</button>
                   <div className="grid grid-cols-2 gap-2">
                     <button onClick={() => setAct({ mode: 'fix', note: '', busy: false, error: '' })} className="h-10 rounded-xl text-[13px] font-semibold" style={{ color: C.copper, border: `1px solid ${C.line}` }}>Ask for a fix</button>
                     <button onClick={() => setAct({ mode: 'reject', note: '', busy: false, error: '' })} className="h-10 rounded-xl text-[13px] font-semibold" style={{ color: C.rust, border: `1px solid ${C.line}` }}>Turn down</button>
@@ -19811,7 +19925,7 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
                 </div>
               )}
               {r.status === 'approved' && !act.mode && <button onClick={() => setAct({ mode: 'suspend', note: '', busy: false, error: '' })} className="mt-4 w-full h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.rust, border: `1px solid ${C.line}` }}><Lock size={14} /> Pause this rider</button>}
-              {r.status === 'suspended' && isFounder && !act.mode && <button onClick={() => decide('reinstate')} className="mt-4 w-full h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sage, color: C.bg }}>Make active again</button>}
+              {r.status === 'suspended' && isFounder && !act.mode && <button onClick={() => decide('reinstate')} className="mt-4 w-full h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>Make active again</button>}
               {act.mode && (
                 <div className="mt-4">
                   <div className="text-[13px] font-semibold mb-1.5">{act.mode === 'fix' ? 'What do they need to fix?' : act.mode === 'reject' ? 'Why are you turning them down?' : 'Why are you pausing them?'}</div>
@@ -19820,7 +19934,7 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
                   {act.error && <div className="mt-2 rounded-xl px-3 py-2 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{act.error}</div>}
                   <div className="grid grid-cols-2 gap-2 mt-2">
                     <button onClick={() => setAct({ mode: '', note: '', busy: false, error: '' })} className="h-10 rounded-xl text-[13px] font-semibold" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}>Back</button>
-                    <button onClick={() => decide(act.mode)} disabled={act.busy} className="h-10 rounded-xl text-[13px] font-bold" style={{ background: act.mode === 'fix' ? C.copper : C.rust, color: act.mode === 'fix' ? C.bg : '#fff', opacity: act.busy ? 0.6 : 1 }}>{act.busy ? 'Saving…' : act.mode === 'fix' ? 'Send back' : act.mode === 'reject' ? 'Turn down' : 'Pause'}</button>
+                    <button onClick={() => decide(act.mode)} disabled={act.busy} className="h-10 rounded-xl text-[13px] font-bold" style={{ background: act.mode === 'fix' ? C.copperFill : C.rustFill, color: act.mode === 'fix' ? C.onAccent : '#fff', opacity: act.busy ? 0.6 : 1 }}>{act.busy ? 'Saving…' : act.mode === 'fix' ? 'Send back' : act.mode === 'reject' ? 'Turn down' : 'Pause'}</button>
                   </div>
                 </div>
               )}
@@ -19832,7 +19946,7 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
               <ol className="space-y-2.5">
                 {(r.history || []).slice().reverse().map((h, i) => (
                   <li key={i} className="flex gap-2.5 text-[12.5px]">
-                    <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: h.by_team ? C.copper : C.sage }} />
+                    <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: h.by_team ? C.copperFill : C.sageFill }} />
                     <span className="min-w-0"><span className="font-semibold">{{ started: 'Started applying', submitted: 'Sent the application', resubmitted: 'Fixed it and sent it again', approve: 'Approved', fix: 'Sent back for a fix', reject: 'Turned down', suspend: 'Paused', reinstate: 'Made active again' }[h.action] || h.action}</span>{h.by_team && h.by_name ? <span style={{ color: C.inkFaint }}> · {h.by_name}</span> : null}
                       <span className="block" style={{ color: C.inkFaint }}>{new Date(h.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                       {h.note && <span className="block mt-0.5" style={{ color: C.inkDim }}>"{h.note}"</span>}</span>
@@ -19861,7 +19975,7 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
       </div>
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-          {tabs.map(([k, l, n]) => <button key={k} onClick={() => setTab(k)} className="shrink-0 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={tab === k ? { background: C.copper, color: C.bg } : { color: C.inkDim }}>{l}{n ? ` ${n}` : ''}</button>)}
+          {tabs.map(([k, l, n]) => <button key={k} onClick={() => setTab(k)} className="shrink-0 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold whitespace-nowrap" style={tab === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}{n ? ` ${n}` : ''}</button>)}
         </div>
         <div className="relative flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, phone or area" className="w-full rounded-xl pl-9 pr-3 py-2.5 text-[13.5px] outline-none" style={field} /></div>
       </div>
