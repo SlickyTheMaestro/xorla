@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
+import { Plus, Sun, Moon, MousePointerClick, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -19854,53 +19854,69 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
 
 // ============ The Xorla home page (what new visitors see at xorla.vercel.app) ============
 // Logged-in owners and staff never see it: they go straight to their dashboard.
-const LP = {
-  forest: '#0B3B33', ink: '#0B2B26', inkDim: '#4A5E59', inkFaint: '#7F918C', white: '#FFFFFF', mint: '#E3F4EF', mintDeep: '#CBEBE2',
-  teal: '#1FD9C4', tealDeep: '#0E9F8E', amber: '#FFB020', coral: '#F4845F', paper: '#FFFDF6', line: 'rgba(11,43,38,0.10)', wash: '#F6F8F7',
+// Light and dark: follows the phone's setting until the visitor picks one. Colours are CSS variables, so one switch re-colours everything.
+const LP_THEMES = {
+  light: { bg: '#FFFFFF', bg2: '#F4F8F6', card: '#FFFFFF', tint: '#E3F4EF', deep: '#0B3B33', ink: '#0B2B26', dim: '#4A5E59', faint: '#7F918C', line: 'rgba(11,43,38,0.10)', btn: '#0B3B33', btnInk: '#FFFFFF', accent: '#0E9F8E', nav: 'rgba(255,255,255,0.78)', wa: '#DCF8C6', waInk: '#0B2B26', dots: 'rgba(11,43,38,0.09)', shadow: 'rgba(11,43,38,0.45)', glow: 'rgba(31,217,196,0)' },
+  dark: { bg: '#071A17', bg2: '#0B221E', card: '#0F2925', tint: '#12352F', deep: '#0F3A33', ink: '#EAF6F2', dim: '#A6C0BA', faint: '#6E8B85', line: 'rgba(255,255,255,0.09)', btn: '#1FD9C4', btnInk: '#062520', accent: '#1FD9C4', nav: 'rgba(7,26,23,0.72)', wa: '#005C4B', waInk: '#E9FFF6', dots: 'rgba(255,255,255,0.06)', shadow: 'rgba(0,0,0,0.75)', glow: 'rgba(31,217,196,0.22)' },
 };
-const LP_DISPLAY = "'Bricolage Grotesque', 'Inter', system-ui, sans-serif";
-const LP_BODY = "'Inter', system-ui, sans-serif";
+const LP = Object.fromEntries(Object.keys(LP_THEMES.light).map((k) => [k, `var(--lp-${k})`]));
+Object.assign(LP, { amber: '#FFB020', teal: '#1FD9C4', coral: '#F4845F', paper: '#FFFDF6', forest: '#0B3B33', inkFixed: '#0B2B26' });
+const LP_DISPLAY = "'Unbounded', 'Inter', system-ui, sans-serif";
+const LP_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
 const LP_MONO = "'IBM Plex Mono', ui-monospace, Menlo, monospace";
 
-// The receipt that prints a day's business (the hero's one moving moment)
-const LP_RECEIPT = [
-  ['Indomie Super Pack ×2', 1900],
-  ['Peak Milk tin ×3', 1950],
-  ['Hair braiding (Ada)', 15000],
-  ['Room 204, 2 nights', 70000],
-  ['Delivery to Aba Road', 1500],
-];
+// Numbers that count up when they come into view (or when they change)
+function LpCount({ value, prefix = '₦', ms = 900 }) {
+  const ref = useRef(null);
+  const [shown, setShown] = useState(0);
+  const [seen, setSeen] = useState(false);
+  const from = useRef(0);
+  useEffect(() => {
+    const el = ref.current; if (!el) return undefined;
+    if (!('IntersectionObserver' in window)) { setSeen(true); return undefined; }
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setSeen(true); io.disconnect(); } }, { threshold: 0.4 });
+    io.observe(el); return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!seen) return undefined;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { setShown(value); from.current = value; return undefined; }
+    const a = from.current, t0 = performance.now(); let raf;
+    const step = (t) => { const k = Math.min(1, (t - t0) / ms); const e = 1 - Math.pow(1 - k, 3); setShown(Math.round(a + (value - a) * e)); if (k < 1) raf = requestAnimationFrame(step); else from.current = value; };
+    raf = requestAnimationFrame(step); return () => cancelAnimationFrame(raf);
+  }, [value, seen]);
+  return <span ref={ref} style={{ fontVariantNumeric: 'tabular-nums' }}>{prefix}{shown.toLocaleString('en-NG')}</span>;
+}
+
+const LP_RECEIPT = [['Indomie Super Pack ×2', 1900], ['Peak Milk tin ×3', 1950], ['Hair braiding (Ada)', 15000], ['Room 204, 2 nights', 70000], ['Delivery to Aba Road', 1500]];
 function LandingReceipt({ still }) {
   const total = LP_RECEIPT.reduce((a, [, v]) => a + v, 0);
   return (
-    <div className={`lp-receipt ${still ? 'lp-still' : ''}`} style={{ fontFamily: LP_MONO }} aria-label={`A receipt for today: ${LP_RECEIPT.length} sales, total ${fmt(total)}, profit ${fmt(42500)}`}>
+    <div className={`lp-receipt ${still ? 'lp-still' : ''}`} style={{ fontFamily: LP_MONO }} aria-label={`A receipt for today: total ${fmt(total)}, profit ${fmt(42500)}`}>
       <div className="text-center">
         <div className="text-[13px] font-semibold tracking-wide">AMAKA STORES</div>
-        <div className="text-[10.5px]" style={{ color: LP.inkFaint }}>Ikot Ekpene Road, Umuahia</div>
+        <div className="text-[10.5px]" style={{ color: '#7F918C' }}>Ikot Ekpene Road, Umuahia</div>
         <div className="lp-dash my-2.5" />
       </div>
       {LP_RECEIPT.map(([d, v], i) => (
-        <div key={d} className="lp-line flex justify-between gap-3 text-[11.5px] leading-[1.9]" style={{ animationDelay: `${0.5 + i * 0.32}s` }}>
-          <span className="truncate">{d}</span><span className="shrink-0">{fmt(v)}</span>
-        </div>
+        <div key={d} className="lp-line flex justify-between gap-3 text-[11.5px] leading-[1.9]" style={{ animationDelay: `${0.6 + i * 0.3}s` }}><span className="truncate">{d}</span><span className="shrink-0">{fmt(v)}</span></div>
       ))}
-      <div className="lp-line lp-dash my-2" style={{ animationDelay: `${0.5 + LP_RECEIPT.length * 0.32}s` }} />
-      <div className="lp-line flex justify-between text-[12.5px] font-semibold" style={{ animationDelay: `${0.62 + LP_RECEIPT.length * 0.32}s` }}><span>Sales today</span><span>{fmt(total)}</span></div>
-      <div className="lp-stamp mt-3 rounded-lg px-3 py-2 text-center" style={{ animationDelay: `${0.95 + LP_RECEIPT.length * 0.32}s` }}>
+      <div className="lp-line lp-dash my-2" style={{ animationDelay: `${0.6 + LP_RECEIPT.length * 0.3}s` }} />
+      <div className="lp-line flex justify-between text-[12.5px] font-semibold" style={{ animationDelay: `${0.72 + LP_RECEIPT.length * 0.3}s` }}><span>Sales today</span><span>{fmt(total)}</span></div>
+      <div className="lp-stamp mt-3 rounded-lg px-3 py-2 text-center" style={{ animationDelay: `${1.05 + LP_RECEIPT.length * 0.3}s` }}>
         <div className="text-[10px]">PROFIT TODAY</div>
         <div className="text-[19px] font-semibold leading-tight">{fmt(42500)}</div>
       </div>
-      <div className="text-center text-[10px] mt-2.5" style={{ color: LP.inkFaint }}>Recorded on Xorla</div>
+      <div className="text-center text-[10px] mt-2.5" style={{ color: '#7F918C' }}>Recorded on Xorla</div>
     </div>
   );
 }
 
-// A phone showing the real Xorla dashboard (drawn in HTML, so it stays sharp and true to the app)
 function LandingPhone() {
   const bars = [38, 52, 44, 68, 58, 80, 92];
   return (
     <div className="lp-phone" aria-hidden>
-      <div className="lp-phone-screen" style={{ fontFamily: LP_BODY }}>
+      <div className="lp-phone-screen" style={{ fontFamily: "'Inter', sans-serif" }}>
         <div className="flex items-center justify-between px-4 pt-5">
           <div className="flex items-center gap-1.5"><XorlaMark size={16} /><span className="text-[11px] font-bold text-white">Xorla</span></div>
           <span className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: 'rgba(255,255,255,0.08)', color: '#EAF6F2' }}>AO</span>
@@ -19910,7 +19926,7 @@ function LandingPhone() {
           <div className="text-[9.5px]" style={{ color: '#93B0AA' }}>Profit today</div>
           <div className="text-[22px] font-bold leading-tight" style={{ color: '#1FD9C4' }}>{fmt(42500)}</div>
           <div className="text-[9px] mt-0.5" style={{ color: '#93B0AA' }}>Up {fmt(6100)} on yesterday</div>
-          <div className="flex items-end gap-1 h-12 mt-2.5">{bars.map((h, i) => <span key={i} className="flex-1 rounded-sm" style={{ height: `${h}%`, background: i === bars.length - 1 ? '#FFB020' : 'rgba(31,217,196,0.35)' }} />)}</div>
+          <div className="flex items-end gap-1 h-12 mt-2.5">{bars.map((h, i) => <span key={i} className="lp-bar flex-1 rounded-sm" style={{ height: `${h}%`, background: i === bars.length - 1 ? '#FFB020' : 'rgba(31,217,196,0.35)', animationDelay: `${0.3 + i * 0.08}s` }} />)}</div>
         </div>
         <div className="grid grid-cols-2 gap-2 mx-3 mt-2">
           <div className="rounded-xl p-2.5" style={{ background: '#13322C' }}><div className="text-[8.5px]" style={{ color: '#93B0AA' }}>Owed to you</div><div className="text-[12px] font-bold text-white">{fmt(18200)}</div></div>
@@ -19932,26 +19948,80 @@ function LandingPhone() {
   );
 }
 
+// Try it: tap products to record sales, and watch the day add up (nothing is saved; it's a demo)
+const LP_DEMO = [['Indomie', 950, 720, '🍜'], ['Peak Milk', 650, 520, '🥛'], ['Coke 50cl', 400, 300, '🥤'], ['Bread', 1200, 950, '🍞'], ['Eggs, crate', 4800, 4200, '🥚'], ['Sugar 1kg', 1500, 1180, '🧂']];
+function LandingDemo() {
+  const [sales, setSales] = useState([]);
+  const [receipt, setReceipt] = useState(false);
+  const total = sales.reduce((a, s) => a + s.price, 0);
+  const profit = sales.reduce((a, s) => a + s.price - s.cost, 0);
+  const add = ([name, price, cost, icon]) => { setReceipt(false); setSales((x) => [{ id: Date.now() + Math.random(), name, price, cost, icon }, ...x].slice(0, 30)); };
+  return (
+    <div className="grid lg:grid-cols-[1fr_1fr] gap-4 items-stretch">
+      <div className="rounded-[28px] p-5 sm:p-6" style={{ background: LP.card, border: `1px solid ${LP.line}` }}>
+        <div className="flex items-center justify-between"><span className="text-[15px] font-bold">Tap what you sold</span><span className="text-[12.5px]" style={{ color: LP.faint }}>Price is filled in</span></div>
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          {LP_DEMO.map((p) => (
+            <button key={p[0]} onClick={() => add(p)} className="lp-focus lp-press rounded-2xl p-3.5 text-left" style={{ background: LP.bg2, border: `1px solid ${LP.line}` }}>
+              <span className="text-[24px] leading-none" aria-hidden>{p[3]}</span>
+              <span className="block mt-2 text-[14px] font-semibold">{p[0]}</span>
+              <span className="block text-[13px]" style={{ color: LP.dim }}>{fmt(p[1])}</span>
+            </button>
+          ))}
+        </div>
+        {/* Phones: see the totals change right under your thumb */}
+        <div className="lg:hidden mt-3 grid grid-cols-2 gap-2" aria-live="polite">
+          <div className="rounded-xl px-3.5 py-2.5" style={{ background: LP.bg2 }}><div className="text-[11.5px]" style={{ color: LP.faint }}>Sales today</div><div className="text-[18px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}><LpCount value={total} ms={400} /></div></div>
+          <div className="rounded-xl px-3.5 py-2.5" style={{ background: LP.tint }}><div className="text-[11.5px]" style={{ color: LP.faint }}>Profit today</div><div className="text-[18px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em', color: LP.accent }}><LpCount value={profit} ms={400} /></div></div>
+        </div>
+        <p className="mt-4 text-[13px]" style={{ color: LP.faint }}>This is a demo. Nothing you tap here is saved.</p>
+      </div>
+      <div className="rounded-[28px] p-5 sm:p-6 flex flex-col" style={{ background: '#0A1F1C', color: '#EAF6F2', minHeight: 360, border: `1px solid ${LP.line}` }}>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-2xl p-4" style={{ background: '#13322C' }}><div className="text-[12px]" style={{ color: '#93B0AA' }}>Sales today</div><div className="text-[26px] font-bold mt-0.5" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}><LpCount value={total} ms={450} /></div></div>
+          <div className="rounded-2xl p-4" style={{ background: 'rgba(31,217,196,0.12)', border: '1px solid rgba(31,217,196,0.3)' }}><div className="text-[12px]" style={{ color: '#93B0AA' }}>Profit today</div><div className="text-[26px] font-bold mt-0.5" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em', color: '#1FD9C4' }}><LpCount value={profit} ms={450} /></div></div>
+        </div>
+        <div className="mt-3 flex-1 rounded-2xl overflow-hidden" style={{ background: '#13322C' }}>
+          {sales.length === 0 ? (
+            <div className="h-full min-h-[160px] flex flex-col items-center justify-center text-center px-6 gap-2" style={{ color: '#93B0AA' }}><MousePointerClick size={22} /><span className="text-[14px]">Tap a product to record your first sale</span></div>
+          ) : (
+            <div className="max-h-[210px] overflow-y-auto">
+              {sales.map((s, i) => (
+                <div key={s.id} className={`flex items-center justify-between px-4 py-2.5 text-[14px] ${i === 0 ? 'lp-new' : ''}`} style={{ borderTop: i ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+                  <span className="flex items-center gap-2.5"><span aria-hidden>{s.icon}</span>{s.name}</span><span className="font-semibold">{fmt(s.price)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {receipt && sales.length > 0 && (
+          <div className="lp-new mt-3 rounded-2xl rounded-tl-md px-4 py-3 text-[13px] leading-relaxed" style={{ background: '#005C4B', color: '#E9FFF6' }}>
+            Thank you for shopping at Amaka Stores! {sales.length} item{sales.length !== 1 ? 's' : ''}, total {fmt(total)}. See you again soon.
+          </div>
+        )}
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button onClick={() => setReceipt(true)} disabled={!sales.length} className="lp-focus h-11 rounded-full text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: sales.length ? '#25D366' : 'rgba(255,255,255,0.08)', color: sales.length ? '#062520' : '#6E8B85' }}><MessageCircle size={16} /> Send receipt</button>
+          <button onClick={() => { setSales([]); setReceipt(false); }} disabled={!sales.length} className="lp-focus h-11 rounded-full text-[14px] font-semibold" style={{ color: sales.length ? '#EAF6F2' : '#6E8B85', boxShadow: 'inset 0 0 0 1.5px rgba(255,255,255,0.14)' }}>Start again</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const LP_KINDS = [
   [ShoppingBasket, 'Provision stores'], [Shirt, 'Boutiques'], [Pill, 'Pharmacies'], [Scissors, 'Salons and barbers'], [UtensilsCrossed, 'Restaurants'],
   [Hotel, 'Hotels and shortlets'], [PartyPopper, 'Event halls'], [Car, 'Car rentals'], [Wrench, 'Repairs and services'], [Boxes, 'Wholesalers'],
 ];
 const LP_TYPES = {
-  shops: {
-    label: 'Shops', title: 'For shops and stores',
+  shops: { label: 'Shops', title: 'For shops and stores',
     points: ['Record a sale in seconds, with the price filled in', 'Stock goes down by itself, and you get warned before you run out', 'Your own online shop link: customers order and pay, you deliver', 'Know who owes you, and send them a reminder on WhatsApp'],
-    screen: { head: 'Today at Amaka Stores', rows: [['Mama Gold Rice 50kg', '₦78,000'], ['Kings Oil 5L ×2', '₦29,000'], ['Indomie (carton)', '₦9,800']], note: 'Indomie: 3 cartons left', noteTone: 'amber' },
-  },
-  services: {
-    label: 'Services', title: 'For salons, repairers and every service',
+    screen: { head: 'Today at Amaka Stores', rows: [['Mama Gold Rice 50kg', '₦78,000'], ['Kings Oil 5L ×2', '₦29,000'], ['Indomie (carton)', '₦9,800']], note: 'Indomie: 3 cartons left', tone: 'amber' } },
+  services: { label: 'Services', title: 'For salons, repairers and every service',
     points: ['Customers book a time on your page, only when you\'re free', 'Customers can choose who they want, and each staff member gets their own login', 'Reminders go out so fewer people forget their appointment', 'See what every service brings in, not just the total'],
-    screen: { head: 'Bookings today', rows: [['10:00 · Braids', 'Ada'], ['12:30 · Haircut', 'Chidi'], ['3:00 · Nails', 'Ada']], note: 'Next: Braids at 10:00', noteTone: 'teal' },
-  },
-  hotels: {
-    label: 'Hotels', title: 'For hotels, shortlets and event halls',
+    screen: { head: 'Bookings today', rows: [['10:00, Braids', 'Ada'], ['12:30, Haircut', 'Chidi'], ['3:00, Nails', 'Ada']], note: 'Next: braids at 10:00', tone: 'teal' } },
+  hotels: { label: 'Hotels', title: 'For hotels, shortlets and event halls',
     points: ['Guests book rooms and pay a deposit online', 'A room board shows who is in, arriving and leaving', 'Extras like water, laundry and airport pickup go on the room bill', 'Check out with one total: the stay and every extra'],
-    screen: { head: 'Rooms tonight', rows: [['Room 101', 'In house'], ['Room 204', 'Arriving 2pm'], ['Room 305', 'Free']], note: '2 of 3 rooms booked', noteTone: 'teal' },
-  },
+    screen: { head: 'Rooms tonight', rows: [['Room 101', 'In house'], ['Room 204', 'Arriving 2pm'], ['Room 305', 'Free']], note: '2 of 3 rooms booked', tone: 'teal' } },
 };
 const LP_FAQ = [
   ['Do I need a computer?', 'No. Xorla works on any smartphone, in the browser. You can also add it to your home screen like an app. If you have a laptop, it works there too.'],
@@ -19963,247 +20033,339 @@ const LP_FAQ = [
 ];
 
 function LandingPage() {
+  const rootRef = useRef(null);
+  const [theme, setTheme] = useState(() => {
+    try { const t = localStorage.getItem('xorla:lp-theme'); if (t === 'light' || t === 'dark') return t; } catch (e) {}
+    try { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) { return 'light'; }
+  });
   const [tab, setTab] = useState('shops');
   const [faq, setFaq] = useState(0);
   const [menu, setMenu] = useState(false);
+  const [yearly, setYearly] = useState(false);
+  const [scrolled, setScrolled] = useState(0);   // 0..1 how far down the page
+  const [pastHero, setPastHero] = useState(false);
   const still = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const flip = () => setTheme((t) => { const n = t === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('xorla:lp-theme', n); } catch (e) {} return n; });
   useEffect(() => {
     document.title = 'Xorla: run your business without wahala';
     if (!document.getElementById('xorla-landing-fonts')) {
       const link = document.createElement('link'); link.id = 'xorla-landing-fonts'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@500;600&display=swap';
+      link.href = 'https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap';
       document.head.appendChild(link);
     }
+    const html = document.documentElement; const prev = html.style.scrollBehavior;
+    if (!still) html.style.scrollBehavior = 'smooth';
+    return () => { html.style.scrollBehavior = prev; };
   }, []);
+  // The browser bar and page background follow the theme
+  useEffect(() => {
+    const m = document.querySelector('meta[name="theme-color"]'); const prev = m && m.getAttribute('content');
+    if (m) m.setAttribute('content', LP_THEMES[theme].bg);
+    document.body.style.background = LP_THEMES[theme].bg;
+    return () => { if (m && prev) m.setAttribute('content', prev); document.body.style.background = ''; };
+  }, [theme]);
+  // Scroll: the progress line, the top bar, and the phone's sticky button
+  useEffect(() => {
+    let raf = 0;
+    const on = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { const h = document.documentElement.scrollHeight - window.innerHeight; setScrolled(h > 0 ? Math.min(1, window.scrollY / h) : 0); setPastHero(window.scrollY > 640); }); };
+    on(); window.addEventListener('scroll', on, { passive: true }); window.addEventListener('resize', on);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('scroll', on); window.removeEventListener('resize', on); };
+  }, []);
+  // Sections glide in as they come into view
+  useEffect(() => {
+    const els = rootRef.current ? [...rootRef.current.querySelectorAll('[data-reveal]')] : [];
+    if (still || !('IntersectionObserver' in window)) { els.forEach((el) => el.classList.add('lp-in')); return undefined; }
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('lp-in'); io.unobserve(e.target); } }), { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    els.forEach((el) => io.observe(el)); return () => io.disconnect();
+  }, []);
+
   const t = LP_TYPES[tab];
   const start = '/login?start=signup';
-  const display = (size, extra = {}) => ({ fontFamily: LP_DISPLAY, fontSize: size, lineHeight: 1.02, letterSpacing: '-0.035em', fontWeight: 800, ...extra });
-  const btnMain = 'inline-flex items-center justify-center gap-2 h-[52px] px-7 rounded-full text-[15.5px] font-semibold transition-transform active:scale-[0.98] focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2';
-  const sectionTitle = (text, sub, dark) => (
-    <div className="max-w-2xl">
-      <h2 style={display('clamp(32px, 4.6vw, 52px)', { color: dark ? '#fff' : LP.ink })}>{text}</h2>
-      {sub && <p className="mt-4 text-[17px] leading-relaxed" style={{ color: dark ? 'rgba(255,255,255,0.72)' : LP.inkDim }}>{sub}</p>}
+  const vars = Object.fromEntries(Object.entries(LP_THEMES[theme]).map(([k, v]) => [`--lp-${k}`, v]));
+  const wrap = 'max-w-[1280px] mx-auto px-5 sm:px-8 lg:px-10';
+  const H = (size, extra = {}) => ({ fontFamily: LP_DISPLAY, fontSize: size, lineHeight: 1.06, letterSpacing: '-0.035em', fontWeight: 700, ...extra });
+  const btn = 'lp-focus lp-press inline-flex items-center justify-center gap-2 h-[52px] px-7 rounded-full text-[15.5px] font-bold';
+  const head = (text, sub, light) => (
+    <div className="max-w-[720px]" data-reveal>
+      <h2 style={H('clamp(28px, 3.6vw, 46px)', { color: light ? '#fff' : LP.ink })}>{text}</h2>
+      {sub && <p className="mt-4 text-[17px] leading-relaxed max-w-[600px]" style={{ color: light ? 'rgba(255,255,255,0.74)' : LP.dim }}>{sub}</p>}
     </div>
   );
-  const tile = (bg, children, cls = '') => <div className={`rounded-[28px] p-6 sm:p-7 overflow-hidden relative ${cls}`} style={{ background: bg }}>{children}</div>;
-  const tileTitle = (a, b, dark, onBright) => <><h3 className="text-[21px] font-bold leading-tight" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.02em', color: dark ? '#fff' : LP.ink }}>{a}</h3><p className="mt-2 text-[14.5px] leading-relaxed max-w-sm" style={{ color: dark ? 'rgba(255,255,255,0.72)' : onBright ? 'rgba(11,43,38,0.82)' : LP.inkDim }}>{b}</p></>;
+  const tile = (bg, children, cls = '', d = 0, extra = {}) => <div data-reveal className={`lp-tile rounded-[28px] p-6 sm:p-7 overflow-hidden relative ${cls}`} style={{ background: bg, '--d': `${d}s`, ...extra }}>{children}</div>;
+  const tt = (a, b, onDark, onBright) => <><h3 className="text-[18px] sm:text-[19px] font-semibold leading-snug" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.02em', color: onDark ? '#fff' : onBright ? LP.inkFixed : LP.ink }}>{a}</h3><p className="mt-2.5 text-[14.5px] leading-relaxed max-w-sm" style={{ color: onDark ? 'rgba(255,255,255,0.74)' : onBright ? 'rgba(11,43,38,0.8)' : LP.dim }}>{b}</p></>;
+  const navLinks = [['#try', 'Try it'], ['#features', 'What it does'], ['#for-you', 'Who it\'s for'], ['#pricing', 'Pricing'], ['/ride', 'Riders']];
+  const themeBtn = (
+    <button onClick={flip} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} className="lp-focus w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: LP.bg2, border: `1px solid ${LP.line}` }}>
+      <span className="lp-spin" key={theme}>{theme === 'dark' ? <Sun size={17} style={{ color: LP.amber }} /> : <Moon size={17} />}</span>
+    </button>
+  );
+  const price = (plan) => (yearly ? PLAN_PRICES[plan].yearly : PLAN_PRICES[plan].monthly);
 
   return (
-    <div style={{ background: LP.white, color: LP.ink, fontFamily: LP_BODY, minHeight: '100vh' }}>
+    <div ref={rootRef} className="lp-root" style={{ ...vars, background: LP.bg, color: LP.ink, fontFamily: LP_BODY, minHeight: '100vh', transition: 'background-color .35s ease, color .35s ease' }}>
       <style>{`
-        .lp-receipt { position: relative; width: 236px; background: ${LP.paper}; color: ${LP.ink}; padding: 18px 18px 26px; border-radius: 6px 6px 0 0;
-          box-shadow: 0 30px 60px -28px rgba(11,43,38,0.45), 0 2px 0 rgba(11,43,38,0.04);
+        .lp-root ::selection { background: #FFB020; color: #0B2B26; }
+        .lp-receipt { position: relative; width: 236px; background: ${LP.paper}; color: #0B2B26; padding: 18px 18px 26px; border-radius: 6px 6px 0 0;
+          box-shadow: 0 30px 60px -28px var(--lp-shadow);
           -webkit-mask: linear-gradient(#000 0 0) top/100% calc(100% - 10px) no-repeat, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom/16px 10px repeat-x;
                   mask: linear-gradient(#000 0 0) top/100% calc(100% - 10px) no-repeat, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom/16px 10px repeat-x; }
         .lp-dash { border-top: 1.5px dashed rgba(11,43,38,0.28); }
         .lp-line { opacity: 0; transform: translateY(-4px); animation: lpPrint .28s ease-out forwards; }
-        .lp-stamp { opacity: 0; transform: scale(1.25) rotate(-6deg); background: ${LP.mint}; color: ${LP.forest}; border: 1.5px solid ${LP.tealDeep}; animation: lpStamp .38s cubic-bezier(.2,1.4,.4,1) forwards; }
+        .lp-stamp { opacity: 0; transform: scale(1.25) rotate(-6deg); background: #E3F4EF; color: #0B3B33; border: 1.5px solid #0E9F8E; animation: lpStamp .38s cubic-bezier(.2,1.4,.4,1) forwards; }
         .lp-still .lp-line, .lp-still .lp-stamp { animation: none; opacity: 1; transform: none; }
         @keyframes lpPrint { to { opacity: 1; transform: none; } }
         @keyframes lpStamp { to { opacity: 1; transform: rotate(-3deg); } }
-        .lp-phone { width: 250px; height: 510px; border-radius: 42px; padding: 10px; background: #0B2B26; box-shadow: 0 50px 90px -40px rgba(11,43,38,0.6), inset 0 0 0 2px rgba(255,255,255,0.08); }
+        .lp-phone { width: 250px; height: 510px; border-radius: 42px; padding: 10px; background: #0B2B26; box-shadow: 0 50px 90px -40px var(--lp-shadow), 0 0 90px -10px var(--lp-glow), inset 0 0 0 2px rgba(255,255,255,0.1); }
         .lp-phone-screen { position: relative; height: 100%; border-radius: 33px; overflow: hidden; background: #0A1F1C; }
-        .lp-bubble { opacity: 0; transform: translateY(8px) scale(.96); animation: lpPop .4s cubic-bezier(.2,1.3,.4,1) forwards; }
-        .lp-still .lp-bubble, .lp-bubble.lp-still { animation: none; opacity: 1; transform: none; }
+        .lp-float { animation: lpFloat 7s ease-in-out infinite; }
+        @keyframes lpFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        .lp-bar { transform-origin: bottom; transform: scaleY(0); animation: lpGrow .7s cubic-bezier(.2,.8,.2,1) forwards; }
+        @keyframes lpGrow { to { transform: scaleY(1); } }
+        .lp-bubble { opacity: 0; transform: translateY(10px) scale(.95); animation: lpPop .45s cubic-bezier(.2,1.3,.4,1) forwards; }
         @keyframes lpPop { to { opacity: 1; transform: none; } }
-        @media (prefers-reduced-motion: reduce) { .lp-line, .lp-stamp, .lp-bubble { animation: none !important; opacity: 1 !important; transform: none !important; } }
-        .lp-focus:focus-visible { outline: 3px solid ${LP.tealDeep}; outline-offset: 3px; }
+        .lp-hero-in > * { opacity: 0; transform: translateY(18px); animation: lpUp .8s cubic-bezier(.2,.7,.2,1) forwards; }
+        .lp-hero-in > *:nth-child(2) { animation-delay: .12s; } .lp-hero-in > *:nth-child(3) { animation-delay: .24s; } .lp-hero-in > *:nth-child(4) { animation-delay: .36s; }
+        @keyframes lpUp { to { opacity: 1; transform: none; } }
+        [data-reveal] { opacity: 0; transform: translateY(26px); transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); transition-delay: var(--d, 0s); }
+        [data-reveal].lp-in { opacity: 1; transform: none; }
+        .lp-tile { transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease; }
+        .lp-tile.lp-in:hover { transform: translateY(-4px); box-shadow: 0 28px 50px -30px var(--lp-shadow); }
+        .lp-press { transition: transform .15s ease, box-shadow .2s ease, background-color .2s ease; }
+        .lp-press:hover { transform: translateY(-1px); } .lp-press:active { transform: scale(.97); }
+        .lp-new { animation: lpNew .45s cubic-bezier(.2,1.2,.4,1); }
+        @keyframes lpNew { from { opacity: 0; transform: translateY(-8px); background: rgba(31,217,196,0.18); } to { opacity: 1; transform: none; } }
+        .lp-marquee { display: flex; width: max-content; animation: lpMarq 42s linear infinite; }
+        .lp-marquee-wrap:hover .lp-marquee { animation-play-state: paused; }
+        @keyframes lpMarq { to { transform: translateX(-50%); } }
+        .lp-orb { animation: lpOrb 18s ease-in-out infinite alternate; }
+        @keyframes lpOrb { from { transform: translate(0,0) scale(1); } to { transform: translate(-40px, 30px) scale(1.06); } }
+        .lp-spin { display: inline-flex; animation: lpSpin .45s cubic-bezier(.2,1.2,.4,1); }
+        @keyframes lpSpin { from { transform: rotate(-90deg) scale(.5); opacity: 0; } }
+        .lp-faq { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .35s ease; }
+        .lp-faq.open { grid-template-rows: 1fr; }
+        .lp-focus:focus-visible { outline: 3px solid ${LP.accent}; outline-offset: 3px; }
+        .lp-bar-r { transform-origin: bottom; transform: scaleY(0); transition: transform .8s cubic-bezier(.2,.8,.2,1) var(--bd, 0s); }
+        .lp-in .lp-bar-r { transform: scaleY(1); }
+        .lp-line-grow { transform-origin: left; transform: scaleX(0); transition: transform 1.2s cubic-bezier(.2,.7,.2,1) .2s; }
+        .lp-in .lp-line-grow { transform: scaleX(1); }
+        @media (prefers-reduced-motion: reduce) {
+          .lp-line, .lp-stamp, .lp-bubble, .lp-bar, .lp-hero-in > *, [data-reveal], .lp-new, .lp-spin { animation: none !important; opacity: 1 !important; transform: none !important; transition: none !important; }
+          .lp-float, .lp-marquee, .lp-orb { animation: none !important; }
+          .lp-line-grow, .lp-bar-r { transform: none !important; }
+        }
       `}</style>
 
-      {/* Top bar */}
-      <header className="sticky top-0 z-40" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'saturate(1.4) blur(14px)', WebkitBackdropFilter: 'saturate(1.4) blur(14px)', borderBottom: `1px solid ${LP.line}` }}>
-        <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between gap-4">
-          <a href="/" className="lp-focus flex items-center gap-2.5 rounded-lg"><XorlaMark size={28} /><span className="text-[21px] font-extrabold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}>Xorla</span></a>
-          <nav className="hidden md:flex items-center gap-1 text-[14.5px] font-medium">
-            {[['#features', 'What it does'], ['#for-you', 'Who it\'s for'], ['#pricing', 'Pricing'], ['/ride', 'Ride with Xorla']].map(([h, l]) => <a key={h} href={h} className="lp-focus px-3 py-2 rounded-lg" style={{ color: LP.inkDim }}>{l}</a>)}
+      {/* How far down the page you are */}
+      <div aria-hidden className="fixed top-0 left-0 right-0 h-[3px] z-50 origin-left" style={{ background: `linear-gradient(90deg, ${LP.teal}, ${LP.amber})`, transform: `scaleX(${scrolled})` }} />
+
+      <header className="sticky top-0 z-40 transition-[background-color,box-shadow] duration-300" style={{ background: scrolled > 0.005 ? LP.nav : 'transparent', backdropFilter: 'saturate(1.4) blur(14px)', WebkitBackdropFilter: 'saturate(1.4) blur(14px)', boxShadow: scrolled > 0.005 ? `0 1px 0 ${LP.line}` : 'none' }}>
+        <div className={`${wrap} h-16 flex items-center justify-between gap-4`}>
+          <a href="/" className="lp-focus flex items-center gap-2.5 rounded-lg"><XorlaMark size={28} /><span className="text-[19px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}>Xorla</span></a>
+          <nav className="hidden lg:flex items-center gap-1 text-[14.5px] font-semibold">
+            {navLinks.map(([h, l]) => <a key={h} href={h} className="lp-focus px-3.5 py-2 rounded-full transition-colors hover:bg-[var(--lp-bg2)]" style={{ color: LP.dim }}>{l}</a>)}
           </nav>
-          <div className="flex items-center gap-1.5">
-            <a href="/login" className="lp-focus px-3.5 py-2 rounded-full text-[14.5px] font-semibold" style={{ color: LP.ink }}>Log in</a>
-            <a href={start} className="lp-focus hidden sm:inline-flex px-5 py-2.5 rounded-full text-[14.5px] font-semibold" style={{ background: LP.forest, color: '#fff' }}>Start free</a>
-            <button onClick={() => setMenu((m) => !m)} aria-label="Menu" aria-expanded={menu} className="lp-focus md:hidden w-10 h-10 rounded-full flex items-center justify-center" style={{ background: LP.wash }}>{menu ? <X size={18} /> : <span className="flex flex-col gap-[4px]"><span className="block w-4 h-[2px] rounded" style={{ background: LP.ink }} /><span className="block w-4 h-[2px] rounded" style={{ background: LP.ink }} /></span>}</button>
+          <div className="flex items-center gap-2">
+            {themeBtn}
+            <a href="/login" className="lp-focus hidden sm:inline-flex px-4 py-2 rounded-full text-[14.5px] font-semibold" style={{ color: LP.ink }}>Log in</a>
+            <a href={start} className="lp-focus lp-press hidden sm:inline-flex px-5 py-2.5 rounded-full text-[14.5px] font-bold" style={{ background: LP.btn, color: LP.btnInk }}>Start free</a>
+            <button onClick={() => setMenu((m) => !m)} aria-label="Menu" aria-expanded={menu} className="lp-focus lg:hidden w-10 h-10 rounded-full flex items-center justify-center" style={{ background: LP.bg2, border: `1px solid ${LP.line}` }}>{menu ? <X size={18} /> : <span className="flex flex-col gap-[4px]"><span className="block w-4 h-[2px] rounded" style={{ background: LP.ink }} /><span className="block w-4 h-[2px] rounded" style={{ background: LP.ink }} /></span>}</button>
           </div>
         </div>
         {menu && (
-          <div className="md:hidden px-5 pb-4 flex flex-col">
-            {[['#features', 'What it does'], ['#for-you', 'Who it\'s for'], ['#pricing', 'Pricing'], ['/ride', 'Ride with Xorla']].map(([h, l]) => <a key={h} href={h} onClick={() => setMenu(false)} className="py-3 text-[16px] font-medium" style={{ borderBottom: `1px solid ${LP.line}` }}>{l}</a>)}
-            <a href={start} className={`${btnMain} mt-4`} style={{ background: LP.forest, color: '#fff' }}>Start free</a>
+          <div className={`lg:hidden ${wrap} pb-5 flex flex-col`} style={{ background: LP.bg }}>
+            {navLinks.map(([h, l]) => <a key={h} href={h} onClick={() => setMenu(false)} className="py-3.5 text-[16.5px] font-semibold" style={{ borderBottom: `1px solid ${LP.line}` }}>{l}</a>)}
+            <a href="/login" className="py-3.5 text-[16.5px] font-semibold" style={{ borderBottom: `1px solid ${LP.line}` }}>Log in</a>
+            <a href={start} className={`${btn} mt-4`} style={{ background: LP.btn, color: LP.btnInk }}>Start free</a>
           </div>
         )}
       </header>
 
       <main>
         {/* Hero */}
-        <section className="relative overflow-hidden">
-          <div aria-hidden className="absolute -right-40 -top-24 w-[720px] h-[720px] rounded-full" style={{ background: `radial-gradient(circle at 40% 40%, ${LP.mint} 0%, ${LP.mint} 45%, transparent 46%)` }} />
-          <div className="relative max-w-6xl mx-auto px-5 grid lg:grid-cols-[1.08fr_0.92fr] gap-12 lg:gap-6 items-center pt-12 sm:pt-16 lg:pt-20 pb-16 lg:pb-24">
-            <div>
-              <h1 style={display('clamp(46px, 7.4vw, 88px)', { lineHeight: 0.96, letterSpacing: '-0.045em' })}>Run your business without wahala.</h1>
-              <p className="mt-6 text-[18px] sm:text-[19px] leading-relaxed max-w-[520px]" style={{ color: LP.inkDim }}>Sales, stock, bookings, staff and payments, all on your phone. Xorla does the counting, so you can face your customers.</p>
-              <div className="mt-8 flex flex-col sm:flex-row gap-3">
-                <a href={start} className={`${btnMain} lp-focus`} style={{ background: LP.forest, color: '#fff', boxShadow: '0 14px 30px -14px rgba(11,59,51,0.7)' }}>Start free</a>
-                <a href="#features" className={`${btnMain} lp-focus`} style={{ color: LP.ink, boxShadow: `inset 0 0 0 1.5px ${LP.line}` }}>See what it does</a>
+        <section className="relative overflow-hidden -mt-16 pt-16">
+          <div aria-hidden className="absolute inset-0" style={{ backgroundImage: `radial-gradient(${LP.dots} 1.2px, transparent 1.2px)`, backgroundSize: '22px 22px', WebkitMaskImage: 'radial-gradient(ellipse 70% 60% at 70% 30%, #000 30%, transparent 75%)', maskImage: 'radial-gradient(ellipse 70% 60% at 70% 30%, #000 30%, transparent 75%)' }} />
+          <div aria-hidden className="lp-orb absolute -right-48 -top-40 w-[760px] h-[760px] rounded-full" style={{ background: `radial-gradient(circle at 45% 45%, ${LP.tint} 0%, ${LP.tint} 42%, transparent 64%)` }} />
+          <div className={`relative ${wrap} grid lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-8 items-center pt-8 sm:pt-12 lg:pt-14 pb-14 lg:pb-20`}>
+            <div className="lp-hero-in">
+              <a href="/ride" className="lp-focus inline-flex items-center gap-2 rounded-full pl-1.5 pr-3.5 py-1.5 text-[13px] font-semibold" style={{ background: LP.card, border: `1px solid ${LP.line}`, color: LP.dim }}><span className="px-2 py-0.5 rounded-full text-[11.5px] font-bold" style={{ background: LP.amber, color: LP.inkFixed }}>New</span>Delivery riders can now join Xorla<ChevronRight size={14} /></a>
+              <h1 className="mt-6" style={H('clamp(40px, 6.2vw, 80px)', { lineHeight: 1.0, letterSpacing: '-0.045em' })}>Run your business without wahala.</h1>
+              <p className="mt-6 text-[18px] sm:text-[19px] leading-relaxed max-w-[540px]" style={{ color: LP.dim }}>Sales, stock, bookings, staff and payments, all on your phone. Xorla does the counting, so you can face your customers.</p>
+              <div>
+                <div className="mt-8 flex flex-col sm:flex-row gap-3">
+                  <a href={start} className={btn} style={{ background: LP.btn, color: LP.btnInk, boxShadow: '0 14px 30px -14px rgba(11,59,51,0.7)' }}>Start free</a>
+                  <a href="#try" className={btn} style={{ color: LP.ink, boxShadow: `inset 0 0 0 1.5px ${LP.line}` }}>Try it here first</a>
+                </div>
+                <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[14px] font-medium" style={{ color: LP.dim }}>
+                  {['Free plan for small businesses', '30 days of Pro, free', 'No card needed to start'].map((x) => <li key={x} className="flex items-center gap-2"><Check size={15} strokeWidth={2.8} style={{ color: LP.accent }} />{x}</li>)}
+                </ul>
               </div>
-              <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[14px]" style={{ color: LP.inkDim }}>
-                {['Free plan for small businesses', '30 days of Pro, free', 'No card needed to start'].map((x) => <li key={x} className="flex items-center gap-2"><Check size={15} strokeWidth={2.6} style={{ color: LP.tealDeep }} />{x}</li>)}
-              </ul>
             </div>
-            <div className={`relative h-[540px] sm:h-[560px] ${still ? 'lp-still' : ''}`}>
-              <div className="absolute right-0 sm:right-[4%] lg:right-[2%] top-[18px]"><LandingPhone /></div>
+            <div className={`relative h-[540px] sm:h-[570px] ${still ? 'lp-still' : ''}`}>
+              <div className="absolute right-0 sm:right-[4%] lg:right-[2%] top-[18px]"><div className="lp-float"><LandingPhone /></div></div>
               <div className="absolute left-0 sm:left-[6%] lg:left-[2%] top-[150px] -rotate-[5deg] origin-top z-10"><LandingReceipt still={still} /></div>
-              <div className="lp-bubble absolute left-0 sm:left-[4%] lg:left-0 top-[34px] max-w-[230px] z-20 rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-snug" style={{ background: '#DCF8C6', color: '#0B2B26', boxShadow: '0 16px 30px -18px rgba(11,43,38,0.5)', animationDelay: '3s' }}>
-                <div className="font-semibold">New order from Chidi</div>2 crates of Coke, deliver to Aba Road. <span style={{ color: '#5B7A6E' }}>Paid online</span>
+              <div className="lp-bubble absolute left-0 sm:left-[4%] lg:left-0 top-[34px] max-w-[230px] z-20 rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-snug" style={{ background: LP.wa, color: LP.waInk, boxShadow: `0 16px 30px -18px ${LP.shadow}`, animationDelay: '2.9s' }}>
+                <div className="font-bold">New order from Chidi</div>2 crates of Coke, deliver to Aba Road. <span style={{ opacity: 0.7 }}>Paid online</span>
               </div>
-              <div className="lp-bubble absolute right-0 sm:right-2 bottom-[18px] z-20 flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5" style={{ background: '#fff', boxShadow: '0 18px 36px -20px rgba(11,43,38,0.5)', border: `1px solid ${LP.line}`, animationDelay: '3.5s' }}>
-                <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: LP.amber }}><Bell size={15} style={{ color: LP.ink }} /></span>
-                <span className="text-[12.5px] leading-tight"><span className="block font-semibold">Room 204 booked</span><span style={{ color: LP.inkFaint }}>Deposit of {fmt(35000)} paid</span></span>
+              <div className="lp-bubble absolute right-0 sm:right-2 bottom-[18px] z-20 flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5" style={{ background: LP.card, boxShadow: `0 18px 36px -20px ${LP.shadow}`, border: `1px solid ${LP.line}`, animationDelay: '3.4s' }}>
+                <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: LP.amber }}><Bell size={15} style={{ color: LP.inkFixed }} /></span>
+                <span className="text-[12.5px] leading-tight"><span className="block font-bold">Room 204 booked</span><span style={{ color: LP.faint }}>Deposit of {fmt(35000)} paid</span></span>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Kinds of business */}
-        <section className="py-10" style={{ background: LP.wash, borderTop: `1px solid ${LP.line}`, borderBottom: `1px solid ${LP.line}` }}>
-          <div className="max-w-6xl mx-auto px-5">
-            <p className="text-[16px] font-semibold">Made for the way business works here</p>
-            <div className="mt-4 -mx-5 px-5 sm:mx-0 sm:px-0 flex sm:flex-wrap gap-2.5 overflow-x-auto sm:overflow-visible pb-1" style={{ scrollbarWidth: 'none' }}>
-              {LP_KINDS.map(([Ic, l]) => <span key={l} className="shrink-0 inline-flex items-center gap-2 rounded-full pl-2 pr-4 py-2 text-[14px] font-medium whitespace-nowrap" style={{ background: '#fff', border: `1px solid ${LP.line}` }}><span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: LP.mint }}><Ic size={14} style={{ color: LP.forest }} /></span>{l}</span>)}
-            </div>
+        {/* Every kind of business, moving past */}
+        <section className="py-7 lp-marquee-wrap overflow-hidden" style={{ background: LP.bg2, borderTop: `1px solid ${LP.line}`, borderBottom: `1px solid ${LP.line}` }} aria-label="Made for every kind of business">
+          <div className="lp-marquee gap-3" aria-hidden>
+            {[...LP_KINDS, ...LP_KINDS].map(([Ic, l], i) => <span key={i} className="shrink-0 inline-flex items-center gap-2.5 rounded-full pl-2 pr-5 py-2 mr-3 text-[15px] font-semibold whitespace-nowrap" style={{ background: LP.card, border: `1px solid ${LP.line}` }}><span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: LP.tint }}><Ic size={15} style={{ color: LP.accent }} /></span>{l}</span>)}
           </div>
+          <span className="sr-only">{LP_KINDS.map(([, l]) => l).join(', ')}</span>
+        </section>
+
+        {/* Try it */}
+        <section id="try" className={`${wrap} pt-20 sm:pt-24 scroll-mt-20`}>
+          {head('Record a sale. Right here, right now.', 'Tap a few products the way you would on a busy day. Watch your sales and your profit add up by themselves.')}
+          <div className="mt-10" data-reveal style={{ '--d': '0.1s' }}><LandingDemo /></div>
         </section>
 
         {/* What it does */}
-        <section id="features" className="max-w-6xl mx-auto px-5 pt-24 pb-6 scroll-mt-16">
-          {sectionTitle('Everything a busy owner needs, nothing you don\'t', 'Start with recording sales. Add stock, staff, bookings and online payments when you\'re ready. It all works together.')}
-          <div className="mt-12 grid gap-4 lg:grid-cols-6">
-            {tile(LP.forest, (
+        <section id="features" className={`${wrap} pt-20 sm:pt-28 scroll-mt-20`}>
+          {head('Everything a busy owner needs, nothing you don\'t', 'Start with recording sales. Add stock, staff, bookings and online payments when you\'re ready. It all works together.')}
+          <div className="mt-10 grid gap-4 lg:grid-cols-6">
+            {tile(LP.deep, (
               <div className="grid sm:grid-cols-2 gap-6 items-end">
-                <div>{tileTitle('Know your profit every evening', 'Every sale and expense adds up by itself, so you always know what you made today. On Pro, your weekly summary also comes to you on WhatsApp.', true)}
-                  <div className="mt-6 flex items-end gap-2 h-24" aria-hidden>
+                <div>{tt('Know your profit every evening', 'Every sale and expense adds up by itself, so you always know what you made today. On Pro, your weekly summary also comes to you on WhatsApp.', true)}
+                  <div className="mt-5 text-[40px] font-bold" style={{ fontFamily: LP_DISPLAY, color: LP.teal, letterSpacing: '-0.04em' }}><LpCount value={210500} ms={1400} /></div>
+                  <div className="text-[13px]" style={{ color: 'rgba(255,255,255,0.6)' }}>profit this week</div>
+                  <div className="mt-5 flex items-end gap-2 h-20" aria-hidden>
                     {[['M', 46], ['T', 58], ['W', 40], ['T', 66], ['F', 74], ['S', 100], ['S', 62]].map(([d, h], i) => (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end"><span className="w-full rounded-md" style={{ height: `${h}%`, background: i === 5 ? LP.amber : 'rgba(31,217,196,0.45)' }} /><span className="text-[11px] font-medium" style={{ color: 'rgba(255,255,255,0.6)' }}>{d}</span></div>
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end"><span className="w-full rounded-md lp-bar-r" style={{ height: `${h}%`, background: i === 5 ? LP.amber : 'rgba(31,217,196,0.45)', '--bd': `${0.25 + i * 0.07}s` }} /><span className="text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.55)' }}>{d}</span></div>
                     ))}
                   </div>
                 </div>
-                <div className="rounded-2xl p-4" style={{ background: '#DCF8C6', color: LP.ink }}>
-                  <div className="text-[12px] font-semibold" style={{ color: '#0E7A5F' }}>Your week on Xorla</div>
+                <div className="rounded-2xl p-4" style={{ background: '#DCF8C6', color: LP.inkFixed }}>
+                  <div className="text-[12px] font-bold" style={{ color: '#0E7A5F' }}>Your week on Xorla</div>
                   <div className="text-[14px] leading-relaxed mt-1">Good evening Amaka. This week you sold <strong>{fmt(612400)}</strong>, spent <strong>{fmt(401900)}</strong> and made <strong>{fmt(210500)}</strong> profit. Your best seller was Peak Milk. Well done!</div>
                 </div>
               </div>
             ), 'lg:col-span-4')}
-            {tile(LP.mint, (
+            {tile(LP.tint, (
               <>
-                {tileTitle('Never run out of stock', 'Stock goes down with every sale. You hear about it before the shelf is empty.')}
+                {tt('Never run out of stock', 'Stock goes down with every sale. You hear about it before the shelf is empty.')}
                 <div className="mt-5 space-y-2">
-                  {[['Indomie (carton)', '3 left', LP.coral], ['Peak Milk tin', '24 left', LP.tealDeep], ['Kings Oil 5L', '11 left', LP.tealDeep]].map(([n, q, c]) => (
-                    <div key={n} className="flex items-center justify-between rounded-xl px-3.5 py-2.5 text-[14px]" style={{ background: '#fff' }}><span className="font-medium">{n}</span><span className="font-semibold" style={{ color: c }}>{q}</span></div>
+                  {[['Indomie (carton)', 3, LP.coral], ['Peak Milk tin', 24, LP.accent], ['Kings Oil 5L', 11, LP.accent]].map(([n, q, c]) => (
+                    <div key={n} className="rounded-xl px-3.5 py-2.5 text-[14px]" style={{ background: LP.card }}>
+                      <div className="flex items-center justify-between"><span className="font-semibold">{n}</span><span className="font-bold" style={{ color: c }}>{q} left</span></div>
+                      <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: LP.bg2 }}><span className="block h-full rounded-full lp-line-grow" style={{ width: `${Math.min(100, q * 3.5)}%`, background: c }} /></div>
+                    </div>
                   ))}
                 </div>
               </>
-            ), 'lg:col-span-2')}
-            {tile('#fff', (
+            ), 'lg:col-span-2', 0.08)}
+            {tile(LP.card, (
               <>
-                {tileTitle('Your own online shop', 'Share one link on WhatsApp and Instagram. Customers order, book or pay from it, and you see it on your phone at once.')}
-                <div className="mt-5 rounded-2xl p-3 flex items-center gap-3" style={{ background: LP.wash, border: `1px solid ${LP.line}` }}>
+                {tt('Your own online shop', 'Share one link on WhatsApp and Instagram. Customers order, book or pay from it, and you see it on your phone at once.')}
+                <div className="mt-5 rounded-2xl p-3 flex items-center gap-3" style={{ background: LP.bg2, border: `1px solid ${LP.line}` }}>
                   <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: LP.forest }}><Store size={18} color="#fff" /></span>
-                  <span className="min-w-0"><span className="block text-[14px] font-semibold truncate">xorla.vercel.app/amakastores</span><span className="block text-[12.5px]" style={{ color: LP.inkFaint }}>Open 8am to 9pm</span></span>
+                  <span className="min-w-0"><span className="block text-[14px] font-bold truncate">xorla.vercel.app/amakastores</span><span className="block text-[12.5px]" style={{ color: LP.faint }}>Open 8am to 9pm</span></span>
                 </div>
               </>
-            ), 'lg:col-span-2 border')}
-            {tile('#fff', (
+            ), 'lg:col-span-2', 0, { border: `1px solid ${LP.line}` })}
+            {tile(LP.card, (
               <>
-                {tileTitle('Get paid online', 'Customers pay by card, transfer or USSD. The money goes straight to your bank.')}
+                {tt('Get paid online', 'Customers pay by card, transfer or USSD. The money goes straight to your bank.')}
                 <div className="mt-5 flex items-center gap-3">
-                  <span className="flex-1 h-11 rounded-full flex items-center justify-center text-[14px] font-semibold" style={{ background: LP.forest, color: '#fff' }}><Lock size={14} className="mr-1.5" />Pay {fmt(29000)}</span>
-                  <span className="h-11 px-4 rounded-full flex items-center gap-1.5 text-[14px] font-semibold" style={{ background: LP.mint, color: LP.forest }}><Check size={15} />Paid</span>
+                  <span className="flex-1 h-11 rounded-full flex items-center justify-center text-[14px] font-bold" style={{ background: LP.btn, color: LP.btnInk }}><Lock size={14} className="mr-1.5" />Pay {fmt(29000)}</span>
+                  <span className="h-11 px-4 rounded-full flex items-center gap-1.5 text-[14px] font-bold" style={{ background: LP.tint, color: LP.accent }}><Check size={15} />Paid</span>
                 </div>
-                <p className="mt-3 text-[12.5px]" style={{ color: LP.inkFaint }}>Secured by Paystack</p>
+                <p className="mt-3 text-[12.5px]" style={{ color: LP.faint }}>Secured by Paystack</p>
               </>
-            ), 'lg:col-span-2 border')}
-            {tile('#fff', (
+            ), 'lg:col-span-2', 0.08, { border: `1px solid ${LP.line}` })}
+            {tile(LP.card, (
               <>
-                {tileTitle('Staff without stress', 'Each person gets their own login. They record sales; you see who did what, from anywhere.')}
-                <div className="mt-5 flex items-center gap-3"><span className="flex -space-x-2">{['TO', 'AD', 'CH'].map((x, i) => <span key={x} className="w-10 h-10 rounded-full flex items-center justify-center text-[12px] font-bold ring-2 ring-white" style={{ background: [LP.mint, '#FFE7B0', '#FFD9CC'][i], color: LP.ink }}>{x}</span>)}</span><span className="text-[13.5px] leading-snug" style={{ color: LP.inkDim }}>Tolu recorded 12 sales today</span></div>
+                {tt('Staff without stress', 'Each person gets their own login. They record sales; you see who did what, from anywhere.')}
+                <div className="mt-5 flex items-center gap-3"><span className="flex -space-x-2">{['TO', 'AD', 'CH'].map((x, i) => <span key={x} className="w-10 h-10 rounded-full flex items-center justify-center text-[12px] font-bold" style={{ background: ['#E3F4EF', '#FFE7B0', '#FFD9CC'][i], color: LP.inkFixed, boxShadow: `0 0 0 2px ${LP_THEMES[theme].card}` }}>{x}</span>)}</span><span className="text-[13.5px] leading-snug" style={{ color: LP.dim }}>Tolu recorded 12 sales today</span></div>
               </>
-            ), 'lg:col-span-2 border')}
+            ), 'lg:col-span-2', 0.16, { border: `1px solid ${LP.line}` })}
             {tile(LP.amber, (
               <div className="grid sm:grid-cols-[1fr_1.1fr] gap-6 items-center">
-                <div>{tileTitle('Ask Oga anything about your business', 'Oga is your business advisor. It reads your real numbers and answers in English, Pidgin, Igbo, Yoruba or Hausa.', false, true)}</div>
+                <div>{tt('Ask Oga anything about your business', 'Oga is your business advisor. It reads your real numbers and answers in English, Pidgin, Igbo, Yoruba or Hausa.', false, true)}</div>
                 <div className="space-y-2">
                   <div className="ml-auto max-w-[260px] rounded-2xl rounded-br-md px-3.5 py-2.5 text-[14px]" style={{ background: LP.forest, color: '#fff' }}>Which product dey bring me the most money?</div>
-                  <div className="max-w-[300px] rounded-2xl rounded-bl-md px-3.5 py-2.5 text-[14px] leading-relaxed" style={{ background: '#fff' }}>Na Mama Gold Rice. This month e bring {fmt(312000)}, but only 4 bags remain. Order more before weekend.</div>
+                  <div className="max-w-[300px] rounded-2xl rounded-bl-md px-3.5 py-2.5 text-[14px] leading-relaxed" style={{ background: '#fff', color: LP.inkFixed }}>Na Mama Gold Rice. This month e bring {fmt(312000)}, but only 4 bags remain. Order more before weekend.</div>
                 </div>
               </div>
             ), 'lg:col-span-4')}
-            {tile(LP.wash, (
+            {tile(LP.bg2, (
               <>
-                {tileTitle('Register your business with CAC', 'Apply for your business name inside Xorla. An accredited agent files it, and your certificate lands in your vault.')}
+                {tt('Register your business with CAC', 'Apply for your business name inside Xorla. An accredited agent files it, and your certificate lands in your vault.')}
                 <div className="mt-5 rounded-xl p-4 text-center" style={{ background: 'linear-gradient(160deg, #FBF6EA, #F3EBD7)', boxShadow: 'inset 0 0 0 1.5px rgba(150,110,40,0.35)' }}>
                   <div className="text-[10px] font-semibold tracking-[0.2em]" style={{ color: '#8A6A2F' }}>CERTIFICATE OF REGISTRATION</div>
                   <div className="mt-1 text-[17px] font-bold" style={{ fontFamily: 'Georgia, serif', color: '#1F2A26' }}>Amaka Stores</div>
                 </div>
               </>
-            ), 'lg:col-span-2')}
-            {tile(LP.wash, (
+            ), 'lg:col-span-2', 0.08)}
+            {tile(LP.bg2, (
               <>
-                {tileTitle('Reminders that get you paid', 'Xorla reminds customers who owe you on WhatsApp, politely, so you don\'t have to chase them.')}
-                <div className="mt-5 rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[13.5px] leading-relaxed" style={{ background: '#DCF8C6' }}>Hello Emeka, a friendly reminder from Amaka Stores: your invoice of {fmt(18200)} is due today. Thank you!</div>
+                {tt('Reminders that get you paid', 'Xorla reminds customers who owe you on WhatsApp, politely, so you don\'t have to chase them.')}
+                <div className="mt-5 rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[13.5px] leading-relaxed" style={{ background: LP.wa, color: LP.waInk }}>Hello Emeka, a friendly reminder from Amaka Stores: your invoice of {fmt(18200)} is due today. Thank you!</div>
               </>
             ), 'lg:col-span-3')}
-            {tile(LP.wash, (
+            {tile(LP.bg2, (
               <>
-                {tileTitle('Your papers, safe in one place', 'Keep your CAC certificate, TIN and licences in the vault. Share them with a bank or supplier in one tap.')}
-                <div className="mt-5 flex gap-2">{[['CAC certificate', LP.forest], ['TIN', LP.tealDeep], ['NAFDAC', LP.coral]].map(([n, c]) => <span key={n} className="flex-1 rounded-xl px-2.5 py-3 text-[12px] font-semibold text-center" style={{ background: '#fff', borderTop: `3px solid ${c}` }}><FileText size={16} className="mx-auto mb-1" style={{ color: c }} />{n}</span>)}</div>
+                {tt('Your papers, safe in one place', 'Keep your CAC certificate, TIN and licences in the vault. Share them with a bank or supplier in one tap.')}
+                <div className="mt-5 flex gap-2">{[['CAC certificate', LP.accent], ['TIN', LP.amber], ['NAFDAC', LP.coral]].map(([n, c]) => <span key={n} className="flex-1 rounded-xl px-2.5 py-3 text-[12px] font-bold text-center" style={{ background: LP.card, borderTop: `3px solid ${c}` }}><FileText size={16} className="mx-auto mb-1" style={{ color: c }} />{n}</span>)}</div>
               </>
-            ), 'lg:col-span-3')}
+            ), 'lg:col-span-3', 0.08)}
           </div>
         </section>
 
         {/* Built for your kind of business */}
-        <section id="for-you" className="max-w-6xl mx-auto px-5 pt-24 scroll-mt-16">
-          {sectionTitle('It changes to fit your business', 'Tell Xorla what you do when you sign up. A shop, a salon and a hotel each get the tools they need, in the words they use.')}
-          <div className="mt-10 inline-flex p-1.5 rounded-full" role="tablist" aria-label="Type of business" style={{ background: LP.wash, border: `1px solid ${LP.line}` }}>
-            {Object.entries(LP_TYPES).map(([k, v]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="lp-focus px-5 sm:px-6 py-2.5 rounded-full text-[15px] font-semibold transition-colors" style={tab === k ? { background: LP.forest, color: '#fff' } : { color: LP.inkDim }}>{v.label}</button>)}
+        <section id="for-you" className={`${wrap} pt-20 sm:pt-28 scroll-mt-20`}>
+          {head('It changes to fit your business', 'Tell Xorla what you do when you sign up. A shop, a salon and a hotel each get the tools they need, in the words they use.')}
+          <div className="mt-9 inline-flex p-1.5 rounded-full" role="tablist" aria-label="Type of business" data-reveal style={{ background: LP.bg2, border: `1px solid ${LP.line}` }}>
+            {Object.entries(LP_TYPES).map(([k, v]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="lp-focus px-5 sm:px-7 py-2.5 rounded-full text-[15px] font-bold transition-colors duration-300" style={tab === k ? { background: LP.btn, color: LP.btnInk } : { color: LP.dim }}>{v.label}</button>)}
           </div>
-          <div className="mt-6 grid lg:grid-cols-[1.15fr_0.85fr] gap-6 items-stretch" role="tabpanel">
-            <div className="rounded-[28px] p-7 sm:p-9" style={{ background: LP.mint }}>
-              <h3 style={display('clamp(26px, 3vw, 34px)')}>{t.title}</h3>
-              <ul className="mt-6 space-y-4">
-                {t.points.map((x) => <li key={x} className="flex items-start gap-3 text-[16px] leading-relaxed"><span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: LP.forest }}><Check size={13} strokeWidth={3} color="#fff" /></span>{x}</li>)}
-              </ul>
+          <div key={tab} className="mt-6 grid lg:grid-cols-[1.15fr_0.85fr] gap-4 items-stretch lp-new" role="tabpanel">
+            <div className="rounded-[28px] p-7 sm:p-9" style={{ background: LP.tint }}>
+              <h3 style={H('clamp(22px, 2.4vw, 30px)')}>{t.title}</h3>
+              <ul className="mt-6 space-y-4">{t.points.map((x) => <li key={x} className="flex items-start gap-3 text-[16px] leading-relaxed"><span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: LP.btn }}><Check size={13} strokeWidth={3} style={{ color: LP.btnInk }} /></span>{x}</li>)}</ul>
             </div>
-            <div className="rounded-[28px] p-6 flex flex-col" style={{ background: '#0A1F1C', color: '#EAF6F2' }}>
+            <div className="rounded-[28px] p-6 flex flex-col" style={{ background: '#0A1F1C', color: '#EAF6F2', border: `1px solid ${LP.line}` }}>
               <div className="flex items-center gap-2"><XorlaMark size={18} /><span className="text-[13px] font-semibold">{t.screen.head}</span></div>
-              <div className="mt-4 rounded-2xl overflow-hidden flex-1" style={{ background: '#13322C' }}>
-                {t.screen.rows.map(([a, b], i) => <div key={a} className="flex items-center justify-between px-4 py-3.5 text-[14.5px]" style={{ borderTop: i ? '1px solid rgba(255,255,255,0.06)' : 'none' }}><span className="font-medium">{a}</span><span style={{ color: '#93B0AA' }}>{b}</span></div>)}
-              </div>
-              <div className="mt-3 rounded-xl px-4 py-3 text-[13.5px] font-semibold" style={{ background: t.screen.noteTone === 'amber' ? 'rgba(255,176,32,0.14)' : 'rgba(31,217,196,0.14)', color: t.screen.noteTone === 'amber' ? '#FFB020' : '#1FD9C4' }}>{t.screen.note}</div>
+              <div className="mt-4 rounded-2xl overflow-hidden flex-1" style={{ background: '#13322C' }}>{t.screen.rows.map(([a, b], i) => <div key={a} className="flex items-center justify-between px-4 py-3.5 text-[14.5px]" style={{ borderTop: i ? '1px solid rgba(255,255,255,0.06)' : 'none' }}><span className="font-semibold">{a}</span><span style={{ color: '#93B0AA' }}>{b}</span></div>)}</div>
+              <div className="mt-3 rounded-xl px-4 py-3 text-[13.5px] font-bold" style={{ background: t.screen.tone === 'amber' ? 'rgba(255,176,32,0.14)' : 'rgba(31,217,196,0.14)', color: t.screen.tone === 'amber' ? '#FFB020' : '#1FD9C4' }}>{t.screen.note}</div>
             </div>
           </div>
         </section>
 
         {/* How it works (a real sequence) */}
-        <section className="max-w-6xl mx-auto px-5 pt-24">
-          {sectionTitle('Set up before your next customer walks in')}
-          <ol className="mt-10 grid md:grid-cols-3 gap-4">
-            {[['Sign up with your email', 'It takes about a minute. Tell Xorla your business name and what you sell or do.'], ['Add what you sell', 'Type it in, or take a photo of your price list and Xorla fills it in for you.'], ['Record your first sale', 'Then share your shop link with customers, and invite your staff when you\'re ready.']].map(([a, b], i) => (
-              <li key={a} className="rounded-[28px] p-7" style={{ border: `1.5px solid ${LP.line}` }}>
-                <span className="block text-[56px] leading-none font-extrabold" style={{ fontFamily: LP_DISPLAY, color: [LP.tealDeep, LP.amber, LP.coral][i], letterSpacing: '-0.04em' }}>{i + 1}</span>
-                <span className="block mt-4 text-[20px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.02em' }}>{a}</span>
-                <span className="block mt-2 text-[15px] leading-relaxed" style={{ color: LP.inkDim }}>{b}</span>
-              </li>
-            ))}
-          </ol>
+        <section className={`${wrap} pt-20 sm:pt-28`}>
+          {head('Set up before your next customer walks in')}
+          <div className="relative mt-10" data-reveal>
+            <div aria-hidden className="hidden md:block absolute left-[16%] right-[16%] top-[34px] h-[2px] lp-line-grow" style={{ background: `linear-gradient(90deg, ${LP.teal}, ${LP.amber}, ${LP.coral})` }} />
+            <ol className="relative grid md:grid-cols-3 gap-4">
+              {[['Sign up with your email', 'It takes about a minute. Tell Xorla your business name and what you sell or do.'], ['Add what you sell', 'Type it in, or take a photo of your price list and Xorla fills it in for you.'], ['Record your first sale', 'Then share your shop link with customers, and invite your staff when you\'re ready.']].map(([a, b], i) => (
+                <li key={a} className="rounded-[28px] p-7 md:text-center" style={{ background: LP.card, border: `1px solid ${LP.line}` }}>
+                  <span className="md:mx-auto w-[52px] h-[52px] -mt-0 rounded-full flex items-center justify-center text-[20px] font-bold" style={{ fontFamily: LP_DISPLAY, background: [LP.teal, LP.amber, LP.coral][i], color: LP.inkFixed }}>{i + 1}</span>
+                  <span className="block mt-5 text-[18px] font-semibold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.02em' }}>{a}</span>
+                  <span className="block mt-2 text-[15px] leading-relaxed" style={{ color: LP.dim }}>{b}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
         </section>
 
         {/* Trust */}
-        <section className="mt-24" style={{ background: LP.forest }}>
-          <div className="max-w-6xl mx-auto px-5 py-20 grid lg:grid-cols-[0.9fr_1.1fr] gap-12">
-            {sectionTitle('Your money and your records stay yours', 'Xorla is built by PointBlank Softworks Ltd in Abia State, for businesses like yours. Here is how we keep your business safe.', true)}
+        <section className="mt-20 sm:mt-28 relative overflow-hidden" style={{ background: LP.forest }}>
+          <div aria-hidden className="absolute -left-40 -bottom-40 w-[520px] h-[520px] rounded-full" style={{ background: 'radial-gradient(circle, rgba(31,217,196,0.16), transparent 65%)' }} />
+          <div className={`relative ${wrap} py-20 grid lg:grid-cols-[0.85fr_1.15fr] gap-12`}>
+            {head('Your money and your records stay yours', 'Here is how Xorla keeps your business safe, every day.', true)}
             <ul className="grid sm:grid-cols-2 gap-x-8 gap-y-7">
-              {[[ShieldCheck, 'Staff see only what you allow', 'You approve every staff member, and remove them in one tap.'], [Lock, 'Lock it with a PIN', 'Nobody opens your Xorla on your phone without your PIN.'], [CreditCard, 'Payments by Paystack', 'Card, transfer and USSD. Xorla never sees card details.'], [FileText, 'Nothing is ever deleted', 'Stop paying and you move to Free with every record still there.'], [Bell, 'No surprise charges', 'We remind you 3 days before your plan renews.'], [Smartphone, 'Lose your phone, not your records', 'Everything is kept online. Log in on another phone.']].map(([Ic, a, b]) => (
-                <li key={a} className="flex gap-3.5">
+              {[[ShieldCheck, 'Staff see only what you allow', 'You approve every staff member, and remove them in one tap.'], [Lock, 'Lock it with a PIN', 'Nobody opens your Xorla on your phone without your PIN.'], [CreditCard, 'Payments by Paystack', 'Card, transfer and USSD. Xorla never sees card details.'], [FileText, 'Nothing is ever deleted', 'Stop paying and you move to Free with every record still there.'], [Bell, 'No surprise charges', 'We remind you 3 days before your plan renews.'], [Smartphone, 'Lose your phone, not your records', 'Everything is kept online. Log in on another phone.']].map(([Ic, a, b], i) => (
+                <li key={a} className="flex gap-3.5" data-reveal style={{ '--d': `${(i % 2) * 0.08 + Math.floor(i / 2) * 0.06}s` }}>
                   <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.14)' }}><Ic size={19} style={{ color: LP.teal }} /></span>
-                  <span><span className="block text-[16px] font-semibold text-white">{a}</span><span className="block mt-1 text-[14.5px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.7)' }}>{b}</span></span>
+                  <span><span className="block text-[16px] font-bold text-white">{a}</span><span className="block mt-1 text-[14.5px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.72)' }}>{b}</span></span>
                 </li>
               ))}
             </ul>
@@ -20211,38 +20373,43 @@ function LandingPage() {
         </section>
 
         {/* Pricing */}
-        <section id="pricing" className="max-w-6xl mx-auto px-5 pt-24 scroll-mt-16">
-          {sectionTitle('Start free. Grow when you\'re ready.', 'Every paid plan starts with 30 days free. Pay monthly or yearly by card, transfer or USSD.')}
+        <section id="pricing" className={`${wrap} pt-20 sm:pt-28 scroll-mt-20`}>
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+            {head('Start free. Grow when you\'re ready.', 'Every paid plan starts with 30 days free. Pay by card, transfer or USSD.')}
+            <div className="inline-flex p-1.5 rounded-full self-start md:self-auto" role="tablist" aria-label="Billing" data-reveal style={{ background: LP.bg2, border: `1px solid ${LP.line}` }}>
+              {[[false, 'Monthly'], [true, 'Yearly']].map(([v, l]) => <button key={l} role="tab" aria-selected={yearly === v} onClick={() => setYearly(v)} className="lp-focus px-5 py-2.5 rounded-full text-[14.5px] font-bold transition-colors duration-300 flex items-center gap-2" style={yearly === v ? { background: LP.btn, color: LP.btnInk } : { color: LP.dim }}>{l}{v && <span className="px-2 py-0.5 rounded-full text-[11px] font-bold" style={{ background: LP.amber, color: LP.inkFixed }}>2 months free</span>}</button>)}
+            </div>
+          </div>
           <div className="mt-10 grid md:grid-cols-3 gap-4 items-stretch">
             {[
-              ['Free', 0, 'For a one-person business', ['Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link'], false],
-              ['Pro', PLAN_PRICES.pro.monthly, 'For a growing business with staff', ['Up to 3 staff, each with their own login', 'Unlimited products and services', 'Automatic WhatsApp payment reminders', 'Oga in 5 languages'], true],
-              ['Business', PLAN_PRICES.business.monthly, 'For several branches or shops', ['Up to 10 staff across 3 locations', 'Move stock between locations', 'See every location together, or one at a time'], false],
-            ].map(([n, price, who, pts, star]) => (
-              <div key={n} className="rounded-[28px] p-7 flex flex-col" style={star ? { background: LP.forest, color: '#fff', boxShadow: '0 30px 60px -30px rgba(11,59,51,0.6)' } : { border: `1.5px solid ${LP.line}` }}>
-                <div className="flex items-center justify-between"><span className="text-[19px] font-bold" style={{ fontFamily: LP_DISPLAY }}>{n}</span>{star && <span className="px-3 py-1 rounded-full text-[12.5px] font-semibold" style={{ background: LP.amber, color: LP.ink }}>Most chosen</span>}</div>
-                <div className="mt-1 text-[14px]" style={{ color: star ? 'rgba(255,255,255,0.7)' : LP.inkDim }}>{who}</div>
-                <div className="mt-5 flex items-baseline gap-1.5"><span className="text-[40px] font-extrabold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}>{price ? fmt(price) : '₦0'}</span><span className="text-[14px]" style={{ color: star ? 'rgba(255,255,255,0.7)' : LP.inkFaint }}>{price ? 'a month' : 'forever'}</span></div>
-                <ul className="mt-5 space-y-2.5 flex-1">{pts.map((x) => <li key={x} className="flex items-start gap-2.5 text-[14.5px] leading-snug"><Check size={16} strokeWidth={2.6} className="shrink-0 mt-0.5" style={{ color: star ? LP.teal : LP.tealDeep }} />{x}</li>)}</ul>
-                <a href={start} className={`${btnMain} lp-focus mt-7 w-full`} style={star ? { background: LP.amber, color: LP.ink } : { background: LP.wash, color: LP.ink }}>{price ? 'Start 30 days free' : 'Start free'}</a>
+              ['Free', null, 'For a one-person business', ['Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link'], false],
+              ['Pro', 'pro', 'For a growing business with staff', ['Up to 3 staff, each with their own login', 'Unlimited products and services', 'Automatic WhatsApp payment reminders', 'Oga in 5 languages'], true],
+              ['Business', 'business', 'For several branches or shops', ['Up to 10 staff across 3 locations', 'Move stock between locations', 'See every location together, or one at a time'], false],
+            ].map(([n, plan, who, pts, star], i) => (
+              <div key={n} data-reveal className="lp-tile rounded-[28px] p-7 flex flex-col" style={{ '--d': `${i * 0.08}s`, ...(star ? { background: LP.forest, color: '#fff', boxShadow: '0 30px 60px -30px rgba(11,59,51,0.7)' } : { background: LP.card, border: `1px solid ${LP.line}` }) }}>
+                <div className="flex items-center justify-between"><span className="text-[18px] font-semibold" style={{ fontFamily: LP_DISPLAY }}>{n}</span>{star && <span className="px-3 py-1 rounded-full text-[12.5px] font-bold" style={{ background: LP.amber, color: LP.inkFixed }}>Most chosen</span>}</div>
+                <div className="mt-1 text-[14px]" style={{ color: star ? 'rgba(255,255,255,0.72)' : LP.dim }}>{who}</div>
+                <div className="mt-5 flex items-baseline gap-1.5"><span className="text-[34px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.04em' }}>{plan ? <LpCount value={price(plan)} ms={500} /> : '₦0'}</span><span className="text-[14px]" style={{ color: star ? 'rgba(255,255,255,0.7)' : LP.faint }}>{plan ? (yearly ? 'a year' : 'a month') : 'forever'}</span></div>
+                <ul className="mt-5 space-y-2.5 flex-1">{pts.map((x) => <li key={x} className="flex items-start gap-2.5 text-[14.5px] leading-snug"><Check size={16} strokeWidth={2.8} className="shrink-0 mt-0.5" style={{ color: star ? LP.teal : LP.accent }} />{x}</li>)}</ul>
+                <a href={start} className={`${btn} mt-7 w-full`} style={star ? { background: LP.amber, color: LP.inkFixed } : { background: LP.bg2, color: LP.ink }}>{plan ? 'Start 30 days free' : 'Start free'}</a>
               </div>
             ))}
           </div>
-          <p className="mt-5 text-[14.5px]" style={{ color: LP.inkDim }}>Yearly plans get two months free. <a href="/pricing" className="lp-focus font-semibold underline underline-offset-4" style={{ color: LP.forest }}>See full pricing and early-supporter prices</a></p>
+          <p className="mt-5 text-[14.5px]" style={{ color: LP.dim }}><a href="/pricing" className="lp-focus font-bold underline underline-offset-4" style={{ color: LP.ink }}>See full pricing and early-supporter prices</a></p>
         </section>
 
         {/* Questions */}
-        <section className="max-w-3xl mx-auto px-5 pt-24">
-          <h2 style={display('clamp(30px, 4vw, 44px)')}>Questions people ask</h2>
-          <div className="mt-8" style={{ borderTop: `1px solid ${LP.line}` }}>
+        <section className={`${wrap} pt-20 sm:pt-28 grid lg:grid-cols-[0.8fr_1.2fr] gap-10`}>
+          {head('Questions people ask', 'Something else on your mind? Sign up and tap Help inside Xorla. A real person answers.')}
+          <div data-reveal style={{ borderTop: `1px solid ${LP.line}` }}>
             {LP_FAQ.map(([q, a], i) => {
               const open = faq === i;
               return (
                 <div key={q} style={{ borderBottom: `1px solid ${LP.line}` }}>
-                  <button onClick={() => setFaq(open ? -1 : i)} aria-expanded={open} className="lp-focus w-full flex items-center justify-between gap-4 py-5 text-left text-[17px] font-semibold">
-                    {q}<span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: open ? LP.forest : LP.wash }}>{open ? <Minus size={15} color="#fff" /> : <Plus size={15} />}</span>
+                  <button onClick={() => setFaq(open ? -1 : i)} aria-expanded={open} className="lp-focus w-full flex items-center justify-between gap-4 py-5 text-left text-[17px] font-bold">
+                    {q}<span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-transform duration-300" style={{ background: open ? LP.btn : LP.bg2, color: open ? LP.btnInk : LP.ink, transform: open ? 'rotate(180deg)' : 'none' }}>{open ? <Minus size={15} /> : <Plus size={15} />}</span>
                   </button>
-                  {open && <p className="pb-5 -mt-1 text-[15.5px] leading-relaxed max-w-2xl" style={{ color: LP.inkDim }}>{a}</p>}
+                  <div className={`lp-faq ${open ? 'open' : ''}`}><div className="overflow-hidden"><p className="pb-5 -mt-1 text-[15.5px] leading-relaxed max-w-2xl" style={{ color: LP.dim }}>{a}</p></div></div>
                 </div>
               );
             })}
@@ -20250,32 +20417,42 @@ function LandingPage() {
         </section>
 
         {/* Last call */}
-        <section className="max-w-6xl mx-auto px-5 pt-24 pb-20">
-          <div className="relative overflow-hidden rounded-[36px] px-7 py-14 sm:px-14 sm:py-16 grid lg:grid-cols-[1.2fr_0.8fr] gap-10 items-center" style={{ background: LP.mint }}>
+        <section className={`${wrap} pt-20 sm:pt-28 pb-20`}>
+          <div data-reveal className="relative overflow-hidden rounded-[36px] px-7 py-14 sm:px-14 sm:py-16 grid lg:grid-cols-[1.25fr_0.75fr] gap-10 items-center" style={{ background: LP.tint }}>
+            <div aria-hidden className="absolute -right-20 -top-24 w-80 h-80 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.25), transparent 65%)' }} />
             <div className="relative">
-              <h2 style={display('clamp(34px, 5vw, 60px)')}>Your next sale can be your first one on Xorla.</h2>
-              <p className="mt-4 text-[17px] leading-relaxed max-w-lg" style={{ color: LP.inkDim }}>Free to start. Set up in minutes. Works on the phone you already have.</p>
+              <h2 style={H('clamp(30px, 4.4vw, 56px)')}>Your next sale can be your first one on Xorla.</h2>
+              <p className="mt-4 text-[17px] leading-relaxed max-w-lg" style={{ color: LP.dim }}>Free to start. Set up in minutes. Works on the phone you already have.</p>
               <div className="mt-8 flex flex-col sm:flex-row gap-3">
-                <a href={start} className={`${btnMain} lp-focus`} style={{ background: LP.forest, color: '#fff' }}>Start free</a>
-                <a href="/login" className={`${btnMain} lp-focus`} style={{ background: '#fff', color: LP.ink }}>I already have an account</a>
+                <a href={start} className={btn} style={{ background: LP.btn, color: LP.btnInk }}>Start free</a>
+                <a href="/login" className={btn} style={{ background: LP.card, color: LP.ink }}>I already have an account</a>
               </div>
             </div>
-            <div className="hidden lg:flex justify-center"><div className="rotate-[4deg]"><LandingReceipt still /></div></div>
+            <div className="hidden lg:flex justify-center relative"><div className="rotate-[4deg]"><LandingReceipt still /></div></div>
           </div>
         </section>
       </main>
 
       <footer style={{ borderTop: `1px solid ${LP.line}` }}>
-        <div className="max-w-6xl mx-auto px-5 py-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className={`${wrap} py-10 flex flex-col md:flex-row md:items-center justify-between gap-6`}>
           <div>
-            <div className="flex items-center gap-2.5"><XorlaMark size={24} /><span className="text-[18px] font-extrabold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}>Xorla</span></div>
-            <div className="mt-2 text-[13.5px]" style={{ color: LP.inkFaint }}>Built in Abia State by PointBlank Softworks Ltd.</div>
+            <div className="flex items-center gap-2.5"><XorlaMark size={24} /><span className="text-[17px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}>Xorla</span></div>
+            <div className="mt-2 text-[13.5px]" style={{ color: LP.faint }}>Made for businesses across Nigeria. © {new Date().getFullYear()} Xorla</div>
           </div>
-          <nav className="flex flex-wrap gap-x-6 gap-y-2 text-[14px] font-medium" style={{ color: LP.inkDim }}>
+          <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[14px] font-semibold" style={{ color: LP.dim }}>
             {[['/pricing', 'Pricing'], ['/ride', 'Ride with Xorla'], ['/terms', 'Terms'], ['/privacy', 'Privacy'], ['/login', 'Log in']].map(([h, l]) => <a key={h} href={h} className="lp-focus rounded">{l}</a>)}
+            {themeBtn}
           </nav>
         </div>
       </footer>
+
+      {/* Phones: Start free stays in reach once you scroll past the top */}
+      <div className={`sm:hidden fixed left-0 right-0 bottom-0 z-40 px-4 pt-3 transition-transform duration-300 ${pastHero ? 'translate-y-0' : 'translate-y-full'}`} style={{ background: LP.nav, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', borderTop: `1px solid ${LP.line}`, paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}>
+        <div className="flex gap-2">
+          <a href="/login" className="lp-focus h-12 px-5 rounded-full text-[15px] font-bold flex items-center justify-center" style={{ color: LP.ink, boxShadow: `inset 0 0 0 1.5px ${LP.line}` }}>Log in</a>
+          <a href={start} className="lp-focus flex-1 h-12 rounded-full text-[15.5px] font-bold flex items-center justify-center" style={{ background: LP.btn, color: LP.btnInk }}>Start free</a>
+        </div>
+      </div>
     </div>
   );
 }
