@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
+import { Plus, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -1122,8 +1122,10 @@ function PasswordChecks({ password, confirm }) {
 }
 
 function AuthScreen({ onDone }) {
-  const [step, setStep] = useState('role'); // role | owner | staff | code | forgot
-  const [mode, setMode] = useState('login'); // login | signup
+  // From the home page: "Start free" opens the owner sign-up straight away
+  const startParam = (() => { try { return new URLSearchParams(window.location.search).get('start') || ''; } catch (e) { return ''; } })();
+  const [step, setStep] = useState(startParam === 'signup' ? 'owner' : 'role'); // role | owner | staff | code | forgot
+  const [mode, setMode] = useState(startParam === 'signup' ? 'signup' : 'login'); // login | signup
   const [form, setForm] = useState({ business: '', email: '', password: '', confirm: '', code: '', name: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1186,6 +1188,7 @@ function AuthScreen({ onDone }) {
   if (step === 'role') {
     return wrap("Who's opening Xorla?", 'This decides what you\'ll see next.', (
       <>
+        <a href="/" className="flex items-center gap-1 text-[12px] mb-4 -mt-1" style={{ color: C.inkFaint }}><ChevronLeft size={14} /> Xorla home</a>
         {[
           ['owner', Store, C.sage, "I'm the business owner", 'Full dashboard: sales, bookings, money, team and advice.'],
           ['staff', Users, C.copper, "I'm a sales rep / staff", 'Join your business with its staff code.'],
@@ -19849,6 +19852,434 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
   );
 }
 
+// ============ The Xorla home page (what new visitors see at xorla.vercel.app) ============
+// Logged-in owners and staff never see it: they go straight to their dashboard.
+const LP = {
+  forest: '#0B3B33', ink: '#0B2B26', inkDim: '#4A5E59', inkFaint: '#7F918C', white: '#FFFFFF', mint: '#E3F4EF', mintDeep: '#CBEBE2',
+  teal: '#1FD9C4', tealDeep: '#0E9F8E', amber: '#FFB020', coral: '#F4845F', paper: '#FFFDF6', line: 'rgba(11,43,38,0.10)', wash: '#F6F8F7',
+};
+const LP_DISPLAY = "'Bricolage Grotesque', 'Inter', system-ui, sans-serif";
+const LP_BODY = "'Inter', system-ui, sans-serif";
+const LP_MONO = "'IBM Plex Mono', ui-monospace, Menlo, monospace";
+
+// The receipt that prints a day's business (the hero's one moving moment)
+const LP_RECEIPT = [
+  ['Indomie Super Pack ×2', 1900],
+  ['Peak Milk tin ×3', 1950],
+  ['Hair braiding (Ada)', 15000],
+  ['Room 204, 2 nights', 70000],
+  ['Delivery to Aba Road', 1500],
+];
+function LandingReceipt({ still }) {
+  const total = LP_RECEIPT.reduce((a, [, v]) => a + v, 0);
+  return (
+    <div className={`lp-receipt ${still ? 'lp-still' : ''}`} style={{ fontFamily: LP_MONO }} aria-label={`A receipt for today: ${LP_RECEIPT.length} sales, total ${fmt(total)}, profit ${fmt(42500)}`}>
+      <div className="text-center">
+        <div className="text-[13px] font-semibold tracking-wide">AMAKA STORES</div>
+        <div className="text-[10.5px]" style={{ color: LP.inkFaint }}>Ikot Ekpene Road, Umuahia</div>
+        <div className="lp-dash my-2.5" />
+      </div>
+      {LP_RECEIPT.map(([d, v], i) => (
+        <div key={d} className="lp-line flex justify-between gap-3 text-[11.5px] leading-[1.9]" style={{ animationDelay: `${0.5 + i * 0.32}s` }}>
+          <span className="truncate">{d}</span><span className="shrink-0">{fmt(v)}</span>
+        </div>
+      ))}
+      <div className="lp-line lp-dash my-2" style={{ animationDelay: `${0.5 + LP_RECEIPT.length * 0.32}s` }} />
+      <div className="lp-line flex justify-between text-[12.5px] font-semibold" style={{ animationDelay: `${0.62 + LP_RECEIPT.length * 0.32}s` }}><span>Sales today</span><span>{fmt(total)}</span></div>
+      <div className="lp-stamp mt-3 rounded-lg px-3 py-2 text-center" style={{ animationDelay: `${0.95 + LP_RECEIPT.length * 0.32}s` }}>
+        <div className="text-[10px]">PROFIT TODAY</div>
+        <div className="text-[19px] font-semibold leading-tight">{fmt(42500)}</div>
+      </div>
+      <div className="text-center text-[10px] mt-2.5" style={{ color: LP.inkFaint }}>Recorded on Xorla</div>
+    </div>
+  );
+}
+
+// A phone showing the real Xorla dashboard (drawn in HTML, so it stays sharp and true to the app)
+function LandingPhone() {
+  const bars = [38, 52, 44, 68, 58, 80, 92];
+  return (
+    <div className="lp-phone" aria-hidden>
+      <div className="lp-phone-screen" style={{ fontFamily: LP_BODY }}>
+        <div className="flex items-center justify-between px-4 pt-5">
+          <div className="flex items-center gap-1.5"><XorlaMark size={16} /><span className="text-[11px] font-bold text-white">Xorla</span></div>
+          <span className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: 'rgba(255,255,255,0.08)', color: '#EAF6F2' }}>AO</span>
+        </div>
+        <div className="px-4 mt-3 text-[10.5px]" style={{ color: '#93B0AA' }}>Good evening, Amaka</div>
+        <div className="mx-3 mt-2 rounded-2xl p-3.5" style={{ background: 'linear-gradient(160deg, #164A41, #0F2925)', border: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="text-[9.5px]" style={{ color: '#93B0AA' }}>Profit today</div>
+          <div className="text-[22px] font-bold leading-tight" style={{ color: '#1FD9C4' }}>{fmt(42500)}</div>
+          <div className="text-[9px] mt-0.5" style={{ color: '#93B0AA' }}>Up {fmt(6100)} on yesterday</div>
+          <div className="flex items-end gap-1 h-12 mt-2.5">{bars.map((h, i) => <span key={i} className="flex-1 rounded-sm" style={{ height: `${h}%`, background: i === bars.length - 1 ? '#FFB020' : 'rgba(31,217,196,0.35)' }} />)}</div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 mx-3 mt-2">
+          <div className="rounded-xl p-2.5" style={{ background: '#13322C' }}><div className="text-[8.5px]" style={{ color: '#93B0AA' }}>Owed to you</div><div className="text-[12px] font-bold text-white">{fmt(18200)}</div></div>
+          <div className="rounded-xl p-2.5" style={{ background: '#13322C' }}><div className="text-[8.5px]" style={{ color: '#93B0AA' }}>Low stock</div><div className="text-[12px] font-bold" style={{ color: '#FFB020' }}>3 items</div></div>
+        </div>
+        <div className="mx-3 mt-2 rounded-xl overflow-hidden" style={{ background: '#13322C' }}>
+          {[['Hair braiding', 'Ada', 15000], ['Peak Milk ×3', 'Tolu', 1950], ['Indomie ×2', 'Tolu', 1900]].map(([d, w, v], i) => (
+            <div key={d} className="flex items-center justify-between px-3 py-2" style={{ borderTop: i ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+              <span><span className="block text-[10px] font-semibold text-white">{d}</span><span className="block text-[8.5px]" style={{ color: '#54706A' }}>by {w}</span></span>
+              <span className="text-[10px] font-semibold text-white">{fmt(v)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="absolute left-0 right-0 bottom-0 h-12 flex items-center justify-around px-4" style={{ background: '#0F2925', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          {[TrendingUp, ShoppingBag, CalendarClock, Package].map((Ic, i) => <Ic key={i} size={15} style={{ color: i === 0 ? '#FFB020' : '#54706A' }} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const LP_KINDS = [
+  [ShoppingBasket, 'Provision stores'], [Shirt, 'Boutiques'], [Pill, 'Pharmacies'], [Scissors, 'Salons and barbers'], [UtensilsCrossed, 'Restaurants'],
+  [Hotel, 'Hotels and shortlets'], [PartyPopper, 'Event halls'], [Car, 'Car rentals'], [Wrench, 'Repairs and services'], [Boxes, 'Wholesalers'],
+];
+const LP_TYPES = {
+  shops: {
+    label: 'Shops', title: 'For shops and stores',
+    points: ['Record a sale in seconds, with the price filled in', 'Stock goes down by itself, and you get warned before you run out', 'Your own online shop link: customers order and pay, you deliver', 'Know who owes you, and send them a reminder on WhatsApp'],
+    screen: { head: 'Today at Amaka Stores', rows: [['Mama Gold Rice 50kg', '₦78,000'], ['Kings Oil 5L ×2', '₦29,000'], ['Indomie (carton)', '₦9,800']], note: 'Indomie: 3 cartons left', noteTone: 'amber' },
+  },
+  services: {
+    label: 'Services', title: 'For salons, repairers and every service',
+    points: ['Customers book a time on your page, only when you\'re free', 'Customers can choose who they want, and each staff member gets their own login', 'Reminders go out so fewer people forget their appointment', 'See what every service brings in, not just the total'],
+    screen: { head: 'Bookings today', rows: [['10:00 · Braids', 'Ada'], ['12:30 · Haircut', 'Chidi'], ['3:00 · Nails', 'Ada']], note: 'Next: Braids at 10:00', noteTone: 'teal' },
+  },
+  hotels: {
+    label: 'Hotels', title: 'For hotels, shortlets and event halls',
+    points: ['Guests book rooms and pay a deposit online', 'A room board shows who is in, arriving and leaving', 'Extras like water, laundry and airport pickup go on the room bill', 'Check out with one total: the stay and every extra'],
+    screen: { head: 'Rooms tonight', rows: [['Room 101', 'In house'], ['Room 204', 'Arriving 2pm'], ['Room 305', 'Free']], note: '2 of 3 rooms booked', noteTone: 'teal' },
+  },
+};
+const LP_FAQ = [
+  ['Do I need a computer?', 'No. Xorla works on any smartphone, in the browser. You can also add it to your home screen like an app. If you have a laptop, it works there too.'],
+  ['Is it really free?', 'Yes. The Free plan is free for as long as you use it, for up to 20 products or services. Pro and Business come with a 30-day free trial, and you only pay if you decide to keep them.'],
+  ['What happens to my records if I stop paying?', 'Nothing is deleted. You move to the Free plan, and every sale, invoice and customer is still there.'],
+  ['Can my staff use it without seeing everything?', 'Yes. Staff get their own login and only see what you allow. You approve everyone before they can start, and you can remove them any time.'],
+  ['What if I lose my phone?', 'Your records are kept safely online, not on the phone. Log in on another phone and everything is there. You can also lock Xorla with a PIN.'],
+  ['Can customers pay me online?', 'Yes. Customers pay by card, transfer or USSD through Paystack, and the money goes straight to your bank account. Xorla never sees their card details.'],
+];
+
+function LandingPage() {
+  const [tab, setTab] = useState('shops');
+  const [faq, setFaq] = useState(0);
+  const [menu, setMenu] = useState(false);
+  const still = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  useEffect(() => {
+    document.title = 'Xorla: run your business without wahala';
+    if (!document.getElementById('xorla-landing-fonts')) {
+      const link = document.createElement('link'); link.id = 'xorla-landing-fonts'; link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@500;600&display=swap';
+      document.head.appendChild(link);
+    }
+  }, []);
+  const t = LP_TYPES[tab];
+  const start = '/login?start=signup';
+  const display = (size, extra = {}) => ({ fontFamily: LP_DISPLAY, fontSize: size, lineHeight: 1.02, letterSpacing: '-0.035em', fontWeight: 800, ...extra });
+  const btnMain = 'inline-flex items-center justify-center gap-2 h-[52px] px-7 rounded-full text-[15.5px] font-semibold transition-transform active:scale-[0.98] focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2';
+  const sectionTitle = (text, sub, dark) => (
+    <div className="max-w-2xl">
+      <h2 style={display('clamp(32px, 4.6vw, 52px)', { color: dark ? '#fff' : LP.ink })}>{text}</h2>
+      {sub && <p className="mt-4 text-[17px] leading-relaxed" style={{ color: dark ? 'rgba(255,255,255,0.72)' : LP.inkDim }}>{sub}</p>}
+    </div>
+  );
+  const tile = (bg, children, cls = '') => <div className={`rounded-[28px] p-6 sm:p-7 overflow-hidden relative ${cls}`} style={{ background: bg }}>{children}</div>;
+  const tileTitle = (a, b, dark, onBright) => <><h3 className="text-[21px] font-bold leading-tight" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.02em', color: dark ? '#fff' : LP.ink }}>{a}</h3><p className="mt-2 text-[14.5px] leading-relaxed max-w-sm" style={{ color: dark ? 'rgba(255,255,255,0.72)' : onBright ? 'rgba(11,43,38,0.82)' : LP.inkDim }}>{b}</p></>;
+
+  return (
+    <div style={{ background: LP.white, color: LP.ink, fontFamily: LP_BODY, minHeight: '100vh' }}>
+      <style>{`
+        .lp-receipt { position: relative; width: 236px; background: ${LP.paper}; color: ${LP.ink}; padding: 18px 18px 26px; border-radius: 6px 6px 0 0;
+          box-shadow: 0 30px 60px -28px rgba(11,43,38,0.45), 0 2px 0 rgba(11,43,38,0.04);
+          -webkit-mask: linear-gradient(#000 0 0) top/100% calc(100% - 10px) no-repeat, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom/16px 10px repeat-x;
+                  mask: linear-gradient(#000 0 0) top/100% calc(100% - 10px) no-repeat, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom/16px 10px repeat-x; }
+        .lp-dash { border-top: 1.5px dashed rgba(11,43,38,0.28); }
+        .lp-line { opacity: 0; transform: translateY(-4px); animation: lpPrint .28s ease-out forwards; }
+        .lp-stamp { opacity: 0; transform: scale(1.25) rotate(-6deg); background: ${LP.mint}; color: ${LP.forest}; border: 1.5px solid ${LP.tealDeep}; animation: lpStamp .38s cubic-bezier(.2,1.4,.4,1) forwards; }
+        .lp-still .lp-line, .lp-still .lp-stamp { animation: none; opacity: 1; transform: none; }
+        @keyframes lpPrint { to { opacity: 1; transform: none; } }
+        @keyframes lpStamp { to { opacity: 1; transform: rotate(-3deg); } }
+        .lp-phone { width: 250px; height: 510px; border-radius: 42px; padding: 10px; background: #0B2B26; box-shadow: 0 50px 90px -40px rgba(11,43,38,0.6), inset 0 0 0 2px rgba(255,255,255,0.08); }
+        .lp-phone-screen { position: relative; height: 100%; border-radius: 33px; overflow: hidden; background: #0A1F1C; }
+        .lp-bubble { opacity: 0; transform: translateY(8px) scale(.96); animation: lpPop .4s cubic-bezier(.2,1.3,.4,1) forwards; }
+        .lp-still .lp-bubble, .lp-bubble.lp-still { animation: none; opacity: 1; transform: none; }
+        @keyframes lpPop { to { opacity: 1; transform: none; } }
+        @media (prefers-reduced-motion: reduce) { .lp-line, .lp-stamp, .lp-bubble { animation: none !important; opacity: 1 !important; transform: none !important; } }
+        .lp-focus:focus-visible { outline: 3px solid ${LP.tealDeep}; outline-offset: 3px; }
+      `}</style>
+
+      {/* Top bar */}
+      <header className="sticky top-0 z-40" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'saturate(1.4) blur(14px)', WebkitBackdropFilter: 'saturate(1.4) blur(14px)', borderBottom: `1px solid ${LP.line}` }}>
+        <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between gap-4">
+          <a href="/" className="lp-focus flex items-center gap-2.5 rounded-lg"><XorlaMark size={28} /><span className="text-[21px] font-extrabold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}>Xorla</span></a>
+          <nav className="hidden md:flex items-center gap-1 text-[14.5px] font-medium">
+            {[['#features', 'What it does'], ['#for-you', 'Who it\'s for'], ['#pricing', 'Pricing'], ['/ride', 'Ride with Xorla']].map(([h, l]) => <a key={h} href={h} className="lp-focus px-3 py-2 rounded-lg" style={{ color: LP.inkDim }}>{l}</a>)}
+          </nav>
+          <div className="flex items-center gap-1.5">
+            <a href="/login" className="lp-focus px-3.5 py-2 rounded-full text-[14.5px] font-semibold" style={{ color: LP.ink }}>Log in</a>
+            <a href={start} className="lp-focus hidden sm:inline-flex px-5 py-2.5 rounded-full text-[14.5px] font-semibold" style={{ background: LP.forest, color: '#fff' }}>Start free</a>
+            <button onClick={() => setMenu((m) => !m)} aria-label="Menu" aria-expanded={menu} className="lp-focus md:hidden w-10 h-10 rounded-full flex items-center justify-center" style={{ background: LP.wash }}>{menu ? <X size={18} /> : <span className="flex flex-col gap-[4px]"><span className="block w-4 h-[2px] rounded" style={{ background: LP.ink }} /><span className="block w-4 h-[2px] rounded" style={{ background: LP.ink }} /></span>}</button>
+          </div>
+        </div>
+        {menu && (
+          <div className="md:hidden px-5 pb-4 flex flex-col">
+            {[['#features', 'What it does'], ['#for-you', 'Who it\'s for'], ['#pricing', 'Pricing'], ['/ride', 'Ride with Xorla']].map(([h, l]) => <a key={h} href={h} onClick={() => setMenu(false)} className="py-3 text-[16px] font-medium" style={{ borderBottom: `1px solid ${LP.line}` }}>{l}</a>)}
+            <a href={start} className={`${btnMain} mt-4`} style={{ background: LP.forest, color: '#fff' }}>Start free</a>
+          </div>
+        )}
+      </header>
+
+      <main>
+        {/* Hero */}
+        <section className="relative overflow-hidden">
+          <div aria-hidden className="absolute -right-40 -top-24 w-[720px] h-[720px] rounded-full" style={{ background: `radial-gradient(circle at 40% 40%, ${LP.mint} 0%, ${LP.mint} 45%, transparent 46%)` }} />
+          <div className="relative max-w-6xl mx-auto px-5 grid lg:grid-cols-[1.08fr_0.92fr] gap-12 lg:gap-6 items-center pt-12 sm:pt-16 lg:pt-20 pb-16 lg:pb-24">
+            <div>
+              <h1 style={display('clamp(46px, 7.4vw, 88px)', { lineHeight: 0.96, letterSpacing: '-0.045em' })}>Run your business without wahala.</h1>
+              <p className="mt-6 text-[18px] sm:text-[19px] leading-relaxed max-w-[520px]" style={{ color: LP.inkDim }}>Sales, stock, bookings, staff and payments, all on your phone. Xorla does the counting, so you can face your customers.</p>
+              <div className="mt-8 flex flex-col sm:flex-row gap-3">
+                <a href={start} className={`${btnMain} lp-focus`} style={{ background: LP.forest, color: '#fff', boxShadow: '0 14px 30px -14px rgba(11,59,51,0.7)' }}>Start free</a>
+                <a href="#features" className={`${btnMain} lp-focus`} style={{ color: LP.ink, boxShadow: `inset 0 0 0 1.5px ${LP.line}` }}>See what it does</a>
+              </div>
+              <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[14px]" style={{ color: LP.inkDim }}>
+                {['Free plan for small businesses', '30 days of Pro, free', 'No card needed to start'].map((x) => <li key={x} className="flex items-center gap-2"><Check size={15} strokeWidth={2.6} style={{ color: LP.tealDeep }} />{x}</li>)}
+              </ul>
+            </div>
+            <div className={`relative h-[540px] sm:h-[560px] ${still ? 'lp-still' : ''}`}>
+              <div className="absolute right-0 sm:right-[4%] lg:right-[2%] top-[18px]"><LandingPhone /></div>
+              <div className="absolute left-0 sm:left-[6%] lg:left-[2%] top-[150px] -rotate-[5deg] origin-top z-10"><LandingReceipt still={still} /></div>
+              <div className="lp-bubble absolute left-0 sm:left-[4%] lg:left-0 top-[34px] max-w-[230px] z-20 rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[12.5px] leading-snug" style={{ background: '#DCF8C6', color: '#0B2B26', boxShadow: '0 16px 30px -18px rgba(11,43,38,0.5)', animationDelay: '3s' }}>
+                <div className="font-semibold">New order from Chidi</div>2 crates of Coke, deliver to Aba Road. <span style={{ color: '#5B7A6E' }}>Paid online</span>
+              </div>
+              <div className="lp-bubble absolute right-0 sm:right-2 bottom-[18px] z-20 flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5" style={{ background: '#fff', boxShadow: '0 18px 36px -20px rgba(11,43,38,0.5)', border: `1px solid ${LP.line}`, animationDelay: '3.5s' }}>
+                <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: LP.amber }}><Bell size={15} style={{ color: LP.ink }} /></span>
+                <span className="text-[12.5px] leading-tight"><span className="block font-semibold">Room 204 booked</span><span style={{ color: LP.inkFaint }}>Deposit of {fmt(35000)} paid</span></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Kinds of business */}
+        <section className="py-10" style={{ background: LP.wash, borderTop: `1px solid ${LP.line}`, borderBottom: `1px solid ${LP.line}` }}>
+          <div className="max-w-6xl mx-auto px-5">
+            <p className="text-[16px] font-semibold">Made for the way business works here</p>
+            <div className="mt-4 -mx-5 px-5 sm:mx-0 sm:px-0 flex sm:flex-wrap gap-2.5 overflow-x-auto sm:overflow-visible pb-1" style={{ scrollbarWidth: 'none' }}>
+              {LP_KINDS.map(([Ic, l]) => <span key={l} className="shrink-0 inline-flex items-center gap-2 rounded-full pl-2 pr-4 py-2 text-[14px] font-medium whitespace-nowrap" style={{ background: '#fff', border: `1px solid ${LP.line}` }}><span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: LP.mint }}><Ic size={14} style={{ color: LP.forest }} /></span>{l}</span>)}
+            </div>
+          </div>
+        </section>
+
+        {/* What it does */}
+        <section id="features" className="max-w-6xl mx-auto px-5 pt-24 pb-6 scroll-mt-16">
+          {sectionTitle('Everything a busy owner needs, nothing you don\'t', 'Start with recording sales. Add stock, staff, bookings and online payments when you\'re ready. It all works together.')}
+          <div className="mt-12 grid gap-4 lg:grid-cols-6">
+            {tile(LP.forest, (
+              <div className="grid sm:grid-cols-2 gap-6 items-end">
+                <div>{tileTitle('Know your profit every evening', 'Every sale and expense adds up by itself, so you always know what you made today. On Pro, your weekly summary also comes to you on WhatsApp.', true)}
+                  <div className="mt-6 flex items-end gap-2 h-24" aria-hidden>
+                    {[['M', 46], ['T', 58], ['W', 40], ['T', 66], ['F', 74], ['S', 100], ['S', 62]].map(([d, h], i) => (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end"><span className="w-full rounded-md" style={{ height: `${h}%`, background: i === 5 ? LP.amber : 'rgba(31,217,196,0.45)' }} /><span className="text-[11px] font-medium" style={{ color: 'rgba(255,255,255,0.6)' }}>{d}</span></div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl p-4" style={{ background: '#DCF8C6', color: LP.ink }}>
+                  <div className="text-[12px] font-semibold" style={{ color: '#0E7A5F' }}>Your week on Xorla</div>
+                  <div className="text-[14px] leading-relaxed mt-1">Good evening Amaka. This week you sold <strong>{fmt(612400)}</strong>, spent <strong>{fmt(401900)}</strong> and made <strong>{fmt(210500)}</strong> profit. Your best seller was Peak Milk. Well done!</div>
+                </div>
+              </div>
+            ), 'lg:col-span-4')}
+            {tile(LP.mint, (
+              <>
+                {tileTitle('Never run out of stock', 'Stock goes down with every sale. You hear about it before the shelf is empty.')}
+                <div className="mt-5 space-y-2">
+                  {[['Indomie (carton)', '3 left', LP.coral], ['Peak Milk tin', '24 left', LP.tealDeep], ['Kings Oil 5L', '11 left', LP.tealDeep]].map(([n, q, c]) => (
+                    <div key={n} className="flex items-center justify-between rounded-xl px-3.5 py-2.5 text-[14px]" style={{ background: '#fff' }}><span className="font-medium">{n}</span><span className="font-semibold" style={{ color: c }}>{q}</span></div>
+                  ))}
+                </div>
+              </>
+            ), 'lg:col-span-2')}
+            {tile('#fff', (
+              <>
+                {tileTitle('Your own online shop', 'Share one link on WhatsApp and Instagram. Customers order, book or pay from it, and you see it on your phone at once.')}
+                <div className="mt-5 rounded-2xl p-3 flex items-center gap-3" style={{ background: LP.wash, border: `1px solid ${LP.line}` }}>
+                  <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: LP.forest }}><Store size={18} color="#fff" /></span>
+                  <span className="min-w-0"><span className="block text-[14px] font-semibold truncate">xorla.vercel.app/amakastores</span><span className="block text-[12.5px]" style={{ color: LP.inkFaint }}>Open 8am to 9pm</span></span>
+                </div>
+              </>
+            ), 'lg:col-span-2 border')}
+            {tile('#fff', (
+              <>
+                {tileTitle('Get paid online', 'Customers pay by card, transfer or USSD. The money goes straight to your bank.')}
+                <div className="mt-5 flex items-center gap-3">
+                  <span className="flex-1 h-11 rounded-full flex items-center justify-center text-[14px] font-semibold" style={{ background: LP.forest, color: '#fff' }}><Lock size={14} className="mr-1.5" />Pay {fmt(29000)}</span>
+                  <span className="h-11 px-4 rounded-full flex items-center gap-1.5 text-[14px] font-semibold" style={{ background: LP.mint, color: LP.forest }}><Check size={15} />Paid</span>
+                </div>
+                <p className="mt-3 text-[12.5px]" style={{ color: LP.inkFaint }}>Secured by Paystack</p>
+              </>
+            ), 'lg:col-span-2 border')}
+            {tile('#fff', (
+              <>
+                {tileTitle('Staff without stress', 'Each person gets their own login. They record sales; you see who did what, from anywhere.')}
+                <div className="mt-5 flex items-center gap-3"><span className="flex -space-x-2">{['TO', 'AD', 'CH'].map((x, i) => <span key={x} className="w-10 h-10 rounded-full flex items-center justify-center text-[12px] font-bold ring-2 ring-white" style={{ background: [LP.mint, '#FFE7B0', '#FFD9CC'][i], color: LP.ink }}>{x}</span>)}</span><span className="text-[13.5px] leading-snug" style={{ color: LP.inkDim }}>Tolu recorded 12 sales today</span></div>
+              </>
+            ), 'lg:col-span-2 border')}
+            {tile(LP.amber, (
+              <div className="grid sm:grid-cols-[1fr_1.1fr] gap-6 items-center">
+                <div>{tileTitle('Ask Oga anything about your business', 'Oga is your business advisor. It reads your real numbers and answers in English, Pidgin, Igbo, Yoruba or Hausa.', false, true)}</div>
+                <div className="space-y-2">
+                  <div className="ml-auto max-w-[260px] rounded-2xl rounded-br-md px-3.5 py-2.5 text-[14px]" style={{ background: LP.forest, color: '#fff' }}>Which product dey bring me the most money?</div>
+                  <div className="max-w-[300px] rounded-2xl rounded-bl-md px-3.5 py-2.5 text-[14px] leading-relaxed" style={{ background: '#fff' }}>Na Mama Gold Rice. This month e bring {fmt(312000)}, but only 4 bags remain. Order more before weekend.</div>
+                </div>
+              </div>
+            ), 'lg:col-span-4')}
+            {tile(LP.wash, (
+              <>
+                {tileTitle('Register your business with CAC', 'Apply for your business name inside Xorla. An accredited agent files it, and your certificate lands in your vault.')}
+                <div className="mt-5 rounded-xl p-4 text-center" style={{ background: 'linear-gradient(160deg, #FBF6EA, #F3EBD7)', boxShadow: 'inset 0 0 0 1.5px rgba(150,110,40,0.35)' }}>
+                  <div className="text-[10px] font-semibold tracking-[0.2em]" style={{ color: '#8A6A2F' }}>CERTIFICATE OF REGISTRATION</div>
+                  <div className="mt-1 text-[17px] font-bold" style={{ fontFamily: 'Georgia, serif', color: '#1F2A26' }}>Amaka Stores</div>
+                </div>
+              </>
+            ), 'lg:col-span-2')}
+            {tile(LP.wash, (
+              <>
+                {tileTitle('Reminders that get you paid', 'Xorla reminds customers who owe you on WhatsApp, politely, so you don\'t have to chase them.')}
+                <div className="mt-5 rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[13.5px] leading-relaxed" style={{ background: '#DCF8C6' }}>Hello Emeka, a friendly reminder from Amaka Stores: your invoice of {fmt(18200)} is due today. Thank you!</div>
+              </>
+            ), 'lg:col-span-3')}
+            {tile(LP.wash, (
+              <>
+                {tileTitle('Your papers, safe in one place', 'Keep your CAC certificate, TIN and licences in the vault. Share them with a bank or supplier in one tap.')}
+                <div className="mt-5 flex gap-2">{[['CAC certificate', LP.forest], ['TIN', LP.tealDeep], ['NAFDAC', LP.coral]].map(([n, c]) => <span key={n} className="flex-1 rounded-xl px-2.5 py-3 text-[12px] font-semibold text-center" style={{ background: '#fff', borderTop: `3px solid ${c}` }}><FileText size={16} className="mx-auto mb-1" style={{ color: c }} />{n}</span>)}</div>
+              </>
+            ), 'lg:col-span-3')}
+          </div>
+        </section>
+
+        {/* Built for your kind of business */}
+        <section id="for-you" className="max-w-6xl mx-auto px-5 pt-24 scroll-mt-16">
+          {sectionTitle('It changes to fit your business', 'Tell Xorla what you do when you sign up. A shop, a salon and a hotel each get the tools they need, in the words they use.')}
+          <div className="mt-10 inline-flex p-1.5 rounded-full" role="tablist" aria-label="Type of business" style={{ background: LP.wash, border: `1px solid ${LP.line}` }}>
+            {Object.entries(LP_TYPES).map(([k, v]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="lp-focus px-5 sm:px-6 py-2.5 rounded-full text-[15px] font-semibold transition-colors" style={tab === k ? { background: LP.forest, color: '#fff' } : { color: LP.inkDim }}>{v.label}</button>)}
+          </div>
+          <div className="mt-6 grid lg:grid-cols-[1.15fr_0.85fr] gap-6 items-stretch" role="tabpanel">
+            <div className="rounded-[28px] p-7 sm:p-9" style={{ background: LP.mint }}>
+              <h3 style={display('clamp(26px, 3vw, 34px)')}>{t.title}</h3>
+              <ul className="mt-6 space-y-4">
+                {t.points.map((x) => <li key={x} className="flex items-start gap-3 text-[16px] leading-relaxed"><span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: LP.forest }}><Check size={13} strokeWidth={3} color="#fff" /></span>{x}</li>)}
+              </ul>
+            </div>
+            <div className="rounded-[28px] p-6 flex flex-col" style={{ background: '#0A1F1C', color: '#EAF6F2' }}>
+              <div className="flex items-center gap-2"><XorlaMark size={18} /><span className="text-[13px] font-semibold">{t.screen.head}</span></div>
+              <div className="mt-4 rounded-2xl overflow-hidden flex-1" style={{ background: '#13322C' }}>
+                {t.screen.rows.map(([a, b], i) => <div key={a} className="flex items-center justify-between px-4 py-3.5 text-[14.5px]" style={{ borderTop: i ? '1px solid rgba(255,255,255,0.06)' : 'none' }}><span className="font-medium">{a}</span><span style={{ color: '#93B0AA' }}>{b}</span></div>)}
+              </div>
+              <div className="mt-3 rounded-xl px-4 py-3 text-[13.5px] font-semibold" style={{ background: t.screen.noteTone === 'amber' ? 'rgba(255,176,32,0.14)' : 'rgba(31,217,196,0.14)', color: t.screen.noteTone === 'amber' ? '#FFB020' : '#1FD9C4' }}>{t.screen.note}</div>
+            </div>
+          </div>
+        </section>
+
+        {/* How it works (a real sequence) */}
+        <section className="max-w-6xl mx-auto px-5 pt-24">
+          {sectionTitle('Set up before your next customer walks in')}
+          <ol className="mt-10 grid md:grid-cols-3 gap-4">
+            {[['Sign up with your email', 'It takes about a minute. Tell Xorla your business name and what you sell or do.'], ['Add what you sell', 'Type it in, or take a photo of your price list and Xorla fills it in for you.'], ['Record your first sale', 'Then share your shop link with customers, and invite your staff when you\'re ready.']].map(([a, b], i) => (
+              <li key={a} className="rounded-[28px] p-7" style={{ border: `1.5px solid ${LP.line}` }}>
+                <span className="block text-[56px] leading-none font-extrabold" style={{ fontFamily: LP_DISPLAY, color: [LP.tealDeep, LP.amber, LP.coral][i], letterSpacing: '-0.04em' }}>{i + 1}</span>
+                <span className="block mt-4 text-[20px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.02em' }}>{a}</span>
+                <span className="block mt-2 text-[15px] leading-relaxed" style={{ color: LP.inkDim }}>{b}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        {/* Trust */}
+        <section className="mt-24" style={{ background: LP.forest }}>
+          <div className="max-w-6xl mx-auto px-5 py-20 grid lg:grid-cols-[0.9fr_1.1fr] gap-12">
+            {sectionTitle('Your money and your records stay yours', 'Xorla is built by PointBlank Softworks Ltd in Abia State, for businesses like yours. Here is how we keep your business safe.', true)}
+            <ul className="grid sm:grid-cols-2 gap-x-8 gap-y-7">
+              {[[ShieldCheck, 'Staff see only what you allow', 'You approve every staff member, and remove them in one tap.'], [Lock, 'Lock it with a PIN', 'Nobody opens your Xorla on your phone without your PIN.'], [CreditCard, 'Payments by Paystack', 'Card, transfer and USSD. Xorla never sees card details.'], [FileText, 'Nothing is ever deleted', 'Stop paying and you move to Free with every record still there.'], [Bell, 'No surprise charges', 'We remind you 3 days before your plan renews.'], [Smartphone, 'Lose your phone, not your records', 'Everything is kept online. Log in on another phone.']].map(([Ic, a, b]) => (
+                <li key={a} className="flex gap-3.5">
+                  <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.14)' }}><Ic size={19} style={{ color: LP.teal }} /></span>
+                  <span><span className="block text-[16px] font-semibold text-white">{a}</span><span className="block mt-1 text-[14.5px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.7)' }}>{b}</span></span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* Pricing */}
+        <section id="pricing" className="max-w-6xl mx-auto px-5 pt-24 scroll-mt-16">
+          {sectionTitle('Start free. Grow when you\'re ready.', 'Every paid plan starts with 30 days free. Pay monthly or yearly by card, transfer or USSD.')}
+          <div className="mt-10 grid md:grid-cols-3 gap-4 items-stretch">
+            {[
+              ['Free', 0, 'For a one-person business', ['Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link'], false],
+              ['Pro', PLAN_PRICES.pro.monthly, 'For a growing business with staff', ['Up to 3 staff, each with their own login', 'Unlimited products and services', 'Automatic WhatsApp payment reminders', 'Oga in 5 languages'], true],
+              ['Business', PLAN_PRICES.business.monthly, 'For several branches or shops', ['Up to 10 staff across 3 locations', 'Move stock between locations', 'See every location together, or one at a time'], false],
+            ].map(([n, price, who, pts, star]) => (
+              <div key={n} className="rounded-[28px] p-7 flex flex-col" style={star ? { background: LP.forest, color: '#fff', boxShadow: '0 30px 60px -30px rgba(11,59,51,0.6)' } : { border: `1.5px solid ${LP.line}` }}>
+                <div className="flex items-center justify-between"><span className="text-[19px] font-bold" style={{ fontFamily: LP_DISPLAY }}>{n}</span>{star && <span className="px-3 py-1 rounded-full text-[12.5px] font-semibold" style={{ background: LP.amber, color: LP.ink }}>Most chosen</span>}</div>
+                <div className="mt-1 text-[14px]" style={{ color: star ? 'rgba(255,255,255,0.7)' : LP.inkDim }}>{who}</div>
+                <div className="mt-5 flex items-baseline gap-1.5"><span className="text-[40px] font-extrabold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}>{price ? fmt(price) : '₦0'}</span><span className="text-[14px]" style={{ color: star ? 'rgba(255,255,255,0.7)' : LP.inkFaint }}>{price ? 'a month' : 'forever'}</span></div>
+                <ul className="mt-5 space-y-2.5 flex-1">{pts.map((x) => <li key={x} className="flex items-start gap-2.5 text-[14.5px] leading-snug"><Check size={16} strokeWidth={2.6} className="shrink-0 mt-0.5" style={{ color: star ? LP.teal : LP.tealDeep }} />{x}</li>)}</ul>
+                <a href={start} className={`${btnMain} lp-focus mt-7 w-full`} style={star ? { background: LP.amber, color: LP.ink } : { background: LP.wash, color: LP.ink }}>{price ? 'Start 30 days free' : 'Start free'}</a>
+              </div>
+            ))}
+          </div>
+          <p className="mt-5 text-[14.5px]" style={{ color: LP.inkDim }}>Yearly plans get two months free. <a href="/pricing" className="lp-focus font-semibold underline underline-offset-4" style={{ color: LP.forest }}>See full pricing and early-supporter prices</a></p>
+        </section>
+
+        {/* Questions */}
+        <section className="max-w-3xl mx-auto px-5 pt-24">
+          <h2 style={display('clamp(30px, 4vw, 44px)')}>Questions people ask</h2>
+          <div className="mt-8" style={{ borderTop: `1px solid ${LP.line}` }}>
+            {LP_FAQ.map(([q, a], i) => {
+              const open = faq === i;
+              return (
+                <div key={q} style={{ borderBottom: `1px solid ${LP.line}` }}>
+                  <button onClick={() => setFaq(open ? -1 : i)} aria-expanded={open} className="lp-focus w-full flex items-center justify-between gap-4 py-5 text-left text-[17px] font-semibold">
+                    {q}<span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: open ? LP.forest : LP.wash }}>{open ? <Minus size={15} color="#fff" /> : <Plus size={15} />}</span>
+                  </button>
+                  {open && <p className="pb-5 -mt-1 text-[15.5px] leading-relaxed max-w-2xl" style={{ color: LP.inkDim }}>{a}</p>}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Last call */}
+        <section className="max-w-6xl mx-auto px-5 pt-24 pb-20">
+          <div className="relative overflow-hidden rounded-[36px] px-7 py-14 sm:px-14 sm:py-16 grid lg:grid-cols-[1.2fr_0.8fr] gap-10 items-center" style={{ background: LP.mint }}>
+            <div className="relative">
+              <h2 style={display('clamp(34px, 5vw, 60px)')}>Your next sale can be your first one on Xorla.</h2>
+              <p className="mt-4 text-[17px] leading-relaxed max-w-lg" style={{ color: LP.inkDim }}>Free to start. Set up in minutes. Works on the phone you already have.</p>
+              <div className="mt-8 flex flex-col sm:flex-row gap-3">
+                <a href={start} className={`${btnMain} lp-focus`} style={{ background: LP.forest, color: '#fff' }}>Start free</a>
+                <a href="/login" className={`${btnMain} lp-focus`} style={{ background: '#fff', color: LP.ink }}>I already have an account</a>
+              </div>
+            </div>
+            <div className="hidden lg:flex justify-center"><div className="rotate-[4deg]"><LandingReceipt still /></div></div>
+          </div>
+        </section>
+      </main>
+
+      <footer style={{ borderTop: `1px solid ${LP.line}` }}>
+        <div className="max-w-6xl mx-auto px-5 py-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-2.5"><XorlaMark size={24} /><span className="text-[18px] font-extrabold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.03em' }}>Xorla</span></div>
+            <div className="mt-2 text-[13.5px]" style={{ color: LP.inkFaint }}>Built in Abia State by PointBlank Softworks Ltd.</div>
+          </div>
+          <nav className="flex flex-wrap gap-x-6 gap-y-2 text-[14px] font-medium" style={{ color: LP.inkDim }}>
+            {[['/pricing', 'Pricing'], ['/ride', 'Ride with Xorla'], ['/terms', 'Terms'], ['/privacy', 'Privacy'], ['/login', 'Log in']].map(([h, l]) => <a key={h} href={h} className="lp-focus rounded">{l}</a>)}
+          </nav>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
 export default function Root() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const storeMatch = path.match(/^\/store\/([A-Za-z0-9]+)/);
@@ -19862,13 +20293,21 @@ export default function Root() {
   const orderMatch = path.match(/^\/order\/([a-f0-9]{20,64})/);
   const docsMatch = path.match(/^\/docs\/([a-f0-9]{32})/);
   const agentMatch = path.match(/^\/agent\/([a-f0-9]{64})/);
+  // New visitors to the main address see the home page; anyone logged in (or using the installed app) goes straight in
+  const showLanding = clean === '' && typeof window !== 'undefined' && !window.location.search && (() => {
+    try { if (localStorage.getItem(SESSION_KEY)) return false; } catch (e) { return false; }
+    try { if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) return false; } catch (e) {}
+    return true;
+  })();
   const page = /^\/(ride|riders?)$/.test(clean) ? <RiderApp /> : agentMatch ? <CacAgentPage token={agentMatch[1]} /> : docsMatch ? <VaultShared token={docsMatch[1]} /> : offerMatch ? <AppointmentOffer token={offerMatch[1]} /> : guestMatch ? <GuestBooking token={guestMatch[1]} /> : orderMatch ? <CustomerOrder token={orderMatch[1]} /> : storeMatch ? <Storefront businessCode={storeMatch[1]} />
     : clean === '/pricing' ? <PricingPage />
     : clean === '/privacy' ? <LegalPage kind="privacy" />
     : clean === '/terms' ? <LegalPage kind="terms" />
     : clean === '/admin' ? <AdminDashboard />
+    : clean === '/login' ? <XorlaApp />
     : storeSub ? <StoreBySlug slug={storeSub} />
     : slugMatch && STORE_SLUG_RE.test(slugMatch[1].toLowerCase()) ? <StoreBySlug slug={slugMatch[1].toLowerCase()} />
+    : showLanding ? <LandingPage />
     : <XorlaApp />;
   return <>{page}<BrandDialogHost /></>;
 }
