@@ -18924,7 +18924,8 @@ async function riderBilling(token, action, extra = {}) {
 }
 const riderInitials = (n) => String(n || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 
-const RIDER_FONT = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+const RIDER_FONT = "'Poppins', 'Inter', system-ui, sans-serif";
+const RIDER_DISPLAY = "'Unbounded', 'Inter', system-ui, sans-serif";
 const RIDER_LIGHT = {
   bg: '#FBF9F4', surface: '#FFFFFF', surfaceRaised: '#F5F3ED', field: '#F3F1EA', chip: '#F1EFE8', track: '#E7E4DB', mint: '#E3F4EF',
   line: 'rgba(11,43,38,0.09)', lineStrong: 'rgba(11,43,38,0.16)', ink: '#0B2B26', inkDim: '#52645F', inkFaint: '#8C9A96',
@@ -18941,7 +18942,7 @@ function RiderHeroArt({ className = '' }) {
   <path d="M430 60 h62 a16 16 0 0 0 -16 -20 a22 22 0 0 0 -40 4 a12 12 0 0 0 -6 16 z" fill="#fff" stroke="#0B2B26" strokeWidth="2.5"/>
   
   <path d="M60 356 h40 M130 356 h60 M220 356 h120 M370 356 h60 M460 356 h40" stroke="#0B2B26" strokeWidth="2.5" opacity="0.25"/>
-  <path d="M34 246 h46 M18 272 h70 M46 298 h40" stroke="#0B2B26" strokeWidth="3"/>
+  <path className="rd-speed" d="M34 246 h46 M18 272 h70 M46 298 h40" stroke="#0B2B26" strokeWidth="3"/>
   
   <g stroke="#0B2B26" strokeWidth="3">
     <circle cx="170" cy="316" r="38" fill="#FFB020"/><circle cx="170" cy="316" r="14" fill="#fff"/>
@@ -18996,15 +18997,15 @@ function RiderHeroArt({ className = '' }) {
   <circle cx="296" cy="118" r="2.6" fill="#0B2B26"/>
   <path d="M292 128 q6 5 12 -1" stroke="#0B2B26" strokeWidth="2.5"/>
   
-  <g transform="translate(418 116) rotate(-10)">
+  <g className="rd-bob"><g transform="translate(418 116) rotate(-10)">
     <rect width="46" height="40" rx="6" fill="#fff" stroke="#0B2B26" strokeWidth="2.5"/>
     <path d="M0 13 h46 M23 0 v13" stroke="#0B2B26" strokeWidth="2.5"/>
   </g>
-  <g transform="translate(476 178)">
+  </g><g className="rd-bob2"><g transform="translate(476 178)">
     <path d="M14 0 C 26 0, 30 12, 26 20 L 14 40 L 2 20 C -2 12, 2 0, 14 0 Z" fill="#E2624B" stroke="#0B2B26" strokeWidth="2.5"/>
     <circle cx="14" cy="14" r="5" fill="#fff"/>
   </g>
-  <path d="M440 210 C 470 220, 470 250, 446 262" stroke="#0B2B26" strokeWidth="2" strokeDasharray="4 7" opacity="0.5"/>
+  </g><path d="M440 210 C 470 220, 470 250, 446 262" stroke="#0B2B26" strokeWidth="2" strokeDasharray="4 7" opacity="0.5"/>
   <g transform="translate(476 302)">
     <path d="M0 52 C -6 24, 6 6, 26 0 C 30 22, 22 42, 0 52 Z" fill="#2E7D5B" stroke="#0B2B26" strokeWidth="2.5"/>
     <path d="M10 52 C 22 34, 42 30, 58 36 C 50 52, 30 58, 10 52 Z" fill="#7CC4A0" stroke="#0B2B26" strokeWidth="2.5"/>
@@ -19096,6 +19097,18 @@ function RiderApp() {
   const [bank, setBank] = useState({ q: '', code: '', name: '', number: '', busy: false, error: '' });
   const [agree, setAgree] = useState(false);
   const topRef = useRef(null);
+  // Rider home page: sections glide in as you scroll, and menu links scroll smoothly
+  const riderHomeRef = useRef(null);
+  useEffect(() => {
+    if (sess || view !== 'home') return undefined;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const html = document.documentElement; const prev = html.style.scrollBehavior; if (!reduce) html.style.scrollBehavior = 'smooth';
+    const els = riderHomeRef.current ? [...riderHomeRef.current.querySelectorAll('[data-reveal]')] : [];
+    let io = null;
+    if (reduce || !('IntersectionObserver' in window)) els.forEach((el) => el.classList.add('lp-in'));
+    else { io = new IntersectionObserver((entries) => entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('lp-in'); io.unobserve(e.target); } }), { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }); els.forEach((el) => io.observe(el)); }
+    return () => { if (io) io.disconnect(); html.style.scrollBehavior = prev; };
+  }, [sess, view]);
   useEffect(() => {
     document.title = 'Ride with Xorla';
     if (!document.getElementById('xorla-jakarta')) { const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet'; link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'; document.head.appendChild(link); }
@@ -19214,8 +19227,8 @@ function RiderApp() {
   const label = (t, hint) => <label className="block text-[13px] font-semibold mb-1.5">{t}{hint ? <span className="font-normal" style={{ color: C.inkFaint }}> {hint}</span> : null}</label>;
   const chip = (on) => ({ background: on ? C.copper : C.surface, color: on ? '#fff' : C.ink, border: `1.5px solid ${on ? C.copper : C.lineStrong}` });
   const header = (
-    <header className="max-w-6xl mx-auto px-5 pb-2 flex items-center justify-between gap-3" style={{ paddingTop: 'max(18px, env(safe-area-inset-top))' }}>
-      <a href="/ride" className="flex items-center gap-2.5"><XorlaMark size={28} /><span className="text-[19px] font-extrabold" style={{ letterSpacing: '-0.03em', fontFamily: RIDER_FONT }}>xorla</span><span className="text-[11.5px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: C.mint, color: C.sage }}>riders</span></a>
+    <header className="max-w-[1280px] mx-auto px-5 sm:px-8 lg:px-10 pb-2 flex items-center justify-between gap-3" style={{ paddingTop: 'max(18px, env(safe-area-inset-top))' }}>
+      <a href="/ride" className="flex items-center gap-2.5"><XorlaMark size={28} /><span className="text-[18px] font-bold" style={{ letterSpacing: '-0.03em', fontFamily: RIDER_DISPLAY }}>Xorla</span><span className="text-[11.5px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: C.mint, color: C.sage }}>riders</span></a>
       {sess ? <button onClick={logout} className="flex items-center gap-1.5 text-[13.5px] font-semibold px-3.5 py-2 rounded-full" style={{ color: C.inkDim, background: C.surface, boxShadow: `0 0 0 1px ${C.line}` }}><LogOut size={14} /> Log out</button>
         : view === 'home' ? (
           <nav className="flex items-center gap-1 sm:gap-2">
@@ -19226,7 +19239,7 @@ function RiderApp() {
         ) : null}
     </header>
   );
-  const footer = <footer className="max-w-6xl mx-auto px-5 py-10 text-[12px] flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.inkFaint }}><span>© Xorla</span><a href="/terms" style={{ color: C.inkDim }}>Terms</a><a href="/privacy" style={{ color: C.inkDim }}>Privacy</a><span>Your ID, selfie and bank details are private. Only the Xorla team can see them.</span></footer>;
+  const footer = <footer className="max-w-[1280px] mx-auto px-5 sm:px-8 lg:px-10 py-10 text-[12px] flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.inkFaint }}><span>© Xorla</span><a href="/terms" style={{ color: C.inkDim }}>Terms</a><a href="/privacy" style={{ color: C.inkDim }}>Privacy</a><span>Your ID, selfie and bank details are private. Only the Xorla team can see them.</span></footer>;
 
   // ---------- Logged out: the welcome page ----------
   if (!sess && view === 'home') {
@@ -19235,13 +19248,39 @@ function RiderApp() {
     const how = [['Apply', 'About 10 minutes on your phone'], ['We check you', 'ID, selfie, guarantor and bank. 1 to 3 working days'], ['Get approved', 'Your Xorla Rider Pass turns green'], ['Start delivering', 'Jobs open city by city, from Umuahia and Aba']];
     const need = ['Your phone number', "NIN, driver's licence, voter's card or passport", 'A clear selfie', 'Someone who will stand for you (a guarantor)', 'A bank account in your own name', 'Your plate number (bike, keke, car or van)'];
     return (
-      <div style={page}>
+      <div style={page} ref={riderHomeRef}>
+        <style>{`
+          .rd-hero-in > * { opacity: 0; transform: translateY(18px); animation: rdUp .8s cubic-bezier(.2,.7,.2,1) forwards; }
+          .rd-hero-in > *:nth-child(2) { animation-delay: .1s; } .rd-hero-in > *:nth-child(3) { animation-delay: .2s; } .rd-hero-in > *:nth-child(4) { animation-delay: .3s; } .rd-hero-in > *:nth-child(5) { animation-delay: .4s; } .rd-hero-in > *:nth-child(6) { animation-delay: .5s; }
+          .rd-art-in { opacity: 0; transform: translateX(40px); animation: rdIn 1s cubic-bezier(.2,.7,.2,1) .15s forwards; }
+          @keyframes rdUp { to { opacity: 1; transform: none; } }
+          @keyframes rdIn { to { opacity: 1; transform: none; } }
+          .lp-float { animation: lpFloat 6s ease-in-out infinite; }
+          @keyframes lpFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+          .rd-bob { animation: rdBob 3.2s ease-in-out infinite; transform-box: fill-box; }
+          .rd-bob2 { animation: rdBob 3.8s ease-in-out .6s infinite; transform-box: fill-box; }
+          @keyframes rdBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+          .rd-speed { animation: rdSpeed 1.1s ease-in-out infinite; }
+          @keyframes rdSpeed { 0%,100% { opacity: 1; transform: translateX(0); } 50% { opacity: .35; transform: translateX(-8px); } }
+          [data-reveal] { opacity: 0; transform: translateY(26px); transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease; transition-delay: var(--d, 0s); }
+          [data-reveal].lp-in { opacity: 1; transform: none; }
+          .rd-tile.lp-in:hover { transform: translateY(-4px); }
+          .lp-line-grow { transform-origin: left; transform: scaleX(0); transition: transform 1.2s cubic-bezier(.2,.7,.2,1) .25s; }
+          .lp-in .lp-line-grow { transform: scaleX(1); }
+          .rd-pass-tilt { animation: rdTilt 7s ease-in-out infinite; }
+          @keyframes rdTilt { 0%,100% { transform: rotate(-1.5deg) translateY(0); } 50% { transform: rotate(1deg) translateY(-6px); } }
+          @media (prefers-reduced-motion: reduce) {
+            .rd-hero-in > *, .rd-art-in, [data-reveal] { animation: none !important; opacity: 1 !important; transform: none !important; transition: none !important; }
+            .lp-float, .rd-bob, .rd-bob2, .rd-speed, .rd-pass-tilt { animation: none !important; }
+            .lp-line-grow { transform: none !important; }
+          }
+        `}</style>
         {header}
         <main>
-          <section className="max-w-6xl mx-auto px-5 grid lg:grid-cols-[1fr_1.05fr] gap-6 lg:gap-10 items-center pt-6 lg:pt-12 pb-10">
-            <div className="order-2 lg:order-1">
+          <section className="max-w-[1280px] mx-auto px-5 sm:px-8 lg:px-10 grid lg:grid-cols-[1fr_1.05fr] gap-6 lg:gap-10 items-center pt-6 lg:pt-12 pb-10">
+            <div className="order-2 lg:order-1 rd-hero-in">
               <div className="text-[18px] sm:text-[20px] font-bold" style={{ color: C.ink, fontFamily: RIDER_FONT }}>Hello, rider!</div>
-              <h1 className="mt-1 text-[44px] sm:text-[60px] font-extrabold leading-[1.02]" style={{ letterSpacing: '-0.035em', fontFamily: RIDER_FONT }}>Deliver more.<br /><span style={{ color: C.amber }}>Earn more.</span></h1>
+              <h1 className="mt-1 text-[38px] sm:text-[54px] font-extrabold leading-[1.04]" style={{ letterSpacing: '-0.045em', fontFamily: RIDER_DISPLAY }}>Deliver more.<br /><span style={{ color: C.amber }}>Earn more.</span></h1>
               <div className="mt-4 w-14 h-1.5 rounded-full" style={{ background: C.sage }} />
               <p className="mt-4 text-[16px] leading-relaxed max-w-md" style={{ color: C.inkDim }}>Join the Xorla rider network. Get delivery jobs from shops, restaurants and hotels near you, and get paid straight to your bank.</p>
               <div className="mt-7 rounded-[22px] sm:rounded-full p-2 flex flex-col sm:flex-row sm:items-center gap-2 max-w-lg" style={{ background: C.surface, boxShadow: '0 18px 40px -18px rgba(11,43,38,0.28), 0 0 0 1px rgba(11,43,38,0.06)' }}>
@@ -19255,53 +19294,53 @@ function RiderApp() {
               </div>
               <div className="mt-4 text-[14px]" style={{ color: C.inkDim }}>Already applied? <button onClick={() => go('login')} className="font-bold underline underline-offset-4" style={{ color: C.copper }}>Log in</button></div>
             </div>
-            <div className="order-1 lg:order-2 -mx-2 sm:mx-0"><RiderHeroArt className="w-full h-auto" /></div>
+            <div className="order-1 lg:order-2 -mx-2 sm:mx-0 rd-art-in"><div className="lp-float"><RiderHeroArt className="w-full h-auto" /></div></div>
           </section>
 
-          <section className="max-w-6xl mx-auto px-5 grid sm:grid-cols-3 gap-4">
-            {perks.map(([Art, t, d]) => (
-              <div key={t} className="rounded-[24px] p-5 flex sm:block items-center gap-4" style={{ background: C.surface, boxShadow: '0 1px 0 rgba(11,43,38,0.04), 0 16px 34px -24px rgba(11,43,38,0.3)' }}>
+          <section className="max-w-[1280px] mx-auto px-5 sm:px-8 lg:px-10 grid sm:grid-cols-3 gap-4">
+            {perks.map(([Art, t, d], i) => (
+              <div key={t} data-reveal className="rd-tile rounded-[24px] p-5 flex sm:block items-center gap-4" style={{ '--d': `${i * 0.1}s`, background: C.surface, boxShadow: '0 1px 0 rgba(11,43,38,0.04), 0 16px 34px -24px rgba(11,43,38,0.3)' }}>
                 <Art className="w-24 sm:w-28 h-auto shrink-0" />
-                <div className="min-w-0"><div className="sm:mt-4 text-[17px] font-bold" style={{ fontFamily: RIDER_FONT }}>{t}</div><div className="mt-1 text-[14px] leading-relaxed" style={{ color: C.inkDim }}>{d}</div></div>
+                <div className="min-w-0"><div className="sm:mt-4 text-[17px] font-bold" style={{ fontFamily: RIDER_DISPLAY, letterSpacing: '-0.02em', fontWeight: 600 }}>{t}</div><div className="mt-1 text-[14px] leading-relaxed" style={{ color: C.inkDim }}>{d}</div></div>
               </div>
             ))}
           </section>
 
-          <section id="how" className="max-w-6xl mx-auto px-5 mt-16 scroll-mt-6">
-            <div className="text-center"><div className="text-[13px] font-bold uppercase tracking-[0.14em]" style={{ color: C.sage }}>How it works</div><h2 className="mt-2 text-[30px] sm:text-[38px] font-extrabold leading-tight" style={{ letterSpacing: '-0.03em', fontFamily: RIDER_FONT }}>From sign-up to your <span style={{ color: C.amber }}>first delivery</span></h2></div>
-            <div className="relative mt-10">
-              <svg aria-hidden className="hidden sm:block absolute left-[12%] right-[12%] top-[26px] w-[76%] h-4" preserveAspectRatio="none" viewBox="0 0 100 4"><path d="M0 2 H100" stroke={C.ink} strokeOpacity="0.25" strokeWidth="0.6" strokeDasharray="1.6 1.6" vectorEffect="non-scaling-stroke" /></svg>
+          <section id="how" className="max-w-[1280px] mx-auto px-5 sm:px-8 lg:px-10 mt-16 scroll-mt-6">
+            <div className="text-center" data-reveal><div className="text-[13px] font-bold uppercase tracking-[0.14em]" style={{ color: C.sage }}>How it works</div><h2 className="mt-2 text-[30px] sm:text-[38px] font-extrabold leading-tight" style={{ letterSpacing: '-0.04em', fontFamily: RIDER_DISPLAY }}>From sign-up to your <span style={{ color: C.amber }}>first delivery</span></h2></div>
+            <div className="relative mt-10" data-reveal>
+              <svg aria-hidden className="lp-line-grow hidden sm:block absolute left-[12%] right-[12%] top-[26px] w-[76%] h-4" preserveAspectRatio="none" viewBox="0 0 100 4"><path d="M0 2 H100" stroke={C.ink} strokeOpacity="0.25" strokeWidth="0.6" strokeDasharray="1.6 1.6" vectorEffect="non-scaling-stroke" /></svg>
               <ol className="relative grid sm:grid-cols-4 gap-6 sm:gap-4">
                 {how.map(([t, d], i) => (
                   <li key={t} className="flex sm:flex-col sm:items-center sm:text-center gap-4 sm:gap-3">
-                    <span className="w-[54px] h-[54px] rounded-full flex items-center justify-center shrink-0 text-[18px] font-extrabold" style={{ background: i === 3 ? C.amber : C.surface, color: C.ink, border: `2.5px solid ${C.ink}`, fontFamily: RIDER_FONT, boxShadow: '0 4px 0 rgba(11,43,38,0.9)' }}>{i === 3 ? <Bike size={22} /> : i + 1}</span>
-                    <span><span className="block text-[16px] font-bold" style={{ fontFamily: RIDER_FONT }}>{t}</span><span className="block text-[13.5px] mt-0.5" style={{ color: C.inkDim }}>{d}</span></span>
+                    <span className="w-[54px] h-[54px] rounded-full flex items-center justify-center shrink-0 text-[18px] font-extrabold" style={{ background: i === 3 ? C.amber : C.surface, color: C.ink, border: `2.5px solid ${C.ink}`, fontFamily: RIDER_DISPLAY, boxShadow: '0 4px 0 rgba(11,43,38,0.9)' }}>{i === 3 ? <Bike size={22} /> : i + 1}</span>
+                    <span><span className="block text-[16px] font-bold" style={{ fontFamily: RIDER_DISPLAY, letterSpacing: '-0.02em', fontWeight: 600 }}>{t}</span><span className="block text-[13.5px] mt-0.5" style={{ color: C.inkDim }}>{d}</span></span>
                   </li>
                 ))}
               </ol>
             </div>
           </section>
 
-          <section id="need" className="max-w-6xl mx-auto px-5 mt-16 grid lg:grid-cols-[1.1fr_0.9fr] gap-6 items-center scroll-mt-6">
-            <div className="rounded-[28px] p-6 sm:p-8" style={{ background: C.mint }}>
-              <h2 className="text-[26px] sm:text-[30px] font-extrabold leading-tight" style={{ letterSpacing: '-0.03em', fontFamily: RIDER_FONT }}>What you'll need</h2>
+          <section id="need" className="max-w-[1280px] mx-auto px-5 sm:px-8 lg:px-10 mt-16 grid lg:grid-cols-[1.1fr_0.9fr] gap-6 items-center scroll-mt-6">
+            <div data-reveal className="rounded-[28px] p-6 sm:p-8" style={{ background: C.mint }}>
+              <h2 className="text-[26px] sm:text-[30px] font-extrabold leading-tight" style={{ letterSpacing: '-0.04em', fontFamily: RIDER_DISPLAY }}>What you'll need</h2>
               <ul className="mt-5 grid sm:grid-cols-2 gap-x-6 gap-y-3">
                 {need.map((t) => <li key={t} className="flex items-start gap-2.5 text-[14.5px] font-medium"><span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ background: C.surface, border: `2px solid ${C.ink}` }}><Check size={13} strokeWidth={3} style={{ color: C.ink }} /></span>{t}</li>)}
               </ul>
               <div className="mt-6 rounded-2xl px-4 py-3 text-[13px] leading-relaxed flex gap-2.5" style={{ background: 'rgba(255,255,255,0.7)', color: C.inkDim }}><Lock size={15} className="shrink-0 mt-0.5" style={{ color: C.sage }} /> Your ID, selfie and bank details stay private. Businesses and customers never see them.</div>
             </div>
-            <div className="max-w-sm w-full mx-auto">
-              <RiderPass r={{ full_name: 'Chinedu Okafor', vehicle: 'bike', plate_number: 'UMH 482 QK', areas: ['Umuahia North', 'Umuahia South', 'Ikwuano'], status: 'approved' }} />
+            <div data-reveal className="max-w-sm w-full mx-auto" style={{ '--d': '0.12s' }}>
+              <div className="rd-pass-tilt"><RiderPass r={{ full_name: 'Chinedu Okafor', vehicle: 'bike', plate_number: 'UMH 482 QK', areas: ['Umuahia North', 'Umuahia South', 'Ikwuano'], status: 'approved' }} /></div>
               <div className="mt-4 text-center text-[13.5px]" style={{ color: C.inkDim }}>Once approved, your <strong style={{ color: C.ink }}>Xorla Rider Pass</strong> turns green.</div>
             </div>
           </section>
 
-          <section className="max-w-6xl mx-auto px-5 mt-16">
-            <div className="relative overflow-hidden rounded-[28px] px-6 py-8 sm:px-10 sm:py-10 flex flex-col sm:flex-row sm:items-center gap-6" style={{ background: '#0B3B33', color: '#fff' }}>
+          <section className="max-w-[1280px] mx-auto px-5 sm:px-8 lg:px-10 mt-16">
+            <div data-reveal className="relative overflow-hidden rounded-[28px] px-6 py-8 sm:px-10 sm:py-10 flex flex-col sm:flex-row sm:items-center gap-6" style={{ background: '#0B3B33', color: '#fff' }}>
               <span aria-hidden className="absolute -right-10 -bottom-16 w-64 h-64 rounded-full" style={{ background: 'rgba(31,217,196,0.18)' }} />
               <span aria-hidden className="absolute right-24 -top-10 w-24 h-24 rounded-full" style={{ background: 'rgba(255,176,32,0.25)' }} />
               <div className="relative flex-1">
-                <h2 className="text-[28px] sm:text-[34px] font-extrabold leading-tight" style={{ letterSpacing: '-0.03em', fontFamily: RIDER_FONT }}>Ready to <span style={{ color: '#FFB020' }}>ride?</span></h2>
+                <h2 className="text-[28px] sm:text-[34px] font-extrabold leading-tight" style={{ letterSpacing: '-0.04em', fontFamily: RIDER_DISPLAY }}>Ready to <span style={{ color: '#FFB020' }}>ride?</span></h2>
                 <p className="mt-2 text-[14.5px]" style={{ color: 'rgba(255,255,255,0.75)' }}>It's free to join. You must be 18 or older.</p>
               </div>
               <button onClick={() => go('signup')} className="relative h-13 px-8 py-3.5 rounded-full text-[16px] font-bold inline-flex items-center justify-center gap-2" style={{ background: '#FFB020', color: '#0B2B26' }}>Apply now <ArrowRight size={18} /></button>
@@ -19862,7 +19901,7 @@ const LP_THEMES = {
 const LP = Object.fromEntries(Object.keys(LP_THEMES.light).map((k) => [k, `var(--lp-${k})`]));
 Object.assign(LP, { amber: '#FFB020', teal: '#1FD9C4', coral: '#F4845F', paper: '#FFFDF6', forest: '#0B3B33', inkFixed: '#0B2B26' });
 const LP_DISPLAY = "'Unbounded', 'Inter', system-ui, sans-serif";
-const LP_BODY = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+const LP_BODY = "'Poppins', 'Inter', system-ui, sans-serif";
 const LP_MONO = "'IBM Plex Mono', ui-monospace, Menlo, monospace";
 
 // Numbers that count up when they come into view (or when they change)
@@ -19886,6 +19925,24 @@ function LpCount({ value, prefix = '₦', ms = 900 }) {
     raf = requestAnimationFrame(step); return () => cancelAnimationFrame(raf);
   }, [value, seen]);
   return <span ref={ref} style={{ fontVariantNumeric: 'tabular-nums' }}>{prefix}{shown.toLocaleString('en-NG')}</span>;
+}
+
+// The last word of the headline keeps changing: wahala, stress, headache...
+const LP_WORDS = ['wahala.', 'stress.', 'headache.', 'guesswork.', 'palava.'];
+function LpRotate({ words, still }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (still) return undefined;
+    const t = setInterval(() => setI((x) => (x + 1) % words.length), 2400);
+    return () => clearInterval(t);
+  }, [still, words.length]);
+  return (
+    <span className="lp-rot" style={{ display: 'inline-grid', verticalAlign: 'bottom', overflow: 'hidden', paddingBottom: '0.08em', marginBottom: '-0.08em' }}>
+      {/* the longest word sets the width, so nothing around it jumps */}
+      <span style={{ gridArea: '1 / 1', visibility: 'hidden' }}>{words.reduce((a, w) => (w.length > a.length ? w : a), '')}</span>
+      <span key={i} className="lp-rot-word" style={{ gridArea: '1 / 1', color: LP.accent }}>{words[i]}</span>
+    </span>
+  );
 }
 
 const LP_RECEIPT = [['Indomie Super Pack ×2', 1900], ['Peak Milk tin ×3', 1950], ['Hair braiding (Ada)', 15000], ['Room 204, 2 nights', 70000], ['Delivery to Aba Road', 1500]];
@@ -20050,7 +20107,7 @@ function LandingPage() {
     document.title = 'Xorla: run your business without wahala';
     if (!document.getElementById('xorla-landing-fonts')) {
       const link = document.createElement('link'); link.id = 'xorla-landing-fonts'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap';
+      link.href = 'https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Poppins:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap';
       document.head.appendChild(link);
     }
     const html = document.documentElement; const prev = html.style.scrollBehavior;
@@ -20141,6 +20198,8 @@ function LandingPage() {
         @keyframes lpOrb { from { transform: translate(0,0) scale(1); } to { transform: translate(-40px, 30px) scale(1.06); } }
         .lp-spin { display: inline-flex; animation: lpSpin .45s cubic-bezier(.2,1.2,.4,1); }
         @keyframes lpSpin { from { transform: rotate(-90deg) scale(.5); opacity: 0; } }
+        .lp-rot-word { display: inline-block; animation: lpWord .55s cubic-bezier(.2,.9,.2,1); }
+        @keyframes lpWord { from { transform: translateY(85%); opacity: 0; filter: blur(4px); } to { transform: none; opacity: 1; filter: none; } }
         .lp-faq { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .35s ease; }
         .lp-faq.open { grid-template-rows: 1fr; }
         .lp-focus:focus-visible { outline: 3px solid ${LP.accent}; outline-offset: 3px; }
@@ -20149,7 +20208,7 @@ function LandingPage() {
         .lp-line-grow { transform-origin: left; transform: scaleX(0); transition: transform 1.2s cubic-bezier(.2,.7,.2,1) .2s; }
         .lp-in .lp-line-grow { transform: scaleX(1); }
         @media (prefers-reduced-motion: reduce) {
-          .lp-line, .lp-stamp, .lp-bubble, .lp-bar, .lp-hero-in > *, [data-reveal], .lp-new, .lp-spin { animation: none !important; opacity: 1 !important; transform: none !important; transition: none !important; }
+          .lp-line, .lp-stamp, .lp-bubble, .lp-bar, .lp-hero-in > *, [data-reveal], .lp-new, .lp-spin, .lp-rot-word { animation: none !important; opacity: 1 !important; transform: none !important; transition: none !important; }
           .lp-float, .lp-marquee, .lp-orb { animation: none !important; }
           .lp-line-grow, .lp-bar-r { transform: none !important; }
         }
@@ -20188,8 +20247,11 @@ function LandingPage() {
           <div className={`relative ${wrap} grid lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-8 items-center pt-8 sm:pt-12 lg:pt-14 pb-14 lg:pb-20`}>
             <div className="lp-hero-in">
               <a href="/ride" className="lp-focus inline-flex items-center gap-2 rounded-full pl-1.5 pr-3.5 py-1.5 text-[13px] font-semibold" style={{ background: LP.card, border: `1px solid ${LP.line}`, color: LP.dim }}><span className="px-2 py-0.5 rounded-full text-[11.5px] font-bold" style={{ background: LP.amber, color: LP.inkFixed }}>New</span>Delivery riders can now join Xorla<ChevronRight size={14} /></a>
-              <h1 className="mt-6" style={H('clamp(40px, 6.2vw, 80px)', { lineHeight: 1.0, letterSpacing: '-0.045em' })}>Run your business without wahala.</h1>
-              <p className="mt-6 text-[18px] sm:text-[19px] leading-relaxed max-w-[540px]" style={{ color: LP.dim }}>Sales, stock, bookings, staff and payments, all on your phone. Xorla does the counting, so you can face your customers.</p>
+              <h1 className="mt-6" style={H('clamp(40px, 6.2vw, 80px)', { lineHeight: 1.02, letterSpacing: '-0.045em', fontWeight: 800 })}>
+                <span className="sr-only">Run your business without wahala.</span>
+                <span aria-hidden>Run your business without <LpRotate words={LP_WORDS} still={still} /></span>
+              </h1>
+              <p className="mt-6 text-[16.5px] sm:text-[19px] leading-relaxed max-w-[540px]" style={{ color: LP.dim }}>Sales, stock, bookings, staff and payments, all on your phone. Xorla does the counting, so you can face your customers.</p>
               <div>
                 <div className="mt-8 flex flex-col sm:flex-row gap-3">
                   <a href={start} className={btn} style={{ background: LP.btn, color: LP.btnInk, boxShadow: '0 14px 30px -14px rgba(11,59,51,0.7)' }}>Start free</a>
