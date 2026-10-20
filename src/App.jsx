@@ -1405,7 +1405,8 @@ function ResetPasswordScreen({ accessToken, onDone }) {
 
 // Branded dropdown — a drop-in replacement for <select> that matches Xorla's look.
 // Takes the same <option> children and calls onChange({ target: { value } }) like a native select.
-function BrandSelect({ value, onChange, children, className = '', style = {}, disabled, icon, 'aria-label': ariaLabel }) {
+function BrandSelect({ value, onChange, children, className = '', style = {}, disabled, icon, 'aria-label': ariaLabel, palette }) {
+  const P = palette || C;   // light pages (the rider network) pass their own colours
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [pos, setPos] = useState(null);
@@ -1455,25 +1456,25 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
       <button type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel}
         onClick={() => { setOpen((o) => !o); setActive(selIndex); }} onKeyDown={onKey}
         className={`${look} w-full flex items-center justify-between gap-2 text-left outline-none transition-colors`}
-        style={{ ...style, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...(open ? { boxShadow: `0 0 0 1.5px ${C.copper}` } : {}) }}>
+        style={{ ...style, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1, ...(open ? { boxShadow: `0 0 0 1.5px ${P.copper}` } : {}) }}>
         <span className="flex items-center gap-2 min-w-0">
           {icon}
-          <span className="truncate" style={{ color: current && current.value !== '' ? C.ink : C.inkFaint }}>{current ? current.label : ''}</span>
+          <span className="truncate" style={{ color: current && current.value !== '' ? P.ink : P.inkFaint }}>{current ? current.label : ''}</span>
         </span>
-        <ChevronRight size={15} className="shrink-0" style={{ color: open ? C.copper : C.inkFaint, transform: `rotate(${open ? -90 : 90}deg)`, transition: 'transform .15s' }} />
+        <ChevronRight size={15} className="shrink-0" style={{ color: open ? P.copper : P.inkFaint, transform: `rotate(${open ? -90 : 90}deg)`, transition: 'transform .15s' }} />
       </button>
       {open && pos && createPortal(
         <div ref={listRef} role="listbox" aria-label={ariaLabel} className="fixed z-[200] rounded-xl py-1.5 max-h-64 overflow-y-auto"
-          style={{ ...pos, width: 'max-content', maxWidth: 'min(340px, 90vw)', background: C.surface, border: `1px solid ${C.lineStrong || C.line}`, boxShadow: '0 16px 40px rgba(0,0,0,0.5)', fontFamily: "'Inter', sans-serif" }}>
+          style={{ ...pos, width: 'max-content', maxWidth: 'min(340px, 90vw)', background: P.surface, border: `1px solid ${P.lineStrong || P.line}`, boxShadow: palette ? '0 16px 40px rgba(11,43,38,0.18)' : '0 16px 40px rgba(0,0,0,0.5)', fontFamily: "'Inter', sans-serif" }}>
           {opts.map((o, i) => {
             const sel = i === selIndex;
             return (
               <button key={i} type="button" role="option" aria-selected={sel} disabled={o.disabled}
                 onMouseEnter={() => setActive(i)} onClick={() => pick(o)}
                 className="w-full text-left px-3.5 py-2.5 text-[13px] flex items-center justify-between gap-4"
-                style={{ background: i === active ? C.surfaceRaised : 'transparent', color: o.value === '' ? C.inkFaint : sel ? C.copper : C.ink, fontWeight: sel ? 600 : 400, opacity: o.disabled ? 0.4 : 1 }}>
+                style={{ background: i === active ? P.surfaceRaised : 'transparent', color: o.value === '' ? P.inkFaint : sel ? P.copper : P.ink, fontWeight: sel ? 600 : 400, opacity: o.disabled ? 0.4 : 1 }}>
                 <span className="truncate">{o.label}</span>
-                {sel && o.value !== '' && <Check size={14} className="shrink-0" style={{ color: C.copper }} />}
+                {sel && o.value !== '' && <Check size={14} className="shrink-0" style={{ color: P.copper }} />}
               </button>
             );
           })}
@@ -18911,6 +18912,129 @@ async function riderBilling(token, action, extra = {}) {
 }
 const riderInitials = (n) => String(n || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 
+const RIDER_FONT = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+const RIDER_LIGHT = {
+  bg: '#FBF9F4', surface: '#FFFFFF', surfaceRaised: '#F5F3ED', field: '#F3F1EA', chip: '#F1EFE8', track: '#E7E4DB', mint: '#E3F4EF',
+  line: 'rgba(11,43,38,0.09)', lineStrong: 'rgba(11,43,38,0.16)', ink: '#0B2B26', inkDim: '#52645F', inkFaint: '#8C9A96',
+  copper: '#0B3B33', copperSoft: 'rgba(11,59,51,0.07)', sage: '#0E9F8E', sageSoft: 'rgba(14,159,142,0.12)', amber: '#F5A300',
+  rust: '#D14B34', rustSoft: 'rgba(209,75,52,0.10)',
+};
+// Illustrations for the rider pages, drawn for Xorla (flat, outlined, brand colours)
+function RiderHeroArt({ className = '' }) {
+  return (
+    <svg viewBox="0 0 560 420" className={className} fill="none" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label="A Xorla rider on a motorbike with a delivery box">
+
+  <path d="M120 120 C 170 40, 330 30, 420 80 C 510 130, 540 230, 480 300 C 420 370, 250 390, 160 350 C 70 310, 70 200, 120 120 Z" fill="#E3F4EF"/>
+  <path d="M86 92 h44 a14 14 0 0 0 -14 -18 a18 18 0 0 0 -32 6 a10 10 0 0 0 2 12 z" fill="#fff" stroke="#0B2B26" strokeWidth="2.5"/>
+  <path d="M430 60 h62 a16 16 0 0 0 -16 -20 a22 22 0 0 0 -40 4 a12 12 0 0 0 -6 16 z" fill="#fff" stroke="#0B2B26" strokeWidth="2.5"/>
+  
+  <path d="M60 356 h40 M130 356 h60 M220 356 h120 M370 356 h60 M460 356 h40" stroke="#0B2B26" strokeWidth="2.5" opacity="0.25"/>
+  <path d="M34 246 h46 M18 272 h70 M46 298 h40" stroke="#0B2B26" strokeWidth="3"/>
+  
+  <g stroke="#0B2B26" strokeWidth="3">
+    <circle cx="170" cy="316" r="38" fill="#FFB020"/><circle cx="170" cy="316" r="14" fill="#fff"/>
+    <circle cx="404" cy="316" r="38" fill="#FFB020"/><circle cx="404" cy="316" r="14" fill="#fff"/>
+  </g>
+  
+  <path d="M128 300 C 134 266, 206 262, 214 292" stroke="#0B2B26" strokeWidth="3" fill="none"/>
+  <path d="M372 282 C 386 262, 420 262, 436 284" stroke="#0B2B26" strokeWidth="3" fill="#fff"/>
+  
+  <path d="M130 236 L 140 262 M206 236 L 196 262" stroke="#0B2B26" strokeWidth="4"/>
+  <rect x="100" y="140" width="122" height="96" rx="12" fill="#0B3B33" stroke="#0B2B26" strokeWidth="3"/>
+  <path d="M100 168 h122" stroke="#1FD9C4" strokeWidth="3"/>
+  <rect x="112" y="150" width="30" height="8" rx="4" fill="#1FD9C4" opacity="0.5"/>
+  <g transform="translate(146 182)">
+    <path d="M0 0 L15 20 L0 40" stroke="#1FD9C4" strokeWidth="7"/>
+    <path d="M30 0 L15 20 L30 40" stroke="#FFB020" strokeWidth="7"/>
+  </g>
+  
+  <path d="M146 300 C 150 262, 192 248, 236 248 L 318 250 C 334 250, 342 262, 344 276 L 348 300 Z" fill="#fff" stroke="#0B2B26" strokeWidth="3"/>
+  
+  <path d="M330 252 C 344 238, 356 224, 366 208 L 382 214 C 376 240, 366 262, 352 282 Z" fill="#fff" stroke="#0B2B26" strokeWidth="3"/>
+  <rect x="236" y="278" width="62" height="28" rx="8" fill="#DDE4E1" stroke="#0B2B26" strokeWidth="3"/>
+  <path d="M248 288 h38 M248 297 h38" stroke="#0B2B26" strokeWidth="2"/>
+  <path d="M176 304 h70" stroke="#0B2B26" strokeWidth="7"/>
+  
+  <path d="M404 316 L 370 206" stroke="#0B2B26" strokeWidth="6"/>
+  <path d="M352 206 h34" stroke="#0B2B26" strokeWidth="6"/>
+  <path d="M372 204 L 378 178" stroke="#0B2B26" strokeWidth="3"/>
+  <ellipse cx="380" cy="172" rx="9" ry="6" fill="#fff" stroke="#0B2B26" strokeWidth="3"/>
+  <circle cx="394" cy="232" r="11" fill="#FFE7A8" stroke="#0B2B26" strokeWidth="3"/>
+  <path d="M412 226 l18 -6 M414 236 h20 M412 246 l18 6" stroke="#FFB020" strokeWidth="3"/>
+  
+  <path d="M206 246 C 214 234, 268 234, 288 242 L 288 252 L 206 252 Z" fill="#0B2B26"/>
+  
+  <path d="M248 238 C 274 236, 302 242, 316 264 L 326 294" stroke="#0B2B26" strokeWidth="26"/>
+  <path d="M248 238 C 274 236, 302 242, 316 264 L 326 294" stroke="#174C42" strokeWidth="20"/>
+  <path d="M316 300 h30" stroke="#0B2B26" strokeWidth="12"/>
+  
+  <path d="M232 240 C 224 200, 236 166, 262 150 C 286 138, 308 150, 312 172 C 316 198, 302 224, 298 242 Z" fill="#1FD9C4" stroke="#0B2B26" strokeWidth="3"/>
+  <path d="M236 212 C 256 206, 286 206, 308 212" stroke="#FFB020" strokeWidth="7"/>
+  <path d="M236 212 C 256 206, 286 206, 308 212" stroke="#0B2B26" strokeWidth="1.5" opacity="0.3"/>
+  
+  <path d="M292 170 C 318 182, 342 196, 358 206" stroke="#0B2B26" strokeWidth="22"/>
+  <path d="M292 170 C 318 182, 342 196, 358 206" stroke="#1FD9C4" strokeWidth="16"/>
+  <circle cx="362" cy="208" r="9" fill="#8D5A3B" stroke="#0B2B26" strokeWidth="2.5"/>
+  
+  <path d="M276 150 v-14" stroke="#0B2B26" strokeWidth="16"/><path d="M276 150 v-14" stroke="#8D5A3B" strokeWidth="10"/>
+  <circle cx="282" cy="116" r="24" fill="#8D5A3B" stroke="#0B2B26" strokeWidth="3"/>
+  <path d="M256 112 C 254 84, 274 72, 294 76 C 312 80, 320 96, 312 110 Z" fill="#FFB020" stroke="#0B2B26" strokeWidth="3"/>
+  <path d="M262 92 C 270 82, 284 78, 296 80" stroke="#fff" strokeWidth="3" opacity="0.7"/>
+  <path d="M260 112 C 262 124, 266 132, 272 136" stroke="#0B2B26" strokeWidth="2.5"/>
+  <circle cx="296" cy="118" r="2.6" fill="#0B2B26"/>
+  <path d="M292 128 q6 5 12 -1" stroke="#0B2B26" strokeWidth="2.5"/>
+  
+  <g transform="translate(418 116) rotate(-10)">
+    <rect width="46" height="40" rx="6" fill="#fff" stroke="#0B2B26" strokeWidth="2.5"/>
+    <path d="M0 13 h46 M23 0 v13" stroke="#0B2B26" strokeWidth="2.5"/>
+  </g>
+  <g transform="translate(476 178)">
+    <path d="M14 0 C 26 0, 30 12, 26 20 L 14 40 L 2 20 C -2 12, 2 0, 14 0 Z" fill="#E2624B" stroke="#0B2B26" strokeWidth="2.5"/>
+    <circle cx="14" cy="14" r="5" fill="#fff"/>
+  </g>
+  <path d="M440 210 C 470 220, 470 250, 446 262" stroke="#0B2B26" strokeWidth="2" strokeDasharray="4 7" opacity="0.5"/>
+  <g transform="translate(476 302)">
+    <path d="M0 52 C -6 24, 6 6, 26 0 C 30 22, 22 42, 0 52 Z" fill="#2E7D5B" stroke="#0B2B26" strokeWidth="2.5"/>
+    <path d="M10 52 C 22 34, 42 30, 58 36 C 50 52, 30 58, 10 52 Z" fill="#7CC4A0" stroke="#0B2B26" strokeWidth="2.5"/>
+  </g>
+  <g transform="translate(36 318)">
+    <path d="M20 40 C 6 30, 2 12, 10 0 C 24 10, 28 26, 20 40 Z" fill="#7CC4A0" stroke="#0B2B26" strokeWidth="2.5"/>
+  </g>
+
+    </svg>
+  );
+}
+function RiderSpotMap({ className = '' }) {
+  return <svg viewBox="0 0 124 104" className={className} fill="none" strokeLinecap="round" strokeLinejoin="round" aria-hidden><defs><clipPath id="rmapclip"><rect x="11" y="15" width="102" height="78" rx="11"/></clipPath></defs>
+  <rect x="10" y="14" width="104" height="80" rx="12" fill="#E3F4EF" stroke="#0B2B26" strokeWidth="2.5"/>
+  <g clipPath="url(#rmapclip)"><path d="M10 46 C 40 40, 60 70, 114 58" stroke="#fff" strokeWidth="8"/>
+  <path d="M46 14 C 50 40, 70 60, 66 94" stroke="#fff" strokeWidth="8"/></g>
+  <path d="M28 76 C 44 70, 52 50, 70 46 S 92 30, 96 30" stroke="#0B2B26" strokeWidth="2.5" strokeDasharray="5 6"/>
+  <circle cx="28" cy="76" r="6" fill="#1FD9C4" stroke="#0B2B26" strokeWidth="2.5"/>
+  <path d="M96 10 C 106 10, 110 20, 106 26 L 96 42 L 86 26 C 82 20, 86 10, 96 10 Z" fill="#FFB020" stroke="#0B2B26" strokeWidth="2.5"/>
+  <circle cx="96" cy="21" r="4" fill="#fff"/></svg>;
+}
+function RiderSpotPay({ className = '' }) {
+  return <svg viewBox="0 0 124 110" className={className} fill="none" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+  <rect x="22" y="8" width="56" height="94" rx="12" fill="#fff" stroke="#0B2B26" strokeWidth="2.5"/>
+  <path d="M42 16 h16" stroke="#0B2B26" strokeWidth="2.5"/>
+  <rect x="30" y="30" width="40" height="30" rx="6" fill="#E3F4EF"/>
+  <text x="50" y="51" textAnchor="middle" fontFamily="Inter, Arial" fontWeight="800" fontSize="16" fill="#0B3B33">₦</text>
+  <path d="M32 70 h36 M32 80 h24" stroke="#0B2B26" strokeWidth="2.5" opacity="0.35"/>
+  <circle cx="90" cy="36" r="16" fill="#FFB020" stroke="#0B2B26" strokeWidth="2.5"/>
+  <text x="90" y="42" textAnchor="middle" fontFamily="Inter, Arial" fontWeight="800" fontSize="16" fill="#0B2B26">₦</text>
+  <circle cx="98" cy="70" r="12" fill="#FFD27A" stroke="#0B2B26" strokeWidth="2.5"/>
+  <path d="M6 44 l8 4 M4 60 h9" stroke="#0B2B26" strokeWidth="2.5"/></svg>;
+}
+function RiderSpotSafe({ className = '' }) {
+  return <svg viewBox="0 0 124 100" className={className} fill="none" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+  <rect x="6" y="40" width="70" height="48" rx="8" fill="#fff" stroke="#0B2B26" strokeWidth="2.5"/>
+  <circle cx="26" cy="62" r="9" fill="#8D5A3B" stroke="#0B2B26" strokeWidth="2"/>
+  <path d="M42 56 h24 M42 66 h16" stroke="#0B2B26" strokeWidth="2.5" opacity="0.5"/>
+  <path d="M84 10 L 116 22 V 50 C 116 72, 100 86, 84 94 C 68 86, 52 72, 52 50 V 22 Z" fill="#1FD9C4" stroke="#0B2B26" strokeWidth="2.5"/>
+  <path d="M70 52 l10 10 l18 -20" stroke="#0B2B26" strokeWidth="4"/></svg>;
+}
+
 // The rider's pass: fills in as they apply, and becomes their verified card once approved
 function RiderPass({ r, photo, compact = false }) {
   const v = RIDER_VEHICLES.find(([k]) => k === r?.vehicle);
@@ -18943,6 +19067,7 @@ function RiderPass({ r, photo, compact = false }) {
 }
 
 function RiderApp() {
+  const C = RIDER_LIGHT;   // the rider pages are light and friendly (the rider pass card stays dark)
   const [sess, setSess] = useState(() => { try { return JSON.parse(localStorage.getItem(RIDER_SESSION_KEY) || 'null'); } catch (e) { return null; } });
   const [me, setMe] = useState(undefined);       // undefined = loading, null = no application yet
   const [view, setView] = useState('home');      // home | auth (when logged out)
@@ -18959,7 +19084,10 @@ function RiderApp() {
   const [bank, setBank] = useState({ q: '', code: '', name: '', number: '', busy: false, error: '' });
   const [agree, setAgree] = useState(false);
   const topRef = useRef(null);
-  useEffect(() => { document.title = 'Ride with Xorla'; }, []);
+  useEffect(() => {
+    document.title = 'Ride with Xorla';
+    if (!document.getElementById('xorla-jakarta')) { const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet'; link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'; document.head.appendChild(link); }
+  }, []);
 
   const saveSess = (s) => { setSess(s); try { if (s) localStorage.setItem(RIDER_SESSION_KEY, JSON.stringify(s)); else localStorage.removeItem(RIDER_SESSION_KEY); } catch (e) {} };
   // Keep the login fresh (tokens last about an hour)
@@ -19068,77 +19196,104 @@ function RiderApp() {
     setBusy(false);
   };
 
-  const page = { background: `radial-gradient(900px 500px at 85% -10%, rgba(255,176,32,0.10), transparent 60%), radial-gradient(800px 600px at -10% 10%, rgba(31,217,196,0.08), transparent 60%), ${C.bg}`, color: C.ink, minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif" };
-  const field = { background: 'rgba(0,0,0,0.22)', border: `1px solid ${C.lineStrong}`, color: C.ink };
-  const inputCls = 'w-full rounded-xl px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-[#FFB020]/50';
+  const page = { background: `radial-gradient(700px 420px at 100% 0%, rgba(31,217,196,0.10), transparent 60%), radial-gradient(600px 400px at 0% 20%, rgba(255,176,32,0.08), transparent 60%), ${C.bg}`, color: C.ink, minHeight: '100vh', fontFamily: RIDER_FONT };
+  const field = { background: C.field, border: `1.5px solid ${C.field}`, color: C.ink };
+  const inputCls = 'w-full rounded-xl px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-[#0E9F8E]/40 focus:bg-white';
   const label = (t, hint) => <label className="block text-[13px] font-semibold mb-1.5">{t}{hint ? <span className="font-normal" style={{ color: C.inkFaint }}> {hint}</span> : null}</label>;
-  const chip = (on) => ({ background: on ? C.copper : 'rgba(255,255,255,0.05)', color: on ? C.bg : C.ink, border: `1px solid ${on ? C.copper : C.lineStrong}` });
+  const chip = (on) => ({ background: on ? C.copper : C.surface, color: on ? '#fff' : C.ink, border: `1.5px solid ${on ? C.copper : C.lineStrong}` });
   const header = (
-    <header className="max-w-5xl mx-auto px-5 pt-5 pb-2 flex items-center justify-between" style={{ paddingTop: 'max(20px, env(safe-area-inset-top))' }}>
-      <a href="/ride" className="flex items-center gap-2.5"><XorlaMark size={28} /><span className="text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span><span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: C.copperSoft, color: C.copper }}>Riders</span></a>
-      {sess ? <button onClick={logout} className="flex items-center gap-1.5 text-[13px] font-medium px-3 py-1.5 rounded-lg" style={{ color: C.inkDim, border: `1px solid ${C.line}` }}><LogOut size={14} /> Log out</button>
-        : view === 'home' ? <button onClick={() => { setAuthMode('login'); setView('auth'); window.scrollTo(0, 0); }} className="text-[13.5px] font-semibold px-3.5 py-1.5 rounded-lg" style={{ color: C.ink, border: `1px solid ${C.lineStrong}` }}>Log in</button> : null}
+    <header className="max-w-6xl mx-auto px-5 pb-2 flex items-center justify-between gap-3" style={{ paddingTop: 'max(18px, env(safe-area-inset-top))' }}>
+      <a href="/ride" className="flex items-center gap-2.5"><XorlaMark size={28} /><span className="text-[19px] font-extrabold" style={{ letterSpacing: '-0.03em', fontFamily: RIDER_FONT }}>xorla</span><span className="text-[11.5px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: C.mint, color: C.sage }}>riders</span></a>
+      {sess ? <button onClick={logout} className="flex items-center gap-1.5 text-[13.5px] font-semibold px-3.5 py-2 rounded-full" style={{ color: C.inkDim, background: C.surface, boxShadow: `0 0 0 1px ${C.line}` }}><LogOut size={14} /> Log out</button>
+        : view === 'home' ? (
+          <nav className="flex items-center gap-1 sm:gap-2">
+            <a href="#how" className="hidden sm:block px-3 py-2 text-[14px] font-semibold" style={{ color: C.ink }}>How it works</a>
+            <button onClick={() => { setAuthMode('login'); setView('auth'); window.scrollTo(0, 0); }} className="px-3 py-2 text-[14px] font-semibold" style={{ color: C.ink }}>Log in</button>
+            <button onClick={() => { setAuthMode('signup'); setView('auth'); window.scrollTo(0, 0); }} className="px-4 py-2 rounded-full text-[14px] font-bold" style={{ background: C.mint, color: C.copper }}>Apply now</button>
+          </nav>
+        ) : null}
     </header>
   );
-  const footer = <footer className="max-w-5xl mx-auto px-5 py-10 text-[12px] flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.inkFaint }}><span>© Xorla</span><a href="/terms" style={{ color: C.inkDim }}>Terms</a><a href="/privacy" style={{ color: C.inkDim }}>Privacy</a><span>Your ID, selfie and bank details are private. Only the Xorla team can see them.</span></footer>;
+  const footer = <footer className="max-w-6xl mx-auto px-5 py-10 text-[12px] flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.inkFaint }}><span>© Xorla</span><a href="/terms" style={{ color: C.inkDim }}>Terms</a><a href="/privacy" style={{ color: C.inkDim }}>Privacy</a><span>Your ID, selfie and bank details are private. Only the Xorla team can see them.</span></footer>;
 
   // ---------- Logged out: the welcome page ----------
   if (!sess && view === 'home') {
-    const perks = [[Route, 'Pick the jobs you want', 'See delivery jobs in the areas you choose, and take the ones that suit you.'], [HandCoins, 'Paid to your bank', 'Your fee goes straight to your account. No chasing anyone for money.'], [ShieldCheck, 'Safe for everyone', 'Every rider is checked: ID, selfie and a guarantor. Customers and riders are protected.']];
-    const how = [['Apply', 'About 10 minutes on your phone.'], ['We check you', 'Your ID, selfie, guarantor and bank. Usually 1 to 3 working days.'], ['Get approved', 'Your Xorla rider pass turns green.'], ['Start delivering', 'Jobs open city by city, starting with Umuahia and Aba.']];
-    const need = ['Your phone number', 'NIN, driver\'s licence, voter\'s card or passport', 'A clear selfie', 'Someone who will stand for you (a guarantor)', 'A bank account in your own name', 'Your plate number (bike, keke, car or van)'];
+    const go = (mode) => { setAuthMode(mode); setView('auth'); window.scrollTo(0, 0); };
+    const perks = [[RiderSpotMap, 'Pick the jobs you want', 'See deliveries in the areas you choose, and take the ones that suit your day.'], [RiderSpotPay, 'Paid to your bank', 'Your fee goes straight to your own account. No chasing anyone for money.'], [RiderSpotSafe, 'Safe for everyone', 'Every rider is checked: ID, selfie and a guarantor. Customers trust you more.']];
+    const how = [['Apply', 'About 10 minutes on your phone'], ['We check you', 'ID, selfie, guarantor and bank. 1 to 3 working days'], ['Get approved', 'Your Xorla Rider Pass turns green'], ['Start delivering', 'Jobs open city by city, from Umuahia and Aba']];
+    const need = ['Your phone number', "NIN, driver's licence, voter's card or passport", 'A clear selfie', 'Someone who will stand for you (a guarantor)', 'A bank account in your own name', 'Your plate number (bike, keke, car or van)'];
     return (
       <div style={page}>
         {header}
-        <main className="max-w-5xl mx-auto px-5">
-          <section className="grid lg:grid-cols-[1.1fr_0.9fr] gap-10 items-center pt-8 pb-12">
-            <div>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold" style={{ background: C.sageSoft, color: C.sage }}><Sparkles size={13} /> Now taking riders in Abia</span>
-              <h1 className="mt-4 text-[38px] sm:text-[52px] font-extrabold leading-[1.02]" style={{ letterSpacing: '-0.035em' }}>Deliver for businesses <span style={{ color: C.copper }}>near you.</span></h1>
-              <p className="mt-4 text-[16px] leading-relaxed max-w-lg" style={{ color: C.inkDim }}>Join the Xorla rider network. Get delivery jobs from shops, restaurants and hotels in your area, and get paid straight to your bank.</p>
-              <div className="mt-7 flex flex-col sm:flex-row gap-3">
-                <button onClick={() => { setAuthMode('signup'); setView('auth'); window.scrollTo(0, 0); }} className="h-14 px-7 rounded-2xl text-[16px] font-bold flex items-center justify-center gap-2" style={{ background: C.copper, color: C.bg, boxShadow: '0 12px 30px -12px rgba(255,176,32,0.7)' }}>Apply to ride <ArrowRight size={18} /></button>
-                <button onClick={() => { setAuthMode('login'); setView('auth'); window.scrollTo(0, 0); }} className="h-14 px-6 rounded-2xl text-[15px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.lineStrong}` }}>I've applied: log in</button>
+        <main>
+          <section className="max-w-6xl mx-auto px-5 grid lg:grid-cols-[1fr_1.05fr] gap-6 lg:gap-10 items-center pt-6 lg:pt-12 pb-10">
+            <div className="order-2 lg:order-1">
+              <div className="text-[18px] sm:text-[20px] font-bold" style={{ color: C.ink, fontFamily: RIDER_FONT }}>Hello, rider!</div>
+              <h1 className="mt-1 text-[44px] sm:text-[60px] font-extrabold leading-[1.02]" style={{ letterSpacing: '-0.035em', fontFamily: RIDER_FONT }}>Deliver more.<br /><span style={{ color: C.amber }}>Earn more.</span></h1>
+              <div className="mt-4 w-14 h-1.5 rounded-full" style={{ background: C.sage }} />
+              <p className="mt-4 text-[16px] leading-relaxed max-w-md" style={{ color: C.inkDim }}>Join the Xorla rider network. Get delivery jobs from shops, restaurants and hotels near you, and get paid straight to your bank.</p>
+              <div className="mt-7 rounded-[22px] sm:rounded-full p-2 flex flex-col sm:flex-row sm:items-center gap-2 max-w-lg" style={{ background: C.surface, boxShadow: '0 18px 40px -18px rgba(11,43,38,0.28), 0 0 0 1px rgba(11,43,38,0.06)' }}>
+                <div className="flex items-center gap-2 flex-1 min-w-0 pl-3">
+                  <MapPin size={18} style={{ color: C.sage }} className="shrink-0" />
+                  <BrandSelect palette={RIDER_LIGHT} value={f.state || 'Abia'} onChange={(e) => setF((x) => ({ ...x, state: e.target.value }))} className="flex-1 min-w-0 py-2.5 text-[15px] font-medium" style={{ background: 'transparent', border: 'none', color: C.ink }} aria-label="Where do you ride?">
+                    {NG_STATES.map((s) => <option key={s} value={s}>I ride in {s}</option>)}
+                  </BrandSelect>
+                </div>
+                <button onClick={() => go('signup')} className="h-12 px-7 rounded-full text-[15px] font-bold flex items-center justify-center gap-2 shrink-0" style={{ background: C.copper, color: '#fff' }}>Apply now <ArrowRight size={17} /></button>
               </div>
+              <div className="mt-4 text-[14px]" style={{ color: C.inkDim }}>Already applied? <button onClick={() => go('login')} className="font-bold underline underline-offset-4" style={{ color: C.copper }}>Log in</button></div>
             </div>
-            <div className="relative max-w-sm w-full mx-auto lg:mx-0">
-              <div className="absolute inset-x-6 -bottom-4 h-full rounded-[24px]" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.line}`, transform: 'rotate(-4deg)' }} />
-              <RiderPass r={{ full_name: 'Chinedu Okafor', vehicle: 'bike', plate_number: 'UMH 482 QK', areas: ['Umuahia North', 'Umuahia South', 'Ikwuano'], status: 'approved' }} />
-            </div>
+            <div className="order-1 lg:order-2 -mx-2 sm:mx-0"><RiderHeroArt className="w-full h-auto" /></div>
           </section>
-          <section className="grid sm:grid-cols-3 gap-3">
-            {perks.map(([Ic, t, d]) => (
-              <div key={t} className="rounded-2xl p-4 sm:p-5 flex sm:block items-start gap-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-                <span className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Ic size={20} style={{ color: C.copper }} /></span>
-                <div className="min-w-0"><div className="sm:mt-3 text-[16px] font-bold">{t}</div>
-                <div className="mt-1 text-[13.5px] leading-relaxed" style={{ color: C.inkDim }}>{d}</div></div>
+
+          <section className="max-w-6xl mx-auto px-5 grid sm:grid-cols-3 gap-4">
+            {perks.map(([Art, t, d]) => (
+              <div key={t} className="rounded-[24px] p-5 flex sm:block items-center gap-4" style={{ background: C.surface, boxShadow: '0 1px 0 rgba(11,43,38,0.04), 0 16px 34px -24px rgba(11,43,38,0.3)' }}>
+                <Art className="w-24 sm:w-28 h-auto shrink-0" />
+                <div className="min-w-0"><div className="sm:mt-4 text-[17px] font-bold" style={{ fontFamily: RIDER_FONT }}>{t}</div><div className="mt-1 text-[14px] leading-relaxed" style={{ color: C.inkDim }}>{d}</div></div>
               </div>
             ))}
           </section>
-          <section className="grid lg:grid-cols-2 gap-3 mt-3">
-            <div className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-              <div className="text-[18px] font-bold">How it works</div>
-              <ol className="mt-4 space-y-4">
+
+          <section id="how" className="max-w-6xl mx-auto px-5 mt-16 scroll-mt-6">
+            <div className="text-center"><div className="text-[13px] font-bold uppercase tracking-[0.14em]" style={{ color: C.sage }}>How it works</div><h2 className="mt-2 text-[30px] sm:text-[38px] font-extrabold leading-tight" style={{ letterSpacing: '-0.03em', fontFamily: RIDER_FONT }}>From sign-up to your <span style={{ color: C.amber }}>first delivery</span></h2></div>
+            <div className="relative mt-10">
+              <svg aria-hidden className="hidden sm:block absolute left-[12%] right-[12%] top-[26px] w-[76%] h-4" preserveAspectRatio="none" viewBox="0 0 100 4"><path d="M0 2 H100" stroke={C.ink} strokeOpacity="0.25" strokeWidth="0.6" strokeDasharray="1.6 1.6" vectorEffect="non-scaling-stroke" /></svg>
+              <ol className="relative grid sm:grid-cols-4 gap-6 sm:gap-4">
                 {how.map(([t, d], i) => (
-                  <li key={t} className="flex gap-3.5">
-                    <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-[13px] font-bold" style={{ background: i === 3 ? C.sage : 'rgba(255,255,255,0.07)', color: i === 3 ? C.bg : C.ink }}>{i + 1}</span>
-                    <span><span className="block text-[14.5px] font-semibold">{t}</span><span className="block text-[13px]" style={{ color: C.inkDim }}>{d}</span></span>
+                  <li key={t} className="flex sm:flex-col sm:items-center sm:text-center gap-4 sm:gap-3">
+                    <span className="w-[54px] h-[54px] rounded-full flex items-center justify-center shrink-0 text-[18px] font-extrabold" style={{ background: i === 3 ? C.amber : C.surface, color: C.ink, border: `2.5px solid ${C.ink}`, fontFamily: RIDER_FONT, boxShadow: '0 4px 0 rgba(11,43,38,0.9)' }}>{i === 3 ? <Bike size={22} /> : i + 1}</span>
+                    <span><span className="block text-[16px] font-bold" style={{ fontFamily: RIDER_FONT }}>{t}</span><span className="block text-[13.5px] mt-0.5" style={{ color: C.inkDim }}>{d}</span></span>
                   </li>
                 ))}
               </ol>
             </div>
-            <div className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-              <div className="text-[18px] font-bold">What you'll need</div>
-              <ul className="mt-4 space-y-2.5">
-                {need.map((t) => <li key={t} className="flex items-start gap-2.5 text-[14px]"><span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: C.sageSoft }}><Check size={12} style={{ color: C.sage }} /></span>{t}</li>)}
+          </section>
+
+          <section id="need" className="max-w-6xl mx-auto px-5 mt-16 grid lg:grid-cols-[1.1fr_0.9fr] gap-6 items-center scroll-mt-6">
+            <div className="rounded-[28px] p-6 sm:p-8" style={{ background: C.mint }}>
+              <h2 className="text-[26px] sm:text-[30px] font-extrabold leading-tight" style={{ letterSpacing: '-0.03em', fontFamily: RIDER_FONT }}>What you'll need</h2>
+              <ul className="mt-5 grid sm:grid-cols-2 gap-x-6 gap-y-3">
+                {need.map((t) => <li key={t} className="flex items-start gap-2.5 text-[14.5px] font-medium"><span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ background: C.surface, border: `2px solid ${C.ink}` }}><Check size={13} strokeWidth={3} style={{ color: C.ink }} /></span>{t}</li>)}
               </ul>
-              <div className="mt-4 rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed flex gap-2.5" style={{ background: 'rgba(0,0,0,0.2)', color: C.inkDim }}><Lock size={15} className="shrink-0 mt-0.5" style={{ color: C.sage }} /> Your ID, selfie and bank details are kept private. Businesses and customers never see them.</div>
+              <div className="mt-6 rounded-2xl px-4 py-3 text-[13px] leading-relaxed flex gap-2.5" style={{ background: 'rgba(255,255,255,0.7)', color: C.inkDim }}><Lock size={15} className="shrink-0 mt-0.5" style={{ color: C.sage }} /> Your ID, selfie and bank details stay private. Businesses and customers never see them.</div>
+            </div>
+            <div className="max-w-sm w-full mx-auto">
+              <RiderPass r={{ full_name: 'Chinedu Okafor', vehicle: 'bike', plate_number: 'UMH 482 QK', areas: ['Umuahia North', 'Umuahia South', 'Ikwuano'], status: 'approved' }} />
+              <div className="mt-4 text-center text-[13.5px]" style={{ color: C.inkDim }}>Once approved, your <strong style={{ color: C.ink }}>Xorla Rider Pass</strong> turns green.</div>
             </div>
           </section>
-          <section className="mt-3 rounded-2xl p-6 text-center" style={{ background: 'linear-gradient(135deg, rgba(255,176,32,0.14), rgba(31,217,196,0.08))', border: `1px solid ${C.line}` }}>
-            <div className="text-[20px] font-bold">Ready to ride?</div>
-            <div className="text-[14px] mt-1" style={{ color: C.inkDim }}>It's free to join. You must be 18 or older.</div>
-            <button onClick={() => { setAuthMode('signup'); setView('auth'); window.scrollTo(0, 0); }} className="mt-4 h-12 px-7 rounded-2xl text-[15px] font-bold inline-flex items-center gap-2" style={{ background: C.copper, color: C.bg }}>Apply to ride <ArrowRight size={17} /></button>
+
+          <section className="max-w-6xl mx-auto px-5 mt-16">
+            <div className="relative overflow-hidden rounded-[28px] px-6 py-8 sm:px-10 sm:py-10 flex flex-col sm:flex-row sm:items-center gap-6" style={{ background: '#0B3B33', color: '#fff' }}>
+              <span aria-hidden className="absolute -right-10 -bottom-16 w-64 h-64 rounded-full" style={{ background: 'rgba(31,217,196,0.18)' }} />
+              <span aria-hidden className="absolute right-24 -top-10 w-24 h-24 rounded-full" style={{ background: 'rgba(255,176,32,0.25)' }} />
+              <div className="relative flex-1">
+                <h2 className="text-[28px] sm:text-[34px] font-extrabold leading-tight" style={{ letterSpacing: '-0.03em', fontFamily: RIDER_FONT }}>Ready to <span style={{ color: '#FFB020' }}>ride?</span></h2>
+                <p className="mt-2 text-[14.5px]" style={{ color: 'rgba(255,255,255,0.75)' }}>It's free to join. You must be 18 or older.</p>
+              </div>
+              <button onClick={() => go('signup')} className="relative h-13 px-8 py-3.5 rounded-full text-[16px] font-bold inline-flex items-center justify-center gap-2" style={{ background: '#FFB020', color: '#0B2B26' }}>Apply now <ArrowRight size={18} /></button>
+            </div>
           </section>
         </main>
         {footer}
@@ -19152,11 +19307,13 @@ function RiderApp() {
     return (
       <div style={page}>
         {header}
-        <main className="max-w-md mx-auto px-5 pt-6 pb-10">
-          <button onClick={() => setView('home')} className="flex items-center gap-1 text-[13.5px] font-semibold mb-5" style={{ color: C.inkDim }}><ChevronLeft size={17} /> Back</button>
-          <div className="rounded-[24px] p-6" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 30px 60px -40px rgba(0,0,0,0.8)' }}>
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: C.copperSoft }}><Bike size={22} style={{ color: C.copper }} /></div>
-            <h1 className="mt-4 text-[24px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>{t[0]}</h1>
+        <main className="max-w-6xl mx-auto px-5 pt-4 pb-10 grid lg:grid-cols-2 gap-8 items-center">
+          <div className="hidden lg:block rounded-[32px] p-8" style={{ background: C.mint }}><RiderHeroArt className="w-full h-auto" /><div className="text-center text-[15px] font-semibold mt-2" style={{ color: C.inkDim }}>Deliver more. <span style={{ color: C.ink }}>Earn more.</span></div></div>
+          <div className="w-full max-w-md mx-auto lg:mx-0">
+          <button onClick={() => setView('home')} className="flex items-center gap-1 text-[13.5px] font-semibold mb-4" style={{ color: C.inkDim }}><ChevronLeft size={17} /> Back</button>
+          <div className="lg:hidden -mx-2 mb-2"><RiderHeroArt className="w-full h-auto max-h-[210px]" /></div>
+          <div className="rounded-[28px] p-6 sm:p-7" style={{ background: C.surface, boxShadow: '0 1px 0 rgba(11,43,38,0.04), 0 24px 50px -28px rgba(11,43,38,0.35)' }}>
+            <h1 className="text-[26px] font-extrabold" style={{ letterSpacing: '-0.03em' }}>{t[0]}</h1>
             <p className="mt-1 text-[14px] leading-relaxed" style={{ color: C.inkDim }}>{t[1]}</p>
             <form className="mt-5 space-y-3" onSubmit={(e) => { e.preventDefault(); doAuth(); }}>
               <div>{label('Email')}<input type="email" autoComplete="email" value={auth.email} onChange={(e) => setAuth({ ...auth, email: e.target.value, error: '' })} placeholder="you@example.com" className={inputCls} style={field} /></div>
@@ -19175,6 +19332,7 @@ function RiderApp() {
                 : <><button onClick={() => setAuthMode('signup')} className="font-semibold" style={{ color: C.copper }}>Create an account</button>{authMode === 'login' && <> · <button onClick={() => setAuthMode('forgot')} className="font-semibold" style={{ color: C.inkDim }}>Forgot password?</button></>}</>}
             </div>
           </div>
+          </div>
         </main>
       </div>
     );
@@ -19187,7 +19345,7 @@ function RiderApp() {
   if (['submitted', 'approved', 'rejected', 'suspended'].includes(status)) {
     const first = String(me.full_name || '').split(' ')[0];
     const card = {
-      submitted: [Clock, C.copper, `Thanks, ${first}. We're checking your application`, 'We check your ID and selfie, call your guarantor, and confirm your bank account. This usually takes 1 to 3 working days. We may call you on ' + (me.phone ? formatPhoneDisplay(me.phone) : 'your phone') + '.'],
+      submitted: [Clock, C.amber, `Thanks, ${first}. We're checking your application`, 'We check your ID and selfie, call your guarantor, and confirm your bank account. This usually takes 1 to 3 working days. We may call you on ' + (me.phone ? formatPhoneDisplay(me.phone) : 'your phone') + '.'],
       approved: [BadgeCheck, C.sage, `You're approved, ${first}!`, `Welcome to the Xorla rider network. Delivery jobs open city by city, starting with Umuahia and Aba. We'll message you on ${me.phone ? formatPhoneDisplay(me.phone) : 'your phone'} as soon as jobs open in ${(me.areas || []).slice(0, 2).join(' and ') || 'your area'}.`],
       rejected: [Ban, C.rust, "Your application wasn't approved", me.review_note || "We couldn't approve your application this time."],
       suspended: [Lock, C.rust, 'Your rider account is paused', me.review_note || 'The Xorla team has paused your account while they look into something.'],
@@ -19208,7 +19366,7 @@ function RiderApp() {
                 {steps.map(([t, done], i) => (
                   <React.Fragment key={t}>
                     <div className="flex flex-col items-center gap-1.5 min-w-0">
-                      <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: done ? C.sage : i === steps.findIndex((s) => !s[1]) ? C.copperSoft : 'rgba(255,255,255,0.06)', border: `1.5px solid ${done ? C.sage : i === steps.findIndex((s) => !s[1]) ? C.copper : C.line}` }}>{done ? <Check size={15} style={{ color: C.bg }} /> : <span className="text-[12px] font-bold" style={{ color: C.inkDim }}>{i + 1}</span>}</span>
+                      <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: done ? C.sage : i === steps.findIndex((s) => !s[1]) ? C.copperSoft : C.chip, border: `1.5px solid ${done ? C.sage : i === steps.findIndex((s) => !s[1]) ? C.copper : C.line}` }}>{done ? <Check size={15} style={{ color: C.bg }} /> : <span className="text-[12px] font-bold" style={{ color: C.inkDim }}>{i + 1}</span>}</span>
                       <span className="text-[11.5px] font-semibold" style={{ color: done ? C.ink : C.inkFaint }}>{t}</span>
                     </div>
                     {i < steps.length - 1 && <span className="flex-1 h-[2px] mx-1.5 -mt-5 rounded-full" style={{ background: done && steps[i + 1][1] ? C.sage : C.line }} />}
@@ -19218,8 +19376,8 @@ function RiderApp() {
             )}
             {status === 'approved' && (
               <div className="mt-5 grid grid-cols-2 gap-2">
-                <div className="rounded-xl px-3.5 py-3" style={{ background: 'rgba(0,0,0,0.2)' }}><div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Paid into</div><div className="text-[13.5px] font-semibold mt-0.5 truncate">{me.bank_name} ····{String(me.account_number || '').slice(-4)}</div></div>
-                <div className="rounded-xl px-3.5 py-3" style={{ background: 'rgba(0,0,0,0.2)' }}><div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Your areas</div><div className="text-[13.5px] font-semibold mt-0.5 truncate">{(me.areas || []).length} chosen</div></div>
+                <div className="rounded-xl px-3.5 py-3" style={{ background: C.field }}><div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Paid into</div><div className="text-[13.5px] font-semibold mt-0.5 truncate">{me.bank_name} ····{String(me.account_number || '').slice(-4)}</div></div>
+                <div className="rounded-xl px-3.5 py-3" style={{ background: C.field }}><div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Your areas</div><div className="text-[13.5px] font-semibold mt-0.5 truncate">{(me.areas || []).length} chosen</div></div>
               </div>
             )}
             {['rejected', 'suspended'].includes(status) && RIDER_SUPPORT_WHATSAPP && <a href={`https://wa.me/${RIDER_SUPPORT_WHATSAPP}?text=${encodeURIComponent(`Hello Xorla, this is ${me.full_name} (rider, ${me.phone || ''}). About my rider account:`)}`} target="_blank" rel="noopener noreferrer" className="mt-4 h-11 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><MessageCircle size={16} /> Message the Xorla team</a>}
@@ -19241,7 +19399,7 @@ function RiderApp() {
   const lgas = NG_LGAS[f.state] || [];
   const motor = ['bike', 'tricycle', 'car', 'van'].includes(f.vehicle);
   const photoTile = (k, title, hint, Ic, capture) => (
-    <label className="relative block rounded-2xl overflow-hidden cursor-pointer" style={{ background: 'rgba(0,0,0,0.22)', border: `1.5px dashed ${photos[k] || f[k] ? C.sage : C.lineStrong}` }}>
+    <label className="relative block rounded-2xl overflow-hidden cursor-pointer" style={{ background: C.field, border: `1.5px dashed ${photos[k] || f[k] ? C.sage : C.lineStrong}` }}>
       <input type="file" accept="image/*" {...(capture ? { capture } : {})} className="sr-only" onChange={(e) => { pickPhoto(k, e.target.files?.[0]); e.target.value = ''; }} aria-label={title} />
       {photos[k] ? (
         <div className="relative">
@@ -19265,12 +19423,12 @@ function RiderApp() {
       <div>{label('Full name', '(as on your ID)')}<input value={f.full_name || ''} onChange={(e) => set({ full_name: e.target.value })} autoComplete="name" placeholder="e.g. Chinedu Okafor" className={inputCls} style={field} /></div>
       <div className="grid sm:grid-cols-2 gap-4">
         <div>{label('Phone number')}<input type="tel" inputMode="tel" value={f.phone || ''} onChange={(e) => set({ phone: e.target.value })} autoComplete="tel" placeholder="0803 123 4567" className={inputCls} style={field} /></div>
-        <div>{label('Date of birth')}<input type="date" value={f.date_of_birth || ''} max={new Date(Date.now() - 18 * 365.25 * 86400000).toISOString().slice(0, 10)} onChange={(e) => set({ date_of_birth: e.target.value })} className={inputCls} style={{ ...field, colorScheme: 'dark' }} /></div>
+        <div>{label('Date of birth')}<input type="date" value={f.date_of_birth || ''} max={new Date(Date.now() - 18 * 365.25 * 86400000).toISOString().slice(0, 10)} onChange={(e) => set({ date_of_birth: e.target.value })} className={inputCls} style={{ ...field, colorScheme: 'light' }} /></div>
       </div>
       <div>{label('Home address')}<textarea rows={2} value={f.home_address || ''} onChange={(e) => set({ home_address: e.target.value })} placeholder="House number, street, area" className={`${inputCls} resize-none`} style={field} /></div>
       <div className="grid grid-cols-2 gap-3">
-        <div>{label('State')}<BrandSelect value={f.state || ''} onChange={(e) => set({ state: e.target.value, lga: '', areas: [] })} className="w-full rounded-xl px-4 py-3 text-[15px]" style={field} aria-label="State"><option value="">Choose</option>{NG_STATES.map((s) => <option key={s} value={s}>{s}</option>)}</BrandSelect></div>
-        <div>{label('Local government')}<BrandSelect value={f.lga || ''} onChange={(e) => set({ lga: e.target.value, areas: (f.areas || []).length ? f.areas : [e.target.value] })} className="w-full rounded-xl px-4 py-3 text-[15px]" style={field} aria-label="Local government"><option value="">{f.state ? 'Choose' : 'Choose a state'}</option>{lgas.map((l) => <option key={l} value={l}>{l}</option>)}</BrandSelect></div>
+        <div>{label('State')}<BrandSelect value={f.state || ''} onChange={(e) => set({ state: e.target.value, lga: '', areas: [] })} palette={RIDER_LIGHT} className="w-full rounded-xl px-4 py-3 text-[15px]" style={field} aria-label="State"><option value="">Choose</option>{NG_STATES.map((s) => <option key={s} value={s}>{s}</option>)}</BrandSelect></div>
+        <div>{label('Local government')}<BrandSelect value={f.lga || ''} onChange={(e) => set({ lga: e.target.value, areas: (f.areas || []).length ? f.areas : [e.target.value] })} palette={RIDER_LIGHT} className="w-full rounded-xl px-4 py-3 text-[15px]" style={field} aria-label="Local government"><option value="">{f.state ? 'Choose' : 'Choose a state'}</option>{lgas.map((l) => <option key={l} value={l}>{l}</option>)}</BrandSelect></div>
       </div>
     </div>,
     // 2. Your ride and areas
@@ -19278,7 +19436,7 @@ function RiderApp() {
       <div>{label('How do you deliver?')}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="How do you deliver?">
           {RIDER_VEHICLES.map(([k, l, d, Ic]) => { const on = f.vehicle === k; return (
-            <button key={k} type="button" role="radio" aria-checked={on} onClick={() => set({ vehicle: k })} className="rounded-2xl px-3.5 py-3 text-left transition-colors" style={{ background: on ? C.copperSoft : 'rgba(0,0,0,0.22)', border: `1.5px solid ${on ? C.copper : C.lineStrong}` }}>
+            <button key={k} type="button" role="radio" aria-checked={on} onClick={() => set({ vehicle: k })} className="rounded-2xl px-3.5 py-3 text-left transition-colors" style={{ background: on ? C.copperSoft : C.field, border: `1.5px solid ${on ? C.copper : C.lineStrong}` }}>
               <Ic size={20} style={{ color: on ? C.copper : C.inkDim }} />
               <span className="block mt-1.5 text-[14px] font-semibold">{l}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{d}</span>
             </button>
@@ -19303,7 +19461,7 @@ function RiderApp() {
       <div>{label('Your ID')}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-label="Your ID">
           {RIDER_ID_TYPES.map(([k, l, d]) => { const on = f.id_type === k; return (
-            <button key={k} type="button" role="radio" aria-checked={on} onClick={() => set({ id_type: k })} className="rounded-xl px-3 py-2.5 text-left" style={{ background: on ? C.copperSoft : 'rgba(0,0,0,0.22)', border: `1.5px solid ${on ? C.copper : C.lineStrong}` }}>
+            <button key={k} type="button" role="radio" aria-checked={on} onClick={() => set({ id_type: k })} className="rounded-xl px-3 py-2.5 text-left" style={{ background: on ? C.copperSoft : C.field, border: `1.5px solid ${on ? C.copper : C.lineStrong}` }}>
               <span className="block text-[13.5px] font-semibold">{l}</span>{d && <span className="block text-[11px]" style={{ color: C.inkFaint }}>{d}</span>}
             </button>
           ); })}
@@ -19314,7 +19472,7 @@ function RiderApp() {
         {photoTile('id_doc', 'Photo of your ID', 'The front, flat on a table. All four corners and every word clear.', Contact, 'environment')}
         {photoTile('selfie_doc', 'Take a selfie', 'Face the light. No cap, no sunglasses, nobody else in the photo.', ScanFace, 'user')}
       </div>
-      <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed flex gap-2.5" style={{ background: 'rgba(0,0,0,0.2)', color: C.inkDim }}><Lock size={15} className="shrink-0 mt-0.5" style={{ color: C.sage }} /> We check that your face matches your ID. Only the Xorla team can see these photos.</div>
+      <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed flex gap-2.5" style={{ background: C.field, color: C.inkDim }}><Lock size={15} className="shrink-0 mt-0.5" style={{ color: C.sage }} /> We check that your face matches your ID. Only the Xorla team can see these photos.</div>
     </div>,
     // 4. Guarantor
     <div key="guarantor" className="space-y-4">
@@ -19356,14 +19514,14 @@ function RiderApp() {
       </div>
       <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
         {[[0, 'You', [f.full_name, f.phone && formatPhoneDisplay(f.phone), [f.lga, f.state].filter(Boolean).join(', ')]], [1, 'Your ride', [(RIDER_VEHICLES.find(([k]) => k === f.vehicle) || [])[1], f.plate_number, `${(f.areas || []).length} area${(f.areas || []).length !== 1 ? 's' : ''}`]], [2, 'ID & selfie', [(RIDER_ID_TYPES.find(([k]) => k === f.id_type) || [])[1], f.id_doc ? 'ID photo added' : '', f.selfie_doc ? 'selfie added' : '']], [3, 'Guarantor', [f.guarantor_name, f.guarantor_relationship]]].map(([i, t, bits]) => (
-          <button key={t} type="button" onClick={() => setStep(i)} className="w-full flex items-center gap-3 px-4 py-3 text-left" style={{ background: 'rgba(0,0,0,0.18)', borderBottom: `1px solid ${C.line}` }}>
+          <button key={t} type="button" onClick={() => setStep(i)} className="w-full flex items-center gap-3 px-4 py-3 text-left" style={{ background: C.field, borderBottom: `1px solid ${C.line}` }}>
             <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ background: progress[i] ? C.sage : C.rustSoft }}>{progress[i] ? <Check size={13} style={{ color: C.bg }} /> : <X size={13} style={{ color: C.rust }} />}</span>
             <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">{t}</span><span className="block text-[12px] truncate" style={{ color: C.inkFaint }}>{bits.filter(Boolean).join(' · ') || 'Not filled in'}</span></span>
             <span className="text-[12.5px] font-semibold" style={{ color: C.copper }}>Edit</span>
           </button>
         ))}
       </div>
-      <label className="flex items-start gap-3 cursor-pointer rounded-2xl p-4" style={{ background: 'rgba(0,0,0,0.18)', border: `1px solid ${agree ? C.copper : C.line}` }}>
+      <label className="flex items-start gap-3 cursor-pointer rounded-2xl p-4" style={{ background: C.field, border: `1px solid ${agree ? C.copper : C.line}` }}>
         <input type="checkbox" checked={agree} onChange={(e) => { setAgree(e.target.checked); setErr(''); }} className="mt-1 w-5 h-5 accent-[#FFB020] shrink-0" />
         <span className="text-[13px] leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>My details are true.</strong> I'll treat every delivery with care, never ask a customer for extra money, and I understand Xorla can pause riders after complaints. I agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: C.copper }}>terms</a>.</span>
       </label>
@@ -19392,7 +19550,7 @@ function RiderApp() {
           <div className="flex gap-1.5 mb-5" role="tablist" aria-label="Application steps">
             {RIDER_STEPS.map(([k, l], i) => (
               <button key={k} role="tab" aria-selected={step === i} onClick={() => (i < step || progress.slice(0, i).every(Boolean)) && setStep(i)} className="flex-1 min-w-0 text-left">
-                <span className="block h-1.5 rounded-full" style={{ background: i === step ? C.copper : progress[i] ? C.sage : 'rgba(255,255,255,0.1)' }} />
+                <span className="block h-1.5 rounded-full" style={{ background: i === step ? C.copper : progress[i] ? C.sage : C.track }} />
                 <span className="hidden sm:block mt-1.5 text-[11.5px] font-semibold truncate" style={{ color: i === step ? C.ink : C.inkFaint }}>{l}</span>
               </button>
             ))}
@@ -19405,7 +19563,7 @@ function RiderApp() {
           </div>
         </section>
       </main>
-      <div className="fixed left-0 right-0 bottom-0 z-30" style={{ background: 'rgba(10,31,28,0.92)', backdropFilter: 'blur(10px)', borderTop: `1px solid ${C.line}`, paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="fixed left-0 right-0 bottom-0 z-30" style={{ background: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(10px)', borderTop: `1px solid ${C.line}`, paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="max-w-5xl mx-auto px-5 py-3 flex gap-2.5 lg:pl-[calc(340px+44px)]">
           {step > 0 && <button onClick={() => saveStep(step - 1)} disabled={busy} className="h-12 px-5 rounded-xl text-[14.5px] font-semibold" style={{ color: C.ink, border: `1px solid ${C.lineStrong}` }}>Back</button>}
           {step < 4
