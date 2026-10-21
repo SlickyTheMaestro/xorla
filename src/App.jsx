@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Sun, Moon, WifiOff, CloudUpload, LayoutGrid, List, MousePointerClick, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
+import { Plus, CameraOff, RotateCcw, Sun, Moon, WifiOff, CloudUpload, LayoutGrid, List, MousePointerClick, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -20323,6 +20323,107 @@ function RiderFaceLocal({ photo, name }) {
   return photo ? <img src={photo} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0" style={{ border: `2px solid ${C.sage}` }} /> : <span className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-[17px] font-bold" style={{ background: C.mint, color: C.copper }}>{initials}</span>;
 }
 
+// ============ Live selfie: the camera opens inside the page (nothing to leave, so the phone can't close the page) ============
+// The rider sees themselves in an oval, takes the photo, and checks it before using it. The saved photo is not mirrored,
+// so it matches the face on their ID. If the camera can't open (no permission, old phone), the caller offers other ways.
+const canLiveCamera = () => typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && typeof window !== 'undefined' && window.isSecureContext !== false;
+function LiveSelfie({ onUse, onClose, onFail }) {
+  const videoRef = useRef(null); const streamRef = useRef(null);
+  const [state, setState] = useState('starting');   // starting | live | shot | error
+  const [shot, setShot] = useState(null);           // { url, blob }
+  const [count, setCount] = useState(0);
+  const [msg, setMsg] = useState('');
+  const stop = () => { try { (streamRef.current?.getTracks() || []).forEach((t) => t.stop()); } catch (e) {} streamRef.current = null; };
+  const start = async () => {
+    setState('starting'); setMsg('');
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 1280 } }, audio: false });
+      streamRef.current = st;
+      const v = videoRef.current; if (!v) { stop(); return; }
+      v.srcObject = st; v.setAttribute('playsinline', ''); v.muted = true;
+      await v.play().catch(() => {});
+      setState('live');
+    } catch (e) {
+      const denied = e && /NotAllowed|Permission|Security/i.test(`${e.name} ${e.message}`);
+      setMsg(denied ? 'Xorla needs your permission to use the camera. Tap the camera or lock icon in your browser\'s address bar, allow the camera, then try again.' : "Your camera didn't open on this phone.");
+      setState('error'); onFail && onFail(denied ? 'denied' : 'unavailable');
+    }
+  };
+  useEffect(() => {
+    start();
+    const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    return () => { stop(); document.body.style.overflow = prev; };
+  }, []);
+  useEffect(() => () => { if (shot?.url) URL.revokeObjectURL(shot.url); }, [shot]);
+  const snap = () => {
+    const v = videoRef.current; if (!v || !v.videoWidth) return;
+    const max = 1280; const scale = Math.min(1, max / Math.max(v.videoWidth, v.videoHeight));
+    const c = document.createElement('canvas'); c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    c.toBlob((b) => { if (!b) return; setShot({ blob: b, url: URL.createObjectURL(b) }); setState('shot'); stop(); }, 'image/jpeg', 0.9);
+  };
+  const countdown = () => {
+    if (count) return;
+    let n = 3; setCount(n);
+    const t = setInterval(() => { n -= 1; if (n <= 0) { clearInterval(t); setCount(0); snap(); } else setCount(n); }, 700);
+  };
+  const retake = () => { setShot(null); start(); };
+  const use = () => { if (!shot) return; const file = new File([shot.blob], `selfie-${Date.now()}.jpg`, { type: 'image/jpeg' }); onUse(file); };
+  return createPortal(
+    <div className="fixed inset-0 z-[120] flex flex-col" style={{ background: '#050B0A', color: '#fff', fontFamily: "'Inter', system-ui, sans-serif" }} role="dialog" aria-modal="true" aria-label="Take a selfie">
+      <div className="flex items-center justify-between px-4 pt-[max(14px,env(safe-area-inset-top))] pb-3">
+        <button onClick={() => { stop(); onClose(); }} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.1)' }} aria-label="Close"><X size={18} /></button>
+        <span className="text-[14px] font-semibold">{state === 'shot' ? 'Is your face clear?' : 'Take a selfie'}</span>
+        <span className="w-10" />
+      </div>
+      <div className="relative flex-1 min-h-0 mx-4 rounded-3xl overflow-hidden" style={{ background: '#0B1513' }}>
+        <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" style={{ transform: 'scaleX(-1)', display: state === 'shot' ? 'none' : 'block' }} />
+        {state === 'shot' && shot && <img src={shot.url} alt="Your selfie" className="absolute inset-0 w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />}
+        {(state === 'live' || state === 'starting') && (
+          <svg aria-hidden className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 130" preserveAspectRatio="xMidYMid slice">
+            <defs><mask id="xsm"><rect width="100" height="130" fill="#fff" /><ellipse cx="50" cy="58" rx="29" ry="38" fill="#000" /></mask></defs>
+            <rect width="100" height="130" fill="rgba(5,11,10,0.55)" mask="url(#xsm)" />
+            <ellipse cx="50" cy="58" rx="29" ry="38" fill="none" stroke={count ? '#FFB020' : '#1FD9C4'} strokeWidth="0.8" strokeDasharray={count ? '0' : '2.2 1.6'} />
+          </svg>
+        )}
+        {state === 'starting' && <div className="absolute inset-0 flex items-center justify-center"><Loader2 size={26} className="animate-spin" style={{ color: '#1FD9C4' }} /></div>}
+        {count > 0 && <div className="absolute inset-0 flex items-center justify-center"><span key={count} className="xorla-fade-up text-[84px] font-extrabold" style={{ color: '#FFB020', textShadow: '0 6px 30px rgba(0,0,0,0.6)' }}>{count}</span></div>}
+        {state === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+            <span className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3" style={{ background: 'rgba(255,176,32,0.15)' }}><CameraOff size={24} style={{ color: '#FFB020' }} /></span>
+            <div className="text-[15px] font-semibold mb-1.5">Camera not available</div>
+            <div className="text-[13px] leading-relaxed max-w-[300px]" style={{ color: 'rgba(255,255,255,0.72)' }}>{msg}</div>
+          </div>
+        )}
+      </div>
+      <div className="px-5 pt-3 pb-[max(18px,env(safe-area-inset-bottom))]">
+        {state === 'shot' ? (
+          <>
+            <div className="text-[12.5px] text-center mb-3" style={{ color: 'rgba(255,255,255,0.7)' }}>Whole face showing, in good light, no cap or sunglasses?</div>
+            <div className="flex gap-3">
+              <button onClick={retake} className="flex-1 h-12 rounded-xl text-[14.5px] font-semibold flex items-center justify-center gap-1.5" style={{ border: '1px solid rgba(255,255,255,0.25)' }}><RotateCcw size={16} /> Retake</button>
+              <button onClick={use} className="flex-[1.4] h-12 rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-1.5" style={{ background: '#1FD9C4', color: '#062420' }}><Check size={17} /> Use this photo</button>
+            </div>
+          </>
+        ) : state === 'error' ? (
+          <div className="flex gap-3">
+            <button onClick={() => { stop(); onClose(); }} className="flex-1 h-12 rounded-xl text-[14.5px] font-semibold" style={{ border: '1px solid rgba(255,255,255,0.25)' }}>Other ways</button>
+            <button onClick={start} className="flex-1 h-12 rounded-xl text-[14.5px] font-bold" style={{ background: '#1FD9C4', color: '#062420' }}>Try again</button>
+          </div>
+        ) : (
+          <>
+            <div className="text-[12.5px] text-center mb-3" style={{ color: 'rgba(255,255,255,0.7)' }}>Fit your face in the oval. Face the light, no cap or sunglasses.</div>
+            <div className="flex justify-center">
+              <button onClick={countdown} disabled={state !== 'live' || !!count} aria-label="Take photo" className="w-[74px] h-[74px] rounded-full flex items-center justify-center" style={{ border: '4px solid #fff', opacity: state === 'live' ? 1 : 0.5 }}>
+                <span className="w-[58px] h-[58px] rounded-full" style={{ background: count ? '#FFB020' : '#fff' }} />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>, document.body);
+}
+
 function RiderApp() {
   const C = RIDER_LIGHT;   // the rider pages are light and friendly (the rider pass card stays dark)
   const [sess, setSess] = useState(() => { try { return JSON.parse(localStorage.getItem(RIDER_SESSION_KEY) || 'null'); } catch (e) { return null; } });
@@ -20367,16 +20468,28 @@ function RiderApp() {
     }
     return sbRpc(fn, s.access_token, params);
   }, [sess]);
+  // What the rider typed on this phone but hasn't saved yet (kept in case the phone reloads the page): laid over
+  // whatever is loaded, so a late load can never wipe it
+  const typedDraft = (r) => {
+    if (!sess?.user_id || (r && !['draft', 'needs_fix'].includes(r.status || 'draft'))) return {};
+    try {
+      const d = JSON.parse(localStorage.getItem(`xorla:rider-draft:${sess.user_id}`) || 'null');
+      if (!d || !d.f || Date.now() - (d.at || 0) > 3 * 86400000) return {};
+      return Object.fromEntries(Object.entries(d.f).filter(([k, v]) => v !== '' && v != null && !['id_doc', 'selfie_doc'].includes(k) && !(Array.isArray(v) && !v.length)));
+    } catch (e) { return {}; }
+  };
   const fill = (r) => {
     setMe(r);
     if (!r) return;
-    setF({ full_name: r.full_name || '', phone: r.phone || '', date_of_birth: r.date_of_birth || '', home_address: r.home_address || '', state: r.state || 'Abia', lga: r.lga || '', areas: r.areas || [],
+    const typed = typedDraft(r);
+    setF({ ...typed, ...{ full_name: r.full_name || '', phone: r.phone || '', date_of_birth: r.date_of_birth || '', home_address: r.home_address || '', state: r.state || 'Abia', lga: r.lga || '', areas: r.areas || [],
       vehicle: r.vehicle || '', plate_number: r.plate_number || '', id_type: r.id_type || '', id_number: r.id_number || '', id_doc: r.id_doc || '', selfie_doc: r.selfie_doc || '',
-      guarantor_name: r.guarantor_name || '', guarantor_phone: r.guarantor_phone || '', guarantor_relationship: r.guarantor_relationship || '', guarantor_address: r.guarantor_address || '' });
+      guarantor_name: r.guarantor_name || '', guarantor_phone: r.guarantor_phone || '', guarantor_relationship: r.guarantor_relationship || '', guarantor_address: r.guarantor_address || '' },
+      ...typed });
   };
   const load = useCallback(async () => {
     if (!sess) { setMe(undefined); return; }
-    try { const r = await call('rider_me'); fill(r || null); if (!r) setF({ state: 'Abia', areas: [] }); }
+    try { const r = await call('rider_me'); fill(r || null); if (!r) setF({ state: 'Abia', areas: [], ...typedDraft(null) }); }
     catch (e) { if (/log in/i.test(e.message || '') || /JWT|expired/i.test(e.message || '')) { saveSess(null); } else { setMe(null); setErr(e.message); } }
   }, [sess, call]);
   useEffect(() => { load(); }, [sess?.user_id]);
@@ -20392,6 +20505,8 @@ function RiderApp() {
   const draftKey = sess?.user_id ? `xorla:rider-draft:${sess.user_id}` : '';
   const [draftReady, setDraftReady] = useState(false);
   const [camBack, setCamBack] = useState('');   // which photo's camera was open when the page reloaded
+  const [liveCam, setLiveCam] = useState(false);       // the in-page selfie camera is open
+  const [otherWays, setOtherWays] = useState(false);   // the live camera didn't work: offer the phone camera or the gallery
   useEffect(() => {
     if (!draftKey || me === undefined || draftReady) return;
     setDraftReady(true);
@@ -20399,7 +20514,7 @@ function RiderApp() {
     try {
       const d = JSON.parse(localStorage.getItem(draftKey) || 'null');
       if (!d || Date.now() - (d.at || 0) > 3 * 86400000) return;
-      if (d.f && typeof d.f === 'object') setF((x) => ({ ...x, ...Object.fromEntries(Object.entries(d.f).filter(([k, v]) => v !== '' && v != null && !['id_doc', 'selfie_doc'].includes(k))) }));
+      if (d.f && typeof d.f === 'object') setF((x) => ({ ...x, ...typedDraft(me) }));
       if (Number.isInteger(d.step) && d.step >= 0 && d.step <= 4) setStep(d.step);
       if (d.cam) setCamBack(d.cam);
     } catch (e) {}
@@ -20461,13 +20576,14 @@ function RiderApp() {
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
-  const pickPhoto = async (k, file) => {
-    clearCamera();
+  const pickPhoto = async (k, file, live = false) => {
+    clearCamera(); setLiveCam(false);
     if (!file) return;
     setUpBusy(k); setErr('');
     try {
       if (!me) setMe(await call('rider_save', { p: { full_name: f.full_name || '' } }));
-      const path = await riderUpload(sess.access_token, sess.user_id, file, k === 'id_doc' ? 'id' : 'selfie');
+      // A selfie taken with the live camera is marked as such, so the Xorla team can tell it from an uploaded picture
+      const path = await riderUpload(sess.access_token, sess.user_id, file, k === 'id_doc' ? 'id' : live ? 'selfie-live' : 'selfie');
       // Keep what they've typed on this step (it's saved when they continue); only the photo changes here
       setMe(await call('rider_save', { p: { [k]: path } })); setF((x) => ({ ...x, [k]: path }));
       setPhotos((p) => ({ ...p, [k]: URL.createObjectURL(file) }));
@@ -20753,7 +20869,7 @@ function RiderApp() {
         <span>Your phone closed this page while the camera was open, so the photo didn't come through. Your details are safe. Try again, or take the photo with your phone's camera app first, then tap <strong>Choose a photo you've taken</strong>.</span>
       </div>
     )}
-    <label onClick={() => markCamera(k)} className="relative block rounded-2xl overflow-hidden cursor-pointer" style={{ background: C.field, border: `1.5px dashed ${photos[k] || f[k] ? C.sage : C.lineStrong}` }}>
+    <label onClick={(e) => { if (k === 'selfie_doc' && canLiveCamera() && !otherWays && upBusy !== k) { e.preventDefault(); setLiveCam(true); return; } markCamera(k); }} className="relative block rounded-2xl overflow-hidden cursor-pointer" style={{ background: C.field, border: `1.5px dashed ${photos[k] || f[k] ? C.sage : C.lineStrong}` }}>
       <input type="file" accept="image/*" {...(capture ? { capture } : {})} className="sr-only" onChange={(e) => { pickPhoto(k, e.target.files?.[0]); e.target.value = ''; }} aria-label={title} />
       {photos[k] ? (
         <div className="relative">
@@ -20769,12 +20885,16 @@ function RiderApp() {
         </div>
       )}
     </label>
-    {capture && upBusy !== k && (
+    {capture && upBusy !== k && (k !== 'selfie_doc' || !canLiveCamera() || otherWays || camBack === k) && (
       <label className="mt-2 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[12.5px] font-semibold cursor-pointer" style={{ color: C.sage }}>
         <input type="file" accept="image/*" className="sr-only" onChange={(e) => { pickPhoto(k, e.target.files?.[0]); e.target.value = ''; }} aria-label={`${title}: choose a photo`} />
         <ImagePlus size={14} /> Choose a photo you've taken
       </label>
     )}
+    {k === 'selfie_doc' && canLiveCamera() && !otherWays && upBusy !== k && (
+      <button type="button" onClick={() => setOtherWays(true)} className="mt-1.5 w-full py-1.5 text-[12px] font-medium" style={{ color: C.inkFaint }}>Camera not working?</button>
+    )}
+    {k === 'selfie_doc' && liveCam && <LiveSelfie onUse={(file) => pickPhoto('selfie_doc', file, true)} onClose={() => setLiveCam(false)} onFail={() => setOtherWays(true)} />}
     </div>
   );
   const banksMatch = (banks || []).filter((b) => bank.q.trim() && b.name.toLowerCase().includes(bank.q.trim().toLowerCase())).slice(0, 6);
@@ -20884,7 +21004,7 @@ function RiderApp() {
       </div>
       <label className="flex items-start gap-3 cursor-pointer rounded-2xl p-4" style={{ background: C.field, border: `1px solid ${agree ? C.copper : C.line}` }}>
         <input type="checkbox" checked={agree} onChange={(e) => { setAgree(e.target.checked); setErr(''); }} className="mt-1 w-5 h-5 accent-[#FFB020] shrink-0" />
-        <span className="text-[13px] leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>My details are true.</strong> I'll treat every delivery with care, never ask a customer for extra money, and I understand Xorla can pause riders after complaints. I agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: C.copper }}>terms</a>.</span>
+        <span className="text-[13px] leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>My details are true.</strong> I'll treat every delivery with care, never ask a customer for extra money, and I understand Xorla can pause riders after complaints. I agree that Xorla may check my ID with NIMC and compare my selfie with my ID photo. I agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: C.copper }}>terms</a>.</span>
       </label>
     </div>,
   ];
@@ -20966,7 +21086,15 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
   const [pics, setPics] = useState({});
   const [act, setAct] = useState({ mode: '', note: '', busy: false, error: '' });
   const [zoom, setZoom] = useState('');
+  const [nin, setNin] = useState({ busy: false, error: '' });
   const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+  // Ask NIMC (through Dojah, in the billing function) whether the NIN is real, whose it is, and whether the selfie matches its photo
+  const checkNin = async () => {
+    if (!open) return;
+    setNin({ busy: true, error: '' });
+    try { await riderBilling(token(), 'admin_rider_nin', { rider_id: open.id }); const r = await call('admin_rider', { p_id: open.id }); setOpen(r); setNin({ busy: false, error: '' }); }
+    catch (e) { setNin({ busy: false, error: e.message }); }
+  };
   const loadCounts = useCallback(() => call('admin_rider_counts', {}).then((c) => { setCounts(c); onCounts && onCounts(c); }).catch(() => {}), [call, onCounts]);
   const loadList = useCallback(async () => { try { setList(await call('admin_riders', { p_status: tab, p_search: q || null })); } catch (e) { setList([]); } }, [call, tab, q]);
   useEffect(() => { loadList(); }, [tab]);
@@ -20983,7 +21111,7 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
     (list || []).forEach((r) => { if (r.selfie_doc && !thumbs[r.id]) vaultFileUrl(token(), 'rider-docs', r.selfie_doc).then((u) => setThumbs((x) => ({ ...x, [r.id]: u }))).catch(() => {}); });
   }, [list]);
   const show = async (id) => {
-    setAct({ mode: '', note: '', busy: false, error: '' }); setPics({});
+    setAct({ mode: '', note: '', busy: false, error: '' }); setPics({}); setNin({ busy: false, error: '' });
     try {
       const r = await call('admin_rider', { p_id: id }); setOpen(r);
       ['id_doc', 'selfie_doc'].forEach((k) => { if (r[k]) vaultFileUrl(token(), 'rider-docs', r[k]).then((u) => setPics((p) => ({ ...p, [k]: u }))).catch(() => {}); });
@@ -21046,10 +21174,52 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
                 {[['selfie_doc', 'Selfie'], ['id_doc', `ID${idType ? ` · ${idType}` : ''}`]].map(([k, l]) => (
                   <button key={k} type="button" onClick={() => pics[k] && setZoom(pics[k])} className="rounded-xl overflow-hidden text-left" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                     <div className="aspect-[4/5] flex items-center justify-center">{pics[k] ? <img src={pics[k]} alt={l} className={`w-full h-full ${k === 'id_doc' ? 'object-contain' : 'object-cover'}`} /> : r[k] ? <Loader2 size={18} className="animate-spin" style={{ color: C.inkFaint }} /> : <span className="text-[12px]" style={{ color: C.inkFaint }}>Not added</span>}</div>
-                    <div className="px-3 py-2 text-[12px] font-semibold flex items-center justify-between" style={{ color: C.inkDim }}>{l}{pics[k] && <span style={{ color: C.copper }}>Open</span>}</div>
+                    <div className="px-3 py-2 text-[12px] font-semibold flex items-center justify-between gap-2" style={{ color: C.inkDim }}>
+                      <span className="flex items-center gap-1.5 min-w-0">{l}{k === 'selfie_doc' && r.selfie_doc && (/selfie-live-/.test(r.selfie_doc)
+                        ? <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>Live</span>
+                        : <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-bold" style={{ background: C.copperSoft, color: C.copper }}>Uploaded</span>)}</span>
+                      {pics[k] && <span style={{ color: C.copper }}>Open</span>}
+                    </div>
                   </button>
                 ))}
               </div>
+            </div>
+            {/* NIN: confirmed with NIMC, and the selfie compared with the NIN photo */}
+            <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <div className="text-[14px] font-semibold mb-1 flex items-center gap-2"><BadgeCheck size={16} style={{ color: C.copper }} /> NIN check with NIMC</div>
+              {r.id_type !== 'nin' ? (
+                <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>This rider used {idType ? `a ${idType.toLowerCase()}` : 'another ID'}. Only a NIN can be checked automatically, so check the ID photo by eye. You can ask them for their NIN instead.</div>
+              ) : (() => {
+                const k = r.nin_check; const used = r.nin_checks_used || 0;
+                const tone = !k ? C.inkDim : k.status === 'match' ? C.sage : k.status === 'mismatch' ? C.copper : C.rust;
+                const yes = (ok, text) => <span style={{ color: ok === false ? C.rust : ok ? C.sage : C.inkDim }}>{ok === false ? <X size={13} className="inline -mt-0.5 mr-1" /> : ok ? <Check size={13} className="inline -mt-0.5 mr-1" /> : null}{text}</span>;
+                return (
+                  <>
+                    {!k && <div className="text-[12.5px] leading-relaxed mb-3" style={{ color: C.inkDim }}>Confirms the NIN is real, shows the name and date of birth NIMC holds, and compares the selfie with the photo on the NIN. Each check is paid from the Dojah wallet.</div>}
+                    {k && (
+                      <div className="mt-2 mb-3">
+                        <div className="rounded-xl px-3.5 py-2.5 text-[13px] font-semibold flex items-start gap-2" style={{ background: `${tone === C.sage ? C.sageSoft : tone === C.copper ? C.copperSoft : C.rustSoft}`, color: tone }}>
+                          {k.status === 'match' ? <ShieldCheck size={16} className="shrink-0 mt-0.5" /> : <AlertCircle size={16} className="shrink-0 mt-0.5" />}
+                          <span>{k.status === 'match' ? 'NIN confirmed and the face matches' : k.status === 'mismatch' ? 'NIN found, but something doesn\'t match' : 'NIMC has no record of this NIN'}</span>
+                        </div>
+                        {k.status !== 'not_found' && <>
+                          {row('Name on the NIN', yes(k.name_match === 'full' ? true : k.name_match === 'none' ? false : null, `${k.nimc_name || '—'}${k.name_match === 'partial' ? ' (part match)' : ''}`))}
+                          {row('Date of birth on the NIN', yes(k.dob_match, k.nimc_dob ? new Date(k.nimc_dob + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'))}
+                          <div className="py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>
+                            <div className="flex items-center justify-between text-[12.5px] mb-1.5"><span style={{ color: C.inkFaint }}>Selfie vs NIN photo{k.live === false ? ' (uploaded photo)' : ''}</span><span className="text-[13.5px] font-bold" style={{ color: k.face_match ? C.sage : C.rust }}>{k.face_score != null ? `${k.face_score}%` : '—'} {k.face_match ? 'match' : 'no match'}</span></div>
+                            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surfaceRaised }}><div className="h-full rounded-full" style={{ width: `${Math.max(2, Math.min(100, k.face_score || 0))}%`, background: k.face_match ? C.sageFill : C.rustFill }} /></div>
+                          </div>
+                        </>}
+                        <div className="text-[11.5px] mt-2" style={{ color: C.inkFaint }}>Checked {riderAgo(k.at)}{k.by ? ` by ${k.by}` : ''}</div>
+                      </div>
+                    )}
+                    {nin.error && <div className="rounded-xl px-3 py-2 mb-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{nin.error}</div>}
+                    <button onClick={checkNin} disabled={nin.busy} className="w-full h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={k ? { border: `1px solid ${C.lineStrong}`, color: C.ink } : { background: C.copperFill, color: C.onAccent }}>
+                      {nin.busy ? <><Loader2 size={15} className="animate-spin" /> Checking with NIMC…</> : k ? `Check again (${used} of 3 used)` : <><BadgeCheck size={15} /> Check NIN</>}
+                    </button>
+                  </>
+                );
+              })()}
             </div>
             <div className="rounded-2xl px-4 py-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
               <div className="text-[14px] font-semibold pt-2 pb-1">Details</div>
@@ -21126,7 +21296,7 @@ function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts 
                 {(r.history || []).slice().reverse().map((h, i) => (
                   <li key={i} className="flex gap-2.5 text-[12.5px]">
                     <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: h.by_team ? C.copperFill : C.sageFill }} />
-                    <span className="min-w-0"><span className="font-semibold">{{ started: 'Started applying', submitted: 'Sent the application', resubmitted: 'Fixed it and sent it again', approve: 'Approved', fix: 'Sent back for a fix', reject: 'Turned down', suspend: 'Paused', reinstate: 'Made active again' }[h.action] || h.action}</span>{h.by_team && h.by_name ? <span style={{ color: C.inkFaint }}> · {h.by_name}</span> : null}
+                    <span className="min-w-0"><span className="font-semibold">{{ started: 'Started applying', submitted: 'Sent the application', nin_checked: 'Checked the NIN with NIMC', resubmitted: 'Fixed it and sent it again', approve: 'Approved', fix: 'Sent back for a fix', reject: 'Turned down', suspend: 'Paused', reinstate: 'Made active again' }[h.action] || h.action}</span>{h.by_team && h.by_name ? <span style={{ color: C.inkFaint }}> · {h.by_name}</span> : null}
                       <span className="block" style={{ color: C.inkFaint }}>{new Date(h.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                       {h.note && <span className="block mt-0.5" style={{ color: C.inkDim }}>"{h.note}"</span>}</span>
                   </li>
