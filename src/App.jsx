@@ -310,7 +310,7 @@ function Sheet({ title, onClose, children, closeOnBackdrop = true, busy = false 
     return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
   }, [busy, onClose]);
   return createPortal(
-    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)', fontFamily: "'Inter', sans-serif", color: C.ink }} onClick={() => closeOnBackdrop && !busy && onClose()}>
+    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)', fontFamily: "'Poppins', 'Inter', sans-serif", color: C.ink }} onClick={() => closeOnBackdrop && !busy && onClose()}>
       <div role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}`, paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
         <div className="sm:hidden mx-auto -mt-1.5 mb-3 w-10 h-1 rounded-full" style={{ background: C.lineStrong }} />
         <div className="flex items-start justify-between gap-3 mb-4">
@@ -1714,7 +1714,7 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
       </button>
       {open && pos && createPortal(
         <div ref={listRef} role="listbox" aria-label={ariaLabel} className="fixed z-[200] rounded-xl py-1.5 max-h-64 overflow-y-auto"
-          style={{ ...pos, width: 'max-content', maxWidth: 'min(340px, 90vw)', background: P.surface, border: `1px solid ${P.lineStrong || P.line}`, boxShadow: palette ? '0 16px 40px rgba(11,43,38,0.18)' : '0 16px 40px rgba(var(--c-lo),calc(0.5 * var(--c-lok)))', fontFamily: "'Inter', sans-serif" }}>
+          style={{ ...pos, width: 'max-content', maxWidth: 'min(340px, 90vw)', background: P.surface, border: `1px solid ${P.lineStrong || P.line}`, boxShadow: palette ? '0 16px 40px rgba(11,43,38,0.18)' : '0 16px 40px rgba(var(--c-lo),calc(0.5 * var(--c-lok)))', fontFamily: "'Poppins', 'Inter', sans-serif" }}>
           {opts.map((o, i) => {
             const sel = i === selIndex;
             return (
@@ -2801,7 +2801,7 @@ function XorlaApp() {
   const undoHideCac = () => { setCacHidden(false); setCacToast(false); try { localStorage.removeItem(`xorla:cac-promo-hidden:${settings.businessId}`); } catch (er) {} };
   const renderCacToast = () => cacToast && createPortal(
     <div className="fixed left-0 right-0 z-[95] flex justify-center px-3 pointer-events-none" style={{ bottom: 'max(20px, calc(env(safe-area-inset-bottom) + 84px))' }}>
-      <div data-xt="dark" role="status" className="pointer-events-auto w-full max-w-md rounded-2xl pl-3.5 pr-2 py-2.5 flex items-center gap-3 xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(31,217,196,0.35)', boxShadow: '0 18px 40px -12px rgba(var(--c-lo),calc(0.75 * var(--c-lok)))' }}>
+      <div data-xt="dark" role="status" className="pointer-events-auto w-full max-w-md rounded-2xl pl-3.5 pr-2 py-2.5 flex items-center gap-3 xorla-fade-up" style={{ color: C.ink, fontFamily: "'Poppins', 'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(31,217,196,0.35)', boxShadow: '0 18px 40px -12px rgba(var(--c-lo),calc(0.75 * var(--c-lok)))' }}>
         <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(31,217,196,0.14)' }}><Settings size={17} style={{ color: C.sage }} /></span>
         <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold">Hidden. It's always in Settings</span><span className="block text-[11.5px] leading-snug" style={{ color: C.inkDim }}>Settings → Register your business (CAC)</span></span>
         <button onClick={undoHideCac} className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12px] font-bold" style={{ color: C.copper }}>Undo</button>
@@ -4762,9 +4762,9 @@ function XorlaApp() {
 
   const fontStyle = (
     <style>{`
-      .cx-display { font-family: 'Inter', sans-serif; letter-spacing: -0.015em; }
-      .cx-mono { font-family: 'Inter', sans-serif; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
-      .cx-body { font-family: 'Inter', sans-serif; }
+      .cx-display { font-family: 'Poppins', 'Inter', sans-serif; letter-spacing: -0.02em; }
+      .cx-mono { font-family: 'Poppins', 'Inter', sans-serif; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+      .cx-body { font-family: 'Poppins', 'Inter', sans-serif; }
       .cx-ghost:active { opacity: 0.6; }
     `}</style>
   );
@@ -8295,7 +8295,7 @@ function XorlaApp() {
   );
   const renderSupportToast = () => supportToast && !helpOpen && createPortal(
     <div className="fixed left-0 right-0 z-[95] flex justify-center px-3 pointer-events-none" style={{ top: 'max(12px, env(safe-area-inset-top))' }}>
-      <button data-xt="dark" onClick={() => { setSupportToast(false); setHelpOpen({}); }} className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 text-left xorla-fade-up" style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(255,176,32,0.45)', boxShadow: '0 18px 40px -12px rgba(var(--c-lo),calc(0.7 * var(--c-lok)))' }}>
+      <button data-xt="dark" onClick={() => { setSupportToast(false); setHelpOpen({}); }} className="pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 flex items-center gap-3 text-left xorla-fade-up" style={{ color: C.ink, fontFamily: "'Poppins', 'Inter', system-ui, sans-serif", background: 'linear-gradient(135deg, #1B4A40, #12332D)', border: '1px solid rgba(255,176,32,0.45)', boxShadow: '0 18px 40px -12px rgba(var(--c-lo),calc(0.7 * var(--c-lok)))' }}>
         <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: '#0B211D' }}><XorlaMark size={22} /></span>
         <span className="flex-1 min-w-0"><span className="block text-[14px] font-semibold">Xorla Support replied</span><span className="block text-[12px]" style={{ color: C.inkDim }}>Tap to read it</span></span>
         <span className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: C.copperFill, color: C.onAccent }}>Open</span>
@@ -8460,7 +8460,7 @@ function XorlaApp() {
   const renderPlanPage = () => {
     if (!planKnown) return <div className="text-[13px] px-1" style={{ color: C.inkFaint }}>Plans aren't switched on yet.</div>;
     const s = subscription;
-    const display = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+    const display = "'Poppins', 'Inter', system-ui, sans-serif";
     const GOLD = { top: '#FFC24A', mid: '#FFB020', deep: '#E89A0C', on: '#0A1F1C' };
     const per = planInterval === 'monthly' ? 'a month' : 'a year';
     // How much of the current period is left, for the bar on the membership card
@@ -9565,7 +9565,7 @@ function XorlaApp() {
     const t = listTool; if (!t) return null;
     const close = () => { if (t.busy || t.stage === 'reading') return; t.files.forEach((x) => URL.revokeObjectURL(x.url)); setListTool(null); };
     const setItem = (k, patch) => setListTool((x) => x && { ...x, error: '', items: x.items.map((it, j) => (j === k ? { ...it, ...patch } : it)) });
-    const HEAD = "'Plus Jakarta Sans', 'Inter', sans-serif";
+    const HEAD = "'Poppins', 'Inter', sans-serif";
     const fieldS = { background: 'rgba(var(--c-hi),0.04)', border: `1px solid ${C.lineStrong}`, color: C.ink };
     const selectable = t.items.filter((it) => !it.exists);
     const onCount = t.items.filter((it) => it.on && !it.exists).length;
@@ -9779,7 +9779,7 @@ function XorlaApp() {
       } catch (e) { setSetup((x) => x && { ...x, busy: false, error: e.message }); }
     };
     const pause = (fn) => { setSetup({ ...setup, f, paused: true }); fn(); };
-    const HEAD = "'Plus Jakarta Sans', 'Inter', sans-serif";
+    const HEAD = "'Poppins', 'Inter', sans-serif";
     const sfield = { background: 'rgba(var(--c-hi),0.035)', border: `1px solid ${C.lineStrong}`, color: C.ink };
     const inputCls = 'w-full rounded-2xl px-4 h-[52px] text-[15px] outline-none transition-colors focus:border-[#FFB020]';
     const label = (t, hint) => <div className="mb-2"><div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>{t}</div>{hint && <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkFaint }}>{hint}</div>}</div>;
@@ -10219,7 +10219,7 @@ function XorlaApp() {
       if (settingsDirty && !(await brandConfirm('You have unsaved changes. Leave without saving?', { confirm: 'Leave', danger: true, cancel: 'Keep editing' }))) return;
       setTab(previousTab);
     };
-    const HEADF = "'Plus Jakarta Sans', 'Inter', sans-serif";
+    const HEADF = "'Poppins', 'Inter', sans-serif";
     let navMode = 'list';
     const navRowClick = (r) => (r.toggle ? r.onToggle : r.action ? r.action : () => setSettingsPage(r.id));
     const toggleKnob = (on, small) => (
@@ -10241,8 +10241,8 @@ function XorlaApp() {
                     className="relative w-full flex items-center gap-3 pl-2 pr-3 h-11 rounded-xl text-left transition-colors cx-hov" style={active ? { background: 'rgba(255,176,32,0.12)' } : undefined}>
                     {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full" style={{ background: C.copperFill }} />}
                     <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: r.danger ? C.rustSoft : active ? C.copperFill : 'rgba(255,176,32,0.09)' }}><r.Icon size={15} style={{ color: r.danger ? C.rust : active ? C.onAccent : C.copper }} /></span>
-                    <span className="flex-1 min-w-0 truncate text-[14px]" style={{ color: r.danger ? C.rust : active ? C.ink : C.ink, fontWeight: active ? 650 : 500 }}>{r.label}</span>
-                    {r.toggle ? toggleKnob(r.on, true) : r.value && !r.danger ? <span className="shrink-0 max-w-[120px] truncate text-[12.5px]" style={{ color: r.valueColor || C.inkFaint }}>{r.value}</span> : null}
+                    <span className="flex-1 min-w-0 truncate text-[13.5px]" style={{ color: r.danger ? C.rust : active ? C.ink : C.ink, fontWeight: active ? 600 : 500 }}>{r.label}</span>
+                    {r.toggle ? toggleKnob(r.on, true) : r.value && !r.danger ? <span className="shrink-0 max-w-[96px] truncate text-[12px]" style={{ color: r.valueColor || C.inkFaint }}>{r.value}</span> : null}
                   </button>
                 );
               })}
@@ -10257,9 +10257,9 @@ function XorlaApp() {
             {rows.map((r, i) => (
               <button key={r.label} onClick={navRowClick(r)} role={r.toggle ? 'switch' : undefined} aria-checked={r.toggle ? r.on : undefined} className="w-full flex items-center gap-3.5 px-4 min-h-[58px] py-2.5 cx-act text-left" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: r.danger ? C.rustSoft : 'rgba(255,176,32,0.10)' }}><r.Icon size={17} style={{ color: r.danger ? C.rust : C.copper }} /></span>
-                <span className="flex-1 min-w-0 truncate text-[15px] font-medium" style={{ color: r.danger ? C.rust : C.ink }}>{r.label}</span>
+                <span className="flex-1 min-w-0 text-[15px] font-medium leading-snug" style={{ color: r.danger ? C.rust : C.ink }}>{r.label}</span>
                 {r.toggle ? toggleKnob(r.on) : !r.danger && (
-                  <span className="flex items-center gap-1.5 shrink-0 max-w-[42%]">
+                  <span className="flex items-center gap-1.5 shrink-0 max-w-[40%]">
                     {r.value && <span className="text-[13px] truncate" style={{ color: r.valueColor || C.inkFaint }}>{r.value}</span>}
                     <ChevronRight size={17} style={{ color: C.inkFaint }} className="shrink-0" />
                   </span>
@@ -12983,7 +12983,7 @@ const S = {
   line: '#E6E8E4',
   soldOut: '#B4B8B2',
 };
-const SF_FONT = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+const SF_FONT = "'Poppins', 'Inter', system-ui, sans-serif";
 
 function Storefront({ businessCode }) {
   const [loading, setLoading] = useState(true);
@@ -14369,7 +14369,7 @@ function PricingPage() {
   }, []);
 
   const P = { bg: '#0A1F1C', deep: '#07171A', surface: '#0F2B26', line: 'rgba(234,245,242,0.12)', ink: '#EAF5F2', muted: '#93B5AD', teal: '#1FD9C4', gold: '#FFB020', goldDeep: '#E89A0C', onGold: '#0A1F1C' };
-  const display = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+  const display = "'Poppins', 'Inter', system-ui, sans-serif";
   const early = spots === null || spots > 0;
   const per = interval === 'monthly' ? 'a month' : 'a year';
   const proPrice = planPrice('pro', interval, 0, early), proRegular = planPrice('pro', interval, 0, false);
@@ -14395,7 +14395,7 @@ function PricingPage() {
   );
 
   return (
-    <div className="min-h-screen" style={{ background: `radial-gradient(1200px 600px at 50% -10%, #12403A 0%, ${P.bg} 55%)`, color: P.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-screen" style={{ background: `radial-gradient(1200px 600px at 50% -10%, #12403A 0%, ${P.bg} 55%)`, color: P.ink, fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
       <style>{`
         @keyframes xorla-rise { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
         .xorla-gold-card { animation: xorla-rise 700ms cubic-bezier(.2,.8,.2,1) 150ms both; }
@@ -14650,10 +14650,10 @@ function LegalPage({ kind }) {
     document.title = `Xorla ${title.toLowerCase()}`;
   }, [title]);
   const P = { bg: '#0A1F1C', line: 'rgba(234,245,242,0.12)', ink: '#EAF5F2', muted: '#A9C5BE', teal: '#1FD9C4' };
-  const display = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
+  const display = "'Poppins', 'Inter', system-ui, sans-serif";
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   return (
-    <div className="min-h-screen" style={{ background: P.bg, color: P.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-screen" style={{ background: P.bg, color: P.ink, fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
       <header className="max-w-3xl mx-auto px-5 py-5 flex items-center justify-between">
         <a href="/" className="flex items-center gap-2.5"><XorlaMark size={26} /><span style={{ fontFamily: display, fontWeight: 800, fontSize: 18, letterSpacing: '-0.02em' }}>Xorla</span></a>
         <a href={isPrivacy ? '/terms' : '/privacy'} className="text-[13px] font-medium" style={{ color: P.teal }}>{isPrivacy ? 'Terms of service' : 'Privacy policy'}</a>
@@ -14979,7 +14979,7 @@ function XorlaSpotlight({ spot, canPlan = true, onClose, preview = false }) {
   );
   if (preview) return card;
   return (
-    <div className="fixed inset-0 z-[96] flex flex-col items-center justify-center px-5" style={{ background: 'rgba(var(--c-scrim),0.78)', backdropFilter: 'blur(6px)', fontFamily: "'Inter', system-ui, sans-serif", color: C.ink }} onClick={() => onClose(null)} role="dialog" aria-modal="true" aria-label={title}>
+    <div className="fixed inset-0 z-[96] flex flex-col items-center justify-center px-5" style={{ background: 'rgba(var(--c-scrim),0.78)', backdropFilter: 'blur(6px)', fontFamily: "'Poppins', 'Inter', system-ui, sans-serif", color: C.ink }} onClick={() => onClose(null)} role="dialog" aria-modal="true" aria-label={title}>
       <style>{`@keyframes xorlaSpotIn{from{opacity:0;transform:translateY(18px) scale(.94)}to{opacity:1;transform:none}}@keyframes xorlaSpotFloat{0%,100%{transform:translate(-50%,-50%)}50%{transform:translate(-50%,-56%)}}.xorla-spot-in{animation:xorlaSpotIn .38s cubic-bezier(.2,.9,.3,1.2) both}.xorla-spot-float{animation:xorlaSpotFloat 3.2s ease-in-out infinite}@media (prefers-reduced-motion: reduce){.xorla-spot-in,.xorla-spot-float{animation:none}}`}</style>
       {card}
       <button onClick={() => onClose(null)} aria-label="Close" className="mt-5 w-11 h-11 rounded-full flex items-center justify-center xorla-spot-in" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff' }}><X size={20} /></button>
@@ -16197,7 +16197,7 @@ function VaultPage({ token, businessId, businessName, isOwner, plan, onUpgrade, 
       {/* Share bar while choosing */}
       {picking && createPortal(
         <div className="fixed left-0 right-0 bottom-0 z-[80] px-4 pt-3 flex justify-center" style={{ paddingBottom: 'max(14px, env(safe-area-inset-bottom))', background: 'linear-gradient(180deg, transparent, rgba(var(--c-scrim),0.95) 35%)' }}>
-          <button disabled={!picked.length} onClick={() => setShare({ ids: picked, days: 7, label: '', link: '' })} className="w-full max-w-md h-12 rounded-2xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: picked.length ? C.sageFill : C.surfaceRaised, color: picked.length ? C.onAccent : C.inkFaint, boxShadow: '0 12px 28px -12px rgba(var(--c-lo),calc(0.8 * var(--c-lok)))', fontFamily: "'Inter', sans-serif" }}><Share2 size={16} /> {picked.length ? `Share ${picked.length} paper${picked.length === 1 ? '' : 's'}` : 'Choose papers to share'}</button>
+          <button disabled={!picked.length} onClick={() => setShare({ ids: picked, days: 7, label: '', link: '' })} className="w-full max-w-md h-12 rounded-2xl text-[14.5px] font-bold flex items-center justify-center gap-2" style={{ background: picked.length ? C.sageFill : C.surfaceRaised, color: picked.length ? C.onAccent : C.inkFaint, boxShadow: '0 12px 28px -12px rgba(var(--c-lo),calc(0.8 * var(--c-lok)))', fontFamily: "'Poppins', 'Inter', sans-serif" }}><Share2 size={16} /> {picked.length ? `Share ${picked.length} paper${picked.length === 1 ? '' : 's'}` : 'Choose papers to share'}</button>
         </div>, document.body)}
 
       {/* Looking at one paper */}
@@ -16369,7 +16369,7 @@ function VaultShared({ token }) {
     catch (e) { if (win) win.close(); brandAlert(e.message); }
   };
   const shell = (body) => (
-    <div className="min-h-screen" style={{ background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-screen" style={{ background: C.bg, color: C.ink, fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
       <div className="max-w-xl mx-auto px-4 pb-16" style={{ paddingTop: 'max(20px, env(safe-area-inset-top))' }}>
         {body}
         <div className="mt-10 flex items-center justify-center gap-2 text-[12px]" style={{ color: C.inkFaint }}><XorlaMark size={16} /> Shared securely with Xorla</div>
@@ -16796,7 +16796,7 @@ function CacAgentPage({ token }) {
   };
   const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
   const shell = (body) => (
-    <div className="min-h-screen" style={{ background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-screen" style={{ background: C.bg, color: C.ink, fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
       <div className="max-w-2xl mx-auto px-4 pb-16" style={{ paddingTop: 'max(18px, env(safe-area-inset-top))' }}>
         <div className="flex items-center gap-2 mb-4"><XorlaMark size={22} /><span className="text-[15px] font-extrabold">Xorla</span><span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.copperSoft, color: C.copper }}>For the CAC agent</span></div>
         {body}
@@ -17069,7 +17069,7 @@ function AdminDashboard() {
     setState({ phase: 'login', error: '' });
   };
   const shell = (body) => (
-    <div className="min-h-screen cx-body" style={{ overflowX: 'clip', background: C.bg, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-screen cx-body" style={{ overflowX: 'clip', background: C.bg, color: C.ink, fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }}>
       <header className="sticky top-0 z-20" style={{ background: 'rgba(var(--c-bg-rgb),0.98)', borderBottom: `1px solid ${C.line}`, paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="max-w-6xl mx-auto px-5 py-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5"><XorlaMark size={26} /><span className="text-[16px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span><span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: role === 'agent' ? C.sageSoft : C.copperSoft, color: role === 'agent' ? C.sage : C.copper }}>{role === 'agent' ? 'Support' : 'Founder'}</span></div>
@@ -17245,7 +17245,7 @@ function AdminDashboard() {
   const nudge = (b, text) => b.owner_phone && `https://wa.me/${toWhatsAppNumber(b.owner_phone)}?text=${encodeURIComponent(text || `Hi ${(b.owner_name || '').split(' ')[0] || 'there'}, this is Ikenna from Xorla. How is ${b.name} finding it so far? Anything I can help you set up?`)}`;
   const actionName = { extend_trial: 'Extended trial', storefront_off: 'Turned storefront off', storefront_on: 'Turned storefront on' };
 
-  const HEADF = "'Plus Jakarta Sans', 'Inter', sans-serif";
+  const HEADF = "'Poppins', 'Inter', sans-serif";
   const glass = { background: C.card, border: `1px solid ${C.line}` };
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -17572,7 +17572,7 @@ function ReportsView({ token, shops, L, T, businessName, onOpenInvoices, locName
   const [shop, setShop] = useState('');
   const [state, setState] = useState({ loading: true, data: null, error: '' });
   const [from, to] = reportRange(period, custom);
-  const HEAD = "'Plus Jakarta Sans', 'Inter', sans-serif";
+  const HEAD = "'Poppins', 'Inter', sans-serif";
 
   useEffect(() => {
     let gone = false;
@@ -18411,7 +18411,7 @@ const STARTER_LISTS = {
 // ---------- Promotion: a printable poster, WhatsApp Status cards and discount codes ----------
 // Everything is drawn in the browser on a canvas, so nothing is uploaded and it works for every business.
 const PROMO = { dark: '#0A1F1C', panel: '#0F2925', raised: '#13322C', ink: '#EAF6F2', dim: '#93B0AA', faint: '#54706A', copper: '#FFB020', sage: '#1FD9C4', paper: '#FFFFFF', paperInk: '#0E1F1B', paperDim: '#5B6E69', paperLine: '#E3E8E6' };
-const PROMO_FONT = "Inter, 'Plus Jakarta Sans', system-ui, sans-serif";
+const PROMO_FONT = "Poppins, Inter, system-ui, sans-serif";
 function promoWords(type) {
   if (type === 'products') return { scan: 'Scan to order', cta: 'Order online', act: 'order' };
   if (type === 'services') return { scan: 'Scan to book', cta: 'Book online', act: 'book' };
@@ -18432,7 +18432,7 @@ async function promoQr(text, dark = '#0E1F1B', light = '#FFFFFF') {
   catch (e) { return null; }
 }
 async function promoFontsReady() {
-  try { await Promise.all(['800 90px Inter', '700 48px Inter', '600 36px Inter', '500 32px Inter'].map((f) => document.fonts.load(f))); } catch (e) { /* system font is fine */ }
+  try { await Promise.all(['800 90px Poppins', '700 48px Poppins', '600 36px Poppins', '500 32px Poppins'].map((f) => document.fonts.load(f))); } catch (e) { /* system font is fine */ }
 }
 function promoRect(ctx, x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
@@ -19177,7 +19177,7 @@ function BrandDialogHost() {
   const iconTone = d.kind === 'alert' && d.tone !== 'info' ? C.rust : d.danger ? C.rust : light ? '#14201E' : C.copper;
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center sm:p-5" style={{ background: P.back }} onClick={() => close(d.kind === 'confirm' ? false : true)}>
-      <div role="alertdialog" aria-modal="true" aria-label={title || 'Message'} className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-5 pb-6 xorla-fade-up" style={{ background: P.bg, border: `1px solid ${P.line}`, color: P.ink, fontFamily: 'Inter, sans-serif' }} onClick={(e) => e.stopPropagation()}>
+      <div role="alertdialog" aria-modal="true" aria-label={title || 'Message'} className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-5 pb-6 xorla-fade-up" style={{ background: P.bg, border: `1px solid ${P.line}`, color: P.ink, fontFamily: "'Poppins', 'Inter', sans-serif" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3.5">
           <span className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: tint(iconTone, 0.13) }}><Icon size={18} style={{ color: iconTone }} /></span>
           <div className="min-w-0 pt-0.5">
@@ -20370,7 +20370,7 @@ function LiveSelfie({ onUse, onClose, onFail }) {
   const retake = () => { setShot(null); start(); };
   const use = () => { if (!shot) return; const file = new File([shot.blob], `selfie-${Date.now()}.jpg`, { type: 'image/jpeg' }); onUse(file); };
   return createPortal(
-    <div className="fixed inset-0 z-[120] flex flex-col" style={{ background: '#050B0A', color: '#fff', fontFamily: "'Inter', system-ui, sans-serif" }} role="dialog" aria-modal="true" aria-label="Take a selfie">
+    <div className="fixed inset-0 z-[120] flex flex-col" style={{ background: '#050B0A', color: '#fff', fontFamily: "'Poppins', 'Inter', system-ui, sans-serif" }} role="dialog" aria-modal="true" aria-label="Take a selfie">
       <div className="flex items-center justify-between px-4 pt-[max(14px,env(safe-area-inset-top))] pb-3">
         <button onClick={() => { stop(); onClose(); }} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.1)' }} aria-label="Close"><X size={18} /></button>
         <span className="text-[14px] font-semibold">{state === 'shot' ? 'Is your face clear?' : 'Take a selfie'}</span>
@@ -21436,7 +21436,7 @@ function LandingPhone() {
   const bars = [38, 52, 44, 68, 58, 80, 92];
   return (
     <div className="lp-phone" aria-hidden>
-      <div className="lp-phone-screen" style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div className="lp-phone-screen" style={{ fontFamily: "'Poppins', 'Inter', sans-serif" }}>
         <div className="flex items-center justify-between px-4 pt-5">
           <div className="flex items-center gap-1.5"><XorlaMark size={16} /><span className="text-[11px] font-bold text-white">Xorla</span></div>
           <span className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: 'rgba(255,255,255,0.08)', color: '#EAF6F2' }}>AO</span>
