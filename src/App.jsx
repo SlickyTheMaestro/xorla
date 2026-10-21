@@ -1813,6 +1813,7 @@ function XorlaApp() {
   const [staffShops, setStaffShops] = useState([]);
   const scopeRef = useRef({ isManager: false, uid: null });
   const [staffPresence, setStaffPresence] = useState([]);
+  const [quickAdding, setQuickAdding] = useState('');   // adding a team member to the list customers choose from
   const [currentShopId, setCurrentShopId] = useState('all');
   const [recordShopId, setRecordShopId] = useState(null);
   const [settings, setSettings] = useState({ paymentLink: '', tone: 'friendly', customInstructions: '', language: 'english', ownerPhone: '', pin: '', staffList: [], activeStaff: '', businessName: '', loggedIn: false, role: 'owner', allowStaffExpenses: false, businessCode: '', businessAddress: '', businessEmail: '', storefrontEnabled: false, heroImageUrl: null, storefrontTagline: '', autoReminders: false, summaryFrequency: 'off' });
@@ -5502,7 +5503,7 @@ function XorlaApp() {
   };
   const waConfirmLink = (o) => o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, your appointment with ${settings.businessName} is confirmed for ${apptRange(o)}. See you then!`)}`;
   const loadApptCal = async (panel) => {
-    const items = panel.mode === 'new' ? panel.items.map((id) => ({ productId: id, quantity: 1 })) : panel.order.items.map((it) => ({ productId: it.productId, quantity: it.quantity, ...(it.for ? { for: it.for } : {}) }));
+    const items = panel.mode === 'new' ? panel.items.map((id) => ({ productId: id, quantity: 1 })) : panel.order.items.map((it) => ({ productId: it.productId, quantity: it.quantity, ...(it.for ? { for: it.for } : {}), ...(it.with ? { with: it.with } : {}) }));
     if (!items.length) { setApptPanel((p) => p && { ...p, cal: null, slot: '' }); return; }
     setApptPanel((p) => p && { ...p, calLoading: true, error: '' });
     try {
@@ -5686,6 +5687,15 @@ function XorlaApp() {
       await loadBusinessData(session.access_token); setPersonForm(null);
     } catch (e) { setPersonForm((x) => x && { ...x, busy: false, error: e.message }); }
   };
+  // People with a Xorla login (the owner and staff) who aren't on the list customers choose from yet: one tap adds them
+  const quickAddPerson = async (login) => {
+    if (quickAdding) return;
+    setQuickAdding(login.id);
+    const shop = ((staffShops || []).find((r) => r.profile_id === login.id) || {}).shop_id || targetShopId || mainShopId;
+    try { await sbRpc('save_appt_person', session.access_token, { p_id: null, p_shop: shop, p_name: login.name.slice(0, 40), p_profile: login.id, p_active: true }); await loadBusinessData(session.access_token); }
+    catch (e) { brandAlert(e.message); }
+    setQuickAdding('');
+  };
   const removePerson = async (p) => {
     const upcoming = ordersAll.filter((o) => o.status === 'pending' && o.personId === p.id && o.startAt && new Date(o.startAt) > new Date()).length;
     if (!(await brandConfirm(upcoming
@@ -5760,6 +5770,25 @@ function XorlaApp() {
                 </div>
               );
             })}
+            {(() => {
+              const onList = new Set(activePeople.map((p) => p.profile_id).filter(Boolean));
+              const names = new Set(activePeople.map((p) => p.name.trim().toLowerCase()));
+              const team = [{ id: session?.user_id, name: settings.myName || '' }, ...staffPresence.map((x) => ({ id: x.id, name: x.name || '' }))]
+                .filter((x) => x.id && x.name.trim() && !onList.has(x.id) && !names.has(x.name.trim().toLowerCase()));
+              if (!team.length) return null;
+              return (
+                <div className="rounded-xl px-3 py-2.5" style={{ background: C.copperSoft }}>
+                  <div className="text-[12px] mb-2" style={{ color: C.ink }}>Your team on Xorla isn't on this list yet. Customers only see the {PW.many} listed here:</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {team.map((x) => (
+                      <button key={x.id} onClick={() => quickAddPerson(x)} disabled={!!quickAdding} className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold flex items-center gap-1" style={{ background: C.copperFill, color: C.onAccent, opacity: quickAdding && quickAdding !== x.id ? 0.5 : 1 }}>
+                        {quickAdding === x.id ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} {x.id === session?.user_id ? `${x.name} (you)` : x.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {f && !f.id ? form : (
               <button onClick={() => setPersonForm({ id: null, name: '', shop: targetShopId || mainShopId, profile: '', busy: false, error: '' })} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[13px] font-semibold" style={{ color: C.copper, border: `1px dashed ${C.lineStrong || C.line}` }}><Plus size={15} /> Add {PW.one}</button>
             )}
@@ -13054,6 +13083,7 @@ function Storefront({ businessCode }) {
   // Booking for more than one person (a lady and her husband, friends): who each service is for. '' is the person booking.
   const [party, setParty] = useState([]);
   const [forEdit, setForEdit] = useState(null);   // { key, mode: 'move' | 'copy', name }
+  const [guestPick, setGuestPick] = useState({});  // in a group: the stylist each person chose ('' = the person booking)
   // Bookings (hotels and rentals): chosen dates, live availability, and the booking form
   const [stayIn, setStayIn] = useState('');
   const [stayOut, setStayOut] = useState('');
@@ -13277,9 +13307,9 @@ function Storefront({ businessCode }) {
     return c.product.priceUnit === 'hour' ? ` (${c.qty} hr${c.qty !== 1 ? 's' : ''})` : '';
   };
 
-  const serviceKey = JSON.stringify(cartList.filter((c) => storeKind(c.product) === 'service').map((c) => [c.product.id, c.qty, c.guest || '']));
+  const serviceKey = JSON.stringify(cartList.filter((c) => storeKind(c.product) === 'service').map((c) => [c.product.id, c.qty, c.guest || '', (hasGuests && guestPick[c.guest || '']) || '']));
   const loadStoreCalendar = useCallback(async () => {
-    const items = JSON.parse(serviceKey).map(([productId, quantity, guest]) => ({ productId, quantity, ...(guest ? { for: guest } : {}) }));
+    const items = JSON.parse(serviceKey).map(([productId, quantity, guest, withId]) => ({ productId, quantity, ...(guest ? { for: guest } : {}), ...(withId ? { with: withId } : {}) }));
     // Hotels and rentals don't take appointments: their extras (water, laundry, airport pickup) are simply ordered
     if (!items.length || !business || ['accommodation', 'rentals'].includes(business.service_kind)) { setApptCal(null); return; }
     setApptCalLoading(true);
@@ -13335,7 +13365,7 @@ function Storefront({ businessCode }) {
     setSubmitting(true);
     try {
       // Only product IDs + quantities are sent — the database looks up the real prices itself
-      const items = cartList.map((c) => ({ productId: c.product.id, quantity: c.qty, ...(c.variant ? { variant: c.variant } : {}), ...(c.custom ? { custom: c.custom } : {}), ...(c.guest ? { for: c.guest } : {}) }));
+      const items = cartList.map((c) => ({ productId: c.product.id, quantity: c.qty, ...(c.variant ? { variant: c.variant } : {}), ...(c.custom ? { custom: c.custom } : {}), ...(c.guest ? { for: c.guest } : {}), ...(hasGuests && guestPick[c.guest || ''] && storeKind(c.product) === 'service' ? { with: guestPick[c.guest || ''] } : {}) }));
       const when = usesSlots && apptSlot
         ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(calEndOf(apptCal, apptSlot))}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
@@ -13351,7 +13381,7 @@ function Storefront({ businessCode }) {
         setThanks({ kind: 'order', name: customerName.trim(), phone: customerPhone.trim(), link: `/order/${placed.token}`, total: payable,
           lines: cartList.map((c) => `${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${c.qty > 1 ? ` ×${c.qty}` : ''}${forText(c)}`),
           when: when || '', room: (askHow && fulfilMode === 'room') || (askStay && guestStay === 'yes') ? guestRoom.trim() : '', service: isService || cartHasService || svcExtras.length > 0 });
-        setShowCheckout(false); setCart({}); setParty([]); setForEdit(null); setOrderNote(''); setPreferredTime(''); setGuestStay(''); setLaundryWay('');
+        setShowCheckout(false); setCart({}); setParty([]); setForEdit(null); setGuestPick({}); setOrderNote(''); setPreferredTime(''); setGuestStay(''); setLaundryWay('');
         setSubmitting(false);   // so "Keep exploring" goes back to a working store, not a stuck "Sending…"
         return;
       }
@@ -13414,7 +13444,7 @@ function Storefront({ businessCode }) {
         <div className="text-[24px] font-bold mb-2">{W.sent} {business.name}</div>
         {sentWhen && <div className="text-[15px] font-semibold mb-2">{sentWhen}</div>}
         <div className="text-[14px] max-w-sm mb-8" style={{ color: S.muted }}>{sentWhen ? `This time is held for you. ${business.name} will confirm it${customerPhone ? ` on ${customerPhone}` : ''} soon.` : `They'll contact you${customerPhone ? ` on ${customerPhone}` : ''} to confirm ${W.inYour} and arrange payment${isService ? '' : ' and delivery'}.`}</div>
-        <button onClick={() => { setOrderSent(false); setCart({}); setParty([]); setForEdit(null); }} className={`px-6 py-3 rounded-full text-[14px] font-semibold ${focusRing}`} style={{ border: `1.5px solid ${S.ink}` }}>Back to the store</button>
+        <button onClick={() => { setOrderSent(false); setCart({}); setParty([]); setForEdit(null); setGuestPick({}); }} className={`px-6 py-3 rounded-full text-[14px] font-semibold ${focusRing}`} style={{ border: `1.5px solid ${S.ink}` }}>Back to the store</button>
       </div>
     );
   }
@@ -14184,7 +14214,27 @@ function Storefront({ businessCode }) {
             return (
               <div className="mb-4 mt-2">
                 <div className="text-[13px] font-semibold mb-1">Pick a time</div>
-                {(apptCal.people || []).length > 0 && (
+                {apptCal.group && (apptCal.people || []).length > 0 && (
+                  <div className="mb-3 space-y-2.5">
+                    <div className="text-[12.5px]" style={{ color: S.muted }}>Who would each person like?</div>
+                    {(apptCal.guests || []).map((g) => {
+                      const cur = guestPick[g.guest || ''] || null;
+                      const label = g.guest || (youName === 'You' ? 'You' : youName);
+                      return (
+                        <div key={g.guest || '_me'}>
+                          <div className="text-[12.5px] font-semibold mb-1">{label} <span className="font-normal" style={{ color: S.muted }}>· {(g.items || []).join(', ')}</span></div>
+                          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={`Who ${label} would like`}>
+                            {[{ id: null, name: 'Anyone free' }, ...apptCal.people].map((p) => {
+                              const on = cur === p.id;
+                              return <button key={p.id || 'any'} type="button" role="radio" aria-checked={on} onClick={() => { setGuestPick((x) => ({ ...x, [g.guest || '']: p.id })); setApptSlot(''); }} className={`px-3 py-1.5 rounded-full text-[12.5px] font-semibold ${focusRing}`} style={on ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{p.name}</button>;
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {!apptCal.group && (apptCal.people || []).length > 0 && (
                   <div className="mb-3">
                     <div className="text-[12.5px] mb-1.5" style={{ color: S.muted }}>Who would you like?</div>
                     <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Who would you like?">
