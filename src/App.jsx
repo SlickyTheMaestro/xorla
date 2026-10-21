@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
 import { Plus, CameraOff, RotateCcw, Sun, Moon, WifiOff, CloudUpload, LayoutGrid, List, MousePointerClick, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
@@ -1726,6 +1726,13 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
       window.removeEventListener('resize', place); window.removeEventListener('scroll', onScroll, true);
     };
   }, [open]);
+  // Once the list is drawn, keep all of it on screen: a long option must never run off the right edge
+  useLayoutEffect(() => {
+    if (!open || !pos || !listRef.current) return;
+    const w = listRef.current.getBoundingClientRect().width;
+    const fit = Math.max(8, Math.min(pos.left, window.innerWidth - w - 8));
+    if (Math.abs(fit - pos.left) > 0.5) setPos((p) => p && { ...p, left: fit });
+  }, [open, pos]);
   const pick = (o) => { if (!o || o.disabled) return; onChange && onChange({ target: { value: o.value } }); setOpen(false); };
   const onKey = (e) => {
     if (e.key === 'Escape') { setOpen(false); return; }
@@ -1750,7 +1757,7 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
       </button>
       {open && pos && createPortal(
         <div ref={listRef} role="listbox" aria-label={ariaLabel} className="fixed z-[200] rounded-xl py-1.5 max-h-64 overflow-y-auto"
-          style={{ ...pos, width: 'max-content', maxWidth: 'min(340px, 90vw)', background: P.surface, border: `1px solid ${P.lineStrong || P.line}`, boxShadow: palette ? '0 16px 40px rgba(11,43,38,0.18)' : '0 16px 40px rgba(var(--c-lo),calc(0.5 * var(--c-lok)))', fontFamily: "'Poppins', 'Inter', sans-serif" }}>
+          style={{ ...pos, width: 'max-content', maxWidth: 'min(340px, calc(100vw - 16px))', background: P.surface, border: `1px solid ${P.lineStrong || P.line}`, boxShadow: palette ? '0 16px 40px rgba(11,43,38,0.18)' : '0 16px 40px rgba(var(--c-lo),calc(0.5 * var(--c-lok)))', fontFamily: "'Poppins', 'Inter', sans-serif" }}>
           {opts.map((o, i) => {
             const sel = i === selIndex;
             return (
@@ -1758,7 +1765,7 @@ function BrandSelect({ value, onChange, children, className = '', style = {}, di
                 onMouseEnter={() => setActive(i)} onClick={() => pick(o)}
                 className="w-full text-left px-3.5 py-2.5 text-[13px] flex items-center justify-between gap-4"
                 style={{ background: i === active ? P.surfaceRaised : 'transparent', color: o.value === '' ? P.inkFaint : sel ? P.copper : P.ink, fontWeight: sel ? 600 : 400, opacity: o.disabled ? 0.4 : 1 }}>
-                <span className="truncate">{o.label}</span>
+                <span className="min-w-0 break-words">{o.label}</span>
                 {sel && o.value !== '' && <Check size={14} className="shrink-0" style={{ color: P.copper }} />}
               </button>
             );
