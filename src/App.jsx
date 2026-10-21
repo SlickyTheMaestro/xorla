@@ -484,7 +484,7 @@ const BUSINESS_TERMS = {
   both: { catalog: 'Catalog', item: 'item', Item: 'Item', soldPrompt: 'What did you sell or do?', intro: 'Add your products and services once — pick them instantly when recording a sale.', tracksStock: true, typeLabel: 'Products & services', salesTab: 'Sales', sale: 'sale', orders: 'Orders', order: 'order', amountPh: 'Amount (₦)', costPh: 'Cost (optional)' },
 };
 const BUSINESS_TYPE_CHOICES = [
-  { id: 'products', title: 'I sell products', desc: 'Shops, boutiques, distributors, provisions — things you keep in stock.' },
+  { id: 'products', title: 'I sell products', desc: 'Shops, restaurants, bakeries, boutiques, provisions: food, drinks or goods you sell.' },
   { id: 'services', title: 'I offer services', desc: 'Salons, tailors, mechanics, photographers, repairs, consulting.' },
   { id: 'both', title: 'Both', desc: 'For example, a salon that also sells hair products.' },
 ];
