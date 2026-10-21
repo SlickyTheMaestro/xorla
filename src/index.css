@@ -58,6 +58,7 @@ body {
   --c-hi: 255,255,255; --c-lo: 0,0,0; --c-lok: 1; --c-scrim: 3,10,9;
   --c-shadow: 0 1px 1px rgba(0,0,0,0.25), 0 12px 28px -16px rgba(0,0,0,0.65);
   --c-scheme: dark;
+  --c-nav-on-bg: var(--c-sage-soft); --c-nav-on-ink: var(--c-sage);
 }
 [data-xt="dark"] { color-scheme: dark; }
 :root[data-xt="light"], [data-xt="light"] {
@@ -73,6 +74,7 @@ body {
   --c-copper-fill: #FFB020; --c-copper-fill-rgb: 255,176,32;
   --c-sage: #0A8A7B; --c-sage-rgb: 31,217,196; --c-sage-soft: rgba(31,217,196,0.15);
   --c-sage-fill: #1FD9C4; --c-sage-fill-rgb: 31,217,196;
+  --c-nav-on-bg: #0B5F55; --c-nav-on-ink: #FFFFFF;   /* the selected tab: solid deep teal so it stands out */
   --c-rust: #C9442D; --c-rust-rgb: 226,98,75; --c-rust-soft: rgba(226,98,75,0.12);
   --c-rust-fill: #EE6B52; --c-rust-fill-rgb: 238,107,82;
   --c-on-accent: #0A1F1C;
@@ -105,3 +107,9 @@ html.xt-anim, html.xt-anim * { transition: background-color .35s ease, border-co
 @media (prefers-reduced-motion: reduce) {
   .oga-mark .oga-gem, .oga-mark .oga-orbit, .oga-mark .oga-sheen, .oga-halo, .oga-line { animation: none !important; }
 }
+
+/* Light mode: a deeper, easier-to-see scrollbar */
+html[data-xt="light"] *, html[data-xt="light"] { scrollbar-color: #2E6E64 transparent; }
+html[data-xt="light"] ::-webkit-scrollbar-thumb, html[data-xt="light"] *::-webkit-scrollbar-thumb { background: #2E6E64 !important; background-clip: padding-box !important; }
+html[data-xt="light"] ::-webkit-scrollbar-thumb:hover, html[data-xt="light"] *::-webkit-scrollbar-thumb:hover { background: #0B5F55 !important; background-clip: padding-box !important; }
+html[data-xt="light"] ::-webkit-scrollbar-track, html[data-xt="light"] *::-webkit-scrollbar-track { background: transparent !important; }
