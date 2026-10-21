@@ -2122,7 +2122,7 @@ function XorlaApp() {
   const [waLog, setWaLog] = useState([]);
   const callWhatsApp = async (action) => {
     const res = await fetch(`${SB_URL}/functions/v1/whatsapp`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ action }) });
-    const data = await res.json().catch(() => ({}));
+    const data = (await res.json().catch(() => null)) || {};
     if (!res.ok || data.error) throw new Error(data.error || 'Something went wrong. Please try again.');
     return data;
   };
@@ -2861,7 +2861,7 @@ function XorlaApp() {
   // Talks to the billing backend. Defined early: the after-payment check runs even while the PIN lock screen is showing.
   const callBilling = async (action, extra = {}) => {
     const res = await fetch(`${SB_URL}/functions/v1/billing`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ action, ...extra }) });
-    const data = await res.json().catch(() => ({}));
+    const data = (await res.json().catch(() => null)) || {};
     if (!res.ok || data.error) throw new Error(data.error || 'Payments are not available right now. Please try again.');
     return data;
   };
@@ -8511,7 +8511,7 @@ function XorlaApp() {
 
   const callPush = async (action) => {
     const res = await fetch(`${SB_URL}/functions/v1/push`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ action }) });
-    const data = await res.json().catch(() => ({}));
+    const data = (await res.json().catch(() => null)) || {};
     if (!res.ok || data.error) throw new Error(data.error || "Notifications aren't available right now.");
     return data;
   };
@@ -10430,77 +10430,72 @@ function XorlaApp() {
         </div>
       );
     };
-    const settingsGroups = (mode) => { navMode = mode; return (
-      <>
-                {isOwnerRole && planKnown && navGroup('Plan', [
-                  { id: 'plan', Icon: Sparkles, label: 'Your plan', value: onTrial ? `Free trial, ${planDaysLeft}d left` : PLAN_INFO[effPlan].name, valueColor: effPlan === 'free' ? undefined : C.sage },
-                ])}
-                {!isManager && navGroup('Business', [
-                  { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
-                  { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
-                  { id: 'promote', Icon: Megaphone, label: 'Promote your business', value: (() => { const n = discountCodes.filter((d) => codeStateOf(d).tone === 'on').length; return n ? `${n} code${n > 1 ? 's' : ''} live` : 'Poster, Status, codes'; })(), valueColor: discountCodes.some((d) => codeStateOf(d).tone === 'on') ? C.sage : undefined },
-                  { id: 'shops', Icon: Store, label: L.Many, value: `${shops.length} ${shops.length !== 1 ? L.many : L.one}` },
-                  { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
-                  ...(isOwnerRole ? [{ id: 'payments', Icon: CreditCard, label: 'Online payments', value: settings.payout ? 'On' : 'Off', valueColor: settings.payout ? C.sage : undefined }] : []),
-                  ...(isOwnerRole ? [{ id: 'export', Icon: FileSpreadsheet, label: 'Your records', value: 'Bring in, download' }] : []),
-                  { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
-                ])}
-                {(isOwnerRole || isManager) && navGroup('Documents', [
-                  { id: 'vault', Icon: Lock, label: 'Document vault', value: vaultInfo ? (vaultInfo.due ? `${vaultInfo.due} to renew` : vaultInfo.count ? `${vaultInfo.count} saved` : isOwnerRole ? 'CAC, TIN, permits' : 'Nothing shared yet') : '', valueColor: vaultInfo?.due ? C.copper : undefined },
-                ])}
-                {isOwnerRole && navGroup('Grow', [
-                  { id: 'cac', Icon: ShieldCheck, label: 'Register your business (CAC)', value: '' },
-                ])}
-                {canRun && (settings.businessType !== 'services' || ['accommodation', 'rentals'].includes(serviceKind)) && navGroup('Delivery', [
-                  { id: 'delivery', Icon: Truck, label: 'Delivery & riders', value: riders.length || zones.length ? `${riders.length} rider${riders.length === 1 ? '' : 's'} · ${zones.length} area${zones.length === 1 ? '' : 's'}` : 'Not set up' },
-                ])}
-                {isOwnerRole && hasBookables && navGroup('Bookings', [
-                  { id: 'deposits', Icon: ShieldCheck, label: 'Deposits & cancellations', value: Number(draft.depositPercent ?? 50) === 0 ? 'No deposit' : `${draft.depositPercent ?? 50}% deposit` },
-                ])}
-                {isOwnerRole && apptMode && navGroup('Appointments', [
-                  { id: 'hours', Icon: CalendarClock, label: 'Opening hours & appointments', value: draft.apptEnabled === false ? 'Off' : `${hhmmLabel(draft.openTime || '08:00')} to ${hhmmLabel(draft.closeTime || '18:00')}` },
-                ])}
-                {isManager && settings.storefrontEnabled && navGroup('Storefront', [
-                  { id: 'storefront', Icon: ShoppingBag, label: 'Banner photos & tagline', value: `${(settings.heroImages || []).length} photo${(settings.heroImages || []).length === 1 ? '' : 's'}` },
-                ])}
-                {!isManager && navGroup('Language', [
-                  { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
-                ])}
-                {!isManager && navGroup('Customers', [
-                  { id: 'automation', Icon: Bell, label: 'Automatic WhatsApp', value: draft.autoReminders || draft.summaryFrequency !== 'off' || (['accommodation', 'rentals'].includes(serviceKind) && draft.waBookingConfirm !== false) ? 'On' : 'Off', valueColor: draft.autoReminders || draft.summaryFrequency !== 'off' || (['accommodation', 'rentals'].includes(serviceKind) && draft.waBookingConfirm !== false) ? C.sage : undefined },
-                  { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
-                ])}
-                {navGroup('Team', [
-                  { id: 'team', Icon: Users, label: isManager ? 'Your staff' : 'Staff & managers', value: `${teamList.length} ${teamList.length === 1 ? 'person' : 'people'}` },
-                  ...(isManager ? [] : [{ toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) }]),
-                  ...(isOwnerRole && settings.staffList.some((x) => x.role === 'manager') ? [{ toggle: true, Icon: ShieldCheck, label: 'Approve managers\' price changes first', on: !!draft.approveManagerPrices, onToggle: () => setDraft({ ...draft, approveManagerPrices: !draft.approveManagerPrices }) }] : []),
-                  ...(!isManager && (hasBookables || apptMode) ? [{ toggle: true, Icon: CalendarClock, label: hasBookables && apptMode ? 'Let staff confirm bookings and appointments' : apptMode ? 'Let staff accept appointment requests' : 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) }] : []),
-                ])}
-                {navGroup('Appearance', [
-                  { id: 'appearance', Icon: themeMode === 'light' ? Sun : Moon, label: 'Light or dark mode', value: themePref === 'auto' ? 'Match my phone' : themePref === 'light' ? 'Light' : 'Dark' },
-                ])}
-                {navGroup('Security', [
-                  { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
-                ])}
-                {navGroup('Help', [
-                  { action: () => setHelpOpen({}), Icon: LifeBuoy, label: 'Help & support', value: supportUnread ? `${supportUnread} new repl${supportUnread > 1 ? 'ies' : 'y'}` : 'Message Xorla', valueColor: supportUnread ? C.copper : undefined },
-                  { action: () => setHelpOpen({ view: 'updates' }), Icon: Gift, label: "What's new", value: newsUnread ? `${newsUnread} new` : '', valueColor: newsUnread ? C.copper : undefined },
-                  { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
-                  ...(isFounder ? [{ action: () => window.open('/admin', '_blank'), Icon: TrendingUp, label: 'Founder dashboard', value: '' }] : []),
-                  { action: () => window.open('/privacy', '_blank'), Icon: ShieldCheck, label: 'Privacy policy', value: '' },
-                  { action: () => window.open('/terms', '_blank'), Icon: Receipt, label: 'Terms of service', value: '' },
-                ])}
-                {navGroup('Notifications', [
-                  { id: 'notifications', Icon: Bell, label: 'Notifications', value: pushState === 'on' ? 'On' : pushState === 'denied' ? 'Blocked' : 'Off', valueColor: pushState === 'on' ? C.sage : undefined },
-                ])}
-                {!isStandalone && navGroup('App', [
-                  { action: openInstallFromSettings, Icon: Download, label: 'Install Xorla app', value: '' },
-                ])}
-                {navGroup(null, [
-                  { action: logout, Icon: LogOut, label: 'Log out', danger: true },
-                ])}
-      </>
-    ); };
+    const settingsGroups = (mode) => {
+      navMode = mode;
+      // Grouped by what an owner needs most: the business itself, how it sells and gets paid, the team, customers,
+      // growing, records, then this phone's own settings and help. Empty groups (for someone's role) are left out.
+      const grp = (title, rows) => { const r = rows.filter(Boolean); return r.length ? navGroup(title, r) : null; };
+      const sells = settings.businessType !== 'services' || ['accommodation', 'rentals'].includes(serviceKind);
+      const waOn = draft.autoReminders || draft.summaryFrequency !== 'off' || (['accommodation', 'rentals'].includes(serviceKind) && draft.waBookingConfirm !== false);
+      const liveCodes = discountCodes.filter((d) => codeStateOf(d).tone === 'on').length;
+      return (
+        <>
+          {isOwnerRole && planKnown && grp('Plan', [
+            { id: 'plan', Icon: Sparkles, label: 'Your plan', value: onTrial ? `Free trial, ${planDaysLeft}d left` : PLAN_INFO[effPlan].name, valueColor: effPlan === 'free' ? undefined : C.sage },
+          ])}
+          {!isManager && grp('Your business', [
+            { id: 'branding', Icon: Camera, label: 'Name & logo', value: draft.businessName },
+            { id: 'businessType', Icon: Package, label: 'Business type', value: (BUSINESS_TERMS[draft.businessType] || BUSINESS_TERMS.products).typeLabel },
+            { id: 'shops', Icon: Store, label: L.Many, value: `${shops.length} ${shops.length !== 1 ? L.many : L.one}` },
+            { id: 'contact', Icon: Phone, label: 'Phone & contact', value: draft.ownerPhone ? formatPhoneDisplay(draft.ownerPhone) : 'Not set', valueColor: draft.ownerPhone ? undefined : C.rust },
+          ])}
+          {grp('Selling & payments', [
+            !isManager && { id: 'storefront', Icon: ShoppingBag, label: 'Storefront', value: draft.storefrontEnabled ? 'Live' : 'Off', valueColor: draft.storefrontEnabled ? C.sage : undefined },
+            isManager && settings.storefrontEnabled && { id: 'storefront', Icon: ShoppingBag, label: 'Banner photos & tagline', value: `${(settings.heroImages || []).length} photo${(settings.heroImages || []).length === 1 ? '' : 's'}` },
+            isOwnerRole && { id: 'payments', Icon: CreditCard, label: 'Online payments', value: settings.payout ? 'On' : 'Off', valueColor: settings.payout ? C.sage : undefined },
+            isOwnerRole && apptMode && { id: 'hours', Icon: CalendarClock, label: 'Opening hours & appointments', value: draft.apptEnabled === false ? 'Off' : `${hhmmLabel(draft.openTime || '08:00')} to ${hhmmLabel(draft.closeTime || '18:00')}` },
+            isOwnerRole && hasBookables && { id: 'deposits', Icon: ShieldCheck, label: 'Deposits & cancellations', value: Number(draft.depositPercent ?? 50) === 0 ? 'No deposit' : `${draft.depositPercent ?? 50}% deposit` },
+            canRun && sells && { id: 'delivery', Icon: Truck, label: 'Delivery & riders', value: riders.length || zones.length ? `${riders.length} rider${riders.length === 1 ? '' : 's'} · ${zones.length} area${zones.length === 1 ? '' : 's'}` : 'Not set up' },
+          ])}
+          {grp('Team', [
+            { id: 'team', Icon: Users, label: isManager ? 'Your staff' : 'Staff & managers', value: `${teamList.length} ${teamList.length === 1 ? 'person' : 'people'}` },
+            !isManager && (hasBookables || apptMode) && { toggle: true, Icon: CalendarClock, label: hasBookables && apptMode ? 'Let staff confirm bookings and appointments' : apptMode ? 'Let staff accept appointment requests' : 'Let staff confirm booking requests', on: draft.staffConfirmBookings !== false, onToggle: () => setDraft({ ...draft, staffConfirmBookings: draft.staffConfirmBookings === false }) },
+            !isManager && { toggle: true, Icon: Receipt, label: 'Let staff log expenses', on: draft.allowStaffExpenses, onToggle: () => setDraft({ ...draft, allowStaffExpenses: !draft.allowStaffExpenses }) },
+            isOwnerRole && settings.staffList.some((x) => x.role === 'manager') && { toggle: true, Icon: ShieldCheck, label: 'Approve managers\' price changes first', on: !!draft.approveManagerPrices, onToggle: () => setDraft({ ...draft, approveManagerPrices: !draft.approveManagerPrices }) },
+          ])}
+          {!isManager && grp('Customers & messages', [
+            { id: 'automation', Icon: Bell, label: 'Automatic WhatsApp', value: waOn ? 'On' : 'Off', valueColor: waOn ? C.sage : undefined },
+            { id: 'messages', Icon: Send, label: 'Reminder messages', value: (TONES.find((t) => t.id === draft.tone) || {}).label || '' },
+            { id: 'messages', Icon: Globe, label: 'Oga & message language', value: (LANGUAGES.find((l) => l.id === draft.language) || LANGUAGES[0]).label },
+          ])}
+          {grp('Grow', [
+            !isManager && { id: 'promote', Icon: Megaphone, label: 'Promote your business', value: liveCodes ? `${liveCodes} code${liveCodes > 1 ? 's' : ''} live` : 'Poster, Status, codes', valueColor: liveCodes ? C.sage : undefined },
+            isOwnerRole && { id: 'cac', Icon: ShieldCheck, label: 'Register your business (CAC)', value: '' },
+          ])}
+          {grp('Records & documents', [
+            isOwnerRole && { id: 'export', Icon: FileSpreadsheet, label: 'Your records', value: 'Bring in, download' },
+            (isOwnerRole || isManager) && { id: 'vault', Icon: Lock, label: 'Document vault', value: vaultInfo ? (vaultInfo.due ? `${vaultInfo.due} to renew` : vaultInfo.count ? `${vaultInfo.count} saved` : isOwnerRole ? 'CAC, TIN, permits' : 'Nothing shared yet') : '', valueColor: vaultInfo?.due ? C.copper : undefined },
+          ])}
+          {grp('This phone', [
+            { id: 'notifications', Icon: Bell, label: 'Notifications', value: pushState === 'on' ? 'On' : pushState === 'denied' ? 'Blocked' : 'Off', valueColor: pushState === 'on' ? C.sage : undefined },
+            { id: 'appearance', Icon: themeMode === 'light' ? Sun : Moon, label: 'Light or dark mode', value: themePref === 'auto' ? 'Match my phone' : themePref === 'light' ? 'Light' : 'Dark' },
+            { id: 'security', Icon: Lock, label: 'App lock (PIN)', value: settings.pin ? 'On' : 'Off', valueColor: settings.pin ? C.sage : undefined },
+            !isStandalone && { action: openInstallFromSettings, Icon: Download, label: 'Install Xorla app', value: '' },
+          ])}
+          {grp('Help', [
+            { action: () => setHelpOpen({}), Icon: LifeBuoy, label: 'Help & support', value: supportUnread ? `${supportUnread} new repl${supportUnread > 1 ? 'ies' : 'y'}` : 'Message Xorla', valueColor: supportUnread ? C.copper : undefined },
+            { action: () => setHelpOpen({ view: 'updates' }), Icon: Gift, label: "What's new", value: newsUnread ? `${newsUnread} new` : '', valueColor: newsUnread ? C.copper : undefined },
+            { action: () => { setSettingsPage(null); startTour(); }, Icon: Lightbulb, label: 'Replay app tour', value: '' },
+            isFounder && { action: () => window.open('/admin', '_blank'), Icon: TrendingUp, label: 'Founder dashboard', value: '' },
+            { action: () => window.open('/privacy', '_blank'), Icon: ShieldCheck, label: 'Privacy policy', value: '' },
+            { action: () => window.open('/terms', '_blank'), Icon: Receipt, label: 'Terms of service', value: '' },
+          ])}
+          {navGroup(null, [
+            { action: logout, Icon: LogOut, label: 'Log out', danger: true },
+          ])}
+        </>
+      );
+    };
     // The business at a glance, in the same card style as the guided setup
     const settingsIdentity = (big) => {
       const nm = settings.businessName || 'Your business';
@@ -10985,14 +10980,69 @@ function XorlaApp() {
             {settingsPage === 'payments' && (
               <div className="space-y-4">
                 <PayoutSetup forOrders={!hasBookables} payout={settings.payout} callBilling={callBilling} onSaved={(payout) => setSettings((prev) => ({ ...prev, payout }))} />
-                <div className="rounded-[20px] p-4 space-y-3 text-[12.5px] leading-relaxed" style={{ background: C.card, border: `1px solid ${C.line}`, color: C.inkDim }}>
-                  <div className="text-[14px] font-semibold" style={{ color: C.ink }}>How it works</div>
-                  <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>1</span><span>A customer sends {/^[aeiou]/.test(T.order) ? 'an' : 'a'} {T.order} from your storefront. Nothing is paid yet.</span></div>
-                  <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>2</span><span>You check you have it, add a delivery fee if you deliver, and tap <strong style={{ color: C.ink }}>Ask to pay online</strong>. Xorla gives you a WhatsApp message with their payment link.</span></div>
-                  <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>3</span><span>They pay by card, transfer or USSD. You get a notification, and Paystack sends the full amount to your bank the next working day.</span></div>
-                  {hasBookables && <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>+</span><span>Guests can also pay booking deposits online. Set the deposit in Deposits & cancellations.</span></div>}
-                  <div className="pt-1" style={{ color: C.inkFaint }}>Customers pay a small service fee on top, so you receive the full price. Customers who prefer cash or transfer can still pay you directly.</div>
-                </div>
+                {(() => {
+                  // What the customer pays on top (Paystack's charge + Xorla's 1%), worked out the same way as at checkout
+                  const feeOn = (amt) => { const x = Math.min(1000, Math.max(100, Math.round(amt * 0.01))); const net = amt + x; let t = Math.ceil((net + 100) / 0.985); if (t < 2500) t = Math.ceil(net / 0.985); if (t * 0.015 + 100 > 2000) t = net + 2000; return t - amt; };
+                  const sells = settings.businessType !== 'services';
+                  const uses = [
+                    sells && { Icon: ShoppingBag, title: 'Storefront orders', where: `${T.salesTab || 'Sales'} → ${T.orders || 'Orders'} → an order → Ask to pay online`,
+                      body: `When a customer orders on your storefront, you check you have everything, add a delivery fee if you deliver, and tap Ask to pay online. They get a link and pay the full amount. Nothing is charged until you confirm.` },
+                    apptMode && { Icon: CalendarClock, title: 'Appointment deposits (optional)', where: `${T.salesTab || 'Jobs'} → ${T.orders || 'Requests'} → an appointment → Accept + deposit, or Ask for deposit`,
+                      body: `For a booked time, you can ask for part of the price (20%, 30%, 50%, or any amount) to keep the slot. The customer pays it online and pays the rest at the visit. You choose, appointment by appointment. Your cancellation rule (free until ${Number(settings.apptCancelHours ?? 12)} hours before) is in Opening hours & appointments.` },
+                    hasBookables && { Icon: CalendarClock, title: `Booking deposits (${serviceKind === 'rentals' ? 'rentals' : 'rooms and halls'})`, where: 'Your storefront booking page, and the booking link you send guests',
+                      body: `Guests pay the deposit you set (${Number(settings.depositPercent ?? 50)}%) on their booking page, and the booking confirms itself once it's paid. Set the deposit and free cancellation in Deposits & cancellations.` },
+                  ].filter(Boolean);
+                  const step = (n, text) => <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>{n}</span><span>{text}</span></div>;
+                  const box = { background: C.card, border: `1px solid ${C.line}` };
+                  return (
+                    <>
+                      <div className="rounded-[20px] p-4" style={box}>
+                        <div className="text-[14px] font-semibold mb-1">Where customers pay online</div>
+                        <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>Online payment is always your choice. Nothing is charged until you ask, and customers who prefer cash or transfer can still pay you directly.</div>
+                        <div className="space-y-2.5">
+                          {uses.map((u) => (
+                            <div key={u.title} className="rounded-xl p-3" style={{ background: C.surfaceRaised }}>
+                              <div className="flex items-center gap-2 text-[13.5px] font-semibold"><u.Icon size={15} style={{ color: C.copper }} /> {u.title}</div>
+                              <div className="text-[12.5px] leading-relaxed mt-1" style={{ color: C.inkDim }}>{u.body}</div>
+                              <div className="text-[11.5px] mt-1.5" style={{ color: C.inkFaint }}>Where: <span style={{ color: C.ink }}>{u.where}</span></div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="rounded-[20px] p-4 space-y-2.5 text-[12.5px] leading-relaxed" style={{ ...box, color: C.inkDim }}>
+                        <div className="text-[14px] font-semibold" style={{ color: C.ink }}>How a payment works</div>
+                        {step(1, <>You ask for payment from Xorla. The customer gets a WhatsApp message with their own secure link.</>)}
+                        {step(2, <>They open it and pay by card, bank transfer or USSD through Paystack, Nigeria's licensed payment company.</>)}
+                        {step(3, <>You get a notification at once, and the order or appointment shows <strong style={{ color: C.ink }}>Paid online</strong>.</>)}
+                        {step(4, <>Paystack sends the money straight to your bank account above the next working day. Xorla never holds your money.</>)}
+                        {step(5, <>When the job is done, tap Mark done. What was paid online is counted, and only the rest is asked for.</>)}
+                      </div>
+                      <div className="rounded-[20px] p-4 text-[12.5px] leading-relaxed" style={{ ...box, color: C.inkDim }}>
+                        <div className="text-[14px] font-semibold mb-1" style={{ color: C.ink }}>Who pays the fees</div>
+                        <div className="mb-3">The customer pays a small service fee on top, so you receive the full amount you asked for. It covers Paystack's charge and Xorla's 1% (₦100 to ₦1,000).</div>
+                        <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+                          <div className="grid grid-cols-3 px-3 py-2 text-[11.5px] font-semibold" style={{ background: C.surfaceRaised, color: C.inkFaint }}><span>You ask for</span><span className="text-right">Service fee</span><span className="text-right">Customer pays</span></div>
+                          {[5000, 20000, 100000].map((v) => (
+                            <div key={v} className="grid grid-cols-3 px-3 py-2 text-[12.5px] cx-mono" style={{ borderTop: `1px solid ${C.line}` }}><span style={{ color: C.ink }}>{fmt(v)}</span><span className="text-right">{fmt(feeOn(v))}</span><span className="text-right" style={{ color: C.ink }}>{fmt(v + feeOn(v))}</span></div>
+                          ))}
+                        </div>
+                        <div className="text-[11.5px] mt-2" style={{ color: C.inkFaint }}>You receive the amount in the first column, in full.</div>
+                      </div>
+                      <div className="rounded-[20px] p-4 space-y-2 text-[12.5px] leading-relaxed" style={{ ...box, color: C.inkDim }}>
+                        <div className="text-[14px] font-semibold" style={{ color: C.ink }}>Refunds</div>
+                        <div>If something paid online is cancelled, Xorla marks it <strong style={{ color: C.ink }}>Refund to send</strong>. The customer adds their bank details on their own page, you send the money back, and tap <strong style={{ color: C.ink }}>Mark refund as sent</strong>.</div>
+                        {(apptMode || hasBookables) && <div>Deposits follow your cancellation rule: cancelled in good time, they're refunded; cancelled late, or a no-show, you can keep them. Kept deposits are recorded as sales. Only the owner or a manager can keep one.</div>}
+                        <div style={{ color: C.inkFaint }}>The service fee isn't refunded, as Paystack doesn't return its charge.</div>
+                      </div>
+                      <div className="rounded-[20px] p-4 space-y-2 text-[12.5px] leading-relaxed" style={{ ...box, color: C.inkDim }}>
+                        <div className="text-[14px] font-semibold flex items-center gap-2" style={{ color: C.ink }}><ShieldCheck size={15} style={{ color: C.sage }} /> Safe by design</div>
+                        <div>Payments go from the customer to Paystack to your account. Xorla can't move or hold your money.</div>
+                        <div>Your bank confirms the account name before it's saved, and only the owner can change it.</div>
+                        <div>Every link is private to one customer, and a payment can't be made twice for the same thing.</div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
             {settingsPage === 'vault' && (isOwnerRole || isManager) && (
@@ -19586,8 +19636,8 @@ function PayoutSetup({ payout, callBilling, onSaved, forOrders = false }) {
       <div className="flex items-start gap-3">
         <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><CreditCard size={18} style={{ color: C.sage }} /></span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2"><span className="text-[14.5px] font-semibold">{forOrders ? 'Get paid online' : 'Get deposits paid online'}</span>{payout && <span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>ON</span>}</div>
-          <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>{forOrders ? 'Customers pay for their orders by card, transfer or USSD. Paystack sends the full amount to your bank the next working day. Customers pay a small service fee on top.' : 'Guests pay by card, transfer or USSD, and the booking confirms itself. Store orders can be paid online too. Paystack sends the money to your bank the next working day. Customers pay a small service fee on top.'}</div>
+          <div className="flex items-center gap-2"><span className="text-[14.5px] font-semibold">Get paid online</span>{payout && <span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>ON</span>}</div>
+          <div className="text-[12px] leading-relaxed mt-0.5" style={{ color: C.inkDim }}>{payout ? 'Customers can pay you by card, bank transfer or USSD. Paystack sends the money to this account the next working day.' : 'Add the bank account you want customers\' payments to go into. The bank confirms the account name before it\'s saved.'}</div>
         </div>
       </div>
       {payout && !editing && (
@@ -19656,7 +19706,7 @@ function GuestBooking({ token }) {
   const loadMenu = useCallback(async () => { try { setMenu(await sbRpc('guest_room_menu', SB_KEY, { p_token: token })); } catch (e) { setMenu(null); } }, [token]);
   const billing = async (action, extra = {}) => {
     const res = await fetch(`${SB_URL}/functions/v1/billing`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }, body: JSON.stringify({ action, token, ...extra }) });
-    const data = await res.json().catch(() => ({}));
+    const data = (await res.json().catch(() => null)) || {};
     if (!res.ok || data.error) throw new Error(data.error || 'Payments are not available right now. Please try again.');
     return data;
   };
@@ -19964,7 +20014,7 @@ function CustomerOrder({ token }) {
   const [rf, setRf] = useState({ bank: '', number: '', name: '', editing: false });
   const billing = async (action, extra = {}) => {
     const res = await fetch(`${SB_URL}/functions/v1/billing`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }, body: JSON.stringify({ action, token, ...extra }) });
-    const data = await res.json().catch(() => ({}));
+    const data = (await res.json().catch(() => null)) || {};
     if (!res.ok || data.error) throw new Error(data.error || 'Payments are not available right now. Please try again.');
     return data;
   };
