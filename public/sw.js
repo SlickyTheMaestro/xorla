@@ -1,13 +1,13 @@
 // Xorla service worker: makes the app installable, shows push notifications (even when the app is closed),
 // and keeps a copy of the app itself so Xorla opens with no internet.
-// Only the app's own files, fonts and product photos are kept. Business data is never cached here:
+// Only the app's own files (its code, styles and fonts) and product photos are kept. Business data is never cached here:
 // the app keeps its own copy per logged-in person, and sales made offline wait in the app until they're sent.
 
-const SHELL = 'xorla-shell-v1';     // the page itself, the icon and the manifest
-const ASSETS = 'xorla-assets-v1';   // the app's code and styles (their names change with every update)
-const FONTS = 'xorla-fonts-v1';
+// v2: fonts now ship inside the app's own files, so the old Google Fonts copies (and any older saved page) are cleared out
+const SHELL = 'xorla-shell-v2';     // the page itself, the icon and the manifest
+const ASSETS = 'xorla-assets-v2';   // the app's code, styles and fonts (their names change with every update)
 const PHOTOS = 'xorla-photos-v1';   // product pictures, so the picture view works offline
-const KEEP = [SHELL, ASSETS, FONTS, PHOTOS];
+const KEEP = [SHELL, ASSETS, PHOTOS];
 const PAGE_KEY = '/__xorla_page';   // one copy of the page serves every address in the app
 
 self.addEventListener('install', (event) => {
@@ -46,9 +46,13 @@ async function staleWhileRevalidate(req, name) {
 }
 // The page: always try the internet first (so updates arrive), but don't keep someone on a weak network
 // waiting forever: after a few seconds, open the saved copy instead.
-async function pageRequest(req) {
+// The newest page is always saved once it arrives, even if the saved copy was shown first, so a slow network
+// never keeps someone on an old version.
+async function pageRequest(event) {
+  const req = event.request;
   const c = await caches.open(SHELL);
-  const net = fetch(req).then(async (res) => { if (res && res.ok && (res.headers.get('content-type') || '').includes('text/html')) await c.put(PAGE_KEY, res.clone()); return res; });
+  const net = fetch(req, { cache: 'no-store' }).then(async (res) => { if (res && res.ok && (res.headers.get('content-type') || '').includes('text/html')) await c.put(PAGE_KEY, res.clone()); return res; });
+  event.waitUntil(net.catch(() => {}));
   const saved = await c.match(PAGE_KEY);
   if (!saved) return net;
   const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 4500));
@@ -61,12 +65,11 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin === self.location.origin) {
-    if (req.mode === 'navigate') { event.respondWith(pageRequest(req)); return; }
-    if (url.pathname.startsWith('/assets/')) { event.respondWith(cacheFirst(req, ASSETS, 60)); return; }
+    if (req.mode === 'navigate') { event.respondWith(pageRequest(event)); return; }
+    if (url.pathname.startsWith('/assets/')) { event.respondWith(cacheFirst(req, ASSETS, 120)); return; }
     if (/\.(png|jpg|jpeg|svg|ico|webp|json|webmanifest)$/.test(url.pathname) && url.pathname !== '/sw.js') { event.respondWith(staleWhileRevalidate(req, SHELL)); return; }
     return;
   }
-  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') { event.respondWith(cacheFirst(req, FONTS, 40)); return; }
   // Product and logo pictures stored in Xorla's database storage (public links only, never private documents)
   if (url.hostname.endsWith('.supabase.co') && url.pathname.includes('/storage/v1/object/public/')) { event.respondWith(cacheFirst(req, PHOTOS, 400)); return; }
   // Everything else (the database, payments, WhatsApp) goes straight to the internet, untouched
@@ -79,8 +82,7 @@ self.addEventListener('message', (event) => {
     event.waitUntil(Promise.all(d.urls.slice(0, 40).map(async (u) => {
       try {
         const url = new URL(u, self.location.origin);
-        if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) await cacheFirst(new Request(url.href), ASSETS, 60);
-        else if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') await cacheFirst(new Request(url.href), FONTS, 40);
+        if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) await cacheFirst(new Request(url.href), ASSETS, 120);
       } catch (e) {}
     })).then(async () => {
       try { const c = await caches.open(SHELL); if (!(await c.match(PAGE_KEY))) { const r = await fetch('/', { cache: 'no-store' }); if (r.ok) await c.put(PAGE_KEY, r); } } catch (e) {}
