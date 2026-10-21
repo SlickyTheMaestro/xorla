@@ -2822,8 +2822,22 @@ function XorlaApp() {
     const bg = { background: 'radial-gradient(130% 110% at 100% 0%, #22604F 0%, #143C33 45%, #0C2521 100%)', border: `1px solid ${st === 'query' ? 'rgba(226,98,75,0.5)' : 'rgba(255,176,32,0.4)'}`, boxShadow: '0 18px 34px -20px rgba(255,176,32,0.55)' };
     const pill = going ? <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: st === 'query' ? C.rustSoft : 'rgba(31,217,196,0.14)', color: tone }}><ShieldCheck size={10} /> CAC</span>
       : <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: C.copperFill, color: C.onAccent }}><Sparkles size={10} /> New</span>;
+    // Desktop sidebar: pinned above Settings so it's always on screen. Tall screens get the full card,
+    // shorter laptop screens a slim one-line version (same action).
+    if (where === 'side-slim') return (
+      <div data-xt="dark" role="button" tabIndex={0} onClick={openCac} onKeyDown={(e) => e.key === 'Enter' && openCac()} className="relative rounded-xl overflow-hidden cursor-pointer flex items-center gap-2.5 pl-2.5 pr-2 py-2.5" style={bg}>
+        <span aria-hidden className="absolute -right-8 -top-10 w-28 h-28 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.3), transparent 65%)' }} />
+        <span className="relative w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: st === 'query' ? C.rustSoft : 'rgba(255,176,32,0.16)', color: st === 'query' ? C.rust : C.copper }}><ShieldCheck size={17} /></span>
+        <span className="relative flex-1 min-w-0">
+          <span className="block text-[12.5px] font-bold leading-tight">{going || st === 'draft' ? words[0] : 'Register with CAC'}</span>
+          <span className="block text-[11px] leading-tight mt-0.5 truncate" style={{ color: C.inkDim }}>{going ? words[1] : st === 'draft' ? 'Pick up where you stopped' : 'Make it official'}</span>
+        </span>
+        {!going ? <button onClick={hideCacPromo} aria-label="Hide" title="Hide (it stays in Settings)" className="relative w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ color: C.inkDim }}><X size={12} /></button>
+          : <ChevronRight size={16} className="relative shrink-0" style={{ color: tone }} />}
+      </div>
+    );
     if (where === 'side') return (
-      <div data-xt="dark" className="relative rounded-2xl mb-6 overflow-hidden" style={bg}>
+      <div data-xt="dark" className="relative rounded-2xl overflow-hidden" style={bg}>
         <span aria-hidden className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.32), transparent 65%)' }} />
         {!going && <button onClick={hideCacPromo} aria-label="Hide" title="Hide (it stays in Settings)" className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(var(--c-lo),calc(0.3 * var(--c-lok)))', color: C.inkDim }}><X size={12} /></button>}
         <div className="absolute top-2.5 left-3 z-10">{pill}</div>
@@ -11335,7 +11349,6 @@ function XorlaApp() {
           ))}
         </nav>
 
-        {renderCacPromo('side')}
         {!renderCacPromo('side') && <div className="rounded-2xl p-4 mb-6" style={{ background: C.copperSoft, border: `1px solid rgba(255,176,32,0.18)` }}>
           <Sparkles size={16} style={{ color: C.copper }} className="mb-2" />
           <div className="text-[12.5px] font-semibold mb-1">Let AI chase for you</div>
@@ -11343,6 +11356,13 @@ function XorlaApp() {
           <button onClick={() => setTab('invoices')} className="w-full rounded-lg py-2 text-[11.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Try it</button>
         </div>}
         </div>
+
+        {renderCacPromo('side') && (
+          <div className="shrink-0 pt-3 pb-3">
+            <div className="hidden [@media(min-height:860px)]:block">{renderCacPromo('side')}</div>
+            <div className="[@media(min-height:860px)]:hidden">{renderCacPromo('side-slim')}</div>
+          </div>
+        )}
 
         <div className="pt-3 space-y-1 shrink-0" style={{ borderTop: `1px solid ${C.line}` }}>
           {settings.pin && (
