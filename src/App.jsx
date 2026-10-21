@@ -458,7 +458,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule', 'orderModes', 'waBookingConfirm'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptCancelHours', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule', 'orderModes', 'waBookingConfirm'];
 const SETTINGS_DESCRIPTIONS = {
   plan: 'What your plan includes, and renewing it.',
   notifications: 'Alerts on this device for new orders, requests and staff.',
@@ -2574,6 +2574,7 @@ function XorlaApp() {
       closeTime: String(business.close_time || '18:00').slice(0, 5),
       openDays: Array.isArray(business.open_days) ? business.open_days : [1, 2, 3, 4, 5, 6],
       apptCapacity: business.appt_capacity ?? 1,
+      apptCancelHours: business.appt_cancel_hours ?? 12,
       apptByPerson: !!business.appt_by_person,
       // undefined = the setup update hasn't been run on the database yet (then nothing new is shown)
       setupDoneAt: business.setup_done_at === undefined ? undefined : business.setup_done_at,
@@ -3824,8 +3825,12 @@ function XorlaApp() {
   const depositMessage = (o, amount) => {
     const first = String(o.customerName || '').split(' ')[0] || 'there';
     const rest = Math.max(0, orderMoney(o).total - amount);
-    return `Hi ${first}, ${settings.businessName} has confirmed your appointment for ${apptRange(o)}. To keep your time, please pay a deposit of ${fmt(amount)} here (card, transfer or USSD): ${orderLinkOf(o)}${rest > 0 ? `\n\nThe rest (${fmt(rest)}) is paid at your visit.` : ''}`;
+    return `Hi ${first}, ${settings.businessName} has confirmed your appointment for ${apptRange(o)}. To keep your time, please pay a deposit of ${fmt(amount)} here (card, transfer or USSD): ${orderLinkOf(o)}${rest > 0 ? `\n\nThe rest (${fmt(rest)}) is paid at your visit.` : ''}\n\n${depositRule()}`;
   };
+  const apptCancelHrs = Math.max(0, Number(settings.apptCancelHours ?? 12));
+  const depositRule = () => (apptCancelHrs > 0 ? `If you can't make it, let us know at least ${apptCancelHrs} hour${apptCancelHrs === 1 ? '' : 's'} before and we'll refund it. Later than that, or if you don't come, the deposit is kept.` : "If you don't come, the deposit is kept.");
+  const hasPaidDeposit = (o) => o.payStatus === 'paid' && orderMoney(o).paidOnline > 0 && !!o.startAt;
+  const lateForDeposit = (o) => o.startAt && new Date(o.startAt).getTime() - Date.now() < apptCancelHrs * 3600000;
   const roundDeposit = (total, pct) => Math.max(100, Math.min(total, Math.round((total * pct) / 100 / 500) * 500 || Math.round((total * pct) / 100)));
   const openDeposit = (o) => setDepAsk({ order: o, amount: String(roundDeposit(orderMoney(o).total, 30)), busy: false, error: '' });
   const confirmDeposit = async () => {
@@ -3871,6 +3876,7 @@ function XorlaApp() {
           <div className="flex items-center justify-between px-3.5 py-2.5 text-[13px]"><span>{first} pays now</span><span className="cx-mono font-bold" style={{ color: C.sage }}>{fmt(amount)}</span></div>
           <div className="flex items-center justify-between px-3.5 py-2.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}` }}><span style={{ color: C.inkDim }}>At the visit</span><span className="cx-mono font-semibold">{fmt(rest)}</span></div>
         </div>
+        <div className="text-[11.5px] leading-relaxed mb-2 rounded-lg px-3 py-2" style={{ background: C.surfaceRaised, color: C.inkDim }}><strong style={{ color: C.ink }}>Your rule:</strong> free cancellation until {apptCancelHrs} hours before. Later, or a no-show, and you keep the deposit. {first} sees this in the message.</div>
         <div className="text-[11.5px] leading-relaxed mb-1" style={{ color: C.inkFaint }}>{o.acceptedAt ? '' : 'This also confirms the appointment. '}The deposit goes to your bank ({settings.payout?.bank || 'your connected account'}); the customer pays a small service fee on top. If you cancel, you'll be reminded to refund it.</div>
         {depAsk.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{depAsk.error}</div>}
         <button onClick={confirmDeposit} disabled={depAsk.busy || bad} className="w-full mt-3 rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageFill, color: C.onAccent, opacity: depAsk.busy || bad ? 0.5 : 1 }}>
@@ -4693,6 +4699,7 @@ function XorlaApp() {
       if ('closeTime' in patch) bizPatch.close_time = patch.closeTime;
       if ('openDays' in patch) bizPatch.open_days = patch.openDays;
       if ('apptCapacity' in patch) bizPatch.appt_capacity = Number(patch.apptCapacity);
+      if ('apptCancelHours' in patch) bizPatch.appt_cancel_hours = Number(patch.apptCancelHours);
       if ('apptByPerson' in patch) bizPatch.appt_by_person = !!patch.apptByPerson;
       if ('setupDoneAt' in patch && settings.setupDoneAt !== undefined) bizPatch.setup_done_at = patch.setupDoneAt;
       if ('setupSteps' in patch && settings.setupDoneAt !== undefined) bizPatch.setup_steps = patch.setupSteps;
@@ -5519,6 +5526,7 @@ function XorlaApp() {
     sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'reminded', p_reason: '' }).catch(() => {});
   };
   const markNoShow = async (o) => {
+    if (hasPaidDeposit(o)) { setApptPanel({ mode: 'no_show', order: o, reason: '', keep: canRun, busy: false, error: '' }); return; }
     const prior = missedBefore(o);
     if (!(await brandConfirm(`${o.customerName} didn't come for ${apptRange(o)}. The appointment closes, and Xorla remembers it${prior ? ` (their ${prior + 1}${prior + 1 === 2 ? 'nd' : prior + 1 === 3 ? 'rd' : 'th'} time)` : ''}, so you'll see a note if they book again.`, { title: 'Mark as didn\'t come?', confirm: "Didn't come", danger: true }))) return;
     try { await sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: 'no_show', p_reason: '' }); await loadBusinessData(session.access_token); }
@@ -5637,6 +5645,22 @@ function XorlaApp() {
         const link = o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, as we agreed, your appointment with ${settings.businessName} is now ${apptRange(moved)}. See you then!`)}`;
         if (link && await brandConfirm(`${o.customerName} is now booked for ${apptRange(moved)}. Let them know on WhatsApp?`, { title: 'New time confirmed', confirm: 'Send on WhatsApp', cancel: 'Not now' })) window.open(link, '_blank');
       });
+    } else if ((a.mode === 'cancel' || a.mode === 'no_show') && a.order && hasPaidDeposit(a.order)) {
+      const o = a.order, reason = a.reason.trim(), keep = !!a.keep && canRun, amt = orderMoney(o).paidOnline;
+      if (a.mode === 'cancel' && !reason && !canRun) { setApptPanel({ ...a, error: 'Please give a reason for cancelling.' }); return; }
+      runAppt(async () => {
+        await sbRpc('close_appt_deposit', session.access_token, { p_order: o.id, p_action: a.mode, p_reason: reason, p_keep: keep });
+        if (keep) {
+          const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: o.shopId || mainShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: `Deposit kept (${o.customerName}, ${a.mode === 'no_show' ? "didn't come" : 'late cancellation'})`, amount: amt, cost: 0, owed: 0, quantity: 1 } });
+          if (rows && rows[0]) setSales((prev) => [fromSbSale(rows[0]), ...prev]);
+        }
+      }, () => {
+        const first = String(o.customerName).split(' ')[0];
+        const msg = keep
+          ? `Hi ${first}, ${a.mode === 'no_show' ? `we missed you at your appointment with ${settings.businessName} (${apptRange(o)}).` : `your appointment with ${settings.businessName} on ${apptRange(o)} has been cancelled.`} As it was ${a.mode === 'no_show' ? 'missed' : `cancelled less than ${apptCancelHrs} hours before`}, the ${fmt(amt)} deposit is kept.${storeLink ? ` You're welcome to book again: ${storeLink}` : ''}`
+          : `Hi ${first}, ${a.mode === 'no_show' ? `we missed you at your appointment with ${settings.businessName}.` : `your appointment with ${settings.businessName} on ${apptRange(o)} has been cancelled${reason ? ` (${reason})` : ''}.`} We're refunding your ${fmt(amt)} deposit. Please add your bank details here so we can send it: ${orderLinkOf(o)}`;
+        if (o.customerPhone) offerWhatsApp(o.customerPhone, msg, keep ? 'Deposit kept' : 'Refund to send', `Let ${first} know on WhatsApp? They'll see:\n\n"${msg}"`);
+      });
     } else {
       const o = a.order, reason = a.reason.trim(), mode = a.mode;
       runAppt(() => sbRpc('answer_appointment', session.access_token, { p_order: o.id, p_action: mode, p_reason: reason }), () => {
@@ -5649,7 +5673,7 @@ function XorlaApp() {
   const renderApptPanel = () => {
     if (!apptPanel) return null;
     const a = apptPanel; const close = () => { if (!a.busy) setApptPanel(null); };
-    const title = { new: 'New appointment', reschedule: a.order?.acceptedAt ? 'Move appointment' : 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment', assign: `Change ${PW.one}` }[a.mode];
+    const title = { new: 'New appointment', reschedule: a.order?.acceptedAt ? 'Move appointment' : 'Offer another time', decline: 'Decline request', cancel: 'Cancel appointment', assign: `Change ${PW.one}`, no_show: `${String(a.order?.customerName || '').split(' ')[0]} didn't come` }[a.mode];
     const panelShop = a.order ? (a.order.shopId || mainShopId) : targetShopId;
     const chips = teamOn(panelShop) && (
       <div>
@@ -5722,6 +5746,25 @@ function XorlaApp() {
             {a.mode === 'reschedule' && picker}
             {a.mode === 'reschedule' && a.order?.acceptedAt && <input type="text" placeholder="Reason (optional), e.g. Our stylist is unwell that day" value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />}
             {a.mode === 'reschedule' && <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>{firstName} gets a link to accept this time, choose another free time, or say they can't make it. The time is held for them for 24 hours.</div>}
+            {(a.mode === 'cancel' || a.mode === 'no_show') && a.order && hasPaidDeposit(a.order) && (() => {
+              const amt = orderMoney(a.order).paidOnline; const late = lateForDeposit(a.order);
+              const opt = (keep, title, sub) => (
+                <button type="button" onClick={() => setApptPanel({ ...a, keep })} disabled={keep && !canRun} aria-pressed={a.keep === keep} className="w-full text-left rounded-xl px-3.5 py-3 flex items-start gap-3" style={{ background: a.keep === keep ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${a.keep === keep ? C.copper : C.line}`, opacity: keep && !canRun ? 0.5 : 1 }}>
+                  <span className="mt-0.5 w-4 h-4 rounded-full shrink-0 flex items-center justify-center" style={{ border: `2px solid ${a.keep === keep ? C.copper : C.lineStrong}` }}>{a.keep === keep && <span className="w-2 h-2 rounded-full" style={{ background: C.copper }} />}</span>
+                  <span><span className="block text-[13.5px] font-semibold">{title}</span><span className="block text-[11.5px] mt-0.5 leading-snug" style={{ color: C.inkDim }}>{sub}</span></span>
+                </button>
+              );
+              return (
+                <div className="space-y-2">
+                  <div className="text-[12.5px] font-semibold">{firstName} paid a {fmt(amt)} deposit. What happens to it?</div>
+                  {opt(false, `Refund ${fmt(amt)}`, `${firstName} leaves their bank details on their page, and you send it back.`)}
+                  {opt(true, `Keep ${fmt(amt)}`, canRun ? 'Recorded as a sale.' : 'Only the owner or a manager can keep a deposit.')}
+                  <div className="text-[11.5px] leading-relaxed" style={{ color: C.inkFaint }}>
+                    {a.mode === 'no_show' ? `Your rule: a no-show keeps the deposit.` : late ? `Less than ${apptCancelHrs} hours before: if ${firstName} cancelled, your rule lets you keep it. If you're cancelling, refund it.` : `More than ${apptCancelHrs} hours before: your rule says refund it.`}
+                  </div>
+                </div>
+              );
+            })()}
             {(a.mode === 'decline' || a.mode === 'cancel') && (
               <>
                 <input type="text" autoFocus placeholder={a.mode === 'cancel' && !canRun ? 'Reason (required)' : 'Reason, e.g. Our stylist is unwell that day'} value={a.reason} onChange={(e) => setApptPanel({ ...a, reason: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
@@ -5730,8 +5773,8 @@ function XorlaApp() {
             )}
           </div>
           {a.error && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{a.error}</div>}
-          <button onClick={submitAppt} disabled={a.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: a.mode === 'decline' || a.mode === 'cancel' ? C.rustFill : C.copperFill, color: C.onAccent, opacity: a.busy ? 0.6 : 1 }}>
-            {a.busy ? 'Saving…' : a.mode === 'assign' ? (a.person ? `Give to ${(activePeople.find((p) => p.id === a.person) || {}).name || ''}` : 'Give to anyone free') : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Offer ${apptDay(a.slot)}, ${apptTime(a.slot)} to ${firstName}` : `Offer a time to ${firstName}`) : a.mode === 'decline' ? 'Decline request' : 'Cancel appointment'}
+          <button onClick={submitAppt} disabled={a.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: a.mode === 'decline' || a.mode === 'cancel' || a.mode === 'no_show' ? C.rustFill : C.copperFill, color: C.onAccent, opacity: a.busy ? 0.6 : 1 }}>
+            {a.busy ? 'Saving…' : a.mode === 'assign' ? (a.person ? `Give to ${(activePeople.find((p) => p.id === a.person) || {}).name || ''}` : 'Give to anyone free') : a.mode === 'new' ? (a.slot ? `Book for ${apptDay(a.slot)}, ${apptTime(a.slot)}` : 'Book appointment') : a.mode === 'reschedule' ? (a.slot ? `Offer ${apptDay(a.slot)}, ${apptTime(a.slot)} to ${firstName}` : `Offer a time to ${firstName}`) : a.mode === 'decline' ? 'Decline request' : a.mode === 'no_show' ? `Close it: ${a.keep ? 'keep' : 'refund'} the deposit` : a.order && hasPaidDeposit(a.order) ? `Cancel and ${a.keep ? 'keep' : 'refund'} the deposit` : 'Cancel appointment'}
           </button>
           {a.mode === 'reschedule' && a.slot && (
             <button onClick={() => { const next = { ...a, direct: true }; setApptPanel(next); setTimeout(() => submitApptRef.current && submitApptRef.current(), 0); }} disabled={a.busy} className="w-full mt-2 py-2.5 text-[12.5px] font-medium" style={{ color: C.inkDim }}>
@@ -6032,13 +6075,14 @@ function XorlaApp() {
                       o.status === 'pending' && o.payStatus === 'paid' ? { background: C.sageSoft, color: C.sage } :
                       o.status === 'pending' && o.payStatus === 'requested' ? { background: C.copperSoft, color: C.copper } :
                       o.payStatus === 'refund_due' ? { background: C.rustSoft, color: C.rust } :
+                      o.payStatus === 'kept' ? { background: C.copperSoft, color: C.copper } :
                       o.status === 'pending' && o.awaitingCustomer ? { background: C.surfaceRaised, color: C.inkDim } :
                       o.status === 'pending' && o.acceptedAt ? { background: C.sageSoft, color: C.sage } :
                       o.status === 'pending' && o.startAt && apptPassed(o) ? { background: C.surfaceRaised, color: C.inkFaint } :
                       o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
                       o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
                       { background: 'rgba(226,98,75,0.12)', color: C.rust }
-                    }>{o.status === 'pending' && o.payStatus === 'paid' ? 'Paid online' : o.status === 'pending' && o.payStatus === 'requested' ? 'Awaiting payment' : o.payStatus === 'refund_due' ? 'Refund to send' : o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.noShow ? "Didn't come" : o.startAt && !o.acceptedAt ? 'Declined' : 'Cancelled'}</span>
+                    }>{o.status === 'pending' && o.payStatus === 'paid' ? 'Paid online' : o.status === 'pending' && o.payStatus === 'requested' ? 'Awaiting payment' : o.payStatus === 'refund_due' ? 'Refund to send' : o.payStatus === 'kept' ? 'Deposit kept' : o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.noShow ? "Didn't come" : o.startAt && !o.acceptedAt ? 'Declined' : 'Cancelled'}</span>
                   </div>
                   {(() => { const n = orderNext(o); return n ? (
                     <div className="flex items-start gap-2 rounded-xl px-3 py-2 mb-3 text-[12.5px]" style={{ background: n.waiting ? C.surfaceRaised : C.copperSoft, color: n.waiting ? C.inkDim : C.ink }}>
@@ -6347,7 +6391,7 @@ function XorlaApp() {
                         if (canAnswerRequests) sec.push({ label: 'Move', onClick: () => openAppt('reschedule', o) });
                         if (settings.payout && o.payToken && !o.payStatus && canAnswerRequests) sec.push({ label: 'Ask for deposit', tone: 'accent', title: 'Optional: part of the price online to keep the time', onClick: () => openDeposit(o) });
                         if (o.payStatus === 'requested') { sec.push({ label: 'Send deposit link', tone: 'accent', onClick: () => { const m = depositMessage(o, o.payAmount || 0); if (o.customerPhone) window.open(`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(m)}`, '_blank'); else sendPayLink(o); } }); sec.push({ label: 'No deposit', onClick: () => removeDeposit(o) }); }
-                        sec.push({ label: 'Cancel', tone: 'danger', onClick: () => openAppt('cancel', o) });
+                        sec.push({ label: 'Cancel', tone: 'danger', onClick: () => { openAppt('cancel', o); if (hasPaidDeposit(o)) setApptPanel((p) => p && { ...p, keep: canRun && lateForDeposit(o) }); } });
                       }
                       primary = { label: 'Mark done', onClick: () => fulfillOrder(o) };
                     } else if (pending) {
@@ -10914,6 +10958,21 @@ function XorlaApp() {
                   </div>
                   {renderTeamCard()}
                   {renderBranchHours()}
+                  {(() => {
+                    const hrs = Number(draft.apptCancelHours ?? 12);
+                    return (
+                      <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                        <div className="text-[14.5px] font-semibold mb-1">Deposits: free cancellation until</div>
+                        <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>When you ask for a deposit, customers can cancel for a refund until this long before their time. Later than that, or a no-show, and you can keep it. You always choose when you cancel.</div>
+                        <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                          {[[2, '2 hours'], [6, '6 hours'], [12, '12 hours'], [24, '24 hours']].map(([v, l]) => (
+                            <button key={v} onClick={() => setDraft({ ...draft, apptCancelHours: v })} className="flex-1 py-2 px-1 rounded-lg text-[12.5px] font-semibold" style={hrs === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>
+                          ))}
+                        </div>
+                        {!settings.payout && <div className="text-[11.5px] mt-2.5 leading-relaxed" style={{ color: C.inkFaint }}>Deposits need online payments. Turn them on in Settings → Online payments.</div>}
+                      </div>
+                    );
+                  })()}
                   <div className="rounded-2xl p-4 text-[12.5px] leading-relaxed space-y-2" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }}>
                     <div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>How times are worked out</div>
                     <div>Each service uses its <strong style={{ color: C.ink }}>How long it takes</strong> setting. Services without one count as 1 hour, and full-day services are asked for by date instead.</div>
@@ -19980,6 +20039,7 @@ function CustomerOrder({ token }) {
     setBusy(false);
   };
   const st = od.pay_status === 'refund_due' ? ['#FDECEA', '#B42318', 'Refund on its way', od.refund_to ? `${od.business} will send your ${fmt(od.refund_amount)} back to the account below.` : `${od.business} owes you ${fmt(od.refund_amount)} back. Tell them where to send it below.`]
+    : od.pay_status === 'kept' ? ['#FFF4D6', '#8A5A00', 'Deposit kept', `This appointment was missed or cancelled late, so ${od.business} kept your ${fmt(od.amount_paid)} deposit. You're welcome to book again.`]
     : od.pay_status === 'refunded' ? ['#F1F2EF', '#3F4440', 'Refunded', `${od.business} sent your ${fmt(od.refund_amount)} back${od.refunded_at ? ` on ${when(od.refunded_at)}` : ''}.`]
     : od.status === 'fulfilled' ? ['#DFF6EE', '#0E7A5F', 'Completed', `Thank you for ${noun === 'order' ? 'ordering from' : 'choosing'} ${od.business}.`]
     : od.status === 'cancelled' ? ['#FDECEA', '#B42318', 'Cancelled', `${od.business} couldn't take this ${noun}${od.cancel_reason ? `: ${od.cancel_reason}` : ''}.`]
