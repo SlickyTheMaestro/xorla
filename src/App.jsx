@@ -90,6 +90,24 @@ function pendingRowsOf(list, kind) {
   });
   return out;
 }
+// Front-desk actions waiting on this phone, played on top of the bookings and guest bills from Xorla,
+// so the desk sees the room taken, the payment counted and the guest checked out straight away
+function replayDesk(bookings, charges, ops) {
+  let B = bookings; let Ch = charges;
+  const num = (x) => Number(x) || 0;
+  (ops || []).forEach((op) => {
+    if (op.kind !== 'desk') return;
+    const a = op.args || {}; const v = op.view || {}; const id = a.p_booking;
+    const upd = (f) => { B = B.map((b) => (b.id === id ? { ...b, ...f(b), pending: true } : b)); };
+    if (op.action === 'add_room_charge') Ch = [...Ch, { id: `op:${op.op_id}`, booking_id: id, shop_id: op.shop_id, item: v.item || 'Extra', quantity: num(a.p_qty) || 1, unit_price: num(v.price), amount: num(v.price) * (num(a.p_qty) || 1), status: 'open', created_at: op.at, added_by: op.logged_by, added_by_name: op.logged_by_name, pending: true }];
+    else if (op.action === 'pay') upd((b) => ({ amount_paid: num(b.amount_paid) + num(a.p_amount) }));
+    else if (op.action === 'deposit') upd((b) => ({ amount_paid: num(b.amount_paid) + num(a.p_amount), deposit_paid: num(b.deposit_paid) + num(a.p_amount), status: b.status === 'requested' ? 'confirmed' : b.status }));
+    else if (op.action === 'check_in') upd((b) => ({ status: 'checked_in', amount_paid: num(b.amount_paid) + num(a.p_amount), ...(a.p_room_id ? { room_id: a.p_room_id, room_ids: a.p_room_ids || [a.p_room_id], room_label: v.room_label || b.room_label } : a.p_room ? { room_label: a.p_room } : {}) }));
+    else if (op.action === 'check_out' || op.action === 'leave_early') { upd((b) => ({ status: 'checked_out', amount_paid: num(b.amount_paid) + num(a.p_amount), ...(v.total ? { total: v.total } : {}) })); Ch = Ch.filter((c) => c.booking_id !== id); }
+    else if (op.action === 'walk_in' && v.booking) B = [...B, { ...v.booking, id: `op:${op.op_id}`, pending: true }];
+  });
+  return { bookings: B, charges: Ch };
+}
 // Stock that waiting sales will take: [{ product_id, shop_id, variant, qty, sale_id }]
 const pendingStockOf = (list) => (list || []).flatMap((op) => (op.kind === 'sale' ? (op.sales || []).filter((x) => x.stock && x.product_id).map((x) => ({ product_id: x.product_id, shop_id: op.shop_id, variant: x.stock.variant || '', qty: Number(x.stock.qty) || 0, sale_id: x.id })) : []));
 
@@ -1233,6 +1251,18 @@ const OGA_GEM = 'M6 10 L34 10 L34 29 L16 29 Z';
 function OgaMark({ size = 18, thinking = false, tone = 'gold', className = '', style }) {
   const id = 'og' + React.useId().replace(/:/g, '');
   const ink = tone === 'ink';
+  if (tone === 'mono') {
+    // Plain version for menus: takes the colour of the text around it, like every other icon there
+    return (
+      <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden className={`oga-mark ${thinking ? 'oga-thinking' : ''} ${className}`} style={{ flexShrink: 0, overflow: 'visible', ...style }}>
+        <g className="oga-gem">
+          <path d={OGA_GEM} stroke="currentColor" strokeWidth="3" strokeLinejoin="round" />
+          <path d="M6 10 L23.5 17.5 L34 10" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round" opacity="0.75" />
+          <path d="M23.5 17.5 L25 29" stroke="currentColor" strokeWidth="2.4" opacity="0.75" />
+        </g>
+      </svg>
+    );
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden className={`oga-mark ${thinking ? 'oga-thinking' : ''} ${className}`} style={{ flexShrink: 0, overflow: 'visible', ...style }}>
       <defs>
@@ -1260,6 +1290,7 @@ function OgaMark({ size = 18, thinking = false, tone = 'gold', className = '', s
     </svg>
   );
 }
+const OgaNavIcon = (props) => <OgaMark {...props} tone="mono" />;
 // What Oga says while it works, one line at a time
 const OGA_THINKING = ['Reading your sales…', 'Checking your expenses…', 'Looking at what customers owe…', 'Comparing with last week…', 'Putting your answer together…'];
 function OgaThinking() {
@@ -2188,6 +2219,8 @@ function XorlaApp() {
   }, []);
 
   const dataLoadedRef = useRef(false);
+  const lastRawRef = useRef(null);      // the last full set of records, so the screen can be rebuilt on the phone
+  const applyRowsRef = useRef(null);
   const lastSnapRef = useRef(0);
   const [offlineSince, setOfflineSince] = useState(null);   // showing the copy saved on this phone (when it was saved)
   const loadBusinessData = useCallback(async (accessToken) => {
@@ -2226,9 +2259,10 @@ function XorlaApp() {
       setSubscription(Array.isArray(subscriptionRows) && subscriptionRows[0] ? subscriptionRows[0] : null);
       setPayments(paymentRows || []);
       const bookingIds = new Set((bookingRows || []).map((b) => b.id));
-      setBookingsAll([...(bookingRows || []), ...(Array.isArray(refundRows) ? refundRows : []).filter((b) => !bookingIds.has(b.id))]);
+      const desk = replayDesk([...(bookingRows || []), ...(Array.isArray(refundRows) ? refundRows : []).filter((b) => !bookingIds.has(b.id))], Array.isArray(chargeRows) ? chargeRows : [], ob);
+      setBookingsAll(desk.bookings);
       setRoomsAll(roomRows || []);
-      setRoomCharges(Array.isArray(chargeRows) ? chargeRows : []);
+      setRoomCharges(desk.charges);
       setRoomOrders(Array.isArray(roomOrderRows) ? roomOrderRows : []);
       setRiders(Array.isArray(riderRows) ? riderRows : []);
       setZones(Array.isArray(zoneRows) ? zoneRows : []);
@@ -2263,7 +2297,7 @@ function XorlaApp() {
         sbRest('discount_codes', { accessToken, query: '?select=*&order=created_at.desc' }).catch(() => []),
         sbRestAll('variant_stock', { accessToken, query: '?select=*&order=product_id.asc,shop_id.asc,variant.asc' }).catch(() => []),
       ]);
-      applyRows(raw);
+      applyRows(raw); lastRawRef.current = raw; applyRowsRef.current = applyRows;
       dataLoadedRef.current = true;
       setOfflineSince(null);
       // Keep a copy on this phone (at most once a minute) so Xorla opens and shows this with no internet
@@ -2276,7 +2310,7 @@ function XorlaApp() {
       // No internet and nothing on screen yet: show the copy saved on this phone
       if (isOfflineError(e) && !dataLoadedRef.current && uid) {
         const snap = await idbGet(`snap:${uid}`);
-        if (snap && Array.isArray(snap.raw)) { try { applyRows(snap.raw); dataLoadedRef.current = true; setOfflineSince(snap.at); } catch (err) { console.error(err); } }
+        if (snap && Array.isArray(snap.raw)) { try { applyRows(snap.raw); lastRawRef.current = snap.raw; applyRowsRef.current = applyRows; dataLoadedRef.current = true; setOfflineSince(snap.at); } catch (err) { console.error(err); } }
       }
     }
   }, []);
@@ -2994,6 +3028,13 @@ function XorlaApp() {
   };
   // Show a record on screen straight away (and take its stock), or take it back off if Xorla refused it
   const applyLocalOp = (op, undo = false) => {
+    if (op.kind === 'desk') {
+      // Desk actions: played on top of the bookings; taking one back rebuilds the screen from the last records
+      if (undo) { if (lastRawRef.current && applyRowsRef.current) applyRowsRef.current(lastRawRef.current); return; }
+      setBookingsAll((prev) => replayDesk(prev, [], [op]).bookings);
+      setRoomCharges((prev) => replayDesk([], prev, [op]).charges);
+      return;
+    }
     const ids = new Set([...(op.sales || []).map((x) => x.id), op.invoice?.id, op.expense?.id].filter(Boolean));
     if (undo) {
       setSales((prev) => prev.filter((x) => !ids.has(x.id)));
@@ -3011,9 +3052,23 @@ function XorlaApp() {
     const clear = (prev) => prev.map((x) => (ids.has(x.id) && x.pending ? { ...x, pending: false } : x));
     setSales(clear); setInvoices(clear); setExpenses(clear);
   };
-  const opPayload = (op) => ({ op_id: op.op_id, kind: op.kind, at: op.at, shop_id: op.shop_id, logged_by_name: op.logged_by_name, sales: op.sales, invoice: op.invoice, expense: op.expense });
+  const opPayload = (op) => (op.kind === 'desk' ? { op_id: op.op_id, action: op.action, args: op.args } : { op_id: op.op_id, kind: op.kind, at: op.at, shop_id: op.shop_id, logged_by_name: op.logged_by_name, sales: op.sales, invoice: op.invoice, expense: op.expense });
   // Send one record. Xorla saves it in one step; sending it twice is harmless (each line has its own ID).
   const sendOp = async (op, token) => {
+    if (op.kind === 'desk') {
+      try { return await sbRpc('sync_offline_action', token, { p: opPayload(op) }); }
+      catch (e) {
+        if (isOfflineError(e) || !/sync_offline_action|Could not find the function|PGRST202|schema cache/i.test(e.message || '')) throw e;
+        // The database update for the desk isn't installed yet: do it the older way (only possible for a booking Xorla already has)
+        const a = op.args || {};
+        if (String(a.p_booking || '').startsWith('op:') || op.action === 'walk_in') throw new Error('Xorla needs a quick update to finish this. Please ask the owner to run hotel-offline.sql.');
+        if (op.action === 'add_room_charge') return sbRpc('add_room_charge', token, { p_booking: a.p_booking, p_product: a.p_product || null, p_qty: a.p_qty || 1, p_item: a.p_item || '', p_price: a.p_price || 0 });
+        if (op.action === 'leave_early') return sbRpc('leave_early', token, { p_booking: a.p_booking, p_rule: a.p_rule || '', p_amount: a.p_amount || 0, p_keep: !!a.p_keep });
+        await sbRpc('booking_action', token, { p_booking: a.p_booking, p_action: op.action, p_reason: a.p_reason || '', p_room: a.p_room || '', p_amount: a.p_amount || 0, p_room_id: a.p_room_id || null });
+        if (op.action === 'check_in' && Array.isArray(a.p_room_ids) && a.p_room_ids.length > 1) await sbRpc('assign_rooms', token, { p_booking: a.p_booking, p_room_ids: a.p_room_ids });
+        return { status: 'done' };
+      }
+    }
     try { return await sbRpc('sync_offline_record', token, { p: opPayload(op) }); }
     catch (e) {
       if (isOfflineError(e) || !/sync_offline_record|Could not find the function|PGRST202|schema cache/i.test(e.message || '')) throw e;
@@ -3040,42 +3095,53 @@ function XorlaApp() {
     writeOutbox([...outboxRef.current, op]);
     applyLocalOp(op);
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'waiting';
-    let token;
-    try { token = await ensureFreshToken(); } catch (e) { return 'waiting'; }   // the login needs renewing: keep it safe and send later
-    try {
-      await sendOp(op, token);
-      writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id));
-      markSent(op);
-      return 'sent';
-    } catch (e) {
-      if (isOfflineError(e)) return 'waiting';
+    // Send everything waiting, in order, up to and including this one (a walk-in goes before the extras added to it)
+    await flushOutbox({ quiet: op.op_id });
+    const left = outboxRef.current.find((o) => o.op_id === op.op_id);
+    if (!left) return 'sent';
+    if (left.error) {
       writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id));
       applyLocalOp(op, true);
-      return { error: e.message };
+      return { error: left.error };
     }
+    return 'waiting';
   };
   // Send everything that's waiting (when the internet comes back, when Xorla opens, and every so often)
-  const flushOutbox = async () => {
-    if (flushingRef.current || !sessionRef.current) return;
+  const flushPromiseRef = useRef(null);
+  const flushOutbox = async ({ quiet = null } = {}) => {
+    // One run at a time: if one is going, wait for it, then go again for anything added since
+    while (flushPromiseRef.current) { try { await flushPromiseRef.current; } catch (e) {} }
+    if (!sessionRef.current) return;
     const ready = outboxRef.current.filter((o) => !o.error);
     if (!ready.length || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
-    flushingRef.current = true; setSyncing(true);
-    let sent = 0; let token = null;
-    try {
-      token = await ensureFreshToken();
-      for (const op of ready) {
-        try {
-          await sendOp(op, token);
-          writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id));
-          markSent(op); sent += 1;
-        } catch (e) {
-          if (isOfflineError(e)) break;
-          writeOutbox(outboxRef.current.map((o) => (o.op_id === op.op_id ? { ...o, error: e.message || "Xorla couldn't save this." } : o)));
+    const run = (async () => {
+      setSyncing(ready.some((o) => o.op_id !== quiet));
+      let sent = 0; let token = null; let anyDesk = false; let problems = 0;
+      try {
+        token = await ensureFreshToken();
+        for (const op of ready) {
+          try {
+            await sendOp(op, token);
+            writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id));
+            markSent(op);
+            if (op.op_id !== quiet) sent += 1;
+            if (op.kind === 'desk') anyDesk = true;
+          } catch (e) {
+            if (isOfflineError(e)) break;
+            writeOutbox(outboxRef.current.map((o) => (o.op_id === op.op_id ? { ...o, error: e.message || "Xorla couldn't save this." } : o)));
+            if (op.op_id !== quiet) problems += 1;
+            // A walk-in that didn't go through: what was added to it can't go either, so say why on each
+            if (op.kind === 'desk' && op.action === 'walk_in') writeOutbox(outboxRef.current.map((o) => (o.args?.p_booking === `op:${op.op_id}` && !o.error ? { ...o, error: `The walk-in for ${op.view?.booking?.customer_name || 'this guest'} didn't go through, so this can't be added yet.` } : o)));
+          }
         }
-      }
-    } catch (e) { /* no internet, or the login needs renewing: try again later */ }
-    finally { flushingRef.current = false; setSyncing(false); }
-    if (sent) { setSyncNote({ sent }); if (token) loadBusinessData(token); }
+      } catch (e) { /* no internet, or the login needs renewing: try again later */ }
+      finally { setSyncing(false); }
+      if (problems) setSyncNote({ problem: problems, sent });
+      else if (sent) setSyncNote({ sent });
+      if ((sent || anyDesk) && token) await loadBusinessData(token);
+    })();
+    flushPromiseRef.current = run;
+    try { await run; } finally { if (flushPromiseRef.current === run) flushPromiseRef.current = null; }
   };
   const flushRef = useRef(flushOutbox); flushRef.current = flushOutbox;
   // The offline note says everything first, then shrinks to a small pill so it doesn't cover the screen
@@ -3089,11 +3155,12 @@ function XorlaApp() {
     window.addEventListener('online', go);
     return () => { clearTimeout(first); clearInterval(t); window.removeEventListener('online', go); };
   }, [session?.user_id]);
-  useEffect(() => { if (!syncNote) return undefined; const t = setTimeout(() => setSyncNote(null), 5000); return () => clearTimeout(t); }, [syncNote]);
+  useEffect(() => { if (!syncNote) return undefined; const t = setTimeout(() => setSyncNote(null), syncNote.problem ? 20000 : 5000); return () => clearTimeout(t); }, [syncNote]);
   const retryOp = (id) => { writeOutbox(outboxRef.current.map((o) => (o.op_id === id ? { ...o, error: null } : o))); setTimeout(() => flushRef.current(), 50); };
   const dropOp = async (op) => {
-    if (!(await brandConfirm(`Remove this ${op.kind === 'expense' ? 'expense' : T.sale}? It never reached Xorla, so it won't be counted anywhere.`, { confirm: 'Remove', danger: true }))) return;
-    writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id));
+    if (!(await brandConfirm(`Remove this ${op.kind === 'expense' ? 'expense' : op.kind === 'desk' ? 'front-desk record' : T.sale}? It never reached Xorla, so it won't be counted anywhere.`, { confirm: 'Remove', danger: true }))) return;
+    // A walk-in taken off takes with it anything added to that guest while offline
+    writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id && o.args?.p_booking !== `op:${op.op_id}`));
     applyLocalOp(op, true);
   };
   // Top bar: how many records are waiting on this phone (tap to see them)
@@ -6589,10 +6656,21 @@ function XorlaApp() {
   const extrasTotalOf = (b) => chargesOf(b).reduce((a, c) => a + Number(c.amount), 0);
   // Money paid beyond the stay is the guest's credit: extras come out of it, the rest is given back at check-out
   const creditLeftOf = (b) => (b.status === 'checked_in' ? Math.max(0, (Number(b.amount_paid) || 0) - Number(b.total) - extrasTotalOf(b)) : 0);
+  // Desk actions that work with no internet: saved on the phone first, then sent (straight away when there's internet).
+  // after(result): result is 'sent' or 'waiting'. Xorla saying no shows the reason in the panel, and nothing is kept.
+  const runDesk = async (action, args, view, after) => {
+    setBookingBusy(true); setBookingError('');
+    try {
+      const res = await recordOp(newOp('desk', { action, args, view: view || {}, shop_id: view?.shop_id || deskShopId }));
+      if (res && res.error) { setBookingError(res.error); return; }
+      after && after(res);
+    } catch (e) { setBookingError(e.message); }
+    finally { setBookingBusy(false); }
+  };
   const payDuringStay = (b) => {
     const amt = Number(parseNumInput(chargeForm.pay)) || 0;
     if (amt <= 0) { setBookingError('Enter the amount received.'); return; }
-    runBooking(() => sbRpc('booking_action', session.access_token, { p_booking: b.id, p_action: 'pay', p_amount: amt }), () => setChargeForm((f) => ({ ...f, pay: '' })));
+    runDesk('pay', { p_booking: b.id, p_amount: amt }, { shop_id: b.shop_id }, () => setChargeForm((f) => ({ ...f, pay: '' })));
   };
   const canRemoveCharge = (c) => canRun || (c.added_by === session?.user_id && Date.now() - new Date(c.created_at).getTime() < 30 * 60000);
   const openBill = (b) => {
@@ -6604,12 +6682,17 @@ function XorlaApp() {
   const addCharge = (b) => {
     const f = chargeForm;
     if (!f.custom && !f.productId) { setBookingError('Pick an extra first.'); return; }
-    runBooking(() => sbRpc('add_room_charge', session.access_token, f.custom
-      ? { p_booking: b.id, p_product: null, p_qty: Math.max(1, Number(f.qty) || 1), p_item: f.item, p_price: Number(parseNumInput(f.price)) || 0 }
-      : { p_booking: b.id, p_product: f.productId, p_qty: Math.max(1, Number(f.qty) || 1) }),
+    const qty = Math.max(1, Number(f.qty) || 1);
+    const prod = !f.custom ? billExtras.find((p) => p.id === f.productId) : null;
+    if (f.custom && !String(f.item || '').trim()) { setBookingError('Type what it is.'); return; }
+    runDesk('add_room_charge', f.custom
+      ? { p_booking: b.id, p_product: null, p_qty: qty, p_item: f.item, p_price: Number(parseNumInput(f.price)) || 0 }
+      : { p_booking: b.id, p_product: f.productId, p_qty: qty },
+      { shop_id: b.shop_id, item: f.custom ? f.item : prod?.name, price: f.custom ? Number(parseNumInput(f.price)) || 0 : (prod ? priceAt(prod, b.shop_id) : 0) },
       () => setChargeForm((x) => ({ ...x, qty: 1, item: '', price: '' })));
   };
   const removeCharge = async (c) => {
+    if (c.pending) { const op = outboxRef.current.find((o) => `op:${o.op_id}` === c.id); if (op) await dropOp(op); return; }
     if (!(await brandConfirm(`Take ${c.item}${Number(c.quantity) > 1 ? ` ×${Number(c.quantity)}` : ''} off this bill?`, { confirm: 'Take it off', danger: true }))) return;
     runBooking(() => sbRpc('remove_room_charge', session.access_token, { p_charge: c.id, p_reason: '' }));
   };
@@ -6660,6 +6743,27 @@ function XorlaApp() {
   };
   const submitNewBooking = () => {
     const f = bookingForm;
+    // No internet: a guest standing at the desk can still be checked in today (a "walk-in").
+    // Bookings for later wait for internet, so two people are never given the same room.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      if (f.checkIn !== bkToday) { setBookingError("You're offline. Bookings for later need internet. A guest checking in today can be booked now."); return; }
+      const p = bookables.find((x) => x.id === f.productId);
+      const units = Math.max(1, Number(f.units) || 1);
+      if (!p) { setBookingError('Pick a room type.'); return; }
+      if (!String(f.name || '').trim()) { setBookingError("Enter the guest's name."); return; }
+      const freeRooms = roomsFor(p.id, deskShopId).filter((r) => !occupantOf(r));
+      const hasRooms = roomsFor(p.id, deskShopId).length > 0;
+      if (hasRooms ? freeRooms.length < units : (freeFor(p.id, deskShopId, f.checkIn, f.checkOut) ?? 0) < units) { setBookingError(`No free ${p.name} right now${hasRooms ? '' : ' for those dates'}.`); return; }
+      const picked = freeRooms.slice(0, units);
+      const nights = Math.max(1, nightsBetween(f.checkIn, f.checkOut));
+      const unitPrice = priceAt(p, deskShopId);
+      const paid = Number(parseNumInput(f.paid)) || 0;
+      const label = picked.map((r) => r.label).join(', ');
+      const view = { shop_id: deskShopId, booking: { business_id: settings.businessId, shop_id: deskShopId, product_id: p.id, item_name: p.name, units, check_in: f.checkIn, check_out: f.checkOut, nights, unit_price: unitPrice, price_unit: p.priceUnit, total: unitPrice * units * nights, amount_paid: paid, deposit_paid: 0, customer_name: String(f.name).trim(), customer_phone: f.phone || '', note: f.note || '', status: 'checked_in', is_space: false, room_id: picked[0]?.id || null, room_ids: picked.map((r) => r.id), room_label: label || null, created_at: new Date().toISOString() } };
+      runDesk('walk_in', { p_shop_id: deskShopId, p_product_id: p.id, p_check_in: f.checkIn, p_check_out: f.checkOut, p_units: units, p_name: String(f.name).trim(), p_phone: f.phone || '', p_note: f.note || '', p_amount_paid: paid, p_room: label, p_room_id: picked[0]?.id || null, ...(picked.length > 1 ? { p_room_ids: picked.map((r) => r.id) } : {}) }, view,
+        () => { setBookingPanel(false); showAiNotice(`${String(f.name).trim().split(' ')[0]} is checked in${label ? ` to ${/,/.test(label) ? 'rooms' : 'room'} ${label}` : ''}. Saved on this phone; it sends when you're back online.`); });
+      return;
+    }
     let newId = null;
     runBooking(async () => { newId = await sbRpc('create_booking', session.access_token, { p_shop_id: deskShopId, p_product_id: f.productId, p_check_in: f.checkIn, p_check_out: f.checkOut, p_units: Number(f.units) || 1, p_name: f.name, p_phone: f.phone, p_note: f.note, p_amount_paid: Number(parseNumInput(f.paid)) || 0 }); },
       async () => {
@@ -6734,38 +6838,50 @@ function XorlaApp() {
     const grand = stayTotal + extras.reduce((a, c) => a + Number(c.amount), 0);
     const paidAll = Math.min(grand, (Number(booking.amount_paid) || 0) + adding);
     const pickedRooms = action === 'check_in' ? (actForm.roomIds || []) : [];
-    runBooking(async () => {
-      if (leaving) await sbRpc('leave_early', session.access_token, { p_booking: booking.id, p_rule: canRun ? (actForm.earlyRule || '') : '', p_amount: adding, p_keep: !!actForm.keep });
-      else await sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: (pickedRooms[0] || actForm.roomId) || null });
-      if (pickedRooms.length > 1) await sbRpc('assign_rooms', session.access_token, { p_booking: booking.id, p_room_ids: pickedRooms });
-    },
-      () => {
+    const afterAct = (res) => {
+      const wa = res === 'waiting' ? () => {} : offerWhatsApp;   // WhatsApp needs internet: offered when the action has gone through
         setBookingAct(null);
-        if (action === 'refunded') { const first = String(booking.customer_name || '').split(' ')[0] || 'there'; const msg = `Hi ${first}, we've sent your ${fmt(booking.refund_amount)} refund from ${settings.businessName}${booking.refund_account_number ? ` to your ${booking.refund_bank_name} account ending ${String(booking.refund_account_number).slice(-4)}` : ''}. Thank you, and we hope to host you another time.`; offerWhatsApp(booking.customer_phone, msg, 'Refund recorded', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); }
+        if (action === 'refunded') { const first = String(booking.customer_name || '').split(' ')[0] || 'there'; const msg = `Hi ${first}, we've sent your ${fmt(booking.refund_amount)} refund from ${settings.businessName}${booking.refund_account_number ? ` to your ${booking.refund_bank_name} account ending ${String(booking.refund_account_number).slice(-4)}` : ''}. Thank you, and we hope to host you another time.`; wa(booking.customer_phone, msg, 'Refund recorded', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`); }
         if (action === 'check_in' && serviceKind === 'accommodation' && !booking.is_space && booking.customer_phone && guestLinkOf(booking)) {
           const first = String(booking.customer_name || '').split(' ')[0] || 'there';
           const labels = pickedRooms.map((id) => roomsAll.find((r) => r.id === id)?.label).filter(Boolean);
           const roomText = labels.length ? ` You're in room${labels.length > 1 ? 's' : ''} ${labels.join(', ')}.` : actForm.room ? ` You're in ${/^room/i.test(actForm.room) ? actForm.room : `room ${actForm.room}`}.` : '';
           const msg = `Welcome to ${settings.businessName}, ${first}!${roomText}\n\nNeed water, drinks, laundry or anything else? Order it to your room here and it goes on your bill, paid at check-out: ${guestLinkOf(booking)}`;
-          offerWhatsApp(booking.customer_phone, msg, 'Checked in', `Send ${first} a welcome message with their room-service link? They'll see:\n\n"${msg}"`);
+          wa(booking.customer_phone, msg, 'Checked in', `Send ${first} a welcome message with their room-service link? They'll see:\n\n"${msg}"`);
         }
-        if (action === 'deposit') { const msg = confirmedMessage(booking, adding); offerWhatsApp(booking.customer_phone, msg, 'Deposit recorded', `Send ${String(booking.customer_name).split(' ')[0]} their receipt and booking link on WhatsApp? They'll see:\n\n"${msg}"`, guestLinkOf(booking) ? () => markLinkSent(booking) : null); }
+        if (action === 'deposit') { const msg = confirmedMessage(booking, adding); wa(booking.customer_phone, msg, 'Deposit recorded', `Send ${String(booking.customer_name).split(' ')[0]} their receipt and booking link on WhatsApp? They'll see:\n\n"${msg}"`, guestLinkOf(booking) ? () => markLinkSent(booking) : null); }
         if (action === 'decline' || action === 'cancel') {
           const held = Number(booking.deposit_paid) || 0;
           const stay = `${booking.item_name} for ${dayLabel(booking.check_in)} to ${dayLabel(booking.check_out)}`;
           const extra = action === 'cancel' && held > 0 ? (isEarlyCancel(booking) ? `Your ${fmt(held)} deposit will be refunded to you.` : `As this is within ${Number(settings.cancelWindowHours ?? 24)} hours of check-in, the ${fmt(held)} deposit is not refundable.`) : '';
           const msg = turnDownMessage({ name: booking.customer_name, kind: action, what: action === 'decline' ? stay : `booking (${stay})`, reason: actForm.reason.trim(), extra });
-          offerWhatsApp(booking.customer_phone, msg, action === 'decline' ? 'Request declined' : 'Booking cancelled', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`);
+          wa(booking.customer_phone, msg, action === 'decline' ? 'Request declined' : 'Booking cancelled', `Let ${booking.customer_name} know on WhatsApp? They'll see:\n\n"${msg}"`);
         }
-        if (action === 'check_out') setReceipt(makeReceipt({
+        if (action === 'check_out') setReceipt(Object.assign(makeReceipt({
           id: booking.id,
           items: [
             booking.is_space ? { name: `${booking.item_name}, ${eventWhen(booking)}`, amount: stayTotal } : { name: `${booking.item_name}${booking.room_label ? ` ${booking.room_label}` : ''}, ${leaving ? leaving.charge : booking.nights} ${unitWord(booking)}${(leaving ? leaving.charge : booking.nights) !== 1 ? 's' : ''}${leaving ? ' (left early)' : ''}`, amount: stayTotal },
             ...extras.map((c) => ({ name: Number(c.quantity) > 1 ? `${c.item} ×${Number(c.quantity)}` : c.item, amount: Number(c.amount) })),
           ],
           total: grand, owed: grand - paidAll, customerName: booking.customer_name, customerPhone: booking.customer_phone, shopId: booking.shop_id,
-        }));
-      });
+        }), { waiting: res === 'waiting' }));
+    };
+    // At the desk with a guest in front of you: works with no internet too (saved on the phone, sent when back online)
+    if (['deposit', 'check_in', 'check_out'].includes(action)) {
+      const deskAction = leaving ? 'leave_early' : action;
+      const labels = pickedRooms.map((id) => roomsAll.find((r) => r.id === id)?.label).filter(Boolean).join(', ');
+      const args = leaving
+        ? { p_booking: booking.id, p_rule: canRun ? (actForm.earlyRule || '') : '', p_amount: adding, p_keep: !!actForm.keep }
+        : { p_booking: booking.id, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: (pickedRooms[0] || actForm.roomId) || null, ...(pickedRooms.length > 1 ? { p_room_ids: pickedRooms } : {}) };
+      runDesk(deskAction, args, { shop_id: booking.shop_id, room_label: labels || undefined, total: leaving ? leaving.total : undefined }, (res) => afterAct(res));
+      return;
+    }
+    if (String(booking.id).startsWith('op:')) { setBookingError("This guest's check-in is still waiting to send. You can do this once it has gone through."); return; }
+    runBooking(async () => {
+      if (leaving) await sbRpc('leave_early', session.access_token, { p_booking: booking.id, p_rule: canRun ? (actForm.earlyRule || '') : '', p_amount: adding, p_keep: !!actForm.keep });
+      else await sbRpc('booking_action', session.access_token, { p_booking: booking.id, p_action: action, p_reason: action === 'check_out' ? (actForm.keep ? 'keep_change' : '') : actForm.reason, p_room: actForm.room, p_amount: adding, p_room_id: (pickedRooms[0] || actForm.roomId) || null });
+      if (pickedRooms.length > 1) await sbRpc('assign_rooms', session.access_token, { p_booking: booking.id, p_room_ids: pickedRooms });
+    }, () => afterAct('sent'));
   };
   // The guest's private page: see the booking, pay the deposit, or cancel
   const guestLinkOf = (b) => (b.manage_token ? `${window.location.origin}/booking/${b.manage_token}` : '');
@@ -6845,6 +6961,7 @@ function XorlaApp() {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[14.5px] font-semibold leading-tight" style={{ overflowWrap: 'anywhere' }}>{b.customer_name}</span>
                   {b.room_label && <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}>{serviceKind === 'rentals' ? '' : String(b.room_label).includes(',') ? 'Rooms ' : 'Room '}{b.room_label}</span>}
+                  {b.pending && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold" style={{ background: C.copperSoft, color: C.copper }}><CloudUpload size={11} /> Waiting to send</span>}
                   {b.left_early_at && <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold" title={b.booked_check_out ? `Booked until ${dayLabel(b.booked_check_out)}` : ''} style={{ background: C.copperSoft, color: C.copper }}>Left early{b.booked_total && Number(b.booked_total) > Number(b.total) ? ` · ${fmt(Number(b.booked_total) - Number(b.total))} off` : ''}</span>}
                 </div>
                 <div className="text-[12px] mt-0.5" style={{ color: C.inkDim }}>{b.item_name}{b.units > 1 ? ` × ${b.units}` : ''}{b.is_space && b.event_type ? ` · ${b.event_type}` : ''}{b.is_space && b.guest_count ? ` · ${Number(b.guest_count).toLocaleString('en-NG')} guests` : ''}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(b.shop_id)}` : ''}</div>
@@ -7510,7 +7627,7 @@ function XorlaApp() {
       const units = Math.max(1, Number(f.units) || 1);
       const price = p ? priceAt(p, deskShopId) : 0;
       const free = p ? freeFor(p.id, deskShopId, f.checkIn, f.checkOut) : null;
-      title = 'New booking'; submitLabel = 'Confirm booking'; submit = submitNewBooking;
+      title = 'New booking'; submitLabel = !netOnline && f.checkIn === bkToday ? 'Check in now' : 'Confirm booking'; submit = submitNewBooking;
       body = (
         <div className="space-y-3">
           <BrandSelect value={f.productId} onChange={(e) => setBookingForm({ ...f, productId: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm" style={field}>
@@ -7746,7 +7863,7 @@ function XorlaApp() {
                           <div key={c.id} className="flex items-center gap-3 px-3 py-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
                             <div className="flex-1 min-w-0">
                               <div className="text-[13px] font-medium truncate">{c.item}{Number(c.quantity) > 1 ? <span style={{ color: C.inkFaint }}> ×{Number(c.quantity)}</span> : null}</div>
-                              <div className="text-[11px]" style={{ color: C.inkFaint }}>{new Date(c.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}{c.added_by_name ? ` · ${c.added_by_name}` : ''}</div>
+                              <div className="text-[11px]" style={{ color: C.inkFaint }}>{new Date(c.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}{c.added_by_name ? ` · ${c.added_by_name}` : ''}{c.pending && <span style={{ color: C.copper, fontWeight: 600 }}> · Waiting to send</span>}</div>
                             </div>
                             <span className="text-[13px] font-semibold cx-mono">{fmt(c.amount)}</span>
                             {canRemoveCharge(c) && <button type="button" aria-label={`Remove ${c.item}`} onClick={() => removeCharge(c)} disabled={bookingBusy} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: C.rust }}><X size={14} /></button>}
@@ -7816,6 +7933,12 @@ function XorlaApp() {
           </div>
           {body}
           {bookingError && <div className="mt-3 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
+          {!netOnline && (
+            <div className="mt-4 rounded-xl px-3.5 py-2.5 text-[12.5px] leading-snug flex items-start gap-2.5" style={{ background: C.copperSoft, color: C.ink }}>
+              <WifiOff size={15} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
+              <span>{bookingPanel ? (bookingForm?.checkIn === bkToday ? "You're offline. The guest is checked in straight away to a free room, and it sends to Xorla when you're back online." : "You're offline. Bookings for later need internet; a guest checking in today can be booked now.") : ['deposit', 'check_in', 'check_out', 'bill'].includes(bookingAct?.action) ? "You're offline. This is saved on this phone and sends itself when you're back online." : "You're offline. This needs internet."}</span>
+            </div>
+          )}
           <button onClick={submit} disabled={bookingBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: spaceForm && submitLabel === 'That time is taken' ? C.surfaceRaised : ['cancel', 'decline', 'no_show'].includes(bookingAct?.action) ? C.rustFill : C.copperFill, color: spaceForm && submitLabel === 'That time is taken' ? C.inkFaint : C.onAccent, opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? 'Saving…' : submitLabel}</button>
         </div>
       </div>
@@ -7940,7 +8063,7 @@ function XorlaApp() {
           </div>
         </div>
       )}
-      {(!netOnline || syncNote || (syncing && outbox.length > 0)) && (
+      {!outboxOpen && (!netOnline || syncNote || (syncing && outbox.length > 0)) && (
         <div className="fixed left-0 right-0 z-[94] flex justify-center px-3 pointer-events-none" style={{ bottom: 'calc(84px + env(safe-area-inset-bottom))' }}>
           {!netOnline && offlineSmall ? (
             <button type="button" onClick={() => (outbox.length ? setOutboxOpen(true) : setOfflineSmall(false))} className="pointer-events-auto rounded-full pl-3 pr-3.5 py-1.5 text-[12px] font-bold flex items-center gap-1.5 xorla-fade-up" style={{ background: '#13322C', color: '#EAF6F2', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 8px 22px rgba(0,0,0,0.3)' }}>
@@ -7953,6 +8076,11 @@ function XorlaApp() {
             </button>
           ) : syncing ? (
             <div className="rounded-full px-4 py-2 text-[12.5px] font-semibold flex items-center gap-2 xorla-fade-up" style={{ background: '#13322C', color: '#EAF6F2', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}><Loader2 size={14} className="animate-spin" style={{ color: '#1FD9C4' }} /> Sending what you saved offline…</div>
+          ) : syncNote?.problem ? (
+            <button type="button" onClick={() => { setSyncNote(null); setOutboxOpen(true); }} className="pointer-events-auto max-w-md rounded-2xl pl-3 pr-4 py-2.5 text-[12.5px] leading-snug flex items-center gap-2.5 text-left xorla-fade-up" style={{ background: '#3A1A14', color: '#FBE3DD', border: '1px solid rgba(226,98,75,0.5)', boxShadow: '0 10px 28px rgba(0,0,0,0.35)' }}>
+              <AlertCircle size={18} className="shrink-0" style={{ color: '#F08A74' }} />
+              <span><strong className="block text-[13px]">{syncNote.problem} record{syncNote.problem > 1 ? 's' : ''} from offline need{syncNote.problem > 1 ? '' : 's'} you</strong>{syncNote.sent ? `${syncNote.sent} sent fine. ` : ''}Tap to see what happened and sort it out.</span>
+            </button>
           ) : syncNote?.sent ? (
             <div className="rounded-full px-4 py-2 text-[12.5px] font-semibold flex items-center gap-2 xorla-fade-up" style={{ background: '#13322C', color: '#EAF6F2', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}><Check size={14} style={{ color: '#1FD9C4' }} /> All caught up: {syncNote.sent} record{syncNote.sent > 1 ? 's' : ''} sent to Xorla</div>
           ) : syncNote?.waiting ? (
@@ -7962,21 +8090,24 @@ function XorlaApp() {
       )}
       {outboxOpen && (
         <Sheet title="Waiting to send" onClose={() => setOutboxOpen(false)}>
-          <div className="text-[12.5px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{netOnline ? 'These are on their way to Xorla.' : "You're offline. These are safe on this phone and send themselves when the internet is back."} They already count in your totals here.</div>
+          <div className="text-[12.5px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{outbox.length && outbox.every((o) => o.error) ? "Xorla couldn't save these. Try again, or remove one and do it again (for a room that's now taken, check the guest into another room)." : netOnline ? 'These are on their way to Xorla.' : "You're offline. These are safe on this phone and send themselves when the internet is back."} They already count in your totals here.</div>
           {outbox.length === 0 && <div className="text-[13px] py-6 text-center" style={{ color: C.inkFaint }}>Everything has been sent.</div>}
           <div className="space-y-2">
             {outbox.map((op) => {
-              const title = op.kind === 'expense' ? op.expense?.item : (op.sales || []).map((x) => x.item).join(', ');
-              const amount = op.kind === 'expense' ? Number(op.expense?.amount) || 0 : (op.sales || []).reduce((a, x) => a + (Number(x.amount) || 0), 0);
+              const guest = op.kind === 'desk' ? (op.action === 'walk_in' ? op.view?.booking : bookingsAll.find((b) => b.id === op.args?.p_booking)) : null;
+              const gName = String(guest?.customer_name || 'Guest').split(' ')[0];
+              const deskTitle = { walk_in: `Walk-in: ${guest?.customer_name || 'Guest'}${op.view?.booking?.room_label ? `, room ${op.view.booking.room_label}` : ''}`, add_room_charge: `${op.view?.item || 'Extra'}${Number(op.args?.p_qty) > 1 ? ` ×${Number(op.args.p_qty)}` : ''} on ${gName}'s bill`, pay: `Payment from ${gName}`, deposit: `Deposit from ${gName}`, check_in: `Checked in ${gName}`, check_out: `Checked out ${gName}`, leave_early: `${gName} left early` };
+              const title = op.kind === 'desk' ? deskTitle[op.action] : op.kind === 'expense' ? op.expense?.item : (op.sales || []).map((x) => x.item).join(', ');
+              const amount = op.kind === 'desk' ? (op.action === 'add_room_charge' ? (Number(op.view?.price) || 0) * (Number(op.args?.p_qty) || 1) : op.action === 'walk_in' ? Number(op.args?.p_amount_paid) || 0 : Number(op.args?.p_amount) || 0) : op.kind === 'expense' ? Number(op.expense?.amount) || 0 : (op.sales || []).reduce((a, x) => a + (Number(x.amount) || 0), 0);
               return (
                 <div key={op.op_id} className="rounded-2xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1px solid ${op.error ? 'rgba(226,98,75,0.4)' : C.line}` }}>
                   <div className="flex items-start gap-3">
                     <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: op.error ? C.rustSoft : C.copperSoft }}>{op.error ? <AlertCircle size={16} style={{ color: C.rust }} /> : <CloudUpload size={16} style={{ color: C.copper }} />}</span>
                     <span className="flex-1 min-w-0">
                       <span className="block text-[13.5px] font-semibold truncate">{title || (op.kind === 'expense' ? 'Expense' : 'Sale')}</span>
-                      <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{op.kind === 'expense' ? 'Expense' : T.Sale || 'Sale'} · {new Date(op.at).toLocaleString('en-GB', { ...LAGOS_TIME, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                       <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{op.kind === 'desk' ? 'Front desk' : op.kind === 'expense' ? 'Expense' : T.Sale || 'Sale'} · {new Date(op.at).toLocaleString('en-GB', { ...LAGOS_TIME, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                     </span>
-                    <span className="text-[13.5px] font-semibold cx-mono shrink-0" style={{ color: op.kind === 'expense' ? C.rust : C.ink }}>{op.kind === 'expense' ? '-' : ''}{fmt(amount)}</span>
+                    {amount > 0 && <span className="text-[13.5px] font-semibold cx-mono shrink-0" style={{ color: op.kind === 'expense' ? C.rust : C.ink }}>{op.kind === 'expense' ? '-' : ''}{fmt(amount)}</span>}
                   </div>
                   {op.error && (
                     <div className="mt-2.5 pl-12">
@@ -11017,7 +11148,7 @@ function XorlaApp() {
             { id: 'expenses', label: 'Expenses', Icon: Receipt },
             { id: 'invoices', label: 'Invoices', Icon: Wallet },
             ...(canRun ? [{ id: 'reports', label: 'Reports', Icon: TrendingUp }] : []),
-            { id: 'advisor', label: 'Oga', Icon: OgaMark },
+            { id: 'advisor', label: 'Oga', Icon: OgaNavIcon },
           ].map(({ id, label, Icon }) => (
             <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: C.sageSoft, color: C.sage } : { color: C.inkDim }}>
               <Icon size={16} /> {label}
