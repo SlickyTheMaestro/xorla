@@ -957,7 +957,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, billedAt: row.billed_at || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '' };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, parts: Array.isArray(row.parts) && row.parts.length > 1 ? row.parts : null, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, billedAt: row.billed_at || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '' };
 }
 
 function staticMessage(inv, settings) {
@@ -5443,7 +5443,8 @@ function XorlaApp() {
     const address = (shop && shop.address) || settings.businessAddress || '';
     return [
       `Hi ${first}, a friendly reminder of your appointment with ${settings.businessName} ${when}${o.personName ? `, with ${o.personName}` : ''}.`,
-      `For: ${o.items.map((it) => it.description).join(', ')}`,
+      o.parts ? o.parts.map((pt) => `${pt.guest || first}: ${(pt.items || []).join(', ')}, ${apptTime(pt.start_at)} to ${apptTime(pt.end_at)}${pt.person_name ? ` with ${pt.person_name}` : ''}`).join('\n')
+        : `For: ${o.items.map((it) => `${it.description}${it.for ? ` (for ${it.for})` : ''}`).join(', ')}`,
       address ? `Address: ${address}` : '',
       "If you can't make it, please reply to let us know so we can give the time to someone else. See you soon!",
     ].filter(Boolean).join('\n\n');
@@ -5461,7 +5462,7 @@ function XorlaApp() {
   };
   const timedServices = productsAll.filter((p) => kindOf(p, settings.businessType) === 'service' && serviceMinutes(p) !== null);
   const isConfirmedAppt = (x) => x.status === 'pending' && x.startAt && x.acceptedAt;
-  const apptClashes = (o) => ordersAll.filter((x) => x.id !== o.id && isConfirmedAppt(x) && (x.shopId || mainShopId) === (o.shopId || mainShopId)
+  const apptClashes = (o) => (o.parts ? [] : ordersAll).filter((x) => x.id !== o.id && isConfirmedAppt(x) && (x.shopId || mainShopId) === (o.shopId || mainShopId)
     && new Date(x.startAt) < new Date(o.endAt) && new Date(x.endAt) > new Date(o.startAt));
   const apptPassed = (o) => o.startAt && new Date(o.startAt).getTime() < Date.now();
   const todaysAppts = orders.filter((o) => isConfirmedAppt(o) && lagosDateKey(o.startAt) === todayKey()).sort((a, b) => a.startAt.localeCompare(b.startAt));
@@ -5501,7 +5502,7 @@ function XorlaApp() {
   };
   const waConfirmLink = (o) => o.customerPhone && `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(`Hi ${o.customerName.split(' ')[0]}, your appointment with ${settings.businessName} is confirmed for ${apptRange(o)}. See you then!`)}`;
   const loadApptCal = async (panel) => {
-    const items = panel.mode === 'new' ? panel.items.map((id) => ({ productId: id, quantity: 1 })) : panel.order.items.map((it) => ({ productId: it.productId, quantity: it.quantity }));
+    const items = panel.mode === 'new' ? panel.items.map((id) => ({ productId: id, quantity: 1 })) : panel.order.items.map((it) => ({ productId: it.productId, quantity: it.quantity, ...(it.for ? { for: it.for } : {}) }));
     if (!items.length) { setApptPanel((p) => p && { ...p, cal: null, slot: '' }); return; }
     setApptPanel((p) => p && { ...p, calLoading: true, error: '' });
     try {
@@ -5834,14 +5835,14 @@ function XorlaApp() {
   const renderApptTop = () => {
     if (!apptMode) return null;
     const mineOnly = !!myPerson && apptMineOnly;
-    const forMe = (o) => !mineOnly || o.personId === myPerson.id;
+    const forMe = (o) => !mineOnly || o.personId === myPerson.id || (o.parts || []).some((pt) => pt.person_id === myPerson.id);
     const today = todaysAppts.filter(forMe);
     const tomorrow = orders.filter((o) => isConfirmedAppt(o) && lagosDateKey(o.startAt) === lagosTomorrow && forMe(o)).sort((a, b) => a.startAt.localeCompare(b.startAt));
     const showWho = settings.apptByPerson && activePeople.length > 0;
     const row = (o, remind) => (
       <div key={o.id} className="flex items-center gap-3 text-[12.5px]">
         <span className="shrink-0 whitespace-nowrap cx-mono font-semibold" style={{ color: new Date(o.endAt) < new Date() ? C.inkFaint : C.copper }}>{apptTime(o.startAt)}</span>
-        <span className="min-w-0 flex-1 truncate"><strong>{o.customerName}</strong><span style={{ color: C.inkDim }}> · {o.items.map((it) => it.description).join(', ')}{showWho && o.personName && !mineOnly ? ` · ${o.personName}` : ''}</span></span>
+        <span className="min-w-0 flex-1 truncate"><strong>{o.customerName}</strong>{o.parts ? <span style={{ color: C.copper }}> · group of {o.parts.length}</span> : null}<span style={{ color: C.inkDim }}> · {o.items.map((it) => it.description).join(', ')}{showWho && o.personName && !mineOnly ? ` · ${o.personName}` : ''}</span></span>
         {remind && (canRemind(o)
           ? <button onClick={() => sendReminder(o)} className="shrink-0 text-[11.5px] font-semibold px-2.5 py-1 rounded-lg" style={o.remindedAt ? { color: C.sage } : { background: C.copperSoft, color: C.copper }}>{o.remindedAt ? <span className="flex items-center gap-1"><Check size={12} /> Reminded</span> : 'Remind'}</button>
           : <span className="shrink-0 text-[11px]" style={{ color: C.inkFaint }}>{o.customerPhone ? '' : 'No phone'}</span>)}
@@ -5954,7 +5955,7 @@ function XorlaApp() {
                   <div className="space-y-1 mb-3 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
                     {o.items.map((it, i) => (
                       <div key={i} className="flex items-center justify-between text-[12.5px]">
-                        <span style={{ color: C.inkDim }}>{it.description} ×{it.quantity}</span>
+                        <span style={{ color: C.inkDim }}>{it.description} ×{it.quantity}{it.for ? <span style={{ color: C.copper }}> · for {it.for}</span> : null}</span>
                         <span className="cx-mono">{fmt(it.quantity * it.unitPrice)}</span>
                       </div>
                     ))}
@@ -6177,7 +6178,21 @@ function XorlaApp() {
                           <CalendarClock size={15} style={{ color: full ? C.rust : o.acceptedAt ? C.sage : C.copper }} />
                           <span className="font-semibold" style={{ color: C.ink }}>{apptRange(o)}</span>
                         </div>
-                        {(o.personName || (o.status === 'pending' && teamOn(o.shopId))) && (
+                        {o.parts && (
+                          <div className="mt-2 space-y-1.5">
+                            {o.parts.map((pt, i) => (
+                              <div key={i} className="flex items-start gap-2 rounded-lg px-2.5 py-2" style={{ background: 'rgba(var(--c-hi),0.04)' }}>
+                                <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10.5px] font-bold shrink-0" style={{ background: C.copperSoft, color: C.copper }}>{(pt.guest || o.customerName || '?').trim()[0]?.toUpperCase()}</span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block font-semibold" style={{ color: C.ink }}>{pt.guest || String(o.customerName).split(' ')[0]}<span className="font-normal cx-mono" style={{ color: C.inkDim }}> · {apptTime(pt.start_at)} to {apptTime(pt.end_at)}</span></span>
+                                  <span className="block" style={{ color: C.inkDim }}>{(pt.items || []).join(', ')}{pt.person_name ? ` · with ${pt.person_name}` : ''}</span>
+                                </span>
+                              </div>
+                            ))}
+                            {o.status === 'pending' && !o.acceptedAt && <div style={{ color: C.inkFaint }}>Group booking. Everyone's place is checked again when you confirm.</div>}
+                          </div>
+                        )}
+                        {!o.parts && (o.personName || (o.status === 'pending' && teamOn(o.shopId))) && (
                           <div className="mt-1 flex items-center gap-2 flex-wrap" style={{ color: C.inkDim }}>
                             <span>{o.personName ? <>With <strong style={{ color: C.ink }}>{o.personName}</strong>{!o.personAny && <span style={{ color: C.inkFaint }}> · {String(o.customerName).split(' ')[0]}'s choice</span>}</> : `No ${PW.one} yet`}</span>
                             {o.status === 'pending' && !apptPassed(o) && canAnswerRequests && teamOn(o.shopId) && <button onClick={() => openAppt('assign', o)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>Change</button>}
@@ -6194,7 +6209,7 @@ function XorlaApp() {
                         {o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer && !apptPassed(o) && (
                           <div className="mt-1" style={{ color: full ? C.rust : C.sage }}>{full
                             ? `Clashes with ${clash.map((x) => `${x.customerName} (${apptTime(x.startAt)} to ${apptTime(x.endAt)})`).join(', ')}. Offer another time, or decline.`
-                            : clash.length ? `Free. ${clash.length} of ${apptCapAt(o.shopId)} places already booked at that time.` : 'This time is free.'}</div>
+                            : clash.length ? `Free. ${clash.length} of ${apptCapAt(o.shopId)} places already booked at that time.` : o.parts ? 'Everyone fits at this time.' : 'This time is free.'}</div>
                         )}
                         {o.acceptedAt && o.status === 'pending' && o.remindedAt && <div className="mt-1" style={{ color: C.sage }}>Reminder sent {lagosDateKey(o.remindedAt) === lagosToday ? 'today' : apptDay(o.remindedAt)} at {apptTime(o.remindedAt)}</div>}
                         {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.proposalReply === 'accepted' ? ` by ${String(o.customerName).split(' ')[0]} from your offer` : o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
@@ -13036,6 +13051,9 @@ function Storefront({ businessCode }) {
   const [apptSlot, setApptSlot] = useState('');
   const [apptPerson, setApptPerson] = useState(null);
   const [sentWhen, setSentWhen] = useState('');
+  // Booking for more than one person (a lady and her husband, friends): who each service is for. '' is the person booking.
+  const [party, setParty] = useState([]);
+  const [forEdit, setForEdit] = useState(null);   // { key, mode: 'move' | 'copy', name }
   // Bookings (hotels and rentals): chosen dates, live availability, and the booking form
   const [stayIn, setStayIn] = useState('');
   const [stayOut, setStayOut] = useState('');
@@ -13173,15 +13191,44 @@ function Storefront({ businessCode }) {
         .filter((s) => s.items.length)
     : [{ title: null, items: visibleProducts }];
 
-  // A basket line is one product, or one colour/size of it ("id::Red / M"), or the customer's own choice ("id::~Emerald")
-  const cartKeyOf = (productId, variant, custom) => (custom ? `${productId}::~${custom}` : variant ? `${productId}::${variant}` : productId);
+  // A basket line is one product, or one colour/size of it ("id::Red / M"), or the customer's own choice ("id::~Emerald"),
+  // and, for appointments booked for someone else, who it's for ("id@@Chidi")
+  const cartKeyOf = (productId, variant, custom, guest = '') => (custom ? `${productId}::~${custom}` : variant ? `${productId}::${variant}` : productId) + (guest ? `@@${guest}` : '');
   const cartList = Object.entries(cart).filter(([, qty]) => qty > 0).map(([key, qty]) => {
-    const [id, rest] = [key.split('::')[0], key.includes('::') ? key.slice(key.indexOf('::') + 2) : ''];
+    const at = key.indexOf('@@'); const base = at >= 0 ? key.slice(0, at) : key; const guest = at >= 0 ? key.slice(at + 2) : '';
+    const [id, rest] = [base.split('::')[0], base.includes('::') ? base.slice(base.indexOf('::') + 2) : ''];
     const custom = rest.startsWith('~') ? rest.slice(1) : '';
-    return { key, product: storeProducts.find((p) => p.id === id), qty, variant: custom ? '' : rest, custom };
+    return { key, product: storeProducts.find((p) => p.id === id), qty, variant: custom ? '' : rest, custom, guest };
   }).filter((c) => c.product);
   const inCartOf = (productId) => cartList.filter((c) => c.product.id === productId).reduce((a, c) => a + c.qty, 0);
   const lineLabel = (c) => (c.custom ? `Own choice: ${c.custom}` : c.variant || '');
+  // Who a service is for, when the booking is for more than one person
+  const hasGuests = cartList.some((c) => c.guest);
+  const youName = customerName.trim().split(' ')[0] || 'You';
+  const forText = (c) => (c.guest ? ` · for ${c.guest}` : hasGuests && storeKind(c.product) === 'service' ? ` · for ${youName}` : '');
+  const groupable = (c) => !!business && storeKind(c.product) === 'service' && !isBookable(c.product) && !['accommodation', 'rentals'].includes(business.service_kind);
+  const partyName = (raw) => {
+    const n = String(raw || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    if (!n || /^(you|me|myself)$/i.test(n)) return '';
+    const same = party.find((x) => x.toLowerCase() === n.toLowerCase());
+    if (!same) setParty((p) => [...p, n]);
+    return same || n;
+  };
+  // Move a service to someone else, or book the same service for them too
+  const moveLine = (c, guest) => setCart((prev) => {
+    const to = cartKeyOf(c.product.id, c.variant, c.custom, guest);
+    if (to === c.key) return prev;
+    const next = { ...prev }; const q = next[c.key] || 0; delete next[c.key];
+    next[to] = Math.min(Math.max(1, lineMax(c.product, c.variant, c.custom)), (next[to] || 0) + q);
+    return next;
+  });
+  const copyLine = (c, guest) => setCart((prev) => { const to = cartKeyOf(c.product.id, c.variant, c.custom, guest); return prev[to] ? prev : { ...prev, [to]: c.qty }; });
+  const pickFor = (c, mode, raw) => {
+    const n = raw === '' && mode === 'move' ? '' : partyName(raw);
+    if (n === '' && raw !== '') return;
+    if (mode === 'move') moveLine(c, n); else if (n) copyLine(c, n);
+    setForEdit(null);
+  };
   // How many a basket line may hold: the stock of that colour/size, unlimited for made to order and own choices
   const lineMax = (product, variant, custom) => {
     if (storeKind(product) === 'service') return product.priceUnit === 'hour' ? 24 : 1;
@@ -13230,9 +13277,9 @@ function Storefront({ businessCode }) {
     return c.product.priceUnit === 'hour' ? ` (${c.qty} hr${c.qty !== 1 ? 's' : ''})` : '';
   };
 
-  const serviceKey = JSON.stringify(cartList.filter((c) => storeKind(c.product) === 'service').map((c) => [c.product.id, c.qty]));
+  const serviceKey = JSON.stringify(cartList.filter((c) => storeKind(c.product) === 'service').map((c) => [c.product.id, c.qty, c.guest || '']));
   const loadStoreCalendar = useCallback(async () => {
-    const items = JSON.parse(serviceKey).map(([productId, quantity]) => ({ productId, quantity }));
+    const items = JSON.parse(serviceKey).map(([productId, quantity, guest]) => ({ productId, quantity, ...(guest ? { for: guest } : {}) }));
     // Hotels and rentals don't take appointments: their extras (water, laundry, airport pickup) are simply ordered
     if (!items.length || !business || ['accommodation', 'rentals'].includes(business.service_kind)) { setApptCal(null); return; }
     setApptCalLoading(true);
@@ -13258,8 +13305,8 @@ function Storefront({ businessCode }) {
     return () => clearTimeout(t);
   }, [cartKey, business?.shop_id, phoneReady]);
 
-  const changeQty = (product, delta, variant = '', custom = '') => {
-    const key = cartKeyOf(product.id, variant, custom);
+  const changeQty = (product, delta, variant = '', custom = '', guest = '') => {
+    const key = cartKeyOf(product.id, variant, custom, guest);
     setCart((prev) => {
       const current = prev[key] || 0;
       // Without options the whole product's stock is the limit; one colour/size is limited by its own stock
@@ -13288,9 +13335,9 @@ function Storefront({ businessCode }) {
     setSubmitting(true);
     try {
       // Only product IDs + quantities are sent — the database looks up the real prices itself
-      const items = cartList.map((c) => ({ productId: c.product.id, quantity: c.qty, ...(c.variant ? { variant: c.variant } : {}), ...(c.custom ? { custom: c.custom } : {}) }));
+      const items = cartList.map((c) => ({ productId: c.product.id, quantity: c.qty, ...(c.variant ? { variant: c.variant } : {}), ...(c.custom ? { custom: c.custom } : {}), ...(c.guest ? { for: c.guest } : {}) }));
       const when = usesSlots && apptSlot
-        ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(new Date(new Date(apptSlot).getTime() + apptCal.minutes * 60000).toISOString())}`
+        ? `${apptDay(apptSlot)}, ${apptTime(apptSlot)} to ${apptTime(calEndOf(apptCal, apptSlot))}`
         : preferredTime ? new Date(preferredTime).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
       const lway = laundryOut && laundryOpts.some(([v]) => v === laundryWay) ? laundryWay : '';
       const laundryNote = lway === 'collect' || (svcKinds.includes('laundry') && askHow && fulfilMode === 'delivery') ? LAUNDRY_COLLECT_NOTE : lway === 'drop' ? LAUNDRY_DROP_NOTE : '';
@@ -13302,16 +13349,16 @@ function Storefront({ businessCode }) {
       catch (e) { if (/place_order_v2|does not exist|schema cache/i.test(e.message || '')) { const { p_room, p_mode, p_address, p_zone, ...older } = orderArgs; await sbRpc('place_order', SB_KEY, { ...older, p_note: [older.p_note, p_mode === 'delivery' ? `Deliver to: ${p_address}` : p_mode === 'room' ? `Room ${p_room}` : p_mode === 'pickup' ? 'Pick-up' : ''].filter(Boolean).join(' · ') }); } else throw e; }
       if (placed?.token && !(usesSlots && apptSlot)) {
         setThanks({ kind: 'order', name: customerName.trim(), phone: customerPhone.trim(), link: `/order/${placed.token}`, total: payable,
-          lines: cartList.map((c) => `${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${c.qty > 1 ? ` ×${c.qty}` : ''}`),
+          lines: cartList.map((c) => `${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${c.qty > 1 ? ` ×${c.qty}` : ''}${forText(c)}`),
           when: when || '', room: (askHow && fulfilMode === 'room') || (askStay && guestStay === 'yes') ? guestRoom.trim() : '', service: isService || cartHasService || svcExtras.length > 0 });
-        setShowCheckout(false); setCart({}); setOrderNote(''); setPreferredTime(''); setGuestStay(''); setLaundryWay('');
+        setShowCheckout(false); setCart({}); setParty([]); setForEdit(null); setOrderNote(''); setPreferredTime(''); setGuestStay(''); setLaundryWay('');
         setSubmitting(false);   // so "Keep exploring" goes back to a working store, not a stuck "Sending…"
         return;
       }
       const who = usesSlots && apptSlot && apptPerson ? (apptCal.people || []).find((p) => p.id === apptPerson)?.name : '';
       setSentWhen(usesSlots && apptSlot ? `${when}${who ? `, with ${who}` : ''}` : '');
       if (business.owner_phone) {
-        const lines = cartList.map((c) => `• ${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${lineQtyText(c)} — ${fmt(linePrice(c) * c.qty)}`).join('\n');
+        const lines = cartList.map((c) => `• ${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${lineQtyText(c)}${forText(c)} — ${fmt(linePrice(c) * c.qty)}`).join('\n');
         const extra = `${lway === 'collect' ? `\nCollect the laundry from: ${orderArgs.p_address}` : lway === 'drop' ? "\nWill drop the laundry off" : ''}${askHow && fulfilMode === 'delivery' ? `\nDeliver to: ${orderArgs.p_address}` : (askHow && fulfilMode === 'room') || (askStay && guestStay === 'yes') ? `\nRoom: ${guestRoom.trim()}` : askHow && fulfilMode === 'pickup' ? '\nPick-up' : ''}${when ? `\nPreferred time: ${when}` : ''}${orderNote.trim() ? `\nNote: ${orderNote.trim()}` : ''}`;
         const shopLabel = storeShops.length > 1 ? ` for ${displayLocationName(currentStoreShop, locationWords(business?.business_type, business?.service_kind))}` : '';
         const msg = `New ${isService || cartHasService ? 'request' : 'order'}${shopLabel} from ${customerName.trim()}${customerPhone ? ` (${customerPhone.trim()})` : ''}:\n\n${lines}${discountOff ? `\n\nSubtotal: ${fmt(cartTotal)}\nDiscount (${discount.code}): ${fmt(-discountOff)}` : ''}\n\nTotal: ${fmt(payable)}${extra}`;
@@ -13367,7 +13414,7 @@ function Storefront({ businessCode }) {
         <div className="text-[24px] font-bold mb-2">{W.sent} {business.name}</div>
         {sentWhen && <div className="text-[15px] font-semibold mb-2">{sentWhen}</div>}
         <div className="text-[14px] max-w-sm mb-8" style={{ color: S.muted }}>{sentWhen ? `This time is held for you. ${business.name} will confirm it${customerPhone ? ` on ${customerPhone}` : ''} soon.` : `They'll contact you${customerPhone ? ` on ${customerPhone}` : ''} to confirm ${W.inYour} and arrange payment${isService ? '' : ' and delivery'}.`}</div>
-        <button onClick={() => { setOrderSent(false); setCart({}); }} className={`px-6 py-3 rounded-full text-[14px] font-semibold ${focusRing}`} style={{ border: `1.5px solid ${S.ink}` }}>Back to the store</button>
+        <button onClick={() => { setOrderSent(false); setCart({}); setParty([]); setForEdit(null); }} className={`px-6 py-3 rounded-full text-[14px] font-semibold ${focusRing}`} style={{ border: `1.5px solid ${S.ink}` }}>Back to the store</button>
       </div>
     );
   }
@@ -13700,6 +13747,7 @@ function Storefront({ businessCode }) {
     if (isBookable(p)) return renderBookableCard(p);
     const qty = cart[p.id] || 0;
     const svc = storeKind(p) === 'service';
+    const svcAny = svc ? inCartOf(p.id) : 0;   // booked for anyone (the person booking, or someone with them)
     const opts = !svc && hasOptions(p);
     const inCart = opts ? inCartOf(p.id) : qty;
     const isOut = !svc && p.stockQuantity === 0 && !(opts && p.customChoice);
@@ -13738,7 +13786,7 @@ function Storefront({ businessCode }) {
             {inCart ? <><Check size={15} strokeWidth={2.5} /> {inCart} in your {W.short.toLowerCase()}</> : <>Choose {cleanOptions(p.options)[0].name.toLowerCase()}{p.options.length > 1 ? ' & more' : ''}</>}
           </button>
         ) : svc ? (
-          qty === 0 ? (
+          (p.priceUnit === 'hour' ? qty : svcAny) === 0 ? (
             <button onClick={() => changeQty(p, 1)} aria-label={`Request ${p.name}`} className={`w-full py-2.5 rounded-xl text-[13.5px] font-semibold active:scale-[0.98] transition-transform ${focusRing}`} style={{ background: S.ink, color: '#fff' }}>Request</button>
           ) : p.priceUnit === 'hour' ? (
             <div className="w-full flex items-center justify-between rounded-xl" style={{ border: `1.5px solid ${S.ink}` }}>
@@ -13747,7 +13795,7 @@ function Storefront({ businessCode }) {
               <button onClick={() => changeQty(p, 1)} aria-label={`One hour more of ${p.name}`} className={`w-11 py-2 text-[18px] font-semibold rounded-r-xl ${focusRing}`}>+</button>
             </div>
           ) : (
-            <button onClick={() => changeQty(p, -1)} aria-label={`Remove ${p.name} from your request`} className={`w-full py-2.5 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-1.5 ${focusRing}`} style={{ border: `1.5px solid ${S.ink}`, color: S.ink }}><Check size={15} strokeWidth={2.5} /> Added</button>
+            <button onClick={() => { if (qty > 0) changeQty(p, -1); else { const k = cartList.find((c) => c.product.id === p.id)?.key; if (k) setCart((prev) => ({ ...prev, [k]: 0 })); } }} aria-label={`Remove ${p.name} from your request`} className={`w-full py-2.5 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-1.5 ${focusRing}`} style={{ border: `1.5px solid ${S.ink}`, color: S.ink }}><Check size={15} strokeWidth={2.5} /> Added</button>
           )
         ) : qty === 0 ? (
           <button onClick={() => changeQty(p, 1)} aria-label={`Add ${p.name} to your order`} className={`w-full py-2.5 rounded-xl text-[13.5px] font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform ${focusRing}`} style={{ background: S.ink, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
@@ -13927,8 +13975,10 @@ function Storefront({ businessCode }) {
       ) : (
         <>
           <div className="space-y-3 mb-4">
+            {hasGuests && <div className="text-[12.5px] rounded-xl px-3 py-2" style={{ background: S.tile, color: S.muted }}>Booking for {new Set(cartList.filter(groupable).map((c) => c.guest)).size} people. Each person gets their own time and {(PERSON_WORDS[business?.service_kind] || PERSON_WORDS._default).one}, so you're served together where possible.</div>}
             {cartList.map((c) => (
-              <div key={c.key} className="flex items-center gap-3">
+              <div key={c.key}>
+              <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center" style={{ background: S.tile }}>
                   {c.product.imageUrl ? <img src={c.product.imageUrl} alt="" className="w-full h-full object-cover" /> : <Package size={16} style={{ color: S.soldOut }} />}
                 </div>
@@ -13938,9 +13988,41 @@ function Storefront({ businessCode }) {
                   <div className="text-[12.5px]" style={{ color: S.muted, fontVariantNumeric: 'tabular-nums' }}>{storeKind(c.product) === 'service' ? (c.product.priceUnit === 'hour' ? `${c.qty} hr${c.qty !== 1 ? 's' : ''} × ${fmt(c.product.sellingPrice)}` : priceLabel(c.product)) : `${c.qty} × ${fmt(linePrice(c))}`}</div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => changeQty(c.product, -1, c.variant, c.custom)} aria-label={`Remove one ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile }}>−</button>
-                  <button onClick={() => changeQty(c.product, 1, c.variant, c.custom)} disabled={c.qty >= lineMax(c.product, c.variant, c.custom)} aria-label={`Add one more ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile, opacity: c.qty >= lineMax(c.product, c.variant, c.custom) ? 0.35 : 1 }}>+</button>
+                  <button onClick={() => changeQty(c.product, -1, c.variant, c.custom, c.guest)} aria-label={`Remove one ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile }}>−</button>
+                  <button onClick={() => changeQty(c.product, 1, c.variant, c.custom, c.guest)} disabled={c.qty >= lineMax(c.product, c.variant, c.custom)} aria-label={`Add one more ${c.product.name}`} className={`w-7 h-7 rounded-full text-[15px] font-semibold ${focusRing}`} style={{ background: S.tile, opacity: c.qty >= lineMax(c.product, c.variant, c.custom) ? 0.35 : 1 }}>+</button>
                 </div>
+              </div>
+              {groupable(c) && (() => {
+                const others = party.filter((n) => n !== c.guest && !(forEdit?.mode === 'copy' && cartList.some((x) => x.product.id === c.product.id && x.variant === c.variant && x.custom === c.custom && x.guest === n)));
+                const editing = forEdit && forEdit.key === c.key;
+                return (
+                  <div className="pl-[60px] mt-1.5">
+                    <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[12px]">
+                      <label className="flex items-center gap-1" style={{ color: S.muted }}>For
+                        <select value={c.guest} aria-label={`Who ${c.product.name} is for`} onChange={(e) => { const v = e.target.value; if (v === '__new') setForEdit({ key: c.key, mode: 'move', name: '' }); else pickFor(c, 'move', v); }}
+                          className={`font-semibold rounded-md pl-1.5 pr-1 py-0.5 ${focusRing}`} style={{ background: S.tile, color: S.ink, border: 'none' }}>
+                          <option value="">{youName === 'You' ? 'You' : `${youName} (you)`}</option>
+                          {party.map((n) => <option key={n} value={n}>{n}</option>)}
+                          <option value="__new">Someone else…</option>
+                        </select>
+                      </label>
+                      {!editing && <button type="button" onClick={() => setForEdit({ key: c.key, mode: 'copy', name: '' })} className={`font-semibold underline underline-offset-2 ${focusRing}`} style={{ color: S.ink }}>+ Also for someone else</button>}
+                    </div>
+                    {editing && (
+                      <div className="mt-2 rounded-xl p-2.5" style={{ background: S.tile }}>
+                        <div className="text-[12px] font-semibold mb-1.5">{forEdit.mode === 'copy' ? `${c.product.name} for who else?` : `Who is ${c.product.name} for?`}</div>
+                        {others.length > 0 && <div className="flex flex-wrap gap-1.5 mb-2">{others.map((n) => <button key={n} type="button" onClick={() => pickFor(c, forEdit.mode, n)} className={`px-3 py-1.5 rounded-full text-[12.5px] font-semibold ${focusRing}`} style={{ background: '#fff', color: S.ink }}>{n}</button>)}</div>}
+                        <div className="flex gap-2">
+                          <input autoFocus value={forEdit.name} onChange={(e) => setForEdit((f) => f && { ...f, name: e.target.value.slice(0, 40) })} onKeyDown={(e) => e.key === 'Enter' && pickFor(c, forEdit.mode, forEdit.name)}
+                            placeholder="Their name, e.g. Chidi" className={`flex-1 min-w-0 rounded-lg px-3 py-2 text-[14px] ${focusRing}`} style={{ background: '#fff', border: 'none', color: S.ink }} />
+                          <button type="button" onClick={() => pickFor(c, forEdit.mode, forEdit.name)} disabled={!forEdit.name.trim()} className={`px-3.5 rounded-lg text-[13px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: forEdit.name.trim() ? 1 : 0.4 }}>Add</button>
+                          <button type="button" onClick={() => setForEdit(null)} className={`px-2 text-[12.5px] font-semibold ${focusRing}`} style={{ color: S.muted }}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               </div>
             ))}
           </div>
@@ -14113,7 +14195,9 @@ function Storefront({ businessCode }) {
                     </div>
                   </div>
                 )}
-                <div className="text-[12px] mb-2" style={{ color: S.muted }}>Takes about {apptCal.minutes >= 60 ? `${apptCal.minutes / 60} hour${apptCal.minutes !== 60 ? 's' : ''}` : `${apptCal.minutes} minutes`}. Only free times are shown.</div>
+                <div className="text-[12px] mb-2" style={{ color: S.muted }}>{apptCal.group
+                  ? `For ${apptCal.party} people. Only times that work for everyone are shown, with when you'll all be done.`
+                  : `Takes about ${apptCal.minutes >= 60 ? `${apptCal.minutes / 60} hour${apptCal.minutes !== 60 ? 's' : ''}` : `${apptCal.minutes} minutes`}. Only free times are shown.`}</div>
                 {!anyFree ? <div className="text-[13px] rounded-xl px-4 py-3" style={{ background: S.tile }}>{apptPerson ? `${(apptCal.people.find((p) => p.id === apptPerson) || {}).name || 'They'} has no free times in the next two weeks. Try "Anyone free", or send your request anyway.` : "No free times in the next two weeks. Send your request anyway and they'll suggest a time."}</div> : (
                   <>
                     <SlotPicker light cal={apptCal} day={apptPickDay} onDay={setApptPickDay} slot={apptSlot} onSlot={setApptSlot} />
@@ -19026,7 +19110,14 @@ function AppointmentOffer({ token }) {
           <div className="text-[12px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: S.muted }}>New time</div>
           <div className="text-[20px] font-bold leading-snug">{apptDay(offer.start_at)}</div>
           <div className="text-[17px] font-semibold">{apptTime(offer.start_at)} to {apptTime(offer.end_at)}</div>
-          <div className="text-[14px] mt-2" style={{ color: S.muted }}>{services}{offer.total ? ` · ${fmt(offer.total)}` : ''}</div>
+          {offer.parts ? (
+            <div className="mt-3 space-y-1.5">
+              {offer.parts.map((pt, i) => (
+                <div key={i} className="text-[13.5px] leading-snug"><span className="font-semibold">{pt.guest || offer.customer}</span><span style={{ color: S.muted }}> · {apptTime(pt.start_at)} to {apptTime(pt.end_at)} · {(pt.items || []).join(', ')}{pt.person ? `, with ${pt.person}` : ''}</span></div>
+              ))}
+              {offer.total ? <div className="text-[14px] pt-1" style={{ color: S.muted }}>{fmt(offer.total)} in total</div> : null}
+            </div>
+          ) : <div className="text-[14px] mt-2" style={{ color: S.muted }}>{services}{offer.total ? ` · ${fmt(offer.total)}` : ''}</div>}
           {offer.requested_start_at && <div className="text-[13px] mt-3 pt-3" style={{ color: S.muted, borderTop: `1px solid ${S.line}` }}>You asked for <span style={{ textDecoration: 'line-through' }}>{apptDay(offer.requested_start_at)}, {apptTime(offer.requested_start_at)}</span></div>}
         </>
       )}
@@ -19050,6 +19141,11 @@ function AppointmentOffer({ token }) {
 }
 
 // ============ Slot picker: a week calendar, then the free times for the chosen day grouped by part of the day ============
+// When a chosen time ends: a group booking finishes when its last person is done (the calendar says when, for each time)
+function calEndOf(cal, t) {
+  if (cal?.group) for (const d of cal.days || []) { const i = (d.slots || []).indexOf(t); if (i >= 0 && d.ends && d.ends[i]) return d.ends[i]; }
+  return new Date(new Date(t).getTime() + (cal?.minutes || 0) * 60000).toISOString();
+}
 function SlotPicker({ cal, day, onDay, slot, onSlot, light, scarcity = 'one' }) {
   const P = light
     ? { ink: '#17191A', muted: '#6B706B', faint: '#B4B8B2', tile: '#F1F2EF', line: '#E6E8E4', pick: '#17191A', pickInk: '#fff', dot: '#1F7A5C', bg: '#fff' }
@@ -19083,7 +19179,7 @@ function SlotPicker({ cal, day, onDay, slot, onSlot, light, scarcity = 'one' }) 
       {dir < 0 ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
     </button>
   );
-  const endOf = (t) => new Date(new Date(t).getTime() + (cal?.minutes || 0) * 60000).toISOString();
+  const endOf = (t) => calEndOf(cal, t);
   return (
     <div className="rounded-2xl p-3.5" style={{ border: `1px solid ${P.line}`, background: P.bg }}>
       <div className="flex items-center justify-between mb-2.5">
@@ -19115,7 +19211,7 @@ function SlotPicker({ cal, day, onDay, slot, onSlot, light, scarcity = 'one' }) 
                   <div className="text-[10.5px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: P.faint }}>{label}</div>
                   <div className="grid grid-cols-4 gap-1.5">
                     {list.map(([t, left]) => {
-                      const on = slot === t; const few = cap > 1 && left !== undefined && (scarcity === 'all' ? left < cap : left === 1);
+                      const on = slot === t; const few = !cal?.group && cap > 1 && left !== undefined && (scarcity === 'all' ? left < cap : left === 1);
                       return (
                         <button key={t} type="button" aria-pressed={on} onClick={() => onSlot(t)} className="py-2 rounded-lg text-[12.5px] font-semibold leading-tight"
                           style={on ? { background: P.pick, color: P.pickInk } : { background: P.tile, color: P.ink }}>
@@ -19778,7 +19874,7 @@ function CustomerOrder({ token }) {
           </div>
         )}
         <div className="rounded-2xl p-4 mb-4 text-[14px]" style={{ background: S.tile }}>
-          {items.map((it, i) => <div key={i}>{row(`${it.description}${Number(it.quantity) > 1 ? ` × ${it.quantity}` : ''}`, fmt(Number(it.quantity) * Number(it.unitPrice)), false, S.ink)}</div>)}
+          {items.map((it, i) => <div key={i}>{row(`${it.description}${Number(it.quantity) > 1 ? ` × ${it.quantity}` : ''}${it.for ? ` (for ${it.for})` : ''}`, fmt(Number(it.quantity) * Number(it.unitPrice)), false, S.ink)}</div>)}
           {discount > 0 && row(`Discount${od.discount_code ? ` (${od.discount_code})` : ''}`, fmt(-discount), false, '#0E7A5F')}
           {delivery > 0 && row('Delivery', fmt(delivery), false, S.ink)}
           <div className="my-1.5" style={{ borderTop: `1px solid ${S.line}` }} />
@@ -22119,4 +22215,3 @@ export default function Root() {
     : <XorlaApp />;
   return <>{page}<BrandDialogHost /></>;
 }
-
