@@ -20387,6 +20387,31 @@ function RiderApp() {
       if (me[k] && !photos[k]) vaultFileUrl(sess.access_token, 'rider-docs', me[k]).then((u) => setPhotos((p) => ({ ...p, [k]: u }))).catch(() => {});
     });
   }, [me?.id_doc, me?.selfie_doc, sess?.access_token]);
+  // Phones often close the page while the camera is open (to free memory), so it reloads when the rider comes back.
+  // Keep the step they were on and what they've typed on this phone, and put them straight back there.
+  const draftKey = sess?.user_id ? `xorla:rider-draft:${sess.user_id}` : '';
+  const [draftReady, setDraftReady] = useState(false);
+  const [camBack, setCamBack] = useState('');   // which photo's camera was open when the page reloaded
+  useEffect(() => {
+    if (!draftKey || me === undefined || draftReady) return;
+    setDraftReady(true);
+    if (me && !['draft', 'needs_fix'].includes(me.status || 'draft')) return;
+    try {
+      const d = JSON.parse(localStorage.getItem(draftKey) || 'null');
+      if (!d || Date.now() - (d.at || 0) > 3 * 86400000) return;
+      if (d.f && typeof d.f === 'object') setF((x) => ({ ...x, ...Object.fromEntries(Object.entries(d.f).filter(([k, v]) => v !== '' && v != null && !['id_doc', 'selfie_doc'].includes(k))) }));
+      if (Number.isInteger(d.step) && d.step >= 0 && d.step <= 4) setStep(d.step);
+      if (d.cam) setCamBack(d.cam);
+    } catch (e) {}
+  }, [draftKey, me, draftReady]);
+  useEffect(() => {
+    if (!draftKey || !draftReady) return;
+    if (me && !['draft', 'needs_fix'].includes(me.status || 'draft')) { try { localStorage.removeItem(draftKey); } catch (e) {} return; }
+    try { localStorage.setItem(draftKey, JSON.stringify({ f, step, at: Date.now() })); } catch (e) {}
+  }, [f, step, draftKey, draftReady, me?.status]);
+  // Remember that the camera was opened, so if the page reloads we can say what happened and offer the gallery instead
+  const markCamera = (k) => { if (!draftKey) return; try { const d = JSON.parse(localStorage.getItem(draftKey) || '{}'); localStorage.setItem(draftKey, JSON.stringify({ ...d, f, step, at: Date.now(), cam: k })); } catch (e) {} };
+  const clearCamera = () => { setCamBack(''); if (!draftKey) return; try { const d = JSON.parse(localStorage.getItem(draftKey) || '{}'); delete d.cam; localStorage.setItem(draftKey, JSON.stringify(d)); } catch (e) {} };
   // A fix requested: jump to the right step
   useEffect(() => {
     if (me?.status !== 'needs_fix') return;
@@ -20437,6 +20462,7 @@ function RiderApp() {
     setBusy(false);
   };
   const pickPhoto = async (k, file) => {
+    clearCamera();
     if (!file) return;
     setUpBusy(k); setErr('');
     try {
@@ -20720,7 +20746,14 @@ function RiderApp() {
   const lgas = NG_LGAS[f.state] || [];
   const motor = ['bike', 'tricycle', 'car', 'van'].includes(f.vehicle);
   const photoTile = (k, title, hint, Ic, capture) => (
-    <label className="relative block rounded-2xl overflow-hidden cursor-pointer" style={{ background: C.field, border: `1.5px dashed ${photos[k] || f[k] ? C.sage : C.lineStrong}` }}>
+    <div>
+    {camBack === k && !photos[k] && !f[k] && (
+      <div className="rounded-xl px-3.5 py-2.5 mb-2 text-[12.5px] leading-relaxed flex gap-2" style={{ background: C.copperSoft, color: C.ink }}>
+        <AlertCircle size={15} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
+        <span>Your phone closed this page while the camera was open, so the photo didn't come through. Your details are safe. Try again, or take the photo with your phone's camera app first, then tap <strong>Choose a photo you've taken</strong>.</span>
+      </div>
+    )}
+    <label onClick={() => markCamera(k)} className="relative block rounded-2xl overflow-hidden cursor-pointer" style={{ background: C.field, border: `1.5px dashed ${photos[k] || f[k] ? C.sage : C.lineStrong}` }}>
       <input type="file" accept="image/*" {...(capture ? { capture } : {})} className="sr-only" onChange={(e) => { pickPhoto(k, e.target.files?.[0]); e.target.value = ''; }} aria-label={title} />
       {photos[k] ? (
         <div className="relative">
@@ -20736,6 +20769,13 @@ function RiderApp() {
         </div>
       )}
     </label>
+    {capture && upBusy !== k && (
+      <label className="mt-2 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[12.5px] font-semibold cursor-pointer" style={{ color: C.sage }}>
+        <input type="file" accept="image/*" className="sr-only" onChange={(e) => { pickPhoto(k, e.target.files?.[0]); e.target.value = ''; }} aria-label={`${title}: choose a photo`} />
+        <ImagePlus size={14} /> Choose a photo you've taken
+      </label>
+    )}
+    </div>
   );
   const banksMatch = (banks || []).filter((b) => bank.q.trim() && b.name.toLowerCase().includes(bank.q.trim().toLowerCase())).slice(0, 6);
   const stepsBody = [
