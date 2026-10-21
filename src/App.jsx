@@ -4905,12 +4905,6 @@ function XorlaApp() {
     // Renewing pays for the locations open now (or the number the owner chose), not for ones that were closed or deleted
     setPlanExtra(Math.max(0, liveLocations.length - 3, effPlan === 'business' && subscription?.renew_extra_shops != null ? Number(subscription.renew_extra_shops) : 0));
     sbRpc('my_usage', session.access_token, {}).then(setUsage).catch(() => {});
-    if (!document.getElementById('xorla-jakarta')) {
-      const link = document.createElement('link');
-      link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
-      document.head.appendChild(link);
-    }
     sbRpc('early_supporter_spots', session.access_token, {}).then((n) => setEarlySpots(typeof n === 'number' ? n : null)).catch(() => {});
   }, [settingsPage]);
 
@@ -13092,14 +13086,10 @@ function Storefront({ businessCode }) {
 
   // Storefront-only font + a white browser bar, so it feels like the business's own shop, not the Xorla dashboard
   useEffect(() => {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
-    document.head.appendChild(link);
     const meta = document.querySelector('meta[name="theme-color"]');
     const prevTheme = meta?.getAttribute('content');
     meta?.setAttribute('content', '#FFFFFF');
-    return () => { link.remove(); if (meta && prevTheme) meta.setAttribute('content', prevTheme); };
+    return () => { if (meta && prevTheme) meta.setAttribute('content', prevTheme); };
   }, []);
 
   useEffect(() => {
@@ -14368,12 +14358,6 @@ function PricingPage() {
   const [spots, setSpots] = useState(null);
   useEffect(() => {
     document.title = 'Xorla pricing';
-    if (!document.getElementById('xorla-jakarta')) {
-      const link = document.createElement('link');
-      link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
-      document.head.appendChild(link);
-    }
     sbRpc('early_supporter_spots', SB_KEY, {}).then((n) => setSpots(typeof n === 'number' ? n : null)).catch(() => {});
   }, []);
 
@@ -14657,12 +14641,6 @@ function LegalPage({ kind }) {
   const title = isPrivacy ? 'Privacy policy' : 'Terms of service';
   useEffect(() => {
     document.title = `Xorla ${title.toLowerCase()}`;
-    if (!document.getElementById('xorla-jakarta')) {
-      const link = document.createElement('link');
-      link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
-      document.head.appendChild(link);
-    }
   }, [title]);
   const P = { bg: '#0A1F1C', line: 'rgba(234,245,242,0.12)', ink: '#EAF5F2', muted: '#A9C5BE', teal: '#1FD9C4' };
   const display = "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif";
@@ -18966,11 +18944,6 @@ function AppointmentOffer({ token }) {
   }, [token]);
   useEffect(() => {
     load();
-    if (!document.getElementById('xorla-jakarta')) {
-      const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
-      document.head.appendChild(link);
-    }
   }, [load]);
   useEffect(() => { if (offer?.business) document.title = `${offer.business} · Your appointment`; }, [offer]);
   const openChoose = async () => {
@@ -19345,11 +19318,6 @@ function GuestBooking({ token }) {
   }, []);
   useEffect(() => {
     load();
-    if (!document.getElementById('xorla-jakarta')) {
-      const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
-      document.head.appendChild(link);
-    }
   }, [load]);
   useEffect(() => { if (bk?.business) document.title = `${bk.business} · Your booking`; }, [bk]);
   const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
@@ -19654,11 +19622,6 @@ function CustomerOrder({ token }) {
   }, []);
   useEffect(() => {
     load();
-    if (!document.getElementById('xorla-jakarta')) {
-      const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap';
-      document.head.appendChild(link);
-    }
   }, [load]);
   // While waiting on the business, keep the page fresh so "Pay now" appears as soon as they confirm
   const waiting = od && od.status === 'pending' && od.pay_status !== 'paid';
@@ -20385,7 +20348,6 @@ function RiderApp() {
   }, [sess, view]);
   useEffect(() => {
     document.title = 'Ride with Xorla';
-    if (!document.getElementById('xorla-jakarta')) { const link = document.createElement('link'); link.id = 'xorla-jakarta'; link.rel = 'stylesheet'; link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'; document.head.appendChild(link); }
   }, []);
 
   const saveSess = (s) => { setSess(s); try { if (s) localStorage.setItem(RIDER_SESSION_KEY, JSON.stringify(s)); else localStorage.removeItem(RIDER_SESSION_KEY); } catch (e) {} };
@@ -21397,11 +21359,6 @@ function LandingPage() {
   const flip = () => setTheme((t) => { const n = t === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('xorla:lp-theme', n); } catch (e) {} return n; });
   useEffect(() => {
     document.title = 'Xorla: run your business without wahala';
-    if (!document.getElementById('xorla-landing-fonts')) {
-      const link = document.createElement('link'); link.id = 'xorla-landing-fonts'; link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Poppins:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap';
-      document.head.appendChild(link);
-    }
     const html = document.documentElement; const prev = html.style.scrollBehavior;
     if (!still) html.style.scrollBehavior = 'smooth';
     return () => { html.style.scrollBehavior = prev; };
