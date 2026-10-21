@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { jsPDF } from 'jspdf';
-import { Plus, Sun, Moon, LayoutGrid, List, MousePointerClick, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
+import { Plus, Sun, Moon, WifiOff, CloudUpload, LayoutGrid, List, MousePointerClick, UtensilsCrossed, Shirt, ShoppingBasket, Minus, Hotel, ChevronDown, Languages, Bike, ScanFace, HandCoins, Route, Ban, Contact, Copy, Check, X, Phone, PhoneCall, Settings, Sparkles, Loader2, Wallet, TrendingUp, TrendingDown, ShoppingBag, Camera, PartyPopper, Send, Lock, Delete, Receipt, ChevronRight, ChevronLeft, Home, Search, Bell, ArrowUpRight, ArrowDownRight, LogOut, Lightbulb, Package, Users, Download, Share, SquarePlus, Globe, Store, Warehouse, Truck, PackagePlus, ArrowRight, ShieldCheck, Archive, Tag, CalendarClock, Trash2, Info, AlertCircle, Megaphone, Scissors, BedDouble, Car, Wrench, Briefcase, Layers, MapPin, Clock, Shapes, Sparkle, Building2, KeyRound, Link2, ImagePlus, Boxes, Eye, EyeOff, History, CreditCard, CircleHelp, Frown, MessageCircle, Paperclip, ThumbsUp, ThumbsDown, BookOpen, SendHorizontal, Gift, LifeBuoy, Headphones, FileSpreadsheet, Undo2, Upload, Smartphone, FileText, RefreshCw, Flame, Umbrella, Landmark, BadgeCheck, Share2, Pill, Award, ScrollText, Hash, Pencil, FileBadge } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, CartesianGrid, ResponsiveContainer, Tooltip, YAxis } from 'recharts';
 
 const INVOICES_KEY = 'chaseit:invoices';
@@ -36,8 +36,65 @@ function isPasswordValid(password) {
   return password.length >= PASSWORD_MIN_LENGTH;
 }
 
+// ---------- No internet ----------
+// Every call to the database goes through here: with no internet it throws one clear, friendly error,
+// marked so that sales and expenses know to wait on the phone instead of failing.
+class OfflineError extends Error {
+  constructor() { super("You're offline. This needs internet. Try again when you're back online."); this.offline = true; }
+}
+const isOfflineError = (e) => !!e && (e.offline === true || (e instanceof TypeError && /fetch|network|load failed/i.test(e.message || '')));
+async function netFetch(url, opts) {
+  // A network that says it's connected but never answers counts as offline after 30 seconds
+  const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const t = ctl ? setTimeout(() => ctl.abort(), 30000) : null;
+  try { return await fetch(url, ctl ? { ...opts, signal: ctl.signal } : opts); }
+  catch (e) { throw new OfflineError(); }
+  finally { if (t) clearTimeout(t); }
+}
+// Who a login token belongs to and when it runs out, read from the token itself (no internet needed)
+function jwtPayload(token) {
+  try { const b = String(token || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/'); return JSON.parse(decodeURIComponent(escape(atob(b + '==='.slice((b.length + 3) % 4))))); } catch (e) { return {}; }
+}
+const newId = () => ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16); }));
+// A small store on the phone (IndexedDB) for the last copy of each person's records, so Xorla opens offline
+const OFFLINE_DB = 'xorla-offline';
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') { reject(new Error('no store')); return; }
+    const r = indexedDB.open(OFFLINE_DB, 1);
+    r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('kv')) r.result.createObjectStore('kv'); };
+    r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
+  });
+}
+async function idbGet(key) {
+  try { const db = await idbOpen(); return await new Promise((res) => { const q = db.transaction('kv').objectStore('kv').get(key); q.onsuccess = () => res(q.result ?? null); q.onerror = () => res(null); }); } catch (e) { return null; }
+}
+async function idbSet(key, value) {
+  try { const db = await idbOpen(); await new Promise((res) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(value, key); tx.oncomplete = res; tx.onerror = res; tx.onabort = res; }); } catch (e) {}
+}
+async function idbDel(key) {
+  try { const db = await idbOpen(); await new Promise((res) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').delete(key); tx.oncomplete = res; tx.onerror = res; }); } catch (e) {}
+}
+// Records made on this phone that haven't reached Xorla yet (kept per person, so nothing is lost on a shared phone)
+const outboxKeyOf = (uid) => `xorla:outbox:${uid}`;
+function readOutbox(uid) { try { const v = JSON.parse(localStorage.getItem(outboxKeyOf(uid)) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+// The rows a waiting record will become, in the database's own shape
+function pendingRowsOf(list, kind) {
+  const out = [];
+  (list || []).forEach((op) => {
+    const base = { business_id: op.business_id, shop_id: op.shop_id, logged_by: op.logged_by, logged_by_name: op.logged_by_name, pending: true };
+    if (kind === 'sales' && op.kind === 'sale') (op.sales || []).forEach((x) => { const { stock, ...row } = x; out.push({ ...base, ...row, sold_at: op.at }); });
+    if (kind === 'invoices' && op.kind === 'sale' && op.invoice) out.push({ ...base, ...op.invoice, created_at: op.at });
+    if (kind === 'expenses' && op.kind === 'expense' && op.expense) out.push({ ...base, ...op.expense, spent_at: op.at });
+  });
+  return out;
+}
+// Stock that waiting sales will take: [{ product_id, shop_id, variant, qty, sale_id }]
+const pendingStockOf = (list) => (list || []).flatMap((op) => (op.kind === 'sale' ? (op.sales || []).filter((x) => x.stock && x.product_id).map((x) => ({ product_id: x.product_id, shop_id: op.shop_id, variant: x.stock.variant || '', qty: Number(x.stock.qty) || 0, sale_id: x.id })) : []));
+
 async function sbAuthCall(path, body) {
-  const res = await fetch(`${SB_URL}/auth/v1${path}`, {
+  const res = await netFetch(`${SB_URL}/auth/v1${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: SB_KEY },
     body: JSON.stringify(body),
@@ -51,7 +108,7 @@ const sbSignIn = (email, password) => sbAuthCall('/token?grant_type=password', {
 const sbRefresh = (refresh_token) => sbAuthCall('/token?grant_type=refresh_token', { refresh_token });
 const sbRecover = (email) => sbAuthCall('/recover', { email });
 async function sbSetNewPassword(accessToken, password) {
-  const res = await fetch(`${SB_URL}/auth/v1/user`, {
+  const res = await netFetch(`${SB_URL}/auth/v1/user`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify({ password }),
@@ -61,12 +118,12 @@ async function sbSetNewPassword(accessToken, password) {
   return data;
 }
 
-async function sbRest(table, { method = 'GET', accessToken, query = '', body, upsert = false } = {}) {
+async function sbRest(table, { method = 'GET', accessToken, query = '', body, upsert = false, ignoreDup = false } = {}) {
   // With no real session (public storefront visitors), authenticate as the anon key itself —
   // this is what lets Postgres correctly resolve the request as role "anon" for public RLS policies.
   const headers = { apikey: SB_KEY, 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken || SB_KEY}` };
-  if (method !== 'GET') headers.Prefer = upsert ? 'return=representation,resolution=merge-duplicates' : 'return=representation';
-  const res = await fetch(`${SB_URL}/rest/v1/${table}${query}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (method !== 'GET') headers.Prefer = upsert ? 'return=representation,resolution=merge-duplicates' : ignoreDup ? 'return=representation,resolution=ignore-duplicates' : 'return=representation';
+  const res = await netFetch(`${SB_URL}/rest/v1/${table}${query}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   if (res.status === 204) return [];
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || data.error_description || 'Database request failed.');
@@ -89,7 +146,7 @@ const RECENT_DAYS = 400;
 const recentSince = () => new Date(Date.now() - RECENT_DAYS * 86400000).toISOString();
 
 async function sbRpc(fnName, accessToken, params) {
-  const res = await fetch(`${SB_URL}/rest/v1/rpc/${fnName}`, {
+  const res = await netFetch(`${SB_URL}/rest/v1/rpc/${fnName}`, {
     method: 'POST',
     headers: { apikey: SB_KEY, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -1737,6 +1794,7 @@ function XorlaApp() {
   const L = locationWords(settings.businessType, serviceKind);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [offlineWait, setOfflineWait] = useState(false);   // logged in, but this phone has no saved copy and no internet
   const [pendingJoin, setPendingJoin] = useState(null);   // a staff member waiting for the owner to approve them
 
   // ---------- Multi-shop: the whole app follows the shop switcher ----------
@@ -2129,9 +2187,56 @@ function XorlaApp() {
     return { profile, business, staffRoster };
   }, []);
 
+  const dataLoadedRef = useRef(false);
+  const lastSnapRef = useRef(0);
+  const [offlineSince, setOfflineSince] = useState(null);   // showing the copy saved on this phone (when it was saved)
   const loadBusinessData = useCallback(async (accessToken) => {
+    const uid = jwtPayload(accessToken).sub || scopeRef.current?.uid || (() => { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')?.user_id || null; } catch (e) { return null; } })();
+    // Put a full set of records on screen (fresh from Xorla, or the copy saved on this phone)
+    const applyRows = (raw) => {
+      let [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, riderRows, zoneRows, roomOrderRows, peopleRows, codeRows, variantRows] = raw;
+      // A manager only ever holds their own locations' records (the database already limits this; this is a second lock)
+      const sc = scopeRef.current;
+      const mineIds = sc?.isManager ? new Set((staffShopRows || []).filter((r) => r.profile_id === sc.uid).map((r) => r.shop_id)) : null;
+      const mine = (r) => !mineIds || !r.shop_id || mineIds.has(r.shop_id);
+      salesRows = salesRows.filter(mine); invoiceRows = invoiceRows.filter(mine); expenseRows = expenseRows.filter(mine); orderRows = orderRows.filter(mine);
+      if (mineIds) { bookingRows = (bookingRows || []).filter(mine); refundRows = Array.isArray(refundRows) ? refundRows.filter(mine) : refundRows; }
+      // Records still waiting on this phone show alongside, marked as waiting
+      const ob = uid ? readOutbox(uid) : [];
+      const withPending = (rows, kind, conv) => { const have = new Set(rows.map((r) => r.id)); const extra = pendingRowsOf(ob, kind).filter((r) => !have.has(r.id)); return [...extra.map((r) => ({ ...conv(r), pending: true })), ...rows.map(conv)]; };
+      const sentIds = new Set(salesRows.map((r) => r.id));
+      const waitStock = pendingStockOf(ob).filter((x) => !sentIds.has(x.sale_id));
+      if (waitStock.length) {
+        productShopRows = (productShopRows || []).map((r) => { const d = waitStock.filter((x) => x.product_id === r.product_id && x.shop_id === r.shop_id).reduce((a, x) => a + x.qty, 0); return d ? { ...r, stock_quantity: Math.max(0, Number(r.stock_quantity || 0) - d) } : r; });
+        variantRows = (Array.isArray(variantRows) ? variantRows : []).map((r) => { const d = waitStock.filter((x) => x.variant && x.product_id === r.product_id && x.shop_id === r.shop_id && x.variant === r.variant).reduce((a, x) => a + x.qty, 0); return d ? { ...r, stock_quantity: Math.max(0, Number(r.stock_quantity || 0) - d) } : r; });
+      }
+      setSales(withPending(salesRows, 'sales', fromSbSale));
+      olderDaysRef.current = new Set(); setDataVersion((v) => v + 1);   // a full reload drops older days; refetch the one on screen
+      setInvoices(withPending(invoiceRows, 'invoices', fromSbInvoice));
+      setExpenses(withPending(expenseRows, 'expenses', fromSbExpense));
+      setProducts(productRows.map(fromSbProduct));
+      setOrders(orderRows.map(fromSbOrder));
+      setShops(shopRows);
+      setStaffShops(staffShopRows);
+      setStaffPresence(presenceRows);
+      setProductShops(productShopRows);
+      setVariantStock(Array.isArray(variantRows) ? variantRows : []);
+      setStockTransfers(transferRows);
+      setStockRequests(requestRows);
+      setSubscription(Array.isArray(subscriptionRows) && subscriptionRows[0] ? subscriptionRows[0] : null);
+      setPayments(paymentRows || []);
+      const bookingIds = new Set((bookingRows || []).map((b) => b.id));
+      setBookingsAll([...(bookingRows || []), ...(Array.isArray(refundRows) ? refundRows : []).filter((b) => !bookingIds.has(b.id))]);
+      setRoomsAll(roomRows || []);
+      setRoomCharges(Array.isArray(chargeRows) ? chargeRows : []);
+      setRoomOrders(Array.isArray(roomOrderRows) ? roomOrderRows : []);
+      setRiders(Array.isArray(riderRows) ? riderRows : []);
+      setZones(Array.isArray(zoneRows) ? zoneRows : []);
+      setApptPeople(Array.isArray(peopleRows) ? peopleRows : []);
+      setDiscountCodes(Array.isArray(codeRows) ? codeRows : []);
+    };
     try {
-      let [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, riderRows, zoneRows, roomOrderRows, peopleRows, codeRows, variantRows] = await Promise.all([
+      const raw = await Promise.all([
         sbRestAll('sales', { accessToken, query: `?select=*&sold_at=gte.${recentSince()}&order=sold_at.desc,id.desc` }),
         sbRestAll('invoices', { accessToken, query: '?select=*&order=created_at.desc,id.desc' }),
         sbRestAll('expenses', { accessToken, query: `?select=*&spent_at=gte.${recentSince()}&order=spent_at.desc,id.desc` }),
@@ -2158,41 +2263,21 @@ function XorlaApp() {
         sbRest('discount_codes', { accessToken, query: '?select=*&order=created_at.desc' }).catch(() => []),
         sbRestAll('variant_stock', { accessToken, query: '?select=*&order=product_id.asc,shop_id.asc,variant.asc' }).catch(() => []),
       ]);
-      // A manager only ever holds their own locations' records (the database already limits this; this is a second lock)
-      const sc = scopeRef.current;
-      const mineIds = sc?.isManager ? new Set((staffShopRows || []).filter((r) => r.profile_id === sc.uid).map((r) => r.shop_id)) : null;
-      const mine = (r) => !mineIds || !r.shop_id || mineIds.has(r.shop_id);
-      salesRows = salesRows.filter(mine); invoiceRows = invoiceRows.filter(mine); expenseRows = expenseRows.filter(mine); orderRows = orderRows.filter(mine);
-      if (mineIds) { bookingRows = (bookingRows || []).filter(mine); refundRows = Array.isArray(refundRows) ? refundRows.filter(mine) : refundRows; }
-      setSales(salesRows.map(fromSbSale));
-      olderDaysRef.current = new Set(); setDataVersion((v) => v + 1);   // a full reload drops older days; refetch the one on screen
-      setInvoices(invoiceRows.map(fromSbInvoice));
-      setExpenses(expenseRows.map(fromSbExpense));
-      setProducts(productRows.map(fromSbProduct));
-      setOrders(orderRows.map(fromSbOrder));
-      setShops(shopRows);
-      setStaffShops(staffShopRows);
-      setStaffPresence(presenceRows);
-      setProductShops(productShopRows);
-      setVariantStock(Array.isArray(variantRows) ? variantRows : []);
-      setStockTransfers(transferRows);
-      setStockRequests(requestRows);
-      setSubscription(Array.isArray(subscriptionRows) && subscriptionRows[0] ? subscriptionRows[0] : null);
-      setPayments(paymentRows || []);
-      const bookingIds = new Set((bookingRows || []).map((b) => b.id));
-      setBookingsAll([...(bookingRows || []), ...(Array.isArray(refundRows) ? refundRows : []).filter((b) => !bookingIds.has(b.id))]);
-      setRoomsAll(roomRows || []);
-      setRoomCharges(Array.isArray(chargeRows) ? chargeRows : []);
-      setRoomOrders(Array.isArray(roomOrderRows) ? roomOrderRows : []);
-      setRiders(Array.isArray(riderRows) ? riderRows : []);
-      setZones(Array.isArray(zoneRows) ? zoneRows : []);
-      setApptPeople(Array.isArray(peopleRows) ? peopleRows : []);
-      setDiscountCodes(Array.isArray(codeRows) ? codeRows : []);
+      applyRows(raw);
+      dataLoadedRef.current = true;
+      setOfflineSince(null);
+      // Keep a copy on this phone (at most once a minute) so Xorla opens and shows this with no internet
+      if (uid && Date.now() - lastSnapRef.current > 60000) { lastSnapRef.current = Date.now(); idbSet(`snap:${uid}`, { at: new Date().toISOString(), raw }); }
       loadStaffRequests(accessToken);
       sbRest('catalog_changes', { accessToken, query: '?select=*&order=created_at.desc&limit=80' }).then((r) => setCatalogChanges(Array.isArray(r) ? r : [])).catch(() => setCatalogChanges([]));
       sbRpc('admin_access', accessToken, {}).then((a) => setIsFounder(!!a?.admin)).catch(() => setIsFounder(false));
     } catch (e) {
       console.error('Loading business data failed:', e);
+      // No internet and nothing on screen yet: show the copy saved on this phone
+      if (isOfflineError(e) && !dataLoadedRef.current && uid) {
+        const snap = await idbGet(`snap:${uid}`);
+        if (snap && Array.isArray(snap.raw)) { try { applyRows(snap.raw); dataLoadedRef.current = true; setOfflineSince(snap.at); } catch (err) { console.error(err); } }
+      }
     }
   }, []);
 
@@ -2387,7 +2472,8 @@ function XorlaApp() {
       if (!force && document.visibilityState !== 'visible') return;   // phones pause hidden pages anyway; catch up when it's back
       if (Date.now() - lastSyncRef.current < 3000) return;
       lastSyncRef.current = Date.now();
-      loadBusinessData(session.access_token);
+      // An old login token is renewed first (after a long time offline it will have run out)
+      ensureFreshToken().then((tok) => loadBusinessData(tok)).catch(() => loadBusinessData(session.access_token));
     };
     const interval = setInterval(() => sync(false), 15000);
     const back = () => { if (document.visibilityState === 'visible') sync(true); };
@@ -2470,13 +2556,30 @@ function XorlaApp() {
     setAuthLoading(true);
     const sess = await loadSession();
     if (!sess) { setAuthLoading(false); return { ok: false }; }
+    // No internet: open with the copy saved on this phone instead of logging out
+    const openOffline = async () => {
+      const boot = await idbGet(`boot:${sess.user_id}`);
+      if (boot && boot.profile && boot.business) {
+        applySession(sess, boot.profile, boot.business, boot.staffRoster || [], !opts.fresh);
+        setOfflineSince(boot.at || null);
+        setAuthLoading(false);
+        return { ok: true, offline: true };
+      }
+      setOfflineWait(true);   // never opened on this phone before: it needs internet once
+      setAuthLoading(false);
+      return { ok: false, offline: true };
+    };
+    const keepBoot = (profile, business, staffRoster) => idbSet(`boot:${sess.user_id}`, { at: new Date().toISOString(), profile, business, staffRoster });
     try {
       const { profile, business, staffRoster } = await fetchProfileAndBusiness(sess.access_token, sess.user_id);
       applySession(sess, profile, business, staffRoster, !opts.fresh);
+      keepBoot(profile, business, staffRoster);
+      setOfflineWait(false);
       setAuthLoading(false);
       return { ok: true };
     } catch (e) {
       if (e.pending) { setPendingJoin(e.pending); setAuthLoading(false); return { ok: true }; }
+      if (isOfflineError(e)) return openOffline();
       const removed1 = e.message === 'Profile not found';
       try {
         const refreshed = await sbRefresh(sess.refresh_token);
@@ -2484,10 +2587,13 @@ function XorlaApp() {
         await saveSession(newSess);
         const { profile, business, staffRoster } = await fetchProfileAndBusiness(newSess.access_token, newSess.user_id);
         applySession(newSess, profile, business, staffRoster, !opts.fresh);
+        keepBoot(profile, business, staffRoster);
+        setOfflineWait(false);
         setAuthLoading(false);
         return { ok: true };
       } catch (e2) {
         if (e2.pending) { setPendingJoin(e2.pending); setAuthLoading(false); return { ok: true }; }
+        if (isOfflineError(e2)) return openOffline();
         console.error('Bootstrap failed:', e, e2);
         await clearSession();
         setAuthLoading(false);
@@ -2497,6 +2603,12 @@ function XorlaApp() {
   }, [fetchProfileAndBusiness, applySession]);
 
   const logout = useCallback(async () => {
+    if (session) {
+      const waiting = readOutbox(session.user_id).length;
+      if (waiting && !(await brandConfirm(`${waiting} record${waiting > 1 ? 's haven\'t' : ' hasn\'t'} reached Xorla yet. ${waiting > 1 ? 'They stay' : 'It stays'} safely on this phone and ${waiting > 1 ? 'send' : 'sends'} the next time you log in here, with internet.`, { confirm: 'Log out anyway' }))) return;
+      // The saved copy of this business's records leaves the phone with the person
+      idbDel(`snap:${session.user_id}`); idbDel(`boot:${session.user_id}`);
+    }
     // This phone should stop getting this business's notifications the moment it logs out
     if (session) {
       try {
@@ -2835,6 +2947,171 @@ function XorlaApp() {
     catch (err) { console.error(err); } finally { setPhotoUploading(false); }
   };
 
+  // ---------- Offline: every sale and expense is saved on the phone first, then sent ----------
+  // With internet it reaches Xorla in a moment, all at once (sale, stock and invoice together).
+  // Without, it waits here, shows as "waiting to send", and sends itself when the internet is back.
+  const [outbox, setOutbox] = useState([]);
+  const outboxRef = useRef([]);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState(null);   // { sent } after waiting records reach Xorla
+  const [outboxOpen, setOutboxOpen] = useState(false);
+  const sessionRef = useRef(null); sessionRef.current = session;
+  const flushingRef = useRef(false);
+  useEffect(() => {
+    const uid = session?.user_id; if (!uid) { outboxRef.current = []; setOutbox([]); return; }
+    const list = readOutbox(uid); outboxRef.current = list; setOutbox(list);
+  }, [session?.user_id]);
+  const writeOutbox = (list) => {
+    outboxRef.current = list; setOutbox(list);
+    const uid = sessionRef.current?.user_id;
+    if (uid) { try { if (list.length) localStorage.setItem(outboxKeyOf(uid), JSON.stringify(list)); else localStorage.removeItem(outboxKeyOf(uid)); } catch (e) {} }
+  };
+  const ensureFreshToken = async () => {
+    const sNow = sessionRef.current; if (!sNow) throw new Error('Please log in again.');
+    const exp = Number(jwtPayload(sNow.access_token).exp) || 0;
+    if (!exp || exp * 1000 - Date.now() > 90000) return sNow.access_token;
+    const r = await sbRefresh(sNow.refresh_token);
+    const next = { access_token: r.access_token, refresh_token: r.refresh_token, user_id: r.user.id };
+    await saveSession(next); sessionRef.current = next; setSession(next); setAiAccessToken(next.access_token);
+    return next.access_token;
+  };
+  const stockFor = (product, qty, variant) => {
+    if (!product || !product.trackStock || product.madeToOrder || kindOf(product, settings.businessType) !== 'product') return null;
+    if (countsByOption(product)) return variant && optionCombos(product.options).includes(variant) ? { qty, variant } : null;
+    return { qty, variant: null };
+  };
+  const bumpStock = (productId, shopId, variant, delta) => {
+    setProductShops((prev) => {
+      const i = prev.findIndex((r) => r.product_id === productId && r.shop_id === shopId);
+      if (i < 0) return delta > 0 ? [...prev, { product_id: productId, shop_id: shopId, stock_quantity: delta }] : prev;
+      const next = [...prev]; next[i] = { ...next[i], stock_quantity: Math.max(0, Number(next[i].stock_quantity || 0) + delta) }; return next;
+    });
+    if (variant) setVariantStock((prev) => {
+      const i = prev.findIndex((r) => r.product_id === productId && r.shop_id === shopId && r.variant === variant);
+      if (i < 0) return prev;
+      const next = [...prev]; next[i] = { ...next[i], stock_quantity: Math.max(0, Number(next[i].stock_quantity || 0) + delta) }; return next;
+    });
+  };
+  // Show a record on screen straight away (and take its stock), or take it back off if Xorla refused it
+  const applyLocalOp = (op, undo = false) => {
+    const ids = new Set([...(op.sales || []).map((x) => x.id), op.invoice?.id, op.expense?.id].filter(Boolean));
+    if (undo) {
+      setSales((prev) => prev.filter((x) => !ids.has(x.id)));
+      setInvoices((prev) => prev.filter((x) => !ids.has(x.id)));
+      setExpenses((prev) => prev.filter((x) => !ids.has(x.id)));
+    } else {
+      const sr = pendingRowsOf([op], 'sales'); if (sr.length) setSales((prev) => [...sr.map((r) => ({ ...fromSbSale(r), pending: true })), ...prev]);
+      const ir = pendingRowsOf([op], 'invoices'); if (ir.length) setInvoices((prev) => [...ir.map((r) => ({ ...fromSbInvoice(r), pending: true })), ...prev]);
+      const er = pendingRowsOf([op], 'expenses'); if (er.length) setExpenses((prev) => [...er.map((r) => ({ ...fromSbExpense(r), pending: true })), ...prev]);
+    }
+    pendingStockOf([op]).forEach((x) => bumpStock(x.product_id, x.shop_id, x.variant, undo ? x.qty : -x.qty));
+  };
+  const markSent = (op) => {
+    const ids = new Set([...(op.sales || []).map((x) => x.id), op.invoice?.id, op.expense?.id].filter(Boolean));
+    const clear = (prev) => prev.map((x) => (ids.has(x.id) && x.pending ? { ...x, pending: false } : x));
+    setSales(clear); setInvoices(clear); setExpenses(clear);
+  };
+  const opPayload = (op) => ({ op_id: op.op_id, kind: op.kind, at: op.at, shop_id: op.shop_id, logged_by_name: op.logged_by_name, sales: op.sales, invoice: op.invoice, expense: op.expense });
+  // Send one record. Xorla saves it in one step; sending it twice is harmless (each line has its own ID).
+  const sendOp = async (op, token) => {
+    try { return await sbRpc('sync_offline_record', token, { p: opPayload(op) }); }
+    catch (e) {
+      if (isOfflineError(e) || !/sync_offline_record|Could not find the function|PGRST202|schema cache/i.test(e.message || '')) throw e;
+      // The database update for offline mode isn't installed yet: send it the older way, still never twice
+      const base = { business_id: op.business_id, shop_id: op.shop_id, logged_by: op.logged_by, logged_by_name: op.logged_by_name };
+      if (op.kind === 'expense') { await sbRest('expenses', { method: 'POST', accessToken: token, query: '?on_conflict=id', ignoreDup: true, body: { ...base, ...op.expense, spent_at: op.at } }); return { saved: 1 }; }
+      for (const x of op.sales || []) {
+        const { stock, ...row } = x;
+        const rows = await sbRest('sales', { method: 'POST', accessToken: token, query: '?on_conflict=id', ignoreDup: true, body: { ...base, ...row, sold_at: op.at } });
+        if (rows.length && stock && x.product_id) {
+          try {
+            if (stock.variant) await sbRpc('adjust_variant_stock', token, { p_product_id: x.product_id, p_shop_id: op.shop_id, p_variant: stock.variant, p_change: -stock.qty, p_reason: 'sale' });
+            else await sbRpc('adjust_stock', token, { p_product_id: x.product_id, p_shop_id: op.shop_id, p_change: -stock.qty, p_reason: 'sale' });
+          } catch (err) { if (isOfflineError(err)) throw err; console.error('Stock update failed:', err); }
+        }
+      }
+      if (op.invoice) await sbRest('invoices', { method: 'POST', accessToken: token, query: '?on_conflict=id', ignoreDup: true, body: { ...base, ...op.invoice } });
+      return { saved: (op.sales || []).length };
+    }
+  };
+  // Save a new sale or expense: on the phone first, then straight on to Xorla if there's internet.
+  // Returns 'sent', 'waiting' (no internet: it will send itself), or { error } (Xorla said no: nothing is kept).
+  const recordOp = async (op) => {
+    writeOutbox([...outboxRef.current, op]);
+    applyLocalOp(op);
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'waiting';
+    let token;
+    try { token = await ensureFreshToken(); } catch (e) { return 'waiting'; }   // the login needs renewing: keep it safe and send later
+    try {
+      await sendOp(op, token);
+      writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id));
+      markSent(op);
+      return 'sent';
+    } catch (e) {
+      if (isOfflineError(e)) return 'waiting';
+      writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id));
+      applyLocalOp(op, true);
+      return { error: e.message };
+    }
+  };
+  // Send everything that's waiting (when the internet comes back, when Xorla opens, and every so often)
+  const flushOutbox = async () => {
+    if (flushingRef.current || !sessionRef.current) return;
+    const ready = outboxRef.current.filter((o) => !o.error);
+    if (!ready.length || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
+    flushingRef.current = true; setSyncing(true);
+    let sent = 0; let token = null;
+    try {
+      token = await ensureFreshToken();
+      for (const op of ready) {
+        try {
+          await sendOp(op, token);
+          writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id));
+          markSent(op); sent += 1;
+        } catch (e) {
+          if (isOfflineError(e)) break;
+          writeOutbox(outboxRef.current.map((o) => (o.op_id === op.op_id ? { ...o, error: e.message || "Xorla couldn't save this." } : o)));
+        }
+      }
+    } catch (e) { /* no internet, or the login needs renewing: try again later */ }
+    finally { flushingRef.current = false; setSyncing(false); }
+    if (sent) { setSyncNote({ sent }); if (token) loadBusinessData(token); }
+  };
+  const flushRef = useRef(flushOutbox); flushRef.current = flushOutbox;
+  // The offline note says everything first, then shrinks to a small pill so it doesn't cover the screen
+  const [offlineSmall, setOfflineSmall] = useState(false);
+  useEffect(() => { if (netOnline) { setOfflineSmall(false); return undefined; } const t = setTimeout(() => setOfflineSmall(true), 6000); return () => clearTimeout(t); }, [netOnline]);
+  useEffect(() => {
+    if (!session?.user_id) return undefined;
+    const go = () => flushRef.current();
+    const first = setTimeout(go, 1500);
+    const t = setInterval(() => { if (outboxRef.current.some((o) => !o.error)) go(); }, 20000);
+    window.addEventListener('online', go);
+    return () => { clearTimeout(first); clearInterval(t); window.removeEventListener('online', go); };
+  }, [session?.user_id]);
+  useEffect(() => { if (!syncNote) return undefined; const t = setTimeout(() => setSyncNote(null), 5000); return () => clearTimeout(t); }, [syncNote]);
+  const retryOp = (id) => { writeOutbox(outboxRef.current.map((o) => (o.op_id === id ? { ...o, error: null } : o))); setTimeout(() => flushRef.current(), 50); };
+  const dropOp = async (op) => {
+    if (!(await brandConfirm(`Remove this ${op.kind === 'expense' ? 'expense' : T.sale}? It never reached Xorla, so it won't be counted anywhere.`, { confirm: 'Remove', danger: true }))) return;
+    writeOutbox(outboxRef.current.filter((o) => o.op_id !== op.op_id));
+    applyLocalOp(op, true);
+  };
+  // Top bar: how many records are waiting on this phone (tap to see them)
+  const renderOutboxChip = (extra = '') => outbox.length > 0 && (
+    <button type="button" onClick={() => setOutboxOpen(true)} aria-label={`${outbox.length} waiting to send`} title="Waiting to send"
+      className={`relative h-9 pl-2.5 pr-3 rounded-xl flex items-center gap-1.5 text-[12.5px] font-bold shrink-0 ${extra}`} style={{ background: outbox.some((o) => o.error) ? C.rustSoft : C.copperSoft, color: outbox.some((o) => o.error) ? C.rust : C.copper, border: `1px solid ${outbox.some((o) => o.error) ? 'rgba(226,98,75,0.35)' : 'rgba(255,176,32,0.35)'}` }}>
+      {syncing ? <Loader2 size={15} className="animate-spin" /> : <CloudUpload size={15} />}{outbox.length}
+    </button>
+  );
+  // Opened with no internet: say so, and how fresh the numbers are
+  const renderOfflineStrip = () => offlineSince && (
+    <div className="rounded-2xl px-3.5 py-2.5 mb-4 flex items-center gap-2.5 text-[12.5px] leading-snug" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.3)' }}>
+      <WifiOff size={15} className="shrink-0" style={{ color: C.copper }} />
+      <span className="flex-1 min-w-0">No internet. Showing your records as of <strong>{new Date(offlineSince).toLocaleString('en-GB', { ...LAGOS_TIME, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}</strong>. New sales and expenses still save.</span>
+    </div>
+  );
+  const newOp = (kind, extra) => ({ op_id: newId(), kind, at: new Date().toISOString(), business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', ...extra });
+
   const addSale = async () => {
     if (!saleForm.item || !saleForm.amount) return;
     if (savingSale) return;
@@ -2843,32 +3120,24 @@ function XorlaApp() {
     setSavingSale(true);
     const owed = saleForm.fullyPaid ? 0 : Math.max(0, Number(saleForm.amount) - Number(saleForm.paidNow || 0));
     try {
-      const saleRows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: saleForm.item, amount: saleForm.amount, cost: saleForm.cost || 0, owed, product_id: saleForm.productId || null, quantity: saleForm.productId ? Math.max(1, Number(saleForm.quantity) || 1) : 1, ...(saleForm.productId && saleForm.variant ? { variant: saleForm.variant } : {}) } });
-      const newSale = fromSbSale(saleRows[0]);
-      setSales((prev) => [newSale, ...prev]);
-
-      if (owed > 0) {
-        const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
-        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${newSale.id.slice(-5)}`, amount: saleForm.amount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone, items: [{ description: saleForm.item, quantity: 1, unitPrice: Number(saleForm.amount) }] } });
-        setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
-      }
-
-      if (saleForm.productId) {
-        const product = products.find((p) => p.id === saleForm.productId);
-        if (product && product.stockQuantity !== null) {
-          const qtySold = Math.max(1, Number(saleForm.quantity) || 1);
-          try { await takeStock(product, targetShopId, qtySold, saleForm.variant, 'sale'); }
-          catch (e) { console.error('Stock update failed:', e); }
-        }
-      }
-
-      setReceipt(makeReceipt({ id: newSale.id, items: [{ name: saleForm.item, amount: Number(saleForm.amount) }], total: saleForm.amount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId }));
+      const qty = saleForm.productId ? Math.max(1, Number(saleForm.quantity) || 1) : 1;
+      const saleId = newId();
+      const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
+      const op = newOp('sale', {
+        sales: [{ id: saleId, item: saleForm.item, amount: Number(saleForm.amount), cost: Number(saleForm.cost || 0), owed, product_id: saleForm.productId || null, quantity: qty, ...(saleForm.productId && saleForm.variant ? { variant: saleForm.variant } : {}), stock: saleForm.productId ? stockFor(picked, qty, saleForm.variant) : null }],
+        invoice: owed > 0 ? { id: newId(), client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${saleId.slice(-5)}`, amount: Number(saleForm.amount), paid_amount: Number(saleForm.paidNow || 0), due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone || '', items: [{ description: saleForm.item, quantity: 1, unitPrice: Number(saleForm.amount) }] } : null,
+      });
+      const res = await recordOp(op);
+      if (res && res.error) { brandAlert(res.error); return; }
+      setReceipt({ ...makeReceipt({ id: saleId, items: [{ name: saleForm.item, amount: Number(saleForm.amount) }], total: saleForm.amount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId }), waiting: res === 'waiting' });
       setSaleForm({ item: '', amount: '', cost: '', fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '', photo: null, productId: '', quantity: '1', variant: '' });
       setShowSaleForm(false);
     } catch (e) { console.error(e); brandAlert(e.message); } finally { setSavingSale(false); }
   };
   const removeSale = async (id) => {
     const sale = sales.find((s) => s.id === id);
+    const waitingOp = sale?.pending && outboxRef.current.find((o) => (o.sales || []).some((x) => x.id === id));
+    if (waitingOp) { await dropOp(waitingOp); return; }
     if (!(await brandConfirm(`Remove "${sale?.item || 'this sale'}"? This can't be undone.`, { confirm: 'Remove', danger: true }))) return;
     try { await sbRest(`sales?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setSales((prev) => prev.filter((s) => s.id !== id)); }
     catch (e) { brandAlert(e.message); }
@@ -2895,32 +3164,20 @@ function XorlaApp() {
     try {
       const totalAmount = cleanItems.reduce((a, it) => a + it.quantity * it.unitPrice, 0);
       const owed = saleForm.fullyPaid ? 0 : Math.max(0, totalAmount - Number(saleForm.paidNow || 0));
-
-      // One sale row per product — keeps per-product analytics, COGS, and stock tracking accurate
-      const newSales = [];
-      // One basket = one receipt: every item shares a basket ID; the balance owed sits on the first item
-      const basketId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null;
-      for (const [idx, it] of cleanItems.entries()) {
-        const rows = await sbRest('sales', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: idx === 0 ? owed : 0, product_id: it.productId || null, quantity: it.quantity, ...(it.variant ? { variant: it.variant } : {}), ...(basketId ? { basket_id: basketId } : {}) } });
-        newSales.push(rows[0]);
-        if (it.productId) {
-          const product = products.find((p) => p.id === it.productId);
-          if (product && product.stockQuantity !== null) {
-            try { await takeStock(product, targetShopId, it.quantity, it.variant, 'sale'); }
-            catch (e) { console.error('Stock update failed:', e); }
-          }
-        }
-      }
-      setSales((prev) => [...newSales.map(fromSbSale), ...prev]);
-
-      if (owed > 0) {
-        const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
-        const invItems = cleanItems.map((it) => ({ description: it.description, quantity: it.quantity, unitPrice: it.unitPrice }));
-        const invRows = await sbRest('invoices', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${Date.now().toString().slice(-6)}`, amount: totalAmount, paid_amount: saleForm.paidNow || 0, due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone, items: invItems } });
-        setInvoices((prev) => [fromSbInvoice(invRows[0]), ...prev]);
-      }
-
-      setReceipt(makeReceipt({ id: basketId || newSales[0]?.id, items: cleanItems.map((it) => ({ name: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice })), total: totalAmount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId }));
+      // One basket = one receipt: one sale line per product (for per-product reports, profit and stock), all sharing a basket ID;
+      // the balance owed sits on the first line
+      const basketId = newId();
+      const defaultDue = new Date(); defaultDue.setDate(defaultDue.getDate() + 7);
+      const op = newOp('sale', {
+        sales: cleanItems.map((it, idx) => {
+          const product = it.productId ? products.find((p) => p.id === it.productId) : null;
+          return { id: newId(), item: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice, cost: it.quantity * it.unitCost, owed: idx === 0 ? owed : 0, product_id: it.productId || null, quantity: it.quantity, ...(it.variant ? { variant: it.variant } : {}), basket_id: basketId, stock: product ? stockFor(product, it.quantity, it.variant) : null };
+        }),
+        invoice: owed > 0 ? { id: newId(), client_name: saleForm.customerName || 'Customer', invoice_no: `SALE-${Date.now().toString().slice(-6)}`, amount: totalAmount, paid_amount: Number(saleForm.paidNow || 0), due_date: saleForm.dueDate || defaultDue.toISOString().slice(0, 10), phone: saleForm.customerPhone || '', items: cleanItems.map((it) => ({ description: it.description, quantity: it.quantity, unitPrice: it.unitPrice })) } : null,
+      });
+      const res = await recordOp(op);
+      if (res && res.error) { brandAlert(res.error); return; }
+      setReceipt({ ...makeReceipt({ id: basketId, items: cleanItems.map((it) => ({ name: it.quantity > 1 ? `${it.description} ×${it.quantity}` : it.description, amount: it.quantity * it.unitPrice })), total: totalAmount, owed, customerName: saleForm.customerName, customerPhone: saleForm.customerPhone, shopId: targetShopId  }), waiting: res === 'waiting' });
       setCartItems([{ productId: '', description: '', quantity: '1', unitPrice: '', unitCost: '' }]);
       setSaleForm((f) => ({ ...f, fullyPaid: true, paidNow: '', customerName: '', customerPhone: '', dueDate: '' }));
       setShowSaleForm(false);
@@ -2933,14 +3190,17 @@ function XorlaApp() {
     if (savingExpense) return;
     setSavingExpense(true);
     try {
-      const rows = await sbRest('expenses', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, shop_id: targetShopId, logged_by: session.user_id, logged_by_name: settings.activeStaff || '', item: expenseForm.item, amount: expenseForm.amount, category: expenseForm.category } });
-      setExpenses((prev) => [fromSbExpense(rows[0]), ...prev]);
+      const res = await recordOp(newOp('expense', { expense: { id: newId(), item: expenseForm.item, amount: Number(expenseForm.amount), category: expenseForm.category } }));
+      if (res && res.error) { brandAlert(res.error); return; }
       setExpenseForm({ item: '', amount: '', category: 'Other' });
       setShowExpenseForm(false);
+      if (res === 'waiting') setSyncNote({ waiting: 'expense' });
     } catch (e) { brandAlert(e.message); } finally { setSavingExpense(false); }
   };
   const removeExpense = async (id) => {
     const exp = expenses.find((e) => e.id === id);
+    const waitingOp = exp?.pending && outboxRef.current.find((o) => o.expense?.id === id);
+    if (waitingOp) { await dropOp(waitingOp); return; }
     if (!(await brandConfirm(`Remove "${exp?.item || 'this expense'}"? This can't be undone.`, { confirm: 'Remove', danger: true }))) return;
     try { await sbRest(`expenses?id=eq.${id}`, { method: 'DELETE', accessToken: session.access_token }); setExpenses((prev) => prev.filter((e) => e.id !== id)); }
     catch (e) { brandAlert(e.message); }
@@ -4471,6 +4731,13 @@ function XorlaApp() {
     document.addEventListener('visibilitychange', restore); return () => document.removeEventListener('visibilitychange', restore);
   }, [settings.businessName]);
   useEffect(() => { if (!arrival) return undefined; const t = setTimeout(() => setArrival(null), 15000); return () => clearTimeout(t); }, [arrival]);
+  // Waiting for internet to open Xorla for the first time on this phone: open the moment it's back
+  useEffect(() => {
+    if (!offlineWait) return undefined;
+    const go = () => { setOfflineWait(false); bootstrap(); };
+    window.addEventListener('online', go);
+    return () => window.removeEventListener('online', go);
+  }, [offlineWait]);
   // Opening a tab (or a settings page) always starts at the top of it
   useEffect(() => {
     try { window.scrollTo(0, 0); document.querySelectorAll('[data-scrolltop]').forEach((el) => { el.scrollTop = 0; }); } catch (e) {}
@@ -4478,6 +4745,18 @@ function XorlaApp() {
   if (!loaded || authLoading) return <div className="min-h-screen flex items-center justify-center cx-body" style={{ background: C.bg, color: C.inkDim }}>{fontStyle}<div className="text-sm">Loading…</div></div>;
   if (pendingJoin) {
     return <>{fontStyle}<PendingJoinScreen info={pendingJoin} onCheck={async () => { setPendingJoin(null); await bootstrap({ fresh: true }); }} onLogout={async () => { setPendingJoin(null); await logout(); }} /></>;
+  }
+  if (!session && offlineWait) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 cx-body" style={{ background: C.bg, color: C.ink }}>{fontStyle}
+        <div className="max-w-sm text-center xorla-fade-up">
+          <div className="mx-auto w-16 h-16 rounded-3xl flex items-center justify-center" style={{ background: C.copperSoft }}><WifiOff size={28} style={{ color: C.copper }} /></div>
+          <div className="text-[20px] font-bold cx-display mt-4">You're offline</div>
+          <div className="text-[13.5px] leading-relaxed mt-2" style={{ color: C.inkDim }}>Xorla needs internet once on this phone to bring in your records. After that it works offline too. It will open by itself as soon as you're connected.</div>
+          <button type="button" onClick={() => { setOfflineWait(false); bootstrap(); }} className="mt-5 px-5 py-3 rounded-xl text-[13.5px] font-semibold inline-flex items-center gap-2" style={{ background: C.copperFill, color: C.onAccent }}><RefreshCw size={15} /> Try again</button>
+        </div>
+      </div>
+    );
   }
   if (!session) {
     return <>{fontStyle}<AuthScreen onDone={() => bootstrap({ fresh: true })} /></>;
@@ -7661,10 +7940,59 @@ function XorlaApp() {
           </div>
         </div>
       )}
-      {!netOnline && (
+      {(!netOnline || syncNote || (syncing && outbox.length > 0)) && (
         <div className="fixed left-0 right-0 z-[94] flex justify-center px-3 pointer-events-none" style={{ bottom: 'calc(84px + env(safe-area-inset-bottom))' }}>
-          <div className="rounded-full px-4 py-2 text-[12.5px] font-semibold flex items-center gap-2" style={{ background: C.rustFill, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>You're offline. New bookings and requests will show when you're back online.</div>
+          {!netOnline && offlineSmall ? (
+            <button type="button" onClick={() => (outbox.length ? setOutboxOpen(true) : setOfflineSmall(false))} className="pointer-events-auto rounded-full pl-3 pr-3.5 py-1.5 text-[12px] font-bold flex items-center gap-1.5 xorla-fade-up" style={{ background: '#13322C', color: '#EAF6F2', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 8px 22px rgba(0,0,0,0.3)' }}>
+              <WifiOff size={13} style={{ color: '#FFB020' }} /> Offline{outbox.length ? ` · ${outbox.length} waiting` : ''}
+            </button>
+          ) : !netOnline ? (
+            <button type="button" onClick={() => (outbox.length ? setOutboxOpen(true) : setOfflineSmall(true))} className="pointer-events-auto max-w-md rounded-2xl pl-3 pr-4 py-2.5 text-[12.5px] leading-snug flex items-center gap-2.5 text-left xorla-fade-up" style={{ background: '#13322C', color: '#EAF6F2', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 10px 28px rgba(0,0,0,0.35)' }}>
+              <span className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,176,32,0.16)' }}><WifiOff size={16} style={{ color: '#FFB020' }} /></span>
+              <span className="min-w-0"><strong className="block text-[13px]">You're offline</strong><span style={{ color: '#A6C0BA' }}>{outbox.length ? `${outbox.length} waiting to send. ` : ''}Keep recording sales and expenses. They send when you're back.</span></span>
+            </button>
+          ) : syncing ? (
+            <div className="rounded-full px-4 py-2 text-[12.5px] font-semibold flex items-center gap-2 xorla-fade-up" style={{ background: '#13322C', color: '#EAF6F2', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}><Loader2 size={14} className="animate-spin" style={{ color: '#1FD9C4' }} /> Sending what you saved offline…</div>
+          ) : syncNote?.sent ? (
+            <div className="rounded-full px-4 py-2 text-[12.5px] font-semibold flex items-center gap-2 xorla-fade-up" style={{ background: '#13322C', color: '#EAF6F2', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}><Check size={14} style={{ color: '#1FD9C4' }} /> All caught up: {syncNote.sent} record{syncNote.sent > 1 ? 's' : ''} sent to Xorla</div>
+          ) : syncNote?.waiting ? (
+            <div className="rounded-full px-4 py-2 text-[12.5px] font-semibold flex items-center gap-2 xorla-fade-up" style={{ background: '#13322C', color: '#EAF6F2', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}><CloudUpload size={14} style={{ color: '#FFB020' }} /> Saved on this phone. It sends when you're back online.</div>
+          ) : null}
         </div>
+      )}
+      {outboxOpen && (
+        <Sheet title="Waiting to send" onClose={() => setOutboxOpen(false)}>
+          <div className="text-[12.5px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{netOnline ? 'These are on their way to Xorla.' : "You're offline. These are safe on this phone and send themselves when the internet is back."} They already count in your totals here.</div>
+          {outbox.length === 0 && <div className="text-[13px] py-6 text-center" style={{ color: C.inkFaint }}>Everything has been sent.</div>}
+          <div className="space-y-2">
+            {outbox.map((op) => {
+              const title = op.kind === 'expense' ? op.expense?.item : (op.sales || []).map((x) => x.item).join(', ');
+              const amount = op.kind === 'expense' ? Number(op.expense?.amount) || 0 : (op.sales || []).reduce((a, x) => a + (Number(x.amount) || 0), 0);
+              return (
+                <div key={op.op_id} className="rounded-2xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1px solid ${op.error ? 'rgba(226,98,75,0.4)' : C.line}` }}>
+                  <div className="flex items-start gap-3">
+                    <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: op.error ? C.rustSoft : C.copperSoft }}>{op.error ? <AlertCircle size={16} style={{ color: C.rust }} /> : <CloudUpload size={16} style={{ color: C.copper }} />}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[13.5px] font-semibold truncate">{title || (op.kind === 'expense' ? 'Expense' : 'Sale')}</span>
+                      <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{op.kind === 'expense' ? 'Expense' : T.Sale || 'Sale'} · {new Date(op.at).toLocaleString('en-GB', { ...LAGOS_TIME, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                    </span>
+                    <span className="text-[13.5px] font-semibold cx-mono shrink-0" style={{ color: op.kind === 'expense' ? C.rust : C.ink }}>{op.kind === 'expense' ? '-' : ''}{fmt(amount)}</span>
+                  </div>
+                  {op.error && (
+                    <div className="mt-2.5 pl-12">
+                      <div className="text-[12px] leading-snug" style={{ color: C.rust }}>Xorla couldn't save this: {op.error}</div>
+                      <div className="flex gap-2 mt-2">
+                        <button type="button" onClick={() => retryOp(op.op_id)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Try again</button>
+                        <button type="button" onClick={() => dropOp(op)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Remove</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {netOnline && outbox.some((o) => !o.error) && <button type="button" onClick={() => flushRef.current()} disabled={syncing} className="w-full mt-4 rounded-xl py-3 text-[13.5px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copperFill, color: C.onAccent, opacity: syncing ? 0.6 : 1 }}>{syncing ? <Loader2 size={15} className="animate-spin" /> : <CloudUpload size={15} />} Send now</button>}
+        </Sheet>
       )}
     </>, document.body
   );
@@ -8196,9 +8524,10 @@ function XorlaApp() {
     <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center p-0 sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={() => setReceipt(null)}>
       <div className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-5 xorla-fade-up max-h-[92vh] overflow-y-auto" style={{ background: C.surface, border: `1px solid ${C.line}` }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2 text-[15px] font-semibold cx-display"><Check size={17} style={{ color: C.sage }} /> {T.sale === 'job' ? 'Job' : 'Sale'} saved</div>
+          <div className="flex items-center gap-2 text-[15px] font-semibold cx-display">{receipt.waiting ? <CloudUpload size={17} style={{ color: C.copper }} /> : <Check size={17} style={{ color: C.sage }} />} {T.sale === 'job' ? 'Job' : 'Sale'} saved{receipt.waiting ? ' on this phone' : ''}</div>
           <button onClick={() => setReceipt(null)} aria-label="Close" style={{ color: C.inkFaint }}><X size={18} /></button>
         </div>
+        {receipt.waiting && <div className="rounded-xl px-3.5 py-2.5 mb-3 text-[12.5px] leading-snug flex items-start gap-2.5" style={{ background: C.copperSoft, color: C.ink }}><WifiOff size={15} className="shrink-0 mt-0.5" style={{ color: C.copper }} /><span>No internet right now. It's safe here and <strong>sends itself</strong> when you're back online. You can still share this receipt.</span></div>}
 
         <div className="flex justify-center mb-4 rounded-2xl py-4" style={{ background: C.bg }}>
           <div className="xorla-print-area" style={{ width: paperWidth === '80' ? 300 : 230, background: '#fff', color: '#111', fontFamily: "'Courier New', ui-monospace, monospace", fontSize: 11.5, lineHeight: 1.45, padding: '14px 12px', boxShadow: '0 6px 20px rgba(var(--c-lo),calc(0.35 * var(--c-lok)))' }}>
@@ -8470,6 +8799,7 @@ function XorlaApp() {
               )}
               <div className="flex items-center gap-2 shrink-0">
                 <span className="hidden lg:block text-right leading-tight mr-1"><span className="block text-[13px] font-semibold">{settings.activeStaff}</span><span className="block text-[11px]" style={{ color: C.inkFaint }}>{shopNameOf(activeShopId || targetShopId)}</span></span>
+                {renderOutboxChip()}
                 <ThemeToggle />
                 {renderHelpButton()}
                 <button onClick={logout} aria-label="Log out" className="flex items-center gap-1.5 text-[12px] px-2 py-1.5 rounded-lg" style={{ color: C.inkDim }}><LogOut size={13} /><span className="hidden sm:inline">Log out</span></button>
@@ -8488,6 +8818,7 @@ function XorlaApp() {
             <div className="text-[18px] font-bold cx-display truncate">Hi, {settings.activeStaff}</div>
             {!showShopSwitcher && <div className="text-[12px] shrink-0" style={{ color: C.inkFaint }}>{shopNameOf(activeShopId || targetShopId)}</div>}
           </div>
+          {renderOfflineStrip()}
           {renderXorlaNotices()}
           {renderHelp()}{renderSupportToast()}{renderArrivalToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
           {myShops.length > 1 && tipReady('staffShops') && renderTip('staffShops', Store, `You work at ${myShops.length} ${L.many}`,
@@ -10738,6 +11069,7 @@ function XorlaApp() {
             <span className="cx-display text-[17px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</span>
           </div>
           <div className="flex items-center gap-4">
+            {renderOutboxChip('!h-8')}
             <ThemeToggle size={16} className="!w-8 !h-8" />
             {renderBell('sm:hidden')}
             {settings.pin && <button onClick={() => setLocked(true)} style={{ color: C.inkFaint }}><Lock size={16} /></button>}
@@ -10748,6 +11080,7 @@ function XorlaApp() {
 
         <div className="max-w-6xl mx-auto px-5 md:px-8 py-6 lg:py-8 pb-28 lg:pb-24">
           {renderShopSwitcher()}
+          {renderOfflineStrip()}
           {tab === 'overview' && renderXorlaNotices()}
           {activeShopId && isPausedLocation(activeShopId) && (
             <div className="rounded-2xl px-4 py-3 mb-4 flex items-center justify-between gap-3" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.3)' }}>
@@ -10789,6 +11122,7 @@ function XorlaApp() {
               })()}
             </div>
             {stripTeam.length > 0 && <div className="hidden md:flex">{renderTeamPresence(true)}</div>}
+            {renderOutboxChip('hidden lg:flex')}
             <ThemeToggle className="hidden lg:flex" />
             <span className="hidden sm:flex w-9 h-9 rounded-xl items-center justify-center shrink-0" style={{ border: `1px solid ${notifOpen ? C.copper : C.line}` }}>{renderBell()}</span>
             {tab !== 'bookings' && (
@@ -11334,6 +11668,7 @@ function XorlaApp() {
                       <div className="text-[11px] flex items-center gap-1.5" style={{ color: C.inkFaint }}>
                         {s.time}{s.loggedBy && <span>· {s.loggedBy}</span>}{viewAllShops && shops.length > 1 && <span>· {shopNameOf(s.shopId)}</span>}
                         {s.owed > 0 && <span style={{ color: C.rust }}>· {fmt(s.owed)} owed</span>}
+                        {s.pending && <span className="inline-flex items-center gap-1 font-semibold" style={{ color: C.copper }}>· <CloudUpload size={11} /> Waiting to send</span>}
                       </div>
                     </div>
                   </div>
@@ -11935,7 +12270,7 @@ function XorlaApp() {
                 <div key={e.id} className="flex items-center justify-between py-3" style={i > 0 ? { borderTop: `1px solid ${C.line}` } : {}}>
                   <div>
                     <div className="text-[13.5px] font-medium">{e.item}</div>
-                    <div className="text-[11px]" style={{ color: C.inkFaint }}>{e.time} · {e.category}{e.loggedBy ? ` · ${e.loggedBy}` : ''}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(e.shopId)}` : ''}</div>
+                    <div className="text-[11px]" style={{ color: C.inkFaint }}>{e.time} · {e.category}{e.loggedBy ? ` · ${e.loggedBy}` : ''}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(e.shopId)}` : ''}{e.pending && <span className="inline-flex items-center gap-1 font-semibold" style={{ color: C.copper }}> · <CloudUpload size={11} /> Waiting to send</span>}</div>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="cx-mono text-[13.5px] font-medium" style={{ color: C.rust }}>-{fmt(e.amount)}</div>
@@ -20445,6 +20780,7 @@ const LP_FAQ = [
   ['Is it really free?', 'Yes. The Free plan is free for as long as you use it, for up to 20 products or services. Pro and Business come with a 30-day free trial, and you only pay if you decide to keep them.'],
   ['What happens to my records if I stop paying?', 'Nothing is deleted. You move to the Free plan, and every sale, invoice and customer is still there.'],
   ['Can my staff use it without seeing everything?', 'Yes. Staff get their own login and only see what you allow. You approve everyone before they can start, and you can remove them any time.'],
+  ['Does it work when there is no network?', 'Yes. Once Xorla has opened on your phone with internet, it opens without it too. Keep recording sales and expenses with no data or no signal. They are kept safely on the phone and sent to Xorla by themselves when you are back online. Nothing is counted twice.'],
   ['What if I lose my phone?', 'Your records are kept safely online, not on the phone. Log in on another phone and everything is there. You can also lock Xorla with a PIN.'],
   ['Can customers pay me online?', 'Yes. Customers pay by card, transfer or USSD through Paystack, and the money goes straight to your bank account. Xorla never sees their card details.'],
 ];
@@ -20559,6 +20895,17 @@ function LandingPage() {
         .lp-new { animation: lpNew .45s cubic-bezier(.2,1.2,.4,1); }
         @keyframes lpNew { from { opacity: 0; transform: translateY(-8px); background: rgba(31,217,196,0.18); } to { opacity: 1; transform: none; } }
         .lp-marquee { display: flex; width: max-content; animation: lpMarq 42s linear infinite; }
+        /* Works-offline phone: signal drops, sales keep coming with a "waiting" mark, signal returns, all sent (9s loop) */
+        .lp-off-bar { animation: lpOffBar 9s infinite; }
+        @keyframes lpOffBar { 0%, 8% { opacity: 1; } 14%, 62% { opacity: .18; } 70%, 100% { opacity: 1; } }
+        .lp-off-row { animation: lpOffRow 9s infinite; animation-delay: calc(var(--r) * .45s); }
+        @keyframes lpOffRow { 0%, 16% { opacity: 0; transform: translateY(8px); } 22%, 92% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+        .lp-off-wait { animation: lpOffWait 9s infinite; }
+        @keyframes lpOffWait { 0%, 70% { opacity: 1; } 76%, 100% { opacity: 0; } }
+        .lp-off-pill-a { animation: lpOffA 9s infinite; }
+        @keyframes lpOffA { 0%, 10% { opacity: 0; } 15%, 68% { opacity: 1; } 73%, 100% { opacity: 0; } }
+        .lp-off-pill-b { animation: lpOffB 9s infinite; }
+        @keyframes lpOffB { 0%, 72% { opacity: 0; transform: scale(.9); } 76%, 94% { opacity: 1; transform: none; } 100% { opacity: 0; } }
         .lp-marquee-wrap:hover .lp-marquee { animation-play-state: paused; }
         @keyframes lpMarq { to { transform: translateX(-50%); } }
         .lp-orb { animation: lpOrb 18s ease-in-out infinite alternate; }
@@ -20577,6 +20924,8 @@ function LandingPage() {
         @media (prefers-reduced-motion: reduce) {
           .lp-line, .lp-stamp, .lp-bubble, .lp-bar, .lp-hero-in > *, [data-reveal], .lp-new, .lp-spin, .lp-rot-word { animation: none !important; opacity: 1 !important; transform: none !important; transition: none !important; }
           .lp-float, .lp-marquee, .lp-orb { animation: none !important; }
+          .lp-off-bar, .lp-off-row, .lp-off-wait, .lp-off-pill-b { animation: none !important; opacity: 1 !important; transform: none !important; }
+          .lp-off-pill-a { animation: none !important; opacity: 0 !important; }
           .lp-line-grow, .lp-bar-r { transform: none !important; }
         }
       `}</style>
@@ -20638,7 +20987,7 @@ function LandingPage() {
           ))}
           <div className="lp-mi mt-6 rounded-[22px] p-4 flex items-center gap-3.5" style={{ '--i': 6, background: LP.deep, color: '#EAF6F2' }}>
             <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.08)' }}><XorlaMark size={24} /></span>
-            <span className="flex-1 min-w-0 text-[12.5px] leading-snug"><strong className="block text-[14px]">Free to start, ready in minutes</strong><span style={{ opacity: 0.75 }}>No card needed. Record your first sale today.</span></span>
+            <span className="flex-1 min-w-0 text-[12.5px] leading-snug"><strong className="block text-[14px]">Free to start, works offline</strong><span style={{ opacity: 0.75 }}>No network? Keep selling. It sends when you're back.</span></span>
           </div>
           <div className="flex-1 min-h-6" />
           <div className="lp-mi grid grid-cols-2 gap-2.5" style={{ '--i': 7 }}>
@@ -20667,7 +21016,7 @@ function LandingPage() {
                   <a href="#try" className={btn} style={{ color: LP.ink, boxShadow: `inset 0 0 0 1.5px ${LP.line}` }}>Try it here first</a>
                 </div>
                 <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[14px] font-medium" style={{ color: LP.dim }}>
-                  {['Free plan for small businesses', '30 days of Pro, free', 'No card needed to start'].map((x) => <li key={x} className="flex items-center gap-2"><Check size={15} strokeWidth={2.8} style={{ color: LP.accent }} />{x}</li>)}
+                  {['Free plan for small businesses', '30 days of Pro, free', 'Works offline'].map((x) => <li key={x} className="flex items-center gap-2"><Check size={15} strokeWidth={2.8} style={{ color: LP.accent }} />{x}</li>)}
                 </ul>
               </div>
             </div>
@@ -20824,6 +21173,54 @@ function LandingPage() {
                 </li>
               ))}
             </ol>
+          </div>
+        </section>
+
+        {/* Works offline */}
+        <section id="offline" className={`${wrap} pt-20 sm:pt-28 scroll-mt-20`}>
+          <div className="relative overflow-hidden rounded-[32px] grid lg:grid-cols-[1.1fr_0.9fr] gap-10 items-center p-7 sm:p-12" data-reveal style={{ background: LP.tint, border: `1px solid ${LP.line}` }}>
+            <div aria-hidden className="absolute -right-24 -top-24 w-80 h-80 rounded-full lp-orb" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.22), transparent 65%)' }} />
+            <div className="relative">
+              <span className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12.5px] font-bold uppercase tracking-[0.12em]" style={{ background: LP.card, color: LP.accent, border: `1px solid ${LP.line}` }}><WifiOff size={14} /> Works offline</span>
+              <h2 className="mt-5 text-[32px] sm:text-[46px] leading-[1.05] font-extrabold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.045em' }}>No network?<br /><span style={{ color: LP.amber }}>Keep selling.</span></h2>
+              <p className="mt-4 text-[16px] sm:text-[17.5px] leading-relaxed max-w-xl" style={{ color: LP.dim }}>Data finishes. Network drops. Light goes and the router goes with it. Xorla keeps recording your sales and expenses on your phone, then sends them by itself the moment you're back online.</p>
+              <ul className="mt-6 grid sm:grid-cols-3 gap-3">
+                {[[Smartphone, 'Opens with no data', 'Your records are right there'], [CloudUpload, 'Sends by itself', 'When the network returns'], [ShieldCheck, 'Never counted twice', 'Even on a shaky network']].map(([Ic, a, b], i) => (
+                  <li key={a} className="rounded-2xl p-3.5 sm:p-4 flex sm:block items-center gap-3" data-reveal style={{ '--d': `${0.1 + i * 0.08}s`, background: LP.card, border: `1px solid ${LP.line}` }}>
+                    <Ic size={19} className="shrink-0" style={{ color: [LP.accent, LP.amber, LP.coral][i] }} />
+                    <span className="min-w-0"><span className="block sm:mt-2.5 text-[14.5px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.02em' }}>{a}</span>
+                    <span className="block text-[13px] mt-0.5" style={{ color: LP.dim }}>{b}</span></span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* A little phone that loses signal, keeps selling, then catches up */}
+            <div className="relative flex justify-center" aria-hidden>
+              <div className="lp-float w-[260px] rounded-[38px] p-3" style={{ background: '#0B2B26', boxShadow: `0 40px 80px -40px ${LP.shadow}` }}>
+                <div className="rounded-[28px] overflow-hidden" style={{ background: '#0F2925', color: '#EAF6F2' }}>
+                  <div className="flex items-center justify-between px-4 pt-3 text-[11px] font-semibold" style={{ color: '#A6C0BA' }}>
+                    <span>9:41</span>
+                    <span className="flex items-end gap-[2px] h-3">{[0, 1, 2, 3].map((b) => <span key={b} className="lp-off-bar w-[3px] rounded-sm" style={{ height: 4 + b * 2.5, background: '#EAF6F2', '--b': b }} />)}</span>
+                  </div>
+                  <div className="px-4 pt-4 pb-5">
+                    <div className="text-[10.5px] font-bold uppercase tracking-[0.12em]" style={{ color: '#6E8B85' }}>Today</div>
+                    <div className="text-[26px] font-bold mt-0.5" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.04em' }}>₦48,500</div>
+                    <div className="mt-3 space-y-2">
+                      {[['Indomie ×2', '₦1,200'], ['Peak Milk', '₦650'], ['Bread', '₦1,500']].map(([n, a], i) => (
+                        <div key={n} className="lp-off-row flex items-center justify-between rounded-xl px-3 py-2 text-[12.5px]" style={{ background: 'rgba(255,255,255,0.05)', '--r': i }}>
+                          <span>{n}</span>
+                          <span className="flex items-center gap-1.5 font-semibold">{a}<span className="lp-off-wait inline-flex"><CloudUpload size={12} style={{ color: '#FFB020' }} /></span></span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="relative mt-4 h-9">
+                      <div className="lp-off-pill-a absolute inset-0 rounded-full flex items-center justify-center gap-1.5 text-[11.5px] font-bold" style={{ background: 'rgba(255,176,32,0.16)', color: '#FFB020' }}><WifiOff size={13} /> Offline · 3 waiting</div>
+                      <div className="lp-off-pill-b absolute inset-0 rounded-full flex items-center justify-center gap-1.5 text-[11.5px] font-bold" style={{ background: 'rgba(31,217,196,0.16)', color: '#1FD9C4' }}><Check size={13} /> All caught up</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
