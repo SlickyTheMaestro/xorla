@@ -957,7 +957,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, parts: Array.isArray(row.parts) && row.parts.length > 1 ? row.parts : null, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, billedAt: row.billed_at || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '' };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, parts: Array.isArray(row.parts) && row.parts.length > 1 ? row.parts : null, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payKind: row.pay_kind || null, payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, billedAt: row.billed_at || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '' };
 }
 
 function staticMessage(inv, settings) {
@@ -3590,7 +3590,8 @@ function XorlaApp() {
     // A discount is shared across the items by value, so each line's profit stays true
     const shares = order.items.map((it) => (gross > 0 ? Math.round((Number(it.quantity) * Number(it.unitPrice)) * off / gross) : 0));
     if (shares.length) shares[shares.length - 1] += off - shares.reduce((a, x) => a + x, 0);
-    const paid = paidOnline > 0 ? Math.min(total, paidOnline) : mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
+    const online = Math.min(total, paidOnline);
+    const paid = online >= total ? total : mode === 'full' ? total : Math.min(total, online + Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
     const owed = total - paid;
     const shopId = order.shopId || mainShopId;
     setFulfil({ ...fulfil, busy: true, error: '' });
@@ -3628,7 +3629,8 @@ function XorlaApp() {
     if (!fulfil) return null;
     const { order, mode } = fulfil;
     const { off, delivery, total, paidOnline } = orderMoney(order);
-    const paid = paidOnline > 0 ? Math.min(total, paidOnline) : mode === 'full' ? total : Math.min(total, Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
+    const online = Math.min(total, paidOnline);
+    const paid = online >= total ? total : mode === 'full' ? total : Math.min(total, online + Math.max(0, Number(parseNumInput(fulfil.paid)) || 0));
     const close = () => { if (!fulfil.busy) setFulfil(null); };
     return (
       <div className="fixed inset-0 z-[86] flex items-end sm:items-center justify-center sm:p-5" style={{ background: 'rgba(var(--c-scrim),0.8)' }} onClick={close}>
@@ -3653,13 +3655,14 @@ function XorlaApp() {
               <Check size={16} style={{ color: C.sage }} className="shrink-0" />
               <span><strong>Paid online: {fmt(Math.min(total, paidOnline))}</strong>{paidOnline < total ? <span style={{ color: C.inkDim }}> · {fmt(total - paidOnline)} still to collect</span> : <span style={{ color: C.inkDim }}> · nothing left to collect</span>}</span>
             </div>
-          ) : (<>
-          <div className="text-[12.5px] font-semibold mb-2">Has the customer paid?</div>
+          ) : null}
+          {online < total && (<>
+          <div className="text-[12.5px] font-semibold mb-2">{online > 0 ? `Did they pay the rest (${fmt(total - online)})?` : 'Has the customer paid?'}</div>
           <div className="flex gap-1 p-1 rounded-xl mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
             {[['full', 'Paid in full'], ['part', 'Part, or not yet']].map(([k, l]) => <button key={k} onClick={() => setFulfil({ ...fulfil, mode: k })} className="flex-1 py-2 rounded-lg text-[13px] font-semibold" style={mode === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>)}
           </div>
           </>)}
-          {paidOnline <= 0 && mode === 'part' && <input type="text" inputMode="decimal" autoFocus placeholder="Amount paid so far (₦), 0 if nothing yet" value={formatNumInput(fulfil.paid)} onChange={(e) => setFulfil({ ...fulfil, paid: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-3" style={field} />}
+          {online < total && mode === 'part' && <input type="text" inputMode="decimal" autoFocus placeholder={online > 0 ? 'Paid at the visit (₦), 0 if nothing yet' : 'Amount paid so far (₦), 0 if nothing yet'} value={formatNumInput(fulfil.paid)} onChange={(e) => setFulfil({ ...fulfil, paid: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-3" style={field} />}
           <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>
             {T.tracksStock ? 'This is recorded as one sale on one receipt, with stock taken off automatically. ' : `This is recorded as a ${T.sale} on one receipt. `}
             {total - paid > 0 ? `The ${fmt(total - paid)} still owed becomes an invoice for ${order.customerName}, so you can follow it up.` : ''}
@@ -3811,10 +3814,70 @@ function XorlaApp() {
   };
   // Online payment for storefront orders: the business confirms the order (adding delivery if any), then the customer pays on their order page
   const [payAsk, setPayAsk] = useState(null); // { order, fee, busy, error }
+  const [depAsk, setDepAsk] = useState(null);  // appointments: { order, amount, busy, error } — part of the price online to keep the time
   const orderLinkOf = (o) => (o.payToken ? `${window.location.origin}/order/${o.payToken}` : '');
   const refreshOrder = async (id) => {
     try { const rows = await sbRest('orders', { accessToken: session.access_token, query: `?id=eq.${id}&select=*` }); if (rows[0]) { const fresh = fromSbOrder(rows[0]); setOrders((prev) => prev.map((o) => (o.id === id ? fresh : o))); return fresh; } } catch (e) {}
     return null;
+  };
+  // A deposit to keep an appointment time: part online now, the rest at the visit
+  const depositMessage = (o, amount) => {
+    const first = String(o.customerName || '').split(' ')[0] || 'there';
+    const rest = Math.max(0, orderMoney(o).total - amount);
+    return `Hi ${first}, ${settings.businessName} has confirmed your appointment for ${apptRange(o)}. To keep your time, please pay a deposit of ${fmt(amount)} here (card, transfer or USSD): ${orderLinkOf(o)}${rest > 0 ? `\n\nThe rest (${fmt(rest)}) is paid at your visit.` : ''}`;
+  };
+  const roundDeposit = (total, pct) => Math.max(100, Math.min(total, Math.round((total * pct) / 100 / 500) * 500 || Math.round((total * pct) / 100)));
+  const openDeposit = (o) => setDepAsk({ order: o, amount: String(roundDeposit(orderMoney(o).total, 30)), busy: false, error: '' });
+  const confirmDeposit = async () => {
+    if (!depAsk || depAsk.busy) return;
+    const amount = Math.round(Number(parseNumInput(depAsk.amount)) || 0);
+    setDepAsk({ ...depAsk, busy: true, error: '' });
+    try {
+      await sbRpc('request_appt_deposit', session.access_token, { p_order: depAsk.order.id, p_amount: amount });
+      const fresh = (await refreshOrder(depAsk.order.id)) || depAsk.order;
+      setDepAsk(null);
+      const msg = depositMessage(fresh, amount);
+      if (fresh.customerPhone) offerWhatsApp(fresh.customerPhone, msg, 'Deposit link ready', `Send ${String(fresh.customerName).split(' ')[0]} the deposit link on WhatsApp? They'll see:\n\n"${msg}"`);
+      else { await copyText(`paylink-${fresh.id}`, orderLinkOf(fresh)); brandAlert("There's no phone number on this appointment, so the deposit link was copied. Send it to the customer any way you like.", { title: 'Link copied' }); }
+    } catch (e) { setDepAsk((d) => d && { ...d, busy: false, error: e.message }); }
+  };
+  const removeDeposit = async (o) => {
+    if (!(await brandConfirm(`${String(o.customerName).split(' ')[0]} won't be asked for a deposit any more. The appointment stays confirmed.`, { title: 'Remove the deposit request?', confirm: 'Remove it' }))) return;
+    try { await sbRpc('cancel_appt_deposit', session.access_token, { p_order: o.id }); await refreshOrder(o.id); } catch (e) { brandAlert(e.message); }
+  };
+  const renderDepositPanel = () => {
+    if (!depAsk) return null;
+    const o = depAsk.order; const total = orderMoney(o).total;
+    const amount = Math.round(Number(parseNumInput(depAsk.amount)) || 0);
+    const rest = Math.max(0, total - amount);
+    const bad = amount < 100 || amount > total;
+    const first = String(o.customerName).split(' ')[0];
+    return (
+      <Sheet onClose={() => setDepAsk(null)} busy={depAsk.busy} title={<><div className="text-[16px] font-semibold cx-display">Ask {first} for a deposit</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>Optional. They pay part now to keep their time, and the rest at the visit.</div></>}>
+        <div className="rounded-xl px-3.5 py-3 mb-3 text-[13px]" style={{ background: C.surfaceRaised }}>
+          <div className="font-semibold">{apptRange(o)}</div>
+          <div className="mt-0.5" style={{ color: C.inkDim }}>{o.items.map((it) => `${it.description}${it.for ? ` (for ${it.for})` : ''}`).join(', ')} · {fmt(total)}</div>
+        </div>
+        <div className="text-[12.5px] font-semibold mb-1.5">How much now?</div>
+        <div className="grid grid-cols-4 gap-1.5 mb-2">
+          {[20, 30, 50, 100].map((pct) => { const v = pct === 100 ? total : roundDeposit(total, pct); const on = amount === v; return (
+            <button key={pct} onClick={() => setDepAsk({ ...depAsk, amount: String(v), error: '' })} className="py-2 rounded-lg text-[12.5px] font-semibold leading-tight" style={on ? { background: C.copperFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.ink, border: `1px solid ${C.line}` }}>
+              {pct === 100 ? 'Full' : `${pct}%`}<span className="block text-[10.5px] font-medium" style={{ opacity: 0.75 }}>{fmt(v)}</span>
+            </button>
+          ); })}
+        </div>
+        <input type="text" inputMode="decimal" value={formatNumInput(depAsk.amount)} onChange={(e) => setDepAsk({ ...depAsk, amount: parseNumInput(e.target.value), error: '' })} placeholder="Or type an amount (₦)" className="w-full rounded-xl px-3.5 py-3 text-[15px] outline-none mb-3" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
+        <div className="rounded-xl overflow-hidden mb-2" style={{ border: `1px solid ${C.line}` }}>
+          <div className="flex items-center justify-between px-3.5 py-2.5 text-[13px]"><span>{first} pays now</span><span className="cx-mono font-bold" style={{ color: C.sage }}>{fmt(amount)}</span></div>
+          <div className="flex items-center justify-between px-3.5 py-2.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}` }}><span style={{ color: C.inkDim }}>At the visit</span><span className="cx-mono font-semibold">{fmt(rest)}</span></div>
+        </div>
+        <div className="text-[11.5px] leading-relaxed mb-1" style={{ color: C.inkFaint }}>{o.acceptedAt ? '' : 'This also confirms the appointment. '}The deposit goes to your bank ({settings.payout?.bank || 'your connected account'}); the customer pays a small service fee on top. If you cancel, you'll be reminded to refund it.</div>
+        {depAsk.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{depAsk.error}</div>}
+        <button onClick={confirmDeposit} disabled={depAsk.busy || bad} className="w-full mt-3 rounded-xl py-3.5 text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sageFill, color: C.onAccent, opacity: depAsk.busy || bad ? 0.5 : 1 }}>
+          {depAsk.busy ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : `${o.acceptedAt ? 'Ask' : 'Accept and ask'} for ${fmt(amount)}`}
+        </button>
+      </Sheet>
+    );
   };
   const payMessage = (o, amount, delivery) => {
     const first = String(o.customerName || '').split(' ')[0] || 'there';
@@ -5465,6 +5528,8 @@ function XorlaApp() {
   const isConfirmedAppt = (x) => x.status === 'pending' && x.startAt && x.acceptedAt;
   const apptClashes = (o) => (o.parts ? [] : ordersAll).filter((x) => x.id !== o.id && isConfirmedAppt(x) && (x.shopId || mainShopId) === (o.shopId || mainShopId)
     && new Date(x.startAt) < new Date(o.endAt) && new Date(x.endAt) > new Date(o.startAt));
+  // A request made only of services (a salon visit, a repair…): paid at the visit, never "pay online" like a shop order
+  const servicesOnly = (o) => o.items.length > 0 && o.items.every((it) => { const b = productsAll.find((p) => p.id === it.productId); return !b || kindOf(b, settings.businessType) !== 'product'; });
   const apptPassed = (o) => o.startAt && new Date(o.startAt).getTime() < Date.now();
   const todaysAppts = orders.filter((o) => isConfirmedAppt(o) && lagosDateKey(o.startAt) === todayKey()).sort((a, b) => a.startAt.localeCompare(b.startAt));
   // When the business turns a customer down, the customer hears why, in one tap
@@ -6242,6 +6307,8 @@ function XorlaApp() {
                         )}
                         {o.acceptedAt && o.status === 'pending' && o.remindedAt && <div className="mt-1" style={{ color: C.sage }}>Reminder sent {lagosDateKey(o.remindedAt) === lagosToday ? 'today' : apptDay(o.remindedAt)} at {apptTime(o.remindedAt)}</div>}
                         {o.acceptedAt && o.status === 'pending' && <div className="mt-1" style={{ color: C.inkDim }}>Confirmed{o.proposalReply === 'accepted' ? ` by ${String(o.customerName).split(' ')[0]} from your offer` : o.acceptedByName ? ` by ${o.acceptedByName}` : ''}{o.source === 'desk' ? ' · booked by your team' : ''}</div>}
+                        {o.status === 'pending' && o.payStatus === 'requested' && <div className="mt-1 font-semibold" style={{ color: C.copper }}>Deposit of {fmt(o.payAmount || 0)} asked for, not paid yet</div>}
+                        {o.payStatus === 'paid' && orderMoney(o).paidOnline > 0 && <div className="mt-1 font-semibold" style={{ color: C.sage }}>Deposit paid: {fmt(orderMoney(o).paidOnline)}{orderMoney(o).total - orderMoney(o).paidOnline > 0 ? <span className="font-normal" style={{ color: C.inkDim }}> · {fmt(orderMoney(o).total - orderMoney(o).paidOnline)} at the visit</span> : null}</div>}
                         {o.status === 'cancelled' && o.cancelReason && !o.noShow && <div className="mt-1" style={{ color: C.inkFaint }}>Reason: {o.cancelReason}</div>}
                         {noteWithout(o.note) && <div className="mt-1.5"><span style={{ color: C.inkFaint }}>Note: </span>{noteWithout(o.note)}</div>}
                       </div>
@@ -6267,7 +6334,10 @@ function XorlaApp() {
                       if (canAnswerRequests) {
                         sec.push({ label: 'Decline', tone: 'danger', onClick: () => openAppt('decline', o) });
                         sec.push({ label: 'Other time', onClick: () => openAppt('reschedule', o) });
-                        if (!apptPassed(o) && !apptFull(o, apptClashes(o))) primary = { label: 'Accept', onClick: () => acceptAppt(o) };
+                        if (!apptPassed(o) && !apptFull(o, apptClashes(o))) {
+                          primary = { label: 'Accept', onClick: () => acceptAppt(o) };
+                          if (settings.payout && o.payToken && !o.payStatus) sec.push({ label: 'Accept + deposit', tone: 'accent', title: 'Optional: confirm it and ask for part of the price online to keep the time', onClick: () => openDeposit(o) });
+                        }
                       } else note = 'Waiting for the owner to answer';
                     } else if (pending && o.startAt && o.acceptedAt) {
                       if (apptPassed(o)) sec.push({ label: "Didn't come", tone: 'danger', onClick: () => markNoShow(o) });
@@ -6275,6 +6345,8 @@ function XorlaApp() {
                         if (canRemind(o)) sec.push({ label: o.remindedAt ? 'Remind again' : 'Remind', tone: 'accent', onClick: () => sendReminder(o) });
                         else if (waConfirmLink(o)) sec.push({ label: 'WhatsApp', tone: 'accent', href: waConfirmLink(o) });
                         if (canAnswerRequests) sec.push({ label: 'Move', onClick: () => openAppt('reschedule', o) });
+                        if (settings.payout && o.payToken && !o.payStatus && canAnswerRequests) sec.push({ label: 'Ask for deposit', tone: 'accent', title: 'Optional: part of the price online to keep the time', onClick: () => openDeposit(o) });
+                        if (o.payStatus === 'requested') { sec.push({ label: 'Send deposit link', tone: 'accent', onClick: () => { const m = depositMessage(o, o.payAmount || 0); if (o.customerPhone) window.open(`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(m)}`, '_blank'); else sendPayLink(o); } }); sec.push({ label: 'No deposit', onClick: () => removeDeposit(o) }); }
                         sec.push({ label: 'Cancel', tone: 'danger', onClick: () => openAppt('cancel', o) });
                       }
                       primary = { label: 'Mark done', onClick: () => fulfillOrder(o) };
@@ -6283,7 +6355,7 @@ function XorlaApp() {
                       if (o.payStatus === 'requested') {
                         sec.push({ label: 'Send link', tone: 'accent', onClick: () => sendPayLink(o) });
                         sec.push({ label: 'Change', title: 'Change the delivery fee', onClick: () => setPayAsk({ order: o, fee: o.deliveryFee ? String(o.deliveryFee) : '', busy: false, error: '' }) });
-                      } else if (!o.payStatus && settings.payout && o.payToken) {
+                      } else if (!o.payStatus && settings.payout && o.payToken && !(apptMode && servicesOnly(o))) {
                         sec.push({ label: 'Ask to pay online', tone: 'accent', onClick: () => setPayAsk({ order: o, fee: '', busy: false, error: '' }) });
                       }
                       primary = { label: T.tracksStock ? 'Fulfill' : 'Mark done', onClick: () => fulfillOrder(o) };
@@ -9152,7 +9224,7 @@ function XorlaApp() {
         {renderReceiptModal()}
         {renderStockPanel()}
         {renderBookingPanels()}
-        {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
+        {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderDepositPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
         {renderApptPanel()}
         <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-5 lg:pt-7 pb-28 lg:pb-12">
           <div className="lg:hidden mb-4 flex items-baseline justify-between gap-3">
@@ -12967,7 +13039,7 @@ function XorlaApp() {
       {renderListTool()}
       {renderPastImport()}
       {renderHelp()}{renderSupportToast()}{renderArrivalToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
-      {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
+      {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderDepositPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
       {renderApptPanel()}
       {renderNotifPanel()}
       {renderLimitPrompt()}{renderAddLocations()}
@@ -13076,6 +13148,9 @@ function Storefront({ businessCode }) {
   // Appointments: free times for the services in the basket
   const [apptCal, setApptCal] = useState(null);
   const [apptCalLoading, setApptCalLoading] = useState(false);
+  const [apptCalError, setApptCalError] = useState(false);           // the free times couldn't load (network): offer to try again
+  const [dayPeople, setDayPeople] = useState({ key: '', people: null, loading: false });   // each stylist's own times on the chosen day
+  const [groupPlan, setGroupPlan] = useState({ key: '', plan: null, loading: false });    // a group: who is served when, at the chosen time
   const [apptPickDay, setApptPickDay] = useState('');
   const [apptSlot, setApptSlot] = useState('');
   const [apptPerson, setApptPerson] = useState(null);
@@ -13236,6 +13311,37 @@ function Storefront({ businessCode }) {
   const hasGuests = cartList.some((c) => c.guest);
   const youName = customerName.trim().split(' ')[0] || 'You';
   const forText = (c) => (c.guest ? ` · for ${c.guest}` : hasGuests && storeKind(c.product) === 'service' ? ` · for ${youName}` : '');
+  // Times under each stylist for the chosen day: "Anyone free" first, then each person with their own times
+  const renderPeopleTimes = (sel) => {
+    if (!sel) return <div className="text-[12.5px] py-2 text-center" style={{ color: S.muted }}>Choose a day with a dot to see free times.</div>;
+    const people = dayPeople.people;
+    const rows = [{ id: null, name: 'Anyone free', slots: sel.slots || [] }, ...(people || [])];
+    return (
+      <>
+        <div className="text-[12.5px] font-semibold mb-2" style={{ color: S.ink }}>{new Date(sel.date + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}</div>
+        <div className="space-y-2">
+          {rows.map((r) => (
+            <div key={r.id || 'any'} className="rounded-xl p-2.5" style={{ background: S.tile }}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-7 h-7 rounded-full flex items-center justify-center text-[11.5px] font-bold shrink-0" style={{ background: r.id ? '#fff' : S.ink, color: r.id ? S.ink : '#fff' }}>{r.id ? r.name.trim()[0]?.toUpperCase() : <Users size={13} />}</span>
+                <span className="text-[13.5px] font-semibold">{r.name}</span>
+                <span className="text-[11.5px] ml-auto" style={{ color: S.muted }}>{r.slots.length ? `${r.slots.length} free` : 'Fully booked'}</span>
+              </div>
+              {r.slots.length > 0 && (
+                <div className="grid grid-cols-4 gap-1.5" role="group" aria-label={`${r.name}: free times`}>
+                  {r.slots.map((t) => {
+                    const on = apptSlot === t && (apptPerson || null) === r.id;
+                    return <button key={t} type="button" aria-pressed={on} onClick={() => { setApptPerson(r.id); setApptSlot(t); }} className={`py-2 rounded-lg text-[12.5px] font-semibold ${focusRing}`} style={on ? { background: S.ink, color: '#fff' } : { background: '#fff', color: S.ink }}>{apptTime(t)}</button>;
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+          {people === null && <div className="flex items-center gap-2 text-[12.5px] px-1" style={{ color: S.muted }}><Loader2 size={14} className="animate-spin" /> Checking each person's times…</div>}
+        </div>
+      </>
+    );
+  };
   const groupable = (c) => !!business && storeKind(c.product) === 'service' && !isBookable(c.product) && !['accommodation', 'rentals'].includes(business.service_kind);
   const partyName = (raw) => {
     const n = String(raw || '').trim().replace(/\s+/g, ' ').slice(0, 40);
@@ -13311,19 +13417,45 @@ function Storefront({ businessCode }) {
   const loadStoreCalendar = useCallback(async () => {
     const items = JSON.parse(serviceKey).map(([productId, quantity, guest, withId]) => ({ productId, quantity, ...(guest ? { for: guest } : {}), ...(withId ? { with: withId } : {}) }));
     // Hotels and rentals don't take appointments: their extras (water, laundry, airport pickup) are simply ordered
-    if (!items.length || !business || ['accommodation', 'rentals'].includes(business.service_kind)) { setApptCal(null); return; }
-    setApptCalLoading(true);
+    if (!items.length || !business || ['accommodation', 'rentals'].includes(business.service_kind)) { setApptCal(null); setApptCalError(false); return; }
+    setApptCalLoading(true); setApptCalError(false);
     try {
-      const cal = await sbRpc('appointment_calendar', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_items: items, p_days: 14, ...(apptPerson ? { p_person: apptPerson } : {}) });
+      // The calendar shows when anyone is free; each stylist's own times for the chosen day load separately (below)
+      const cal = await sbRpc('appointment_calendar', SB_KEY, { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_items: items, p_days: 14 });
       setApptCal(cal && cal.minutes ? cal : null);
-      if (apptPerson && cal && !cal.person) setApptPerson(null);   // that person is no longer listed
+      if (apptPerson && cal && !(cal.people || []).some((x) => x.id === apptPerson)) setApptPerson(null);   // that person is no longer listed
       setApptPickDay((d) => (cal?.days || []).some((x) => x.date === d && x.slots.length) ? d : ((cal?.days || []).find((x) => x.slots.length)?.date || ''));
-    } catch (e) { setApptCal(null); }
+    } catch (e) { setApptCal(null); setApptCalError(true); }
     setApptCalLoading(false);
-  }, [serviceKey, business, businessCode, apptPerson]);
+  }, [serviceKey, business, businessCode]);
   // Free times load as soon as a service is in the basket: on a computer the basket and its form are always on screen,
   // and on a phone they refresh each time the basket is opened
   useEffect(() => { setApptSlot(''); loadStoreCalendar(); }, [loadStoreCalendar]);
+  // One person, with a team: each stylist's free times on the chosen day, so the times sit under each person
+  useEffect(() => {
+    if (!apptCal || apptCal.group || !(apptCal.people || []).length || !apptPickDay) return undefined;
+    const key = `${serviceKey}|${apptPickDay}|${business?.shop_id || ''}`;
+    if (dayPeople.key === key && dayPeople.people) return undefined;
+    let live = true;
+    setDayPeople({ key, people: null, loading: true });
+    const items = JSON.parse(serviceKey).map(([productId, quantity]) => ({ productId, quantity }));
+    sbRpc('appointment_day_people', SB_KEY, { p_business_code: businessCode, p_shop_id: business?.shop_id || null, p_items: items, p_date: apptPickDay })
+      .then((r) => { if (live) setDayPeople({ key, people: Array.isArray(r?.people) ? r.people : [], loading: false }); })
+      .catch(() => { if (live) setDayPeople({ key, people: [], loading: false, error: true }); });
+    return () => { live = false; };
+  }, [apptCal, apptPickDay, serviceKey]);
+  // A group: once a time is picked, show who is served when, and by whom
+  useEffect(() => {
+    if (!apptCal?.group || !apptSlot) { if (groupPlan.plan) setGroupPlan({ key: '', plan: null, loading: false }); return undefined; }
+    const key = `${serviceKey}|${apptSlot}`;
+    let live = true;
+    setGroupPlan({ key, plan: null, loading: true });
+    const items = JSON.parse(serviceKey).map(([productId, quantity, guest, withId]) => ({ productId, quantity, ...(guest ? { for: guest } : {}), ...(withId ? { with: withId } : {}) }));
+    sbRpc('appointment_group_preview', SB_KEY, { p_business_code: businessCode, p_shop_id: business?.shop_id || null, p_items: items, p_start: apptSlot })
+      .then((r) => { if (live) setGroupPlan({ key, plan: Array.isArray(r) ? r : null, loading: false }); })
+      .catch(() => { if (live) setGroupPlan({ key, plan: null, loading: false }); });
+    return () => { live = false; };
+  }, [apptCal, apptSlot, serviceKey]);
   useEffect(() => { if (showCheckout) loadStoreCalendar(); }, [showCheckout]);
   const usesSlots = !!(apptCal && apptCal.minutes);
   // The discount follows the basket: re-checked whenever the items change (minimums and percentages depend on them)
@@ -14234,28 +14366,49 @@ function Storefront({ businessCode }) {
                     })}
                   </div>
                 )}
-                {!apptCal.group && (apptCal.people || []).length > 0 && (
-                  <div className="mb-3">
-                    <div className="text-[12.5px] mb-1.5" style={{ color: S.muted }}>Who would you like?</div>
-                    <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Who would you like?">
-                      {[{ id: null, name: 'Anyone free' }, ...apptCal.people].map((p) => {
-                        const on = (apptPerson || null) === p.id;
-                        return <button key={p.id || 'any'} type="button" role="radio" aria-checked={on} onClick={() => setApptPerson(p.id)} className={`px-3.5 py-2 rounded-full text-[13px] font-semibold ${focusRing}`} style={on ? { background: S.ink, color: '#fff' } : { background: S.tile, color: S.ink }}>{p.name}</button>;
-                      })}
-                    </div>
-                  </div>
-                )}
-                <div className="text-[12px] mb-2" style={{ color: S.muted }}>{apptCal.group
+                                <div className="text-[12px] mb-2" style={{ color: S.muted }}>{apptCal.group
                   ? `For ${apptCal.party} people. Only times that work for everyone are shown, with when you'll all be done.`
-                  : `Takes about ${apptCal.minutes >= 60 ? `${apptCal.minutes / 60} hour${apptCal.minutes !== 60 ? 's' : ''}` : `${apptCal.minutes} minutes`}. Only free times are shown.`}</div>
+                  : `Takes about ${apptCal.minutes >= 60 ? `${apptCal.minutes / 60} hour${apptCal.minutes !== 60 ? 's' : ''}` : `${apptCal.minutes} minutes`}. ${(apptCal.people || []).length ? 'Pick a day, then a time under the person you want.' : 'Only free times are shown.'}`}</div>
                 {!anyFree ? <div className="text-[13px] rounded-xl px-4 py-3" style={{ background: S.tile }}>{apptPerson ? `${(apptCal.people.find((p) => p.id === apptPerson) || {}).name || 'They'} has no free times in the next two weeks. Try "Anyone free", or send your request anyway.` : "No free times in the next two weeks. Send your request anyway and they'll suggest a time."}</div> : (
                   <>
-                    <SlotPicker light cal={apptCal} day={apptPickDay} onDay={setApptPickDay} slot={apptSlot} onSlot={setApptSlot} />
+                    <SlotPicker light cal={apptCal} day={apptPickDay} onDay={setApptPickDay} slot={apptSlot} onSlot={(t) => { setApptSlot(t); if (!t) setApptPerson(null); }}
+                      belowDay={!apptCal.group && (apptCal.people || []).length ? (sel) => renderPeopleTimes(sel) : undefined} />
+                    {!apptCal.group && (apptCal.people || []).length > 0 && apptSlot && (
+                      <div className="mt-2.5 rounded-xl px-3.5 py-3 flex items-center gap-2 text-[13px] font-semibold" style={{ background: '#EAF6F0', color: '#17191A' }}>
+                        <Check size={15} style={{ color: '#1F7A5C' }} className="shrink-0" />
+                        <span>{apptDay(apptSlot)}, {apptTime(apptSlot)} to {apptTime(calEndOf(apptCal, apptSlot))} · {apptPerson ? `with ${(apptCal.people.find((p) => p.id === apptPerson) || {}).name || ''}` : 'with whoever is free'}</span>
+                      </div>
+                    )}
+                    {apptCal.group && apptSlot && (
+                      <div className="mt-2.5 rounded-xl p-3.5" style={{ background: '#EAF6F0' }}>
+                        <div className="text-[13px] font-semibold mb-2 flex items-center gap-2"><Check size={15} style={{ color: '#1F7A5C' }} /> Your group's plan</div>
+                        {groupPlan.loading && <div className="flex items-center gap-2 text-[12.5px]" style={{ color: S.muted }}><Loader2 size={14} className="animate-spin" /> Working it out…</div>}
+                        {groupPlan.plan && (
+                          <div className="space-y-2">
+                            {groupPlan.plan.map((pt, i) => (
+                              <div key={i} className="flex items-start gap-2.5 text-[13px] leading-snug">
+                                <span className="w-7 h-7 rounded-full flex items-center justify-center text-[11.5px] font-bold shrink-0" style={{ background: '#fff', color: '#17191A' }}>{(pt.guest || youName || '?').trim()[0]?.toUpperCase()}</span>
+                                <span className="min-w-0">
+                                  <span className="block font-semibold">{pt.guest || (youName === 'You' ? 'You' : youName)} · {apptTime(pt.start_at)} to {apptTime(pt.end_at)}</span>
+                                  <span className="block" style={{ color: S.muted }}>{(pt.items || []).join(', ')}{pt.person ? ` · with ${pt.person}` : ''}</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {!groupPlan.loading && !groupPlan.plan && <div className="text-[12.5px]" style={{ color: S.muted }}>{apptDay(apptSlot)}, {apptTime(apptSlot)} to {apptTime(calEndOf(apptCal, apptSlot))}</div>}
+                      </div>
+                    )}
                   </>
                 )}
               </div>
             );
-          })() : !apptCalLoading && (
+          })() : !apptCalLoading && apptCalError ? (
+            <div className="mb-4 mt-2 rounded-xl px-4 py-3 flex items-center justify-between gap-3 text-[13px]" style={{ background: S.tile }}>
+              <span>The free times didn't load. Check your connection.</span>
+              <button type="button" onClick={loadStoreCalendar} className={`shrink-0 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff' }}>Try again</button>
+            </div>
+          ) : !apptCalLoading && (
             <>
               <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-when">When would you like it? <span className="font-normal" style={{ color: S.muted }}>(optional)</span></label>
               <input id="sf-when" type="datetime-local" value={preferredTime} onChange={(e) => setPreferredTime(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
@@ -19196,7 +19349,7 @@ function calEndOf(cal, t) {
   if (cal?.group) for (const d of cal.days || []) { const i = (d.slots || []).indexOf(t); if (i >= 0 && d.ends && d.ends[i]) return d.ends[i]; }
   return new Date(new Date(t).getTime() + (cal?.minutes || 0) * 60000).toISOString();
 }
-function SlotPicker({ cal, day, onDay, slot, onSlot, light, scarcity = 'one' }) {
+function SlotPicker({ cal, day, onDay, slot, onSlot, light, scarcity = 'one', belowDay }) {
   const P = light
     ? { ink: '#17191A', muted: '#6B706B', faint: '#B4B8B2', tile: '#F1F2EF', line: '#E6E8E4', pick: '#17191A', pickInk: '#fff', dot: '#1F7A5C', bg: '#fff' }
     : { ink: C.ink, muted: C.inkDim, faint: C.inkFaint, tile: C.surfaceRaised, line: C.line, pick: C.copper, pickInk: C.bg, dot: C.sage, bg: C.surface };
@@ -19251,6 +19404,7 @@ function SlotPicker({ cal, day, onDay, slot, onSlot, light, scarcity = 'one' }) 
           );
         })}
       </div>
+      {belowDay ? <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${P.line}` }}>{belowDay(sel)}</div> : (
       <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${P.line}` }}>
         {!sel ? <div className="text-[12.5px] py-2 text-center" style={{ color: P.muted }}>Choose a day with a dot to see free times.</div> : (
           <>
@@ -19281,6 +19435,7 @@ function SlotPicker({ cal, day, onDay, slot, onSlot, light, scarcity = 'one' }) 
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -19803,6 +19958,9 @@ function CustomerOrder({ token }) {
   const discount = Number(od.discount_amount) || 0;
   const delivery = Number(od.delivery_fee) || 0;
   const total = Number(od.pay_amount ?? (Number(od.total) + delivery));
+  // An appointment deposit: part of the price now to keep the time, the rest at the visit
+  const isDeposit = !!od.is_appointment && od.pay_amount != null && Number(od.pay_amount) < Number(od.total) + delivery;
+  const restAtVisit = Math.max(0, Number(od.total) + delivery - Number(od.pay_amount || 0));
   const first = String(od.customer_name || '').split(' ')[0];
   const addr = String(od.delivery_address || '').replace(/[.\s]+$/, '');
   const lCollect = laundryCollect({ fulfilMode: od.fulfil_mode, note: od.note }); const lDrop = laundryDrop({ fulfilMode: od.fulfil_mode, note: od.note });
@@ -19832,6 +19990,7 @@ function CustomerOrder({ token }) {
     : od.ready_at && od.fulfil_mode === 'pickup' ? ['#DFF6EE', '#0E7A5F', 'Ready for pick-up', `Your ${noun} is ready. Collect it from ${od.address || od.business}.${od.pay_status === 'requested' && od.online ? ' Pay below first, or when you collect it.' : ''}`]
     : od.ready_at && od.fulfil_mode === 'delivery' ? ['#DFF6EE', '#0E7A5F', 'On its way', `Your ${noun} is on its way to ${addr}.${od.rider_name ? ` Your rider is ${od.rider_name}${od.rider_phone ? ` (${formatPhoneDisplay(od.rider_phone)})` : ''}.` : ''}${od.delivery_pay === 'on_delivery' && od.pay_status !== 'paid' && !od.delivery_paid ? ` Please have ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} ready for them.` : ''}`]
     : od.pay_status === 'paid' ? ['#DFF6EE', '#0E7A5F', 'Paid', `Thanks, ${first}! ${od.business} has your payment and is getting your ${noun} ready.`]
+    : od.pay_status === 'requested' && isDeposit ? ['#DFF6EE', '#0E7A5F', 'Confirmed: pay a deposit to keep your time', `${od.business} has confirmed ${od.preferred_time || 'your appointment'}. Pay the ${fmt(Number(od.pay_amount))} deposit below to keep it. The rest (${fmt(restAtVisit)}) is paid at your visit.`]
     : od.pay_status === 'requested' ? ['#DFF6EE', '#0E7A5F', 'Confirmed: ready to pay', `${od.business} has everything for your ${noun}.${od.online ? ' Pay below to complete it.' : ''}`]
     : od.fulfil_mode === 'delivery' && od.delivery_pay === 'before' && !od.delivery_paid ? ['#FFF4D6', '#8A5A00', 'Confirmed: waiting for your payment', `Pay ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} as ${od.business} asked on WhatsApp. They'll send it out with their rider as soon as it's in.`]
     : od.fulfil_mode === 'delivery' && od.delivery_pay === 'on_delivery' ? ['#DFF6EE', '#0E7A5F', 'Confirmed', `You'll pay ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} to the rider when it arrives (cash or transfer). You'll get a message when it's on its way.`]
@@ -19929,7 +20088,8 @@ function CustomerOrder({ token }) {
           {delivery > 0 && row('Delivery', fmt(delivery), false, S.ink)}
           <div className="my-1.5" style={{ borderTop: `1px solid ${S.line}` }} />
           {row('Total', fmt(od.pay_status ? total : itemsTotal - discount + delivery), true, S.ink)}
-          {od.pay_status === 'paid' && row('Paid online', fmt(od.amount_paid), false, '#0E7A5F')}
+          {od.pay_status === 'paid' && row(isDeposit ? 'Deposit paid' : 'Paid online', fmt(od.amount_paid), false, '#0E7A5F')}
+          {od.pay_status === 'paid' && isDeposit && restAtVisit > 0 && row('To pay at your visit', fmt(restAtVisit), false, S.ink)}
           {od.fulfil_mode === 'delivery' && od.delivery_address && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>Delivering to: <strong style={{ color: S.ink }}>{addr}</strong>{od.delivery_zone ? ` (${od.delivery_zone})` : ''}</div>}
           {od.fulfil_mode === 'delivery' && od.ready_at && od.rider_phone && od.status === 'pending' && <a href={`tel:${String(od.rider_phone).replace(/[^0-9+]/g, '')}`} className="inline-flex items-center gap-1.5 mt-2 text-[13px] font-semibold" style={{ color: '#0E7A5F' }}><Phone size={14} /> Call {od.rider_name || 'your rider'}</a>}
           {od.fulfil_mode === 'pickup' && <div className="text-[12.5px] mt-2" style={{ color: S.muted }}>You'll pick it up{od.address ? <> from <strong style={{ color: S.ink }}>{od.address}</strong></> : ''}.</div>}
@@ -19961,13 +20121,13 @@ function CustomerOrder({ token }) {
             {quote ? (
               <>
                 <div className="rounded-xl p-3.5 text-[13.5px] space-y-1" style={{ background: S.tile }}>
-                  <div className="flex justify-between"><span style={{ color: S.muted }}>Your {noun}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(quote.amount)}</span></div>
+                  <div className="flex justify-between"><span style={{ color: S.muted }}>{isDeposit ? 'Deposit to keep your time' : `Your ${noun}`}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(quote.amount)}</span></div>
                   <div className="flex justify-between"><span style={{ color: S.muted }}>Service fee</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(quote.fee_total)}</span></div>
                   <div className="flex justify-between font-bold pt-1" style={{ borderTop: `1px solid ${S.line}` }}><span>You pay</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(quote.total)}</span></div>
                 </div>
                 <button onClick={payOnline} disabled={busy} className={`${btn} mt-3 flex items-center justify-center gap-2`} style={{ background: S.ink, color: '#fff', opacity: busy ? 0.6 : 1 }}>{busy ? 'Opening Paystack…' : <><Lock size={15} /> Pay {fmt(quote.total)} now</>}</button>
                 <div className="text-[12px] text-center mt-2" style={{ color: S.muted }}>Card, bank transfer or USSD · secured by Paystack</div>
-                <div className="text-[11.5px] text-center mt-1 leading-relaxed" style={{ color: S.muted }}>If {od.business} can't complete your {noun}, they refund what you paid for it. The service fee isn't refunded.</div>
+                <div className="text-[11.5px] text-center mt-1 leading-relaxed" style={{ color: S.muted }}>{isDeposit ? `The rest (${fmt(restAtVisit)}) is paid at your visit. ` : ''}If {od.business} can't complete your {noun}, they refund what you paid for it. The service fee isn't refunded.</div>
               </>
             ) : (
               <div className="text-[13.5px] leading-relaxed" style={{ color: S.muted }}>Online payment isn't available right now. Message {od.business} to pay them directly.</div>
