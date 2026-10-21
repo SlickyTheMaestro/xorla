@@ -1768,6 +1768,8 @@ function XorlaApp() {
   const [bookingBusy, setBookingBusy] = useState(false);
   const [roomCharges, setRoomCharges] = useState([]);
   const [roomOrders, setRoomOrders] = useState([]);
+  const [riderJobs, setRiderJobs] = useState([]);     // deliveries sent to the Xorla rider network
+  const [xorlaJobFor, setXorlaJobFor] = useState(null);   // the "send to Xorla riders" panel
   const [riders, setRiders] = useState([]);            // riders and dispatch companies the business uses
   const [zones, setZones] = useState([]);              // delivery areas with fixed fees
   const [riderFor, setRiderFor] = useState(null);      // { order, picks: { [riderId]: fee }, chosen, customerFee, busy, error }
@@ -2227,7 +2229,7 @@ function XorlaApp() {
     const uid = jwtPayload(accessToken).sub || scopeRef.current?.uid || (() => { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')?.user_id || null; } catch (e) { return null; } })();
     // Put a full set of records on screen (fresh from Xorla, or the copy saved on this phone)
     const applyRows = (raw) => {
-      let [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, riderRows, zoneRows, roomOrderRows, peopleRows, codeRows, variantRows] = raw;
+      let [salesRows, invoiceRows, expenseRows, productRows, orderRows, shopRows, staffShopRows, presenceRows, productShopRows, transferRows, requestRows, subscriptionRows, paymentRows, bookingRows, roomRows, refundRows, chargeRows, riderRows, zoneRows, roomOrderRows, peopleRows, codeRows, variantRows, riderJobRows] = raw;
       // A manager only ever holds their own locations' records (the database already limits this; this is a second lock)
       const sc = scopeRef.current;
       const mineIds = sc?.isManager ? new Set((staffShopRows || []).filter((r) => r.profile_id === sc.uid).map((r) => r.shop_id)) : null;
@@ -2268,6 +2270,7 @@ function XorlaApp() {
       setZones(Array.isArray(zoneRows) ? zoneRows : []);
       setApptPeople(Array.isArray(peopleRows) ? peopleRows : []);
       setDiscountCodes(Array.isArray(codeRows) ? codeRows : []);
+      setRiderJobs(Array.isArray(riderJobRows) ? riderJobRows : []);
     };
     try {
       const raw = await Promise.all([
@@ -2296,6 +2299,7 @@ function XorlaApp() {
         sbRest('appt_people', { accessToken, query: '?select=*&order=name.asc' }).catch(() => []),
         sbRest('discount_codes', { accessToken, query: '?select=*&order=created_at.desc' }).catch(() => []),
         sbRestAll('variant_stock', { accessToken, query: '?select=*&order=product_id.asc,shop_id.asc,variant.asc' }).catch(() => []),
+        sbRpc('business_rider_jobs', accessToken, {}).catch((e) => { if (isOfflineError(e)) throw e; return []; }),
       ]);
       applyRows(raw); lastRawRef.current = raw; applyRowsRef.current = applyRows;
       dataLoadedRef.current = true;
@@ -4111,6 +4115,158 @@ function XorlaApp() {
       </Sheet>
     );
   };
+  // ---------- Xorla rider network: send a delivery to verified riders nearby ----------
+  const jobForOrder = (o) => riderJobs.find((j) => j.order_id === o.id && ['open', 'taken', 'picked_up'].includes(j.status))
+    || riderJobs.filter((j) => j.order_id === o.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
+  const liveJob = (j) => !!j && ['open', 'taken', 'picked_up', 'delivered'].includes(j.status);
+  const reloadRiderJobs = async () => { try { const r = await sbRpc('business_rider_jobs', session.access_token, {}); setRiderJobs(Array.isArray(r) ? r : []); } catch (e) { /* the next refresh brings it */ } };
+  const canUseXorlaRiders = (o) => o.fulfilMode === 'delivery' && !!o.deliveryAddress && !laundryCollect(o) && !isRideJob(o);
+  const guessLga = (text, state) => (NG_LGAS[state] || []).find((l) => new RegExp(`\\b${l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(String(text || ''))) || '';
+  const openXorlaJob = (o) => {
+    const sh = locationsAll.find((x) => x.id === (o.shopId || mainShopId)) || {};
+    const state = sh.rider_state || 'Abia';
+    const lga = sh.rider_lga || guessLga(`${sh.address || ''} ${settings.businessAddress || ''}`, state) || guessLga(o.deliveryAddress, state);
+    setXorlaJobFor({ order: o, state, lga, fee: o.deliveryFee ? String(o.deliveryFee) : '', payHow: 'transfer', note: '', busy: false, error: '' });
+  };
+  const postXorlaJob = async () => {
+    const f = xorlaJobFor; if (!f || f.busy) return;
+    const fee = Number(parseNumInput(f.fee || ''));
+    if (!f.lga) { setXorlaJobFor({ ...f, error: 'Choose the area the rider picks up from.' }); return; }
+    if (!Number.isFinite(fee) || fee < 100) { setXorlaJobFor({ ...f, error: "Enter what you'll pay the rider (at least ₦100)." }); return; }
+    setXorlaJobFor({ ...f, busy: true, error: '' });
+    try {
+      await sbRpc('post_rider_job', session.access_token, { p_order: f.order.id, p_fee: fee, p_pay_how: f.payHow, p_state: f.state, p_lga: f.lga, p_note: f.note.trim() });
+      setXorlaJobFor(null);
+      await reloadRiderJobs(); await loadBusinessData(session.access_token);
+      showAiNotice(`Sent to Xorla riders in ${f.lga}. You'll see who's coming the moment one accepts.`);
+    } catch (e) { setXorlaJobFor((x) => x && { ...x, busy: false, error: /post_rider_job|Could not find the function/i.test(e.message || '') ? 'The Xorla rider network needs a quick update first (rider-jobs.sql).' : e.message }); }
+  };
+  const updateXorlaJob = async (j, action, note = '') => {
+    if (action === 'cancel' && !(await brandConfirm(j.status === 'taken' ? `Cancel the job? ${String(j.rider?.name || 'The rider').split(' ')[0]} is on the way and will be told not to come.` : 'Take this job off the Xorla rider board?', { confirm: 'Cancel the job', danger: true }))) return;
+    try { await sbRpc('business_rider_job_update', session.access_token, { p_job: j.id, p_action: action, p_note: note }); await reloadRiderJobs(); if (action === 'cancel') await loadBusinessData(session.access_token); }
+    catch (e) { brandAlert(e.message); }
+  };
+  const deliveryCodeMessage = (o, j) => {
+    const first = String(o.customerName || '').split(' ')[0] || 'there'; const rFirst = String(j.rider?.name || 'the rider').split(' ')[0];
+    return [`Hi ${first}, your order from ${settings.businessName} is ${j.status === 'picked_up' ? 'on its way' : 'about to leave'} with ${rFirst}, a verified Xorla rider${j.rider?.plate ? ` (${RIDER_VEHICLES.find((v) => v[0] === j.rider.vehicle)?.[1] || 'Rider'} · ${j.rider.plate})` : ''}.`,
+      `When it arrives, check your order, then give ${rFirst} this code: ${j.delivery_code}`,
+      "Please don't share the code before you have your order.", orderLinkOf(o) ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n');
+  };
+  const renderXorlaJobSheet = () => {
+    const f = xorlaJobFor; if (!f) return null;
+    const o = f.order; const set = (patch) => setXorlaJobFor({ ...f, ...patch, error: '' });
+    const fee = Number(parseNumInput(f.fee || '')) || 0;
+    return (
+      <Sheet title="Send to Xorla riders" onClose={() => !f.busy && setXorlaJobFor(null)} busy={f.busy}>
+        <div className="text-[12.5px] mb-3 leading-relaxed" style={{ color: C.inkDim }}><strong style={{ color: C.ink }}>{packageOf(o)}</strong> from {pickupPointOf(o)} to <strong style={{ color: C.ink }}>{o.deliveryAddress}</strong>.</div>
+        <div className="rounded-xl px-3.5 py-3 mb-3 flex items-start gap-2.5 text-[12px] leading-relaxed" style={{ background: C.sageSoft, color: C.inkDim }}>
+          <ShieldCheck size={16} className="shrink-0 mt-0.5" style={{ color: C.sage }} />
+          <span><strong style={{ color: C.ink }}>Verified riders only.</strong> Xorla checks each rider's ID, selfie, guarantor and bank. The first rider who serves your area and accepts gets it, and you'll see their name, photo and plate.</span>
+        </div>
+        <label className="block text-[12.5px] font-semibold mb-1.5">Pick-up area</label>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <BrandSelect value={f.state} onChange={(e) => set({ state: e.target.value, lga: '' })} aria-label="State" className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
+            {NG_STATES.map((st) => <option key={st} value={st}>{st}</option>)}
+          </BrandSelect>
+          <BrandSelect value={f.lga} onChange={(e) => set({ lga: e.target.value })} aria-label="Local government area" className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
+            <option value="">Choose the area…</option>
+            {(NG_LGAS[f.state] || []).map((l) => <option key={l} value={l}>{l}</option>)}
+          </BrandSelect>
+        </div>
+        <label className="block text-[12.5px] font-semibold mb-1.5">You pay the rider</label>
+        <input type="text" inputMode="decimal" placeholder="₦ amount" value={formatNumInput(f.fee || '')} onChange={(e) => set({ fee: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-1" style={field} />
+        <div className="text-[11.5px] mb-3" style={{ color: C.inkFaint }}>{o.deliveryFee ? `The customer pays ${fmt(o.deliveryFee)} for delivery.${fee > 0 ? (o.deliveryFee > fee ? ` You keep ${fmt(o.deliveryFee - fee)}.` : o.deliveryFee < fee ? ` That's ${fmt(fee - o.deliveryFee)} more than they pay.` : ' The same as they pay.') : ''}` : 'A fair fee gets a rider faster.'}</div>
+        <div className="text-[12.5px] font-semibold mb-1.5">How you'll pay them</div>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {[['transfer', 'Transfer after delivery', "To the rider's checked bank account"], ['cash_pickup', 'Cash at pick-up', 'Hand it over with the package']].map(([v, l, d]) => (
+            <button key={v} type="button" onClick={() => set({ payHow: v })} className="rounded-xl px-3 py-2.5 text-left" style={{ background: f.payHow === v ? C.copperSoft : C.surfaceRaised, border: `1.5px solid ${f.payHow === v ? C.copper : C.line}` }}>
+              <span className="block text-[12.5px] font-semibold" style={{ color: C.ink }}>{l}</span><span className="block text-[11px] mt-0.5 leading-snug" style={{ color: C.inkFaint }}>{d}</span>
+            </button>
+          ))}
+        </div>
+        <input type="text" maxLength={200} placeholder="Note for the rider (optional), e.g. call at the gate" value={f.note} onChange={(e) => set({ note: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-3" style={field} />
+        <div className="rounded-xl px-3.5 py-2.5 text-[11.5px] leading-relaxed mb-1" style={{ background: C.surfaceRaised, color: C.inkDim }}>Xorla riders don't collect money from customers. Make sure {String(o.customerName).split(' ')[0]} has paid you, or will pay you directly.</div>
+        {f.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
+        <button onClick={postXorlaJob} disabled={f.busy} className="w-full mt-3 h-12 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copperFill, color: C.onAccent, opacity: f.busy ? 0.6 : 1 }}>
+          <Bike size={17} /> {f.busy ? 'Sending…' : `Send to riders${f.lga ? ` in ${f.lga}` : ''}${fee ? ` · ${fmt(fee)}` : ''}`}
+        </button>
+      </Sheet>
+    );
+  };
+  // On the order card: where the Xorla job is, who's coming, the codes, and paying the rider
+  const renderXorlaJob = (o, j) => {
+    const rFirst = String(j.rider?.name || 'The rider').split(' ')[0];
+    const ago = (t) => { const m = Math.max(0, Math.round((Date.now() - new Date(t).getTime()) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)}h ${m % 60}m ago`; };
+    const at = (t) => new Date(t).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true });
+    if (j.status === 'open') {
+      const left = Math.max(0, Math.round((new Date(j.expires_at).getTime() - Date.now()) / 60000));
+      return (
+        <div className="mt-2 pt-2" style={{ borderTop: `1px solid ${C.line}` }}>
+          <div className="flex items-center gap-2.5">
+            <span className="relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Bike size={17} style={{ color: C.copper }} /><span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full xorla-pulse" style={{ background: C.copperFill }} /></span>
+            <span className="flex-1 min-w-0"><span className="block font-semibold" style={{ color: C.ink }}>Looking for a Xorla rider in {j.pickup_lga}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{fmt(j.fee)} · posted {ago(j.created_at)} · closes in {left} min</span></span>
+          </div>
+          <button type="button" onClick={() => updateXorlaJob(j, 'cancel')} className="mt-2 text-[11.5px] font-semibold" style={{ color: C.rust }}>Cancel and choose another way</button>
+        </div>
+      );
+    }
+    if (!j.rider) return null;
+    const veh = RIDER_VEHICLES.find((v) => v[0] === j.rider.vehicle)?.[1] || 'Rider';
+    const paid = !!j.paid_at;
+    return (
+      <div className="mt-2 pt-2 space-y-2" style={{ borderTop: `1px solid ${C.line}` }}>
+        <div className="flex items-center gap-2.5">
+          <RiderFace token={session.access_token} path={j.rider.photo} name={j.rider.name} />
+          <span className="flex-1 min-w-0">
+            <span className="flex items-center gap-1.5 font-semibold" style={{ color: C.ink }}>{j.rider.name}<BadgeCheck size={13} style={{ color: C.sage }} /></span>
+            <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{veh}{j.rider.plate ? ` · ${j.rider.plate}` : ''} · {fmt(j.fee)} · Xorla rider</span>
+          </span>
+          {j.rider.phone && ['taken', 'picked_up'].includes(j.status) && <a href={`https://wa.me/${toWhatsAppNumber(j.rider.phone)}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${j.rider.name}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={15} /></a>}
+          {j.rider.phone && ['taken', 'picked_up'].includes(j.status) && <a href={`tel:${String(j.rider.phone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${j.rider.name}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(var(--c-hi),0.05)', color: C.inkDim }}><Phone size={14} /></a>}
+        </div>
+        {j.locked && (
+          <div className="rounded-lg px-2.5 py-2" style={{ background: C.rustSoft }}>
+            <div className="font-semibold" style={{ color: C.rust }}>Wrong codes 5 times: the job is locked</div>
+            <div className="text-[11.5px] mt-0.5" style={{ color: C.inkDim }}>Call {rFirst} first. If all is well, send new codes.</div>
+            <button type="button" onClick={() => updateXorlaJob(j, 'new_codes')} className="mt-1.5 text-[12px] font-semibold" style={{ color: C.copper }}>Send new codes</button>
+          </div>
+        )}
+        {j.status === 'taken' && !j.locked && (
+          <div className="rounded-xl px-3 py-2.5 flex items-center gap-3" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.35)' }}>
+            <span className="flex-1 min-w-0"><span className="block text-[11px] font-bold uppercase tracking-wide" style={{ color: C.copper }}>Pick-up code</span><span className="block text-[11.5px] mt-0.5 leading-snug" style={{ color: C.inkDim }}>Give it to {rFirst} only when you hand over the package.</span></span>
+            <span className="text-[24px] font-bold cx-mono tracking-[0.18em] shrink-0" style={{ color: C.ink }}>{j.pickup_code}</span>
+          </div>
+        )}
+        {j.status === 'picked_up' && <div className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: C.sage }}><Truck size={13} /> Picked up at {at(j.picked_at)} · on the way</div>}
+        {j.status === 'delivered' && <div className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: C.sage }}><Check size={13} /> Delivered at {at(j.delivered_at)}, confirmed with {String(o.customerName).split(' ')[0]}'s code</div>}
+        {['taken', 'picked_up'].includes(j.status) && (
+          <div className="rounded-lg px-2.5 py-2 flex items-center gap-2" style={{ background: C.surface }}>
+            <span className="flex-1 min-w-0 text-[11.5px] leading-snug" style={{ color: C.inkDim }}>{String(o.customerName).split(' ')[0]}'s delivery code: <strong className="cx-mono" style={{ color: C.ink }}>{j.delivery_code}</strong>. They give it to {rFirst} when they get the order.</span>
+            {o.customerPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(deliveryCodeMessage(o, j))}`} target="_blank" rel="noopener noreferrer" className="shrink-0 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold flex items-center gap-1" style={{ background: 'rgba(37,211,102,0.12)', color: '#25D366' }}><MessageCircle size={13} /> Send</a>}
+          </div>
+        )}
+        {['picked_up', 'delivered'].includes(j.status) && !paid && (
+          <div className="rounded-lg px-2.5 py-2" style={{ background: C.copperSoft }}>
+            {j.pay_how === 'transfer' ? (
+              <>
+                <div className="font-semibold" style={{ color: C.ink }}>Pay {rFirst} {fmt(j.fee)} by transfer</div>
+                {j.rider.account_number && <div className="text-[12px] mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: C.inkDim }}>{j.rider.bank_name} · <span className="cx-mono">{j.rider.account_number}</span> · {j.rider.account_name}{j.rider.bank_verified && <span className="inline-flex items-center gap-0.5 text-[10.5px] font-semibold" style={{ color: C.sage }}><BadgeCheck size={11} /> checked</span>}
+                  <button type="button" onClick={() => copyText(`acct-${j.id}`, j.rider.account_number)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>{copiedKey === `acct-${j.id}` ? 'Copied' : 'Copy'}</button></div>}
+                <button type="button" onClick={() => updateXorlaJob(j, 'paid_transfer')} className="mt-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>I've paid {rFirst}</button>
+              </>
+            ) : (
+              <>
+                <div className="font-semibold" style={{ color: C.ink }}>Pay {rFirst} {fmt(j.fee)} in cash</div>
+                <button type="button" onClick={() => updateXorlaJob(j, 'paid_cash')} className="mt-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>Paid in cash</button>
+              </>
+            )}
+          </div>
+        )}
+        {paid && <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Paid {fmt(j.fee)} {j.paid_how === 'cash' ? 'in cash' : 'by transfer'}{j.paid_by_name ? ` (${j.paid_by_name})` : ''} · {j.rider_confirmed_paid_at ? <span style={{ color: C.sage }}>{rFirst} confirmed</span> : `waiting for ${rFirst} to confirm`}</div>}
+        {j.status === 'taken' && <button type="button" onClick={() => updateXorlaJob(j, 'cancel')} className="text-[11.5px] font-semibold" style={{ color: C.rust }}>Cancel the job</button>}
+      </div>
+    );
+  };
   const renderPayAskPanel = () => {
     if (!payAsk) return null;
     const o = payAsk.order;
@@ -5753,6 +5909,11 @@ function XorlaApp() {
     if (ride) return act(`${rider} is doing the ride. Tap ${o.roomBookingId ? 'Done' : 'Mark done'} after`);
     if (o.roomBookingId) return act(`It's on the bill. Do it, then tap Done`);
     if (o.fulfilMode === 'delivery') {
+      const xj = jobForOrder(o);
+      if (xj && xj.status === 'open') return wait('Waiting for a Xorla rider to accept');
+      if (xj && xj.status === 'taken') return act(`${String(xj.rider?.name || 'The rider').split(' ')[0]} is coming. Give them code ${xj.pickup_code} with the package`);
+      if (xj && xj.status === 'picked_up') return wait(`On its way with ${String(xj.rider?.name || 'the rider').split(' ')[0]}`);
+      if (xj && xj.status === 'delivered') return act(xj.paid_at ? 'Delivered. Tap Delivered to finish' : `Delivered. Pay ${String(xj.rider?.name || 'the rider').split(' ')[0]} ${fmt(xj.fee)}, then tap Delivered`);
       if (!o.riderId) return riders.length ? act(laundryCollect(o) ? 'Choose a rider to collect the laundry' : 'Get rider prices and choose one') : act(laundryCollect(o) ? 'Send someone to collect the laundry' : 'Get it ready, then send it out');
       if (o.deliveryPay === 'before' && !deliveryPaid(o)) return wait(`Waiting for ${first} to pay`);
       if (!o.riderSentAt) return act(`Send ${rider} the details`);
@@ -5873,7 +6034,7 @@ function XorlaApp() {
                     );
                     return null;
                   })()}
-                  {o.fulfilMode === 'delivery' && o.deliveryAddress && (
+                  {o.fulfilMode === 'delivery' && o.deliveryAddress && (() => { const xj = jobForOrder(o); return (
                     <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                       <div className="flex items-center gap-2 font-semibold" style={{ color: C.ink }}><Truck size={14} style={{ color: C.copper }} /> {laundryCollect(o) ? (o.readyAt ? 'Bringing the laundry back to' : 'Collect the laundry from') : 'Deliver to'}</div>
                       <div className="mt-0.5 leading-relaxed" style={{ color: C.inkDim }}>{o.deliveryAddress}{o.deliveryZone ? <span style={{ color: C.inkFaint }}> · {o.deliveryZone} area, {fmt(o.deliveryFee)}</span> : null}</div>
@@ -5881,7 +6042,7 @@ function XorlaApp() {
                         <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold" style={{ color: C.sage }}>Open in Maps</a>
                         <button onClick={() => copyText(`addr-${o.id}`, `${o.customerName}, ${o.customerPhone}\n${o.deliveryAddress}`)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>{copiedKey === `addr-${o.id}` ? 'Copied' : 'Copy address'}</button>
                       </div>
-                      {o.riderName ? (
+                      {o.riderName && !liveJob(xj) ? (
                         <div className="mt-2 pt-2 flex items-center gap-2" style={{ borderTop: `1px solid ${C.line}` }}>
                           <span className="flex-1 min-w-0"><span className="block font-semibold" style={{ color: C.ink }}>Rider: {o.riderName}{o.riderFee != null ? <span className="font-normal" style={{ color: C.inkFaint }}> · {fmt(o.riderFee)}</span> : null}</span>{o.deliveryFee > 0 && o.riderFee != null && <span className="block text-[11px]" style={{ color: o.deliveryFee >= o.riderFee ? C.sage : C.rust }}>Customer pays {fmt(o.deliveryFee)}{o.deliveryFee > o.riderFee ? `, you keep ${fmt(o.deliveryFee - o.riderFee)}` : o.deliveryFee < o.riderFee ? `, you cover ${fmt(o.riderFee - o.deliveryFee)}` : ''}</span>}</span>
                           {o.riderPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.riderPhone)}?text=${encodeURIComponent(riderBriefMessage(o))}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${o.riderName}`} className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={14} /></a>}
@@ -5889,7 +6050,7 @@ function XorlaApp() {
                           {o.status === 'pending' && <button onClick={() => openRiders(o)} className="shrink-0 text-[11.5px] font-semibold" style={{ color: C.copper }}>Change</button>}
                         </div>
                       ) : null}
-                      {o.riderName && o.status === 'pending' ? (() => {
+                      {o.riderName && o.status === 'pending' && !liveJob(xj) ? (() => {
                         const first = String(o.customerName).split(' ')[0]; const rFirst = String(o.riderName).split(' ')[0];
                         const waiting = o.deliveryPay === 'before' && !deliveryPaid(o);
                         if (waiting) return (
@@ -5909,13 +6070,22 @@ function XorlaApp() {
                         if (laundryCollect(o)) return <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>{rFirst} was sent to collect the laundry at {new Date(o.riderSentAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })}. When it's clean, tap "Clean: send it back".</div>;
                         return <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>Pick-up details sent to {rFirst} at {new Date(o.riderSentAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })} · {deliveryPaid(o) ? 'paid, nothing to collect' : `collects ${fmt(deliveryOwing(o))}`}</div>;
                       })() : null}
-                      {o.riderName ? (
+                      {liveJob(xj) && renderXorlaJob(o, xj)}
+                      {o.riderName || liveJob(xj) ? (
                         null
+                      ) : o.status === 'pending' && canUseXorlaRiders(o) ? (
+                        <>
+                          {xj && ['expired', 'cancelled'].includes(xj.status) && <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>{xj.status === 'expired' ? `No Xorla rider took it at ${fmt(xj.fee)}. Try a higher fee, or your own riders.` : 'The Xorla job was cancelled.'}</div>}
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                            <button onClick={() => openXorlaJob(o)} className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Bike size={14} /> Xorla riders</button>
+                            <button onClick={() => openRiders(o)} className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.lineStrong}`, color: C.ink }}><Truck size={14} /> Your riders</button>
+                          </div>
+                        </>
                       ) : o.status === 'pending' && (
                         <button onClick={() => openRiders(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Truck size={14} /> Get rider prices</button>
                       )}
                     </div>
-                  )}
+                  ); })()}
                   {o.fulfilMode === 'pickup' && <div className="rounded-xl px-3 py-2 mb-3 text-[12.5px] flex items-center gap-2" style={{ background: o.readyAt && o.status === 'pending' ? C.sageSoft : C.surfaceRaised, color: C.inkDim }}><Store size={14} style={{ color: o.readyAt ? C.sage : C.copper }} /> <span>Pick-up: {String(o.customerName).split(' ')[0]} collects it{shops.length > 1 ? ` at ${shopNameOf(o.shopId)}` : ''}{o.readyAt && o.status === 'pending' ? <strong style={{ color: C.sage }}> · told it's ready{o.readyByName ? ` by ${o.readyByName}` : ''}, {new Date(o.readyAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })}</strong> : null}</span></div>}
                   {o.fulfilMode === 'delivery' && o.readyAt && o.status === 'pending' && <div className="-mt-2 mb-3 text-[12px] font-semibold" style={{ color: C.sage }}>On its way · sent {new Date(o.readyAt).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true })}{o.readyByName ? ` by ${o.readyByName}` : ''}</div>}
                   {serviceKind === 'accommodation' && !o.startAt && (() => {
@@ -8942,7 +9112,7 @@ function XorlaApp() {
         {renderReceiptModal()}
         {renderStockPanel()}
         {renderBookingPanels()}
-        {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
+        {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
         {renderApptPanel()}
         <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-5 lg:pt-7 pb-28 lg:pb-12">
           <div className="lg:hidden mb-4 flex items-baseline justify-between gap-3">
@@ -10692,8 +10862,8 @@ function XorlaApp() {
                   <div className="relative flex items-start gap-3">
                     <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill }}><Bike size={19} style={{ color: C.onAccent }} /></span>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap"><span className="text-[14.5px] font-semibold">Xorla rider network</span><span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>Coming soon</span></div>
-                      <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>Verified riders near you, each checked by Xorla: ID, selfie, guarantor and bank. When it opens in your area, you can send a delivery to the network as well as to your own riders. <strong style={{ color: C.ink }}>Your own list above stays exactly as it is.</strong></div>
+                      <div className="flex items-center gap-2 flex-wrap"><span className="text-[14.5px] font-semibold">Xorla rider network</span><span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold" style={{ background: C.sageSoft, color: C.sage }}>Live</span></div>
+                      <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.inkDim }}>Verified riders near you, each checked by Xorla: ID, selfie, guarantor and bank. On any delivery order, tap <strong style={{ color: C.ink }}>Xorla riders</strong>, set the fee, and the first rider nearby who accepts comes for it. Pick-up and hand-over are confirmed with codes, and you pay the rider directly. <strong style={{ color: C.ink }}>Your own list above stays exactly as it is.</strong></div>
                       <button onClick={() => copyText('rider-invite', `${window.location.origin}/ride`)} className="mt-3 h-9 px-3.5 rounded-xl text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ color: C.copper, border: '1px solid rgba(255,176,32,0.35)' }}>{copiedKey === 'rider-invite' ? <><Check size={14} /> Link copied</> : <><Copy size={13} /> Know good riders? Copy the sign-up link</>}</button>
                     </div>
                   </div>
@@ -12752,7 +12922,7 @@ function XorlaApp() {
       {renderListTool()}
       {renderPastImport()}
       {renderHelp()}{renderSupportToast()}{renderArrivalToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
-      {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderLocPrice()}
+      {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
       {renderApptPanel()}
       {renderNotifPanel()}
       {renderLimitPrompt()}{renderAddLocations()}
@@ -15745,6 +15915,15 @@ async function vaultFileUrl(token, bucket, path, download = false) {
   const d = await res.json().catch(() => ({}));
   if (!res.ok || !d.signedURL) throw new Error("Couldn't open that file. If the link was shared with you, it may have stopped working.");
   return `${SB_URL}/storage/v1${d.signedURL}${download ? `&download=${encodeURIComponent(download === true ? '' : download)}` : ''}`;
+}
+// A Xorla rider's photo, shown to the business on its job so they can recognise who's at the door
+function RiderFace({ token, path, name, size = 40 }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => { let on = true; if (token && path) vaultFileUrl(token, 'rider-docs', path).then((u) => on && setUrl(u)).catch(() => {}); return () => { on = false; }; }, [token, path]);
+  const initials = String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  return url
+    ? <img src={url} alt={name || 'Rider'} className="rounded-full object-cover shrink-0" style={{ width: size, height: size, border: `2px solid ${C.sage}` }} />
+    : <span className="rounded-full flex items-center justify-center shrink-0 text-[13px] font-bold" style={{ width: size, height: size, background: C.sageSoft, color: C.sage }}>{initials}</span>;
 }
 const vaultLink = (token) => `${typeof window !== 'undefined' ? window.location.origin : 'https://xorla.vercel.app'}/docs/${token}`;
 
@@ -19442,6 +19621,7 @@ function GuestBooking({ token }) {
 // ---------- The customer's own order page (/order/…): track it, and pay online once the business confirms ----------
 function CustomerOrder({ token }) {
   const [od, setOd] = useState(undefined);
+  const [xr, setXr] = useState(null);   // a Xorla rider on this delivery: who, and the code to give them
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState('');
   const [quote, setQuote] = useState(null);           // { amount, fee_total, total } once there's something to pay online
@@ -19457,6 +19637,7 @@ function CustomerOrder({ token }) {
   const load = useCallback(async () => {
     let o = null;
     try { o = await sbRpc('customer_order', SB_KEY, { p_token: token }); setOd(o); } catch (e) { setOd((prev) => (prev === undefined ? null : prev)); return; }
+    if (o && o.fulfil_mode === 'delivery') sbRpc('customer_order_rider', SB_KEY, { p_token: token }).then((x) => setXr(x || null)).catch(() => {});
     if (o && o.status === 'pending' && o.pay_status === 'requested' && o.online) {
       try { setQuote(await billing('order_quote')); } catch (e) { setQuote(null); }
     } else setQuote(null);
@@ -19486,6 +19667,8 @@ function CustomerOrder({ token }) {
     const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 20000);
     return () => clearInterval(t);
   }, [waiting, load]);
+  // While a rider is on the way, keep it fresh
+  useEffect(() => { if (!xr || !['taken', 'picked_up'].includes(xr.status)) return undefined; const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 20000); return () => clearInterval(t); }, [xr?.status, load]);
   useEffect(() => { if (od?.business) document.title = `${od.business} · Your ${od.business_type === 'services' ? 'request' : 'order'}`; }, [od]);
   const page = { background: S.bg, color: S.ink, fontFamily: SF_FONT, minHeight: '100vh' };
   const btn = 'w-full py-3.5 rounded-xl text-[15px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black';
@@ -19600,6 +19783,30 @@ function CustomerOrder({ token }) {
           );
         })()}
 
+        {xr && od.status === 'pending' && (
+          <div className="rounded-2xl p-4 mb-4" style={{ background: xr.status === 'delivered' ? '#DFF6EE' : '#0B3B33', color: xr.status === 'delivered' ? '#0E7A5F' : '#fff' }}>
+            {xr.status === 'delivered' ? (
+              <div className="flex items-center gap-2 text-[14px] font-semibold"><Check size={17} /> Delivered by {xr.rider_name}. Enjoy!</div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3">
+                  <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.12)' }}><Bike size={20} style={{ color: '#FFB020' }} /></span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[15px] font-bold">{xr.status === 'picked_up' ? `${xr.rider_name} is on the way` : `${xr.rider_name} is collecting your order`}</span>
+                    <span className="block text-[12.5px]" style={{ color: 'rgba(255,255,255,0.75)' }}>Verified Xorla rider{xr.plate ? ` · ${xr.plate}` : ''}</span>
+                  </span>
+                  {xr.rider_phone && <a href={`tel:${String(xr.rider_phone).replace(/[^0-9+]/g, '')}`} aria-label={`Call ${xr.rider_name}`} className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.14)' }}><Phone size={17} /></a>}
+                </div>
+                {xr.delivery_code && (
+                  <div className="mt-3 rounded-xl px-3.5 py-3 flex items-center gap-3" style={{ background: 'rgba(255,255,255,0.08)', border: '1px dashed rgba(255,255,255,0.3)' }}>
+                    <span className="flex-1 min-w-0 text-[12.5px] leading-snug" style={{ color: 'rgba(255,255,255,0.85)' }}>Your delivery code. Give it to {xr.rider_name} <strong style={{ color: '#fff' }}>only after</strong> you have your order.</span>
+                    <span className="text-[28px] font-bold tracking-[0.18em] shrink-0" style={{ fontFamily: "'IBM Plex Mono', ui-monospace, monospace", color: '#FFB020' }}>{xr.delivery_code}</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
         <div className="rounded-2xl p-4 mb-4 text-[14px]" style={{ background: S.tile }}>
           {items.map((it, i) => <div key={i}>{row(`${it.description}${Number(it.quantity) > 1 ? ` × ${it.quantity}` : ''}`, fmt(Number(it.quantity) * Number(it.unitPrice)), false, S.ink)}</div>)}
           {discount > 0 && row(`Discount${od.discount_code ? ` (${od.discount_code})` : ''}`, fmt(-discount), false, '#0E7A5F')}
@@ -19903,6 +20110,247 @@ function RiderPass({ r, photo, compact = false }) {
       </div>
     </div>
   );
+}
+
+// ---------- Approved riders: the job board, the job in hand, and earnings ----------
+const RIDER_JOB_POLL = 12000;
+function jobAgo(t) { const m = Math.max(0, Math.round((Date.now() - new Date(t).getTime()) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`; }
+function riderTime(t) { return t ? new Date(t).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : ''; }
+function RiderCodeBox({ label, hint, busy, onSubmit, error }) {
+  const [code, setCode] = useState('');
+  const C = RIDER_LIGHT;
+  return (
+    <div className="mt-3 rounded-2xl p-3.5" style={{ background: C.field }}>
+      <div className="text-[13px] font-bold">{label}</div>
+      <div className="text-[12px] mt-0.5 leading-snug" style={{ color: C.inkDim }}>{hint}</div>
+      <div className="mt-2.5 flex gap-2">
+        <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" autoComplete="one-time-code" placeholder="• • • •" aria-label={label}
+          className="flex-1 min-w-0 h-12 rounded-xl px-4 text-[22px] font-bold tracking-[0.5em] text-center outline-none" style={{ background: C.surface, border: `1.5px solid ${error ? C.rust : C.lineStrong}`, color: C.ink, fontFamily: "'IBM Plex Mono', ui-monospace, monospace" }} />
+        <button type="button" disabled={busy || code.length !== 4} onClick={() => onSubmit(code, () => setCode(''))} className="shrink-0 h-12 px-5 rounded-xl text-[14px] font-bold" style={{ background: C.copper, color: '#fff', opacity: busy || code.length !== 4 ? 0.45 : 1 }}>{busy ? '…' : 'Confirm'}</button>
+      </div>
+      {error && <div className="mt-2 text-[12.5px] font-semibold" style={{ color: C.rust }}>{error}</div>}
+    </div>
+  );
+}
+function RiderWork({ call, me, photo, token }) {
+  const C = RIDER_LIGHT;
+  const first = String(me.full_name || '').split(' ')[0];
+  const [tab, setTab] = useState(() => { try { const t = new URLSearchParams(window.location.search).get('tab'); return ['jobs', 'active', 'earnings'].includes(t) ? t : 'jobs'; } catch (e) { return 'jobs'; } });
+  const [open, setOpen] = useState(null);
+  const [mine, setMine] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [errs, setErrs] = useState({});
+  const [note, setNote] = useState('');
+  const [alerts, setAlerts] = useState(() => { try { return typeof Notification !== 'undefined' && Notification.permission === 'granted'; } catch (e) { return false; } });
+  const seenRef = useRef(null);
+  const refresh = useCallback(async (quiet = true) => {
+    try {
+      const [o, m] = await Promise.all([call('rider_open_jobs'), call('rider_my_jobs')]);
+      const list = Array.isArray(o) ? o : [];
+      // A new job just arrived: a buzz and a short sound
+      if (seenRef.current && list.some((j) => !seenRef.current.has(j.id))) {
+        try { navigator.vibrate && navigator.vibrate([120, 60, 120]); } catch (e) {}
+        try { const ac = new (window.AudioContext || window.webkitAudioContext)(); const osc = ac.createOscillator(); const g = ac.createGain(); osc.frequency.value = 880; g.gain.value = 0.08; osc.connect(g); g.connect(ac.destination); osc.start(); setTimeout(() => { osc.frequency.value = 1320; }, 120); setTimeout(() => { osc.stop(); ac.close(); }, 260); } catch (e) {}
+        setNote('New job near you');
+      }
+      seenRef.current = new Set(list.map((j) => j.id));
+      setOpen(list); setMine(m || { jobs: [] });
+    } catch (e) { if (!quiet) setNote(e.message); }
+  }, [call]);
+  useEffect(() => {
+    refresh(false);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, RIDER_JOB_POLL);
+    const back = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', back); window.addEventListener('online', back);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', back); window.removeEventListener('online', back); };
+  }, [refresh]);
+  useEffect(() => { if (!note) return undefined; const t = setTimeout(() => setNote(''), 4000); return () => clearTimeout(t); }, [note]);
+  const jobs = mine?.jobs || [];
+  const active = jobs.filter((j) => ['taken', 'picked_up'].includes(j.status));
+  const done = jobs.filter((j) => j.status === 'delivered');
+  const available = !!mine?.available;
+  const act = async (job, action, extra = {}) => {
+    setBusy(`${job.id}:${action}`); setErrs((x) => ({ ...x, [job.id]: '' }));
+    try {
+      const r = await call('rider_job_act', { p_job: job.id, p_action: action, p_code: extra.code || null, p_note: extra.note || null });
+      if (r && r.error) { setErrs((x) => ({ ...x, [job.id]: r.error })); await refresh(); return false; }
+      if (action === 'take') { setTab('active'); setNote(`It's yours. Go to ${r.pickup_name}.`); }
+      if (action === 'pickup') setNote('Picked up. Now deliver it.');
+      if (action === 'deliver') setNote(`Delivered! ${fmt(r.fee)} earned.`);
+      await refresh();
+      return true;
+    } catch (e) { setErrs((x) => ({ ...x, [job.id]: e.message })); await refresh(); return false; }
+    finally { setBusy(''); }
+  };
+  const toggleAvailable = async () => {
+    const next = !available;
+    try {
+      await call('rider_set_available', { p_on: next });
+      setMine((m) => ({ ...(m || {}), available: next }));
+      if (next && !alerts) turnOnAlerts();
+    } catch (e) { setNote(e.message); }
+  };
+  const turnOnAlerts = async () => {
+    try {
+      if (!('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window)) { setNote("This phone can't show job alerts. Keep Xorla open to see new jobs."); return; }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { setNote('Allow notifications to hear about new jobs.'); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const res = await fetch(`${SB_URL}/functions/v1/push`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: 'config' }) });
+      const { publicKey } = await res.json();
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToUint8Array(publicKey) });
+      const j = sub.toJSON();
+      await call('save_push_subscription', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+      setAlerts(true); setNote("Job alerts are on. We'll buzz you when a job opens near you.");
+    } catch (e) { setNote("Couldn't turn on alerts. Keep Xorla open to see new jobs."); }
+  };
+  const maps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q || '')}`;
+  const tel = (p) => `tel:${String(p || '').replace(/[^0-9+]/g, '')}`;
+  const payLabel = (j) => (j.pay_how === 'cash_pickup' ? 'Cash at pick-up' : 'Transfer after delivery');
+  const tabs = [['jobs', 'Jobs', (open || []).length], ['active', 'My jobs', active.length], ['earnings', 'Earnings', 0]];
+  const Pill = ({ children, tone = 'ink' }) => <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold" style={tone === 'sage' ? { background: C.sageSoft, color: C.sage } : tone === 'amber' ? { background: 'rgba(245,163,0,0.14)', color: '#A86F00' } : tone === 'rust' ? { background: C.rustSoft, color: C.rust } : { background: C.chip, color: C.inkDim }}>{children}</span>;
+  return (
+    <div>
+      <div className="flex items-center gap-3">
+        <RiderFaceLocal photo={photo} name={me.full_name} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px]" style={{ color: C.inkDim }}>Hello,</div>
+          <div className="text-[22px] font-bold leading-tight truncate" style={{ fontFamily: RIDER_DISPLAY, letterSpacing: '-0.03em' }}>{first}</div>
+        </div>
+        <button type="button" role="switch" aria-checked={available} onClick={toggleAvailable} className="shrink-0 flex items-center gap-2.5 rounded-full pl-3.5 pr-1.5 py-1.5" style={{ background: available ? C.copper : C.surface, color: available ? '#fff' : C.ink, border: `1px solid ${available ? C.copper : C.lineStrong}` }}>
+          <span className="text-[12.5px] font-bold">{available ? 'Taking jobs' : 'Not taking jobs'}</span>
+          <span className="w-10 h-6 rounded-full relative transition-colors" style={{ background: available ? '#1FD9C4' : C.track }}><span className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all" style={{ left: available ? 19 : 3 }} /></span>
+        </button>
+      </div>
+      {available && !alerts && <button type="button" onClick={turnOnAlerts} className="mt-3 w-full rounded-2xl px-4 py-3 flex items-center gap-3 text-left" style={{ background: 'rgba(245,163,0,0.12)', border: '1px solid rgba(245,163,0,0.35)' }}><Bell size={18} style={{ color: '#A86F00' }} /><span className="flex-1 text-[13px] font-semibold">Turn on job alerts, so your phone buzzes when a job opens</span><ChevronRight size={16} /></button>}
+      <div className="mt-4 grid grid-cols-3 gap-1 p-1 rounded-2xl" style={{ background: C.chip }} role="tablist">
+        {tabs.map(([id, l, n]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className="h-10 rounded-xl text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={tab === id ? { background: C.surface, color: C.ink, boxShadow: '0 1px 3px rgba(11,43,38,0.12)' } : { color: C.inkDim }}>
+            {l}{n > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10.5px] flex items-center justify-center" style={{ background: id === 'jobs' ? C.amber : C.sage, color: '#fff' }}>{n}</span>}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'jobs' && (
+        <div className="mt-4 space-y-3">
+          {open === null && <div className="text-center text-[13px] py-8" style={{ color: C.inkFaint }}>Looking for jobs…</div>}
+          {open && open.length === 0 && (
+            <div className="rounded-[22px] p-6 text-center" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+              <RiderSpotMap className="w-24 h-24 mx-auto" />
+              <div className="mt-2 text-[16px] font-bold" style={{ fontFamily: RIDER_DISPLAY, letterSpacing: '-0.02em' }}>No jobs right now</div>
+              <div className="mt-1 text-[13px] leading-relaxed" style={{ color: C.inkDim }}>You'll see jobs from {(me.areas || []).slice(0, 3).join(', ')}{(me.areas || []).length > 3 ? ` and ${(me.areas || []).length - 3} more` : ''}. {available ? "We'll buzz you when one opens." : 'Switch on "Taking jobs" to get alerts.'}</div>
+            </div>
+          )}
+          {(open || []).map((j) => (
+            <div key={j.id} className="rounded-[22px] p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: '0 14px 30px -24px rgba(11,43,38,0.5)' }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[11.5px] font-semibold" style={{ color: C.inkFaint }}>{jobAgo(j.created_at)} · {payLabel(j)}</div>
+                  <div className="mt-1 text-[15.5px] font-bold leading-snug">{j.pickup_name}</div>
+                  <div className="mt-1 text-[13px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkDim }}><MapPin size={13} style={{ color: C.sage }} /> {j.pickup_lga}<ArrowRight size={13} /> {j.dropoff_area || 'Nearby'}</div>
+                  {j.package && <div className="mt-1 text-[12.5px] truncate" style={{ color: C.inkFaint }}><Package size={12} className="inline mr-1" />{j.package}</div>}
+                </div>
+                <div className="text-right shrink-0"><div className="text-[24px] font-bold leading-none" style={{ fontFamily: RIDER_DISPLAY, letterSpacing: '-0.04em' }}>{fmt(j.fee)}</div><div className="text-[11px] mt-1" style={{ color: C.inkFaint }}>you earn</div></div>
+              </div>
+              {errs[j.id] && <div className="mt-2 text-[12.5px] font-semibold" style={{ color: C.rust }}>{errs[j.id]}</div>}
+              <button type="button" disabled={!!busy || active.length >= 2} onClick={() => act(j, 'take')} className="mt-3 w-full h-12 rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: C.copper, color: '#fff', opacity: busy || active.length >= 2 ? 0.5 : 1 }}>{busy === `${j.id}:take` ? 'Taking it…' : active.length >= 2 ? 'Finish a job first' : <>Accept job <ArrowRight size={17} /></>}</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'active' && (
+        <div className="mt-4 space-y-3">
+          {active.length === 0 && <div className="rounded-[22px] p-6 text-center text-[13.5px]" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.inkDim }}>No job in hand. Accept one from <button type="button" onClick={() => setTab('jobs')} className="font-bold underline">Jobs</button>.</div>}
+          {active.map((j) => {
+            const picked = j.status === 'picked_up';
+            return (
+              <div key={j.id} className="rounded-[22px] overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div className="px-4 py-3 flex items-center justify-between" style={{ background: C.mint }}>
+                  <span className="text-[12.5px] font-bold" style={{ color: C.copper }}>{picked ? 'Step 2 of 2 · Deliver' : 'Step 1 of 2 · Pick up'}</span>
+                  <span className="text-[16px] font-bold" style={{ fontFamily: RIDER_DISPLAY }}>{fmt(j.fee)}</span>
+                </div>
+                <div className="p-4">
+                  {[[false, 'Pick up from', j.pickup_name, j.pickup_address, j.pickup_phone], [true, 'Deliver to', j.customer_name, j.dropoff_address, j.customer_phone]].map(([second, l, who, addr, ph]) => {
+                    const current = second === picked;
+                    return (
+                      <div key={l} className="flex gap-3" style={{ opacity: !second && picked ? 0.5 : 1 }}>
+                        <div className="flex flex-col items-center">
+                          <span className="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold" style={{ background: !second && picked ? C.sage : current ? C.amber : C.chip, color: !second && picked ? '#fff' : C.ink }}>{!second && picked ? <Check size={14} /> : second ? 2 : 1}</span>
+                          {!second && <span className="w-[2px] flex-1 my-1 rounded-full" style={{ background: C.track, minHeight: 18 }} />}
+                        </div>
+                        <div className="flex-1 min-w-0 pb-3">
+                          <div className="text-[11.5px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>{l}</div>
+                          <div className="text-[15px] font-bold">{who}</div>
+                          {addr && <div className="text-[13px] leading-snug mt-0.5" style={{ color: C.inkDim }}>{addr}</div>}
+                          {current && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {addr && <a href={maps(addr)} target="_blank" rel="noopener noreferrer" className="h-9 px-3 rounded-xl text-[12.5px] font-bold flex items-center gap-1.5" style={{ background: C.chip }}><MapPin size={14} /> Directions</a>}
+                              {ph && <a href={tel(ph)} className="h-9 px-3 rounded-xl text-[12.5px] font-bold flex items-center gap-1.5" style={{ background: C.chip }}><Phone size={14} /> Call</a>}
+                              {ph && <a href={`https://wa.me/${toWhatsAppNumber(ph)}`} target="_blank" rel="noopener noreferrer" className="h-9 px-3 rounded-xl text-[12.5px] font-bold flex items-center gap-1.5" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={14} /> WhatsApp</a>}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {j.package && <div className="text-[12.5px] rounded-xl px-3 py-2" style={{ background: C.field, color: C.inkDim }}><strong style={{ color: C.ink }}>Package:</strong> {j.package}{j.note ? <><br /><strong style={{ color: C.ink }}>Note:</strong> {j.note}</> : null}</div>}
+                  {j.locked ? (
+                    <div className="mt-3 rounded-2xl p-3.5 text-[13px] leading-relaxed" style={{ background: C.rustSoft, color: C.rust }}><strong>Locked after 5 wrong codes.</strong> Call {j.pickup_name} so they can send new codes.</div>
+                  ) : picked ? (
+                    <RiderCodeBox label={`${String(j.customer_name || 'The customer').split(' ')[0]}'s code`} hint="Hand over the order, then ask the customer for their 4-digit delivery code." busy={busy === `${j.id}:deliver`} error={errs[j.id]} onSubmit={async (code, clear) => { if (await act(j, 'deliver', { code })) clear(); }} />
+                  ) : (
+                    <RiderCodeBox label="Pick-up code" hint={`When you collect the package, ${j.pickup_name} gives you a 4-digit code.`} busy={busy === `${j.id}:pickup`} error={errs[j.id]} onSubmit={async (code, clear) => { if (await act(j, 'pickup', { code })) clear(); }} />
+                  )}
+                  <div className="mt-3 flex items-center justify-between text-[12px]" style={{ color: C.inkFaint }}>
+                    <span>{payLabel(j)}</span>
+                    {!picked && <button type="button" onClick={async () => { if (await brandConfirm(`Give this job back? ${j.pickup_name} is told, and it goes back to other riders. Giving jobs back often can pause your account.`, { confirm: 'Give it back', danger: true, theme: 'light' })) act(j, 'release', { note: '' }); }} className="font-semibold underline">Give the job back</button>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {jobs.filter((j) => j.status === 'cancelled' && Date.now() - new Date(j.cancelled_at).getTime() < 6 * 3600000).map((j) => (
+            <div key={j.id} className="rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.rustSoft, color: C.rust }}><strong>{j.pickup_name} cancelled a job</strong>{j.cancel_reason ? `: ${j.cancel_reason}` : ''}. Don't go for the pick-up.</div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'earnings' && (
+        <div className="mt-4 space-y-3">
+          <RiderPass r={me} photo={photo} compact />
+          <div className="grid grid-cols-3 gap-2">
+            {[['This week', fmt(mine?.earned_week || 0)], ['All time', fmt(mine?.earned_all || 0)], ['Deliveries', String(mine?.delivered_count || 0)]].map(([l, v]) => (
+              <div key={l} className="rounded-2xl px-3 py-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}><div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>{l}</div><div className="text-[18px] font-bold mt-0.5 truncate" style={{ fontFamily: RIDER_DISPLAY, letterSpacing: '-0.03em' }}>{v}</div></div>
+            ))}
+          </div>
+          <div className="text-[12px] leading-relaxed px-1" style={{ color: C.inkFaint }}>Businesses pay you directly: cash at pick-up, or a transfer to {me.bank_name ? `your ${me.bank_name} account` : 'your bank'}. Confirm each one when the money reaches you.</div>
+          {done.length === 0 && <div className="rounded-2xl p-5 text-center text-[13px]" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.inkDim }}>Your deliveries and payments show here.</div>}
+          <div className="rounded-[22px] overflow-hidden" style={{ background: C.surface, border: done.length ? `1px solid ${C.line}` : 'none' }}>
+            {done.map((j, i) => (
+              <div key={j.id} className="px-4 py-3" style={{ borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0"><span className="block text-[14px] font-bold truncate">{j.pickup_name}</span><span className="block text-[12px]" style={{ color: C.inkFaint }}>{riderTime(j.delivered_at)} · {j.pickup_lga}</span></span>
+                  <span className="text-[16px] font-bold shrink-0" style={{ fontFamily: RIDER_DISPLAY }}>{fmt(j.fee)}</span>
+                </div>
+                <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                  {j.rider_confirmed_paid_at ? <Pill tone="sage"><Check size={11} /> You got it</Pill>
+                    : j.paid_at ? <><Pill tone="amber">Business says it's paid ({j.paid_how === 'cash' ? 'cash' : 'transfer'})</Pill><button type="button" disabled={!!busy} onClick={() => act(j, 'got_paid')} className="h-7 px-3 rounded-full text-[11.5px] font-bold" style={{ background: C.copper, color: '#fff' }}>I got it</button></>
+                    : <Pill>Waiting for payment</Pill>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {note && <div className="fixed left-0 right-0 bottom-6 z-50 flex justify-center px-4 pointer-events-none"><div className="rounded-full px-4 py-2.5 text-[13px] font-bold xorla-fade-up" style={{ background: C.copper, color: '#fff', boxShadow: '0 10px 30px rgba(11,43,38,0.35)' }}>{note}</div></div>}
+    </div>
+  );
+}
+function RiderFaceLocal({ photo, name }) {
+  const C = RIDER_LIGHT;
+  const initials = String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  return photo ? <img src={photo} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0" style={{ border: `2px solid ${C.sage}` }} /> : <span className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-[17px] font-bold" style={{ background: C.mint, color: C.copper }}>{initials}</span>;
 }
 
 function RiderApp() {
@@ -20236,6 +20684,16 @@ function RiderApp() {
 
   // ---------- Sent: where their application is ----------
   const status = me?.status || 'draft';
+  // Approved: the work itself (jobs near you, the job in hand, earnings)
+  if (status === 'approved') {
+    return (
+      <div style={page}>
+        {header}
+        <main className="max-w-xl mx-auto px-5 pt-5 pb-10"><RiderWork call={call} me={me} photo={photos.selfie_doc} token={sess?.access_token} /></main>
+        {footer}
+      </div>
+    );
+  }
   if (['submitted', 'approved', 'rejected', 'suspended'].includes(status)) {
     const first = String(me.full_name || '').split(' ')[0];
     const card = {
