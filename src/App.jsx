@@ -2822,32 +2822,20 @@ function XorlaApp() {
     const bg = { background: 'radial-gradient(130% 110% at 100% 0%, #22604F 0%, #143C33 45%, #0C2521 100%)', border: `1px solid ${st === 'query' ? 'rgba(226,98,75,0.5)' : 'rgba(255,176,32,0.4)'}`, boxShadow: '0 18px 34px -20px rgba(255,176,32,0.55)' };
     const pill = going ? <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: st === 'query' ? C.rustSoft : 'rgba(31,217,196,0.14)', color: tone }}><ShieldCheck size={10} /> CAC</span>
       : <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ background: C.copperFill, color: C.onAccent }}><Sparkles size={10} /> New</span>;
-    // Desktop sidebar: pinned above Settings so it's always on screen. Tall screens get the full card,
-    // shorter laptop screens a slim one-line version (same action).
-    if (where === 'side-slim') return (
-      <div data-xt="dark" role="button" tabIndex={0} onClick={openCac} onKeyDown={(e) => e.key === 'Enter' && openCac()} className="relative rounded-xl overflow-hidden cursor-pointer flex items-center gap-2.5 pl-2.5 pr-2 py-2.5" style={bg}>
-        <span aria-hidden className="absolute -right-8 -top-10 w-28 h-28 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.3), transparent 65%)' }} />
-        <span className="relative w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: st === 'query' ? C.rustSoft : 'rgba(255,176,32,0.16)', color: st === 'query' ? C.rust : C.copper }}><ShieldCheck size={17} /></span>
-        <span className="relative flex-1 min-w-0">
-          <span className="block text-[12.5px] font-bold leading-tight">{going || st === 'draft' ? words[0] : 'Register with CAC'}</span>
-          <span className="block text-[11px] leading-tight mt-0.5 truncate" style={{ color: C.inkDim }}>{going ? words[1] : st === 'draft' ? 'Pick up where you stopped' : 'Make it official'}</span>
-        </span>
-        {!going ? <button onClick={hideCacPromo} aria-label="Hide" title="Hide (it stays in Settings)" className="relative w-6 h-6 rounded-full flex items-center justify-center shrink-0" style={{ color: C.inkDim }}><X size={12} /></button>
-          : <ChevronRight size={16} className="relative shrink-0" style={{ color: tone }} />}
-      </div>
-    );
+    // Desktop sidebar: pinned above Settings so it's always on screen (a little smaller on shorter laptop screens)
     if (where === 'side') return (
       <div data-xt="dark" className="relative rounded-2xl overflow-hidden" style={bg}>
         <span aria-hidden className="absolute -right-10 -top-12 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.32), transparent 65%)' }} />
         {!going && <button onClick={hideCacPromo} aria-label="Hide" title="Hide (it stays in Settings)" className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(var(--c-lo),calc(0.3 * var(--c-lok)))', color: C.inkDim }}><X size={12} /></button>}
         <div className="absolute top-2.5 left-3 z-10">{pill}</div>
-        <div className="relative h-[104px] flex items-end justify-end pr-4 overflow-hidden">
+        <div className="relative h-[78px] [@media(min-height:860px)]:h-[104px] flex items-end justify-end pr-4 overflow-hidden">
           <span aria-hidden className="absolute bottom-0 right-6 w-28 h-6 rounded-full blur-md" style={{ background: 'rgba(var(--c-lo),calc(0.35 * var(--c-lok)))' }} />
-          <div className="translate-y-2"><CacMiniCert name={certName} width={124} tilt={-7} /></div>
+          <div className="translate-y-2 scale-[0.82] origin-bottom-right [@media(min-height:860px)]:scale-100"><CacMiniCert name={certName} width={124} tilt={-7} /></div>
         </div>
-        <div className="relative px-4 pb-4 pt-3" style={{ background: 'linear-gradient(180deg, rgba(var(--c-bg-rgb),0.0), rgba(var(--c-bg-rgb),0.65) 30%)' }}>
+        <div className="relative px-4 pb-3.5 pt-2.5 [@media(min-height:860px)]:pb-4 [@media(min-height:860px)]:pt-3" style={{ background: 'linear-gradient(180deg, rgba(var(--c-bg-rgb),0.0), rgba(var(--c-bg-rgb),0.65) 30%)' }}>
           <div className="text-[13px] font-bold mb-1 leading-snug">{words[0]}</div>
-          <div className="text-[11px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{words[1]}</div>
+          <div className="hidden [@media(min-height:860px)]:block text-[11px] leading-relaxed mb-3" style={{ color: C.inkDim }}>{words[1]}</div>
+          <div className="[@media(min-height:860px)]:hidden h-1.5" />
           <button onClick={openCac} className="w-full rounded-lg py-2 text-[11.5px] font-bold flex items-center justify-center gap-1" style={{ background: going ? tone : `linear-gradient(180deg, #FFC24D, ${C.copperFill})`, color: C.onAccent }}>{words[2]} <ArrowRight size={13} /></button>
         </div>
       </div>
@@ -11310,7 +11298,7 @@ function XorlaApp() {
 
       {/* Sidebar — desktop only */}
       <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen px-5 py-6 z-20" style={{ borderRight: `1px solid ${C.line}` }}>
-        <div className="flex items-center gap-2.5 mb-9 px-1">
+        <div className="flex items-center gap-2.5 mb-5 [@media(min-height:860px)]:mb-9 px-1">
           <div style={{ filter: `drop-shadow(0 0 12px ${C.sageSoft})` }}><XorlaMark size={30} /></div>
           <div className="cx-display text-[19px] font-extrabold" style={{ letterSpacing: '-0.02em' }}>Xorla</div>
         </div>
@@ -11328,7 +11316,7 @@ function XorlaApp() {
             ...(canRun ? [{ id: 'reports', label: 'Reports', Icon: TrendingUp }] : []),
             { id: 'advisor', label: 'Oga', Icon: OgaNavIcon },
           ].map(({ id, label, Icon }) => (
-            <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: C.sageSoft, color: C.sage } : { color: C.inkDim }}>
+            <button key={id} data-tour={`nav-${id}`} onClick={() => setTab(id)} className="w-full flex items-center gap-2.5 px-3 py-2 [@media(min-height:860px)]:py-2.5 rounded-xl text-[13.5px] font-medium" style={tab === id ? { background: 'var(--c-nav-on-bg)', color: 'var(--c-nav-on-ink)', fontWeight: 600 } : { color: C.inkDim }}>
               <Icon size={16} /> {label}
               {id === 'invoices' && needsAttention.length > 0 && (
                 <span title="Need action now" className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rustFill, color: C.onAccent }}>{needsAttention.length}</span>
@@ -11359,8 +11347,7 @@ function XorlaApp() {
 
         {renderCacPromo('side') && (
           <div className="shrink-0 pt-3 pb-3">
-            <div className="hidden [@media(min-height:860px)]:block">{renderCacPromo('side')}</div>
-            <div className="[@media(min-height:860px)]:hidden">{renderCacPromo('side-slim')}</div>
+            {renderCacPromo('side')}
           </div>
         )}
 
