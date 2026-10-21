@@ -1,6 +1,26 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
+// Xorla's fonts ship with the app itself (no Google Fonts), so they load fast, look the same on every visit and work offline
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/inter/800.css';
+import '@fontsource/plus-jakarta-sans/400.css';
+import '@fontsource/plus-jakarta-sans/500.css';
+import '@fontsource/plus-jakarta-sans/600.css';
+import '@fontsource/plus-jakarta-sans/700.css';
+import '@fontsource/plus-jakarta-sans/800.css';
+import '@fontsource/poppins/400.css';
+import '@fontsource/poppins/500.css';
+import '@fontsource/poppins/600.css';
+import '@fontsource/poppins/700.css';
+import '@fontsource/unbounded/600.css';
+import '@fontsource/unbounded/700.css';
+import '@fontsource/unbounded/800.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import '@fontsource/ibm-plex-mono/600.css';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -17,7 +37,7 @@ if ('serviceWorker' in navigator) {
       const urls = [
         ...[...document.querySelectorAll('script[src]')].map((s) => s.src),
         ...[...document.querySelectorAll('link[rel="stylesheet"][href], link[rel="modulepreload"][href]')].map((l) => l.href),
-        ...performance.getEntriesByType('resource').map((r) => r.name).filter((n) => /\/assets\/|fonts\.(googleapis|gstatic)\.com/.test(n)),
+        ...performance.getEntriesByType('resource').map((r) => r.name).filter((n) => n.includes('/assets/')),
       ];
       (reg.active || navigator.serviceWorker.controller)?.postMessage({ type: 'xorla-warm', urls: [...new Set(urls)] });
     }).catch(() => {});
