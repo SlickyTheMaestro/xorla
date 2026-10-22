@@ -1866,6 +1866,8 @@ function XorlaApp() {
   };
   const serviceKind = settings.businessType === 'products' ? null : settings.serviceKind
     || (productsAll.some((p) => p.priceUnit === 'night') ? 'accommodation' : productsAll.some((p) => p.priceUnit === 'day') ? 'rentals' : null);
+  // Date bookings in the business's own words: rooms for a hotel, items (cars, equipment, halls) for everyone else
+  const rentWords = serviceKind !== 'accommodation';
   const T = { ...(BUSINESS_TERMS[settings.businessType] || BUSINESS_TERMS.products), ...(settings.businessType === 'services' ? KIND_TERMS[serviceKind] || {} : {}) };
   // What a location is called: shops sell goods; hotels, salons and other service businesses have branches
   const L = locationWords(settings.businessType, serviceKind);
@@ -5600,7 +5602,7 @@ function XorlaApp() {
   };
 
   // Hotels and rentals: rooms are booked by date; extras (laundry, bar, pickup) have a set price for quick sales
-  const roomWord = serviceKind === 'rentals' ? 'rental' : 'room';
+  const roomWord = rentWords ? 'rental' : 'room';
   const defaultWhere = () => (isManager ? (activeShopId || myShops[0]?.id || '') : (allLiveLocations.length > 1 && !viewAllShops && activeShopId ? activeShopId : ''));
   const openCatalogForm = (mode) => {
     setTab('products'); setProductsView('list'); setEditingProductId(null);
@@ -6718,7 +6720,7 @@ function XorlaApp() {
     const close = () => { if (!importBusy) setImportOpen(false); };
     const ex = importKind === 'product'
       ? (serviceKind === 'accommodation' ? 'Bottle of water, 500, 48\nChilled malt, 700, 24\nToothbrush kit, 1500, 30' : 'Indomie (carton), 4500, 20\nPeak milk (tin), 650, 48\nGolden Penny spaghetti, 1200, 30')
-      : importKind === 'extra' ? (serviceKind === 'rentals' ? 'Delivery within town, 5000\nExtra hour, 3000\nDriver for the day, 10000' : 'Laundry (per bag), 2000\nBottle of water, 500\nAirport pickup, 15000')
+      : importKind === 'extra' ? (rentWords ? 'Delivery within town, 5000\nExtra hour, 3000\nDriver for the day, 10000' : 'Laundry (per bag), 2000\nBottle of water, 500\nAirport pickup, 15000')
       : (SERVICE_KINDS[serviceKind]?.name ? `${SERVICE_KINDS[serviceKind].name.replace(/^e\.g\.\s*/, '').split(',')[0].trim()}, 15000\n` : '') + "Men's haircut, 3000\nWash and set, 5000";
     const shown = importRows.slice(0, 60);
     const tag = { ok: ['New', C.sageSoft, C.sage], exists: ['Already added', C.surface, C.inkFaint], repeat: ['Listed twice', C.surface, C.inkFaint], noprice: ['No price', C.rustSoft, C.rust] };
@@ -7090,7 +7092,7 @@ function XorlaApp() {
   };
   // How to add extras: all at once from a photo of the price list, by pasting, or one at a time
   const renderExtrasPick = () => extrasPick && (
-    <Sheet onClose={() => setExtrasPick(false)} title={<><div className="text-[16px] font-semibold cx-display">Add your extras</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Delivery, extra hours and anything else you charge for' : 'Laundry, bar, airport pickup and anything else you charge for'}</div></>}>
+    <Sheet onClose={() => setExtrasPick(false)} title={<><div className="text-[16px] font-semibold cx-display">Add your extras</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>{rentWords ? 'Delivery, extra hours and anything else you charge for' : 'Laundry, bar, airport pickup and anything else you charge for'}</div></>}>
       <div className="space-y-2.5">
         <button onClick={() => { setExtrasPick(false); openScan(); }} className="w-full text-left rounded-2xl p-4 flex items-center gap-3.5" style={{ background: 'linear-gradient(150deg, rgba(255,176,32,0.16), rgba(255,176,32,0.04))', border: '1px solid rgba(255,176,32,0.4)' }}>
           <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(180deg, #FFC24D, ${C.copperFill})` }}><Camera size={21} style={{ color: C.onAccent }} /></span>
@@ -7111,7 +7113,7 @@ function XorlaApp() {
     <div className="rounded-xl p-3.5 mb-3" style={{ background: C.surfaceRaised, border: `1px dashed ${C.line}` }}>
       <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>
         <strong style={{ color: C.ink }}>No extras yet.</strong> {canRun
-          ? `Add ${serviceKind === 'rentals' ? 'delivery, extra hours' : 'laundry, bar items'} and other extras once, and they'll appear here with their prices.`
+          ? `Add ${rentWords ? 'delivery, extra hours' : 'laundry, bar items'} and other extras once, and they'll appear here with their prices.`
           : 'Ask the owner to add extras like laundry or the bar, and they\'ll appear here with their prices.'}
       </div>
       {canRun && <button type="button" onClick={() => (isOwnerRole ? setExtrasPick(true) : openCatalogForm('extra'))} className="mt-2.5 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}><Plus size={14} /> Add extras</button>}
@@ -7411,7 +7413,7 @@ function XorlaApp() {
     const lines = [
       `Hi ${first}, your booking at ${settings.businessName} is confirmed${deposit ? ` and we've received your ${fmt(deposit)} ${deposit >= Number(b.total) ? 'payment' : 'deposit'}` : ''}.`,
       `${b.item_name}${b.units > 1 ? ` × ${b.units}` : ''}, ${dayLabel(b.check_in)} to ${dayLabel(b.check_out)} (${nights}). Total ${fmt(b.total)}.`,
-      serviceKind === 'rentals' ? `Pick up from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, return by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.` : `Check-in is from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, and check-out is by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.`,
+      rentWords ? `Pick up from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, return by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.` : `Check-in is from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, and check-out is by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.`,
       owing > 0 ? `To secure it, please send the ${fmt(owing)} deposit${bank ? ` to ${bank}` : ''}.` : '',
       guestLinkOf(b) ? `See or manage your booking here: ${guestLinkOf(b)}` : '',
     ].filter(Boolean);
@@ -7470,7 +7472,7 @@ function XorlaApp() {
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[14.5px] font-semibold leading-tight" style={{ overflowWrap: 'anywhere' }}>{b.customer_name}</span>
-                  {b.room_label && <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}>{serviceKind === 'rentals' ? '' : String(b.room_label).includes(',') ? 'Rooms ' : 'Room '}{b.room_label}</span>}
+                  {b.room_label && <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-bold cx-mono" style={{ background: C.sageSoft, color: C.sage }}>{rentWords ? '' : String(b.room_label).includes(',') ? 'Rooms ' : 'Room '}{b.room_label}</span>}
                   {b.pending && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold" style={{ background: C.copperSoft, color: C.copper }}><CloudUpload size={11} /> Waiting to send</span>}
                   {b.left_early_at && <span className="px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold" title={b.booked_check_out ? `Booked until ${dayLabel(b.booked_check_out)}` : ''} style={{ background: C.copperSoft, color: C.copper }}>Left early{b.booked_total && Number(b.booked_total) > Number(b.total) ? ` · ${fmt(Number(b.booked_total) - Number(b.total))} off` : ''}</span>}
                 </div>
@@ -7581,12 +7583,12 @@ function XorlaApp() {
     const labels = parseRoomLabels(roomSetup[productId]);
     const taken = new Set(roomsAll.filter((r) => r.shop_id === deskShopId).map((r) => r.label.toLowerCase()));
     const fresh = labels.filter((l) => !taken.has(l.toLowerCase()));
-    if (!fresh.length) { setBookingError(labels.length ? 'Those room names are already in use here.' : 'Type room numbers, e.g. 101-105.'); return; }
+    if (!fresh.length) { setBookingError(labels.length ? `Those ${rentWords ? 'names' : 'room names'} are already in use here.` : rentWords ? 'Type a name for each one, e.g. Car 1-4.' : 'Type room numbers, e.g. 101-105.'); return; }
     runBooking(() => sbRest('rooms', { method: 'POST', accessToken: session.access_token, body: fresh.map((label) => ({ business_id: settings.businessId, shop_id: deskShopId, product_id: productId, label })) }),
       () => setRoomSetup((s) => ({ ...s, [productId]: '' })));
   };
   const toggleRoomPick = (room) => {
-    if (occupantOf(room)) { setBookingError(`Room ${room.label} has a guest in it. Check them out first.`); return; }
+    if (occupantOf(room)) { setBookingError(rentWords ? `${room.label} is out with a customer. Mark it returned first.` : `Room ${room.label} has a guest in it. Check them out first.`); return; }
     setBookingError('');
     setPickedRooms((ids) => (ids.includes(room.id) ? ids.filter((x) => x !== room.id) : [...ids, room.id]));
   };
@@ -7609,11 +7611,11 @@ function XorlaApp() {
   const renderRoomBoard = () => (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-2">
-        <span className="text-[14px] font-semibold whitespace-nowrap">{serviceKind === 'rentals' ? 'Your items' : 'Rooms right now'}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span>
+        <span className="text-[14px] font-semibold whitespace-nowrap">{rentWords ? 'Your items' : 'Rooms right now'}{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span>
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] whitespace-nowrap" style={{ color: C.inkFaint }}>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.sageFill }} />Free</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.rustFill }} />Occupied</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.copperFill }} />Leaving today</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.rustFill }} />{rentWords ? 'Out' : 'Occupied'}</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.copperFill }} />{rentWords ? 'Due back today' : 'Leaving today'}</span>
           {arrivals.some((a) => a.shop_id === deskShopId) && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: C.inkDim }} />Held</span>}
         </span>
       </div>
@@ -7647,11 +7649,11 @@ function XorlaApp() {
                     const leaving = guest && guest.check_out <= bkToday;
                     const held = !guest && heldIds.has(r.id);
                     const overdue = guest && guest.check_out < bkToday || (guest && guest.check_out === bkToday && Date.now() > new Date(`${bkToday}T${settings.checkoutTime || '12:00'}:00+01:00`).getTime());
-                    const tone = held ? ['rgba(147,176,170,0.10)', C.inkDim, 'Held'] : !guest ? [C.sageSoft, C.sage, 'Free'] : overdue ? [C.copperSoft, C.copper, `Past ${hhmmLabel(settings.checkoutTime || '12:00')} check-out`] : leaving ? [C.copperSoft, C.copper, 'Leaving today'] : [C.rustSoft, C.rust, `Until ${dayLabel(guest.check_out)}`];
+                    const tone = held ? ['rgba(147,176,170,0.10)', C.inkDim, 'Held'] : !guest ? [C.sageSoft, C.sage, 'Free'] : overdue ? [C.copperSoft, C.copper, `Past ${hhmmLabel(settings.checkoutTime || '12:00')} ${rentWords ? 'return' : 'check-out'}`] : leaving ? [C.copperSoft, C.copper, rentWords ? 'Due back today' : 'Leaving today'] : [C.rustSoft, C.rust, `Until ${dayLabel(guest.check_out)}`];
                     const picked = editing && pickedRooms.includes(r.id);
                     const onTap = editing ? () => toggleRoomPick(r) : guest ? () => openBill(guest) : arrivingHere.length ? () => openAct(arrivingHere[0], 'check_in', r.id) : () => openWalkIn(p.id);
                     return (
-                      <button key={r.id} onClick={onTap} aria-pressed={editing ? picked : undefined} title={editing ? (guest ? 'Has a guest' : picked ? 'Selected' : 'Select') : guest ? `${guest.customer_name}'s bill` : arrivingHere.length ? `Check ${arrivingHere[0].customer_name} in here` : 'Book a walk-in'}
+                      <button key={r.id} onClick={onTap} aria-pressed={editing ? picked : undefined} title={editing ? (guest ? (rentWords ? 'Out with a customer' : 'Has a guest') : picked ? 'Selected' : 'Select') : guest ? `${guest.customer_name}'s bill` : arrivingHere.length ? (rentWords ? `Give this one to ${arrivingHere[0].customer_name}` : `Check ${arrivingHere[0].customer_name} in here`) : 'Book a walk-in'}
                         className="rounded-xl px-2.5 py-2 text-left active:scale-[0.97] transition-transform" style={{ background: picked ? C.rustSoft : tone[0], border: `1px solid ${picked ? C.rust : `${tone[1]}55`}`, boxShadow: picked ? `0 0 0 1px ${C.rust}` : 'none', opacity: editing && guest ? 0.45 : 1 }}>
                         <div className="flex items-center justify-between gap-1">
                           <span className="text-[15px] font-bold cx-mono" style={{ color: C.ink }}>{r.label}</span>
@@ -7668,9 +7670,9 @@ function XorlaApp() {
 
               {canRun && (rooms.length === 0 || editing) && (
                 <div className={rooms.length ? 'mt-3' : ''}>
-                  {rooms.length === 0 && <div className="text-[12px] mb-2 leading-relaxed" style={{ color: C.inkDim }}>Name your {p.units || 1} {p.name.toLowerCase()}{(p.units || 1) !== 1 ? 's' : ''} so the front desk can check guests into a specific one.</div>}
+                  {rooms.length === 0 && <div className="text-[12px] mb-2 leading-relaxed" style={{ color: C.inkDim }}>Name your {p.units || 1} {p.name.toLowerCase()}{(p.units || 1) !== 1 ? 's' : ''}{rentWords ? ', so you know which one each customer has.' : ' so the front desk can check guests into a specific one.'}</div>}
                   <div className="flex gap-2">
-                    <input type="text" placeholder={rooms.length ? 'Add more, e.g. 106-108' : 'e.g. 101-105, or 101, 102, Garden suite'} value={roomSetup[p.id] || ''} onChange={(e) => setRoomSetup({ ...roomSetup, [p.id]: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && addRooms(p.id)} className="flex-1 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                    <input type="text" placeholder={rentWords ? (rooms.length ? 'Add more, e.g. Car 5-6' : 'e.g. Car 1-4, or ABC-123-XY, Black one') : rooms.length ? 'Add more, e.g. 106-108' : 'e.g. 101-105, or 101, 102, Garden suite'} value={roomSetup[p.id] || ''} onChange={(e) => setRoomSetup({ ...roomSetup, [p.id]: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && addRooms(p.id)} className="flex-1 min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                     <button onClick={() => addRooms(p.id)} disabled={bookingBusy} className="shrink-0 px-4 rounded-xl text-[13px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: bookingBusy ? 0.6 : 1 }}>Add</button>
                   </div>
                   {parseRoomLabels(roomSetup[p.id]).length > 0 && <div className="text-[11.5px] mt-1.5" style={{ color: C.sage }}>Will add: {parseRoomLabels(roomSetup[p.id]).slice(0, 12).join(', ')}{parseRoomLabels(roomSetup[p.id]).length > 12 ? ` and ${parseRoomLabels(roomSetup[p.id]).length - 12} more` : ''}</div>}
@@ -7681,7 +7683,7 @@ function XorlaApp() {
                     return (
                       <div className="mt-3 rounded-xl p-3" style={{ background: C.bg, border: `1px solid ${n ? 'rgba(226,98,75,0.35)' : C.line}` }}>
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[12px]" style={{ color: n ? C.ink : C.inkFaint }}>{n ? `${n} selected` : 'Tap rooms above to select them, e.g. ones under repair or added by mistake.'}</span>
+                          <span className="text-[12px]" style={{ color: n ? C.ink : C.inkFaint }}>{n ? `${n} selected` : `Tap ${rentWords ? 'items' : 'rooms'} above to select them, e.g. ones under repair or added by mistake.`}</span>
                           {free.length > 1 && <button type="button" onClick={() => setPickedRooms(allPicked ? [] : free.map((r) => r.id))} className="shrink-0 text-[12px] font-semibold" style={{ color: C.copper }}>{allPicked ? 'Clear' : 'Select all free'}</button>}
                         </div>
                         {n > 0 && <button type="button" onClick={() => retirePicked(rooms)} disabled={bookingBusy} className="mt-2.5 w-full py-2.5 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2" style={{ background: C.rustFill, color: '#fff', opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}Take {n} room{n === 1 ? '' : 's'} out of use</button>}
@@ -7690,7 +7692,7 @@ function XorlaApp() {
                   })()}
                 </div>
               )}
-              {!canRun && rooms.length === 0 && <div className="text-[12px]" style={{ color: C.inkFaint }}>The owner hasn't named these rooms yet.</div>}
+              {!canRun && rooms.length === 0 && <div className="text-[12px]" style={{ color: C.inkFaint }}>The owner hasn't named these {rentWords ? 'yet' : 'rooms yet'}.</div>}
             </div>
           );
         })}
@@ -7722,12 +7724,12 @@ function XorlaApp() {
     const jump = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     const tiles = [
       ['requests', 'bk-requests', 'To confirm', bookingRequests.length, C.copper, Bell],
-      ['arriving', 'bk-arriving', 'Arriving', arrivals.length, C.sage, ArrowDownRight],
-      ['inhouse', stayingNow.length ? 'bk-staying' : 'bk-leaving', 'In house', staying.length, C.ink, BedDouble],
-      ['leaving', 'bk-leaving', 'Leaving', leavingToday.length, C.copper, ArrowUpRight],
+      ['arriving', 'bk-arriving', rentWords ? 'Picking up' : 'Arriving', arrivals.length, C.sage, ArrowDownRight],
+      ['inhouse', stayingNow.length ? 'bk-staying' : 'bk-leaving', rentWords ? 'Out now' : 'In house', staying.length, C.ink, rentWords ? Package : BedDouble],
+      ['leaving', 'bk-leaving', rentWords ? 'Due back' : 'Leaving', leavingToday.length, C.copper, ArrowUpRight],
     ];
     const quietDay = !arrivals.length && !stayingNow.length && !leavingToday.length;
-    const word = serviceKind === 'rentals' ? 'items' : 'rooms';
+    const word = rentWords ? 'items' : 'rooms';
     return (
       <div className="space-y-5">
         <div>
@@ -7738,7 +7740,7 @@ function XorlaApp() {
           <div className="flex gap-2 mt-3">
             <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : spacesHere.length ? setBookPick(true) : openNewBooking())} className="flex-1 flex items-center justify-center gap-2 rounded-2xl h-12 text-[14.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent, boxShadow: '0 10px 24px -12px rgba(255,176,32,0.6)' }}><Plus size={18} /> New booking</button>
             {canRun && (
-              <button onClick={() => setTab('products')} className="shrink-0 flex items-center gap-2 rounded-2xl h-12 px-4 text-[13.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage, border: '1px solid rgba(31,217,196,0.3)' }}><BedDouble size={17} /> {serviceKind === 'rentals' ? 'Items & prices' : 'Rooms & prices'}</button>
+              <button onClick={() => setTab('products')} className="shrink-0 flex items-center gap-2 rounded-2xl h-12 px-4 text-[13.5px] font-semibold" style={{ background: C.sageSoft, color: C.sage, border: '1px solid rgba(31,217,196,0.3)' }}><BedDouble size={17} /> {rentWords ? 'Items & prices' : 'Rooms & prices'}</button>
             )}
           </div>
           {bookables.length > 0 && spacesHere.length > 0 && (() => {
@@ -7763,8 +7765,8 @@ function XorlaApp() {
                 <button type="button" onClick={() => { setBookPick(false); openNewBooking(); }} className="w-full flex items-center gap-3.5 rounded-2xl p-4 text-left transition-transform active:scale-[0.99]" style={{ background: C.card, border: `1px solid ${C.lineStrong}` }}>
                   <span className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.sageSoft }}><BedDouble size={22} style={{ color: C.sage }} /></span>
                   <span className="flex-1 min-w-0">
-                    <span className="block text-[15.5px] font-semibold">{serviceKind === 'rentals' ? 'An item to rent' : 'A room'}</span>
-                    <span className="block text-[12.5px] mt-0.5" style={{ color: C.inkFaint }}>{serviceKind === 'rentals' ? 'By the day' : 'Guests staying overnight'} · {freeRoomsNow} of {totalRooms} free now</span>
+                    <span className="block text-[15.5px] font-semibold">{rentWords ? 'An item to rent' : 'A room'}</span>
+                    <span className="block text-[12.5px] mt-0.5" style={{ color: C.inkFaint }}>{rentWords ? 'By the day' : 'Guests staying overnight'} · {freeRoomsNow} of {totalRooms} free now</span>
                   </span>
                   <ChevronRight size={18} style={{ color: C.inkFaint }} />
                 </button>
@@ -7793,15 +7795,15 @@ function XorlaApp() {
             <ShieldCheck size={13} style={{ color: C.sage, flexShrink: 0 }} />
             <span className="flex-1 min-w-0 leading-snug">
               {depositPct > 0
-                ? <>Deposit {depositPct}%{Number(settings.depositCapNights ?? 1) > 0 ? `, max ${Number(settings.depositCapNights ?? 1)} ${serviceKind === 'rentals' ? 'day' : 'night'}${Number(settings.depositCapNights ?? 1) !== 1 ? 's' : ''}` : ''} · free cancellation until {Number(settings.cancelWindowHours ?? 24)}h before check-in · check-in {hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, check-out {hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}</>
-                : <>No deposit asked · free cancellation until {Number(settings.cancelWindowHours ?? 24)}h before check-in · check-in {hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, check-out {hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}</>}
+                ? <>Deposit {depositPct}%{Number(settings.depositCapNights ?? 1) > 0 ? `, max ${Number(settings.depositCapNights ?? 1)} ${rentWords ? 'day' : 'night'}${Number(settings.depositCapNights ?? 1) !== 1 ? 's' : ''}` : ''} · free cancellation until {Number(settings.cancelWindowHours ?? 24)}h before {rentWords ? 'pick-up' : 'check-in'} · {rentWords ? 'pick up from' : 'check-in'} {hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, {rentWords ? 'return by' : 'check-out'} {hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}</>
+                : <>No deposit asked · free cancellation until {Number(settings.cancelWindowHours ?? 24)}h before {rentWords ? 'pick-up' : 'check-in'} · {rentWords ? 'pick up from' : 'check-in'} {hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, {rentWords ? 'return by' : 'check-out'} {hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}</>}
             </span>
             {isOwnerRole && <span className="shrink-0 font-semibold" style={{ color: C.copper }}>Change</span>}
           </button>
           {isOwnerRole && depositPct > 0 && !settings.payout && settings.bankAccountNumber && (
             <button type="button" onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('deposits'); setTab('settings'); }} className="mt-2.5 w-full rounded-xl px-3.5 py-2.5 flex items-center gap-3 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>
               <CreditCard size={16} style={{ color: C.sage }} className="shrink-0" />
-              <span className="flex-1 min-w-0 text-[12.5px] leading-snug"><strong>Let guests pay deposits online.</strong> <span style={{ color: C.inkDim }}>Bookings confirm themselves. Connect your bank in 1 minute.</span></span>
+              <span className="flex-1 min-w-0 text-[12.5px] leading-snug"><strong>Let {rentWords ? 'customers' : 'guests'} pay deposits online.</strong> <span style={{ color: C.inkDim }}>Bookings confirm themselves. Connect your bank in 1 minute.</span></span>
               <ChevronRight size={15} style={{ color: C.sage }} className="shrink-0" />
             </button>
           )}
@@ -7810,7 +7812,7 @@ function XorlaApp() {
         {isOwnerRole && depositPct > 0 && !settings.payout && !settings.bankAccountNumber && (
           <button type="button" onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('deposits'); setTab('settings'); }} className="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.4)' }}>
             <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill }}><CreditCard size={18} style={{ color: C.onAccent }} /></span>
-            <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">Guests can't pay your deposit yet</span><span className="block text-[12px] leading-snug" style={{ color: C.inkDim }}>Connect your bank in 1 minute and guests pay online, so bookings confirm themselves. Or add your account details for transfers.</span></span>
+            <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">{rentWords ? 'Customers' : 'Guests'} can't pay your deposit yet</span><span className="block text-[12px] leading-snug" style={{ color: C.inkDim }}>Connect your bank in 1 minute and guests pay online, so bookings confirm themselves. Or add your account details for transfers.</span></span>
             <ChevronRight size={17} style={{ color: C.copper }} className="shrink-0" />
           </button>
         )}
@@ -7891,7 +7893,7 @@ function XorlaApp() {
         )}
         {bookingError && !bookingPanel && !bookingAct && <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{bookingError}</div>}
 
-        {refundsDue.length > 0 && section('Refunds to send', C.rust, refundsDue, '', (b) => renderBookingRow(b, [actBtn('Mark refunded', () => openAct(b, 'refunded'), true)]), 'bk-refunds', 'Guests who cancelled in time')}
+        {refundsDue.length > 0 && section('Refunds to send', C.rust, refundsDue, '', (b) => renderBookingRow(b, [actBtn('Mark refunded', () => openAct(b, 'refunded'), true)]), 'bk-refunds', rentWords ? 'Customers who cancelled in time' : 'Guests who cancelled in time')}
         {showRefundHistory && <RefundHistory accessToken={session.access_token} onClose={() => setShowRefundHistory(false)} />}
 
         {bookingRequests.length > 0 && section('New bookings to confirm', C.copper, bookingRequests, '', (b) => renderBookingRow(b, canAnswerRequests ? [
@@ -7903,7 +7905,7 @@ function XorlaApp() {
           const next = [...upcomingBookings].sort((a, b) => String(a.check_in).localeCompare(String(b.check_in)))[0];
           const nextDay = next ? new Date(next.check_in + 'T12:00:00') : null;
           const daysTo = next ? Math.round((new Date(next.check_in + 'T12:00:00') - new Date(bkToday + 'T12:00:00')) / 86400000) : 0;
-          const unit = serviceKind === 'rentals' ? 'item' : 'room';
+          const unit = rentWords ? 'item' : 'room';
           return (
             <div className="relative overflow-hidden rounded-2xl p-4" style={{ background: 'radial-gradient(120% 140% at 100% 0%, rgba(31,217,196,0.16) 0%, rgba(31,217,196,0.04) 45%, transparent 70%), ' + C.surfaceRaised, border: `1px solid ${C.line}` }}>
               <span aria-hidden className="absolute -right-6 -top-6 w-28 h-28 rounded-full" style={{ background: 'radial-gradient(circle, rgba(255,176,32,0.18), transparent 70%)' }} />
@@ -7911,38 +7913,38 @@ function XorlaApp() {
                 <span className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.sageFill }}><Sparkles size={20} style={{ color: C.onAccent }} /></span>
                 <span className="min-w-0">
                   <span className="block text-[15px] font-bold">All calm today</span>
-                  <span className="block text-[12.5px] leading-snug mt-0.5" style={{ color: C.inkDim }}>No arrivals, guests in house or check-outs. A good moment to get {serviceKind === 'rentals' ? 'items' : 'rooms'} ready.</span>
+                  <span className="block text-[12.5px] leading-snug mt-0.5" style={{ color: C.inkDim }}>{rentWords ? 'No pick-ups, nothing out and nothing due back. A good moment to get items ready.' : 'No arrivals, guests in house or check-outs. A good moment to get rooms ready.'}</span>
                 </span>
               </div>
               <div className="relative grid grid-cols-2 gap-2 mt-3.5">
                 <div className="rounded-xl px-3 py-2.5" style={{ background: 'rgba(var(--c-lo),calc(0.18 * var(--c-lok)))' }}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Free tonight</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>{rentWords ? 'Free today' : 'Free tonight'}</div>
                   <div className="text-[18px] font-bold cx-mono mt-0.5" style={{ color: freeRoomsNow > 0 ? C.sage : C.rust }}>{freeRoomsNow}<span className="text-[12px] font-medium" style={{ color: C.inkFaint }}> of {totalRooms}</span></div>
                 </div>
                 <div className="rounded-xl px-3 py-2.5 min-w-0" style={{ background: 'rgba(var(--c-lo),calc(0.18 * var(--c-lok)))' }}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>Next arrival</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.inkFaint }}>{rentWords ? 'Next pick-up' : 'Next arrival'}</div>
                   {next ? <div className="text-[13px] font-semibold mt-1 truncate">{String(next.customer_name || '').split(' ')[0]} · {daysTo === 1 ? 'tomorrow' : nextDay.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</div> : <div className="text-[13px] mt-1" style={{ color: C.inkFaint }}>None booked yet</div>}
                 </div>
               </div>
               <div className="relative flex gap-2 mt-3">
-                <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : spacesHere.length ? setBookPick(true) : openNewBooking())} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={15} /> Walk-in guest</button>
+                <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : spacesHere.length ? setBookPick(true) : openNewBooking())} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={15} /> {rentWords ? 'Walk-in customer' : 'Walk-in guest'}</button>
                 {storeLink && <button onClick={() => copyText('quiet-link', storeLink)} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.sage, border: '1px solid rgba(31,217,196,0.35)' }}>{copiedKey === 'quiet-link' ? <><Check size={15} /> Link copied</> : <><Copy size={14} /> Copy booking link</>}</button>}
               </div>
             </div>
           );
         })() : (
           <div className="grid gap-5 lg:grid-cols-3">
-            {arrivals.length > 0 && section('Arriving', C.sage, arrivals, '', (b) => renderBookingRow(b, [actBtn('Check in', () => openAct(b, 'check_in'), true), b.check_in < bkToday ? actBtn('No-show', () => openAct(b, 'no_show')) : actBtn('Cancel', () => openAct(b, 'cancel'))]), 'bk-arriving')}
-            {stayingNow.length > 0 && section('In house', C.ink, stayingNow, '', (b) => renderBookingRow(b, [actBtn('Add to bill', () => openBill(b), true), actBtn('Check out', () => openAct(b, 'check_out'))]), 'bk-staying')}
-            {leavingToday.length > 0 && section('Leaving today', C.copper, leavingToday, '', (b) => renderBookingRow(b, [actBtn('Add to bill', () => openBill(b)), actBtn('Check out', () => openAct(b, 'check_out'), true)]), 'bk-leaving')}
+            {arrivals.length > 0 && section(rentWords ? 'Picking up' : 'Arriving', C.sage, arrivals, '', (b) => renderBookingRow(b, [actBtn(rentWords ? 'Hand over' : 'Check in', () => openAct(b, 'check_in'), true), b.check_in < bkToday ? actBtn('No-show', () => openAct(b, 'no_show')) : actBtn('Cancel', () => openAct(b, 'cancel'))]), 'bk-arriving')}
+            {stayingNow.length > 0 && section(rentWords ? 'Out now' : 'In house', C.ink, stayingNow, '', (b) => renderBookingRow(b, [actBtn('Add to bill', () => openBill(b), true), actBtn(rentWords ? 'Returned' : 'Check out', () => openAct(b, 'check_out'))]), 'bk-staying')}
+            {leavingToday.length > 0 && section(rentWords ? 'Due back today' : 'Leaving today', C.copper, leavingToday, '', (b) => renderBookingRow(b, [actBtn('Add to bill', () => openBill(b)), actBtn(rentWords ? 'Returned' : 'Check out', () => openAct(b, 'check_out'), true)]), 'bk-leaving')}
           </div>
         )}
 
         {depositsHeldTotal > 0 && (
           <div className="rounded-2xl px-4 py-3 flex items-center justify-between gap-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
             <div className="min-w-0">
-              <div className="text-[13px] font-semibold">Deposits held for upcoming {serviceKind === 'rentals' ? 'rentals' : 'stays'}</div>
-              <div className="text-[11.5px]" style={{ color: C.inkFaint }}>{depositsHeld.length} booking{depositsHeld.length !== 1 ? 's' : ''}. Counted as sales when guests check in.</div>
+              <div className="text-[13px] font-semibold">Deposits held for upcoming {rentWords ? 'rentals' : 'stays'}</div>
+              <div className="text-[11.5px]" style={{ color: C.inkFaint }}>{depositsHeld.length} booking{depositsHeld.length !== 1 ? 's' : ''}. Counted as sales when {rentWords ? 'customers pick up' : 'guests check in'}.</div>
             </div>
             <div className="text-[16px] font-bold cx-mono shrink-0" style={{ color: C.sage }}>{fmt(depositsHeldTotal)}</div>
           </div>
@@ -7968,12 +7970,12 @@ function XorlaApp() {
         {renderRoomBoard()}
 
         <div>
-          <div className="flex items-baseline justify-between gap-2 mb-2"><span className="text-[14px] font-semibold">Free {serviceKind === 'rentals' ? 'items' : 'rooms'}, next 14 days{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span><span className="text-[11px] shrink-0" style={{ color: C.inkFaint }}>Swipe to see more →</span></div>
+          <div className="flex items-baseline justify-between gap-2 mb-2"><span className="text-[14px] font-semibold">Free {rentWords ? 'items' : 'rooms'}, next 14 days{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span><span className="text-[11px] shrink-0" style={{ color: C.inkFaint }}>Swipe to see more →</span></div>
           <div className="overflow-x-auto rounded-xl" style={{ border: `1px solid ${C.line}` }}>
             <table className="text-[12px] min-w-full" style={{ borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: C.surfaceRaised }}>
-                  <th className="text-left font-semibold px-3 py-2 sticky left-0" style={{ background: C.surfaceRaised, minWidth: 130 }}>{SERVICE_KINDS[serviceKind]?.what === 'item' ? 'Item' : 'Room'}</th>
+                  <th className="text-left font-semibold px-3 py-2 sticky left-0" style={{ background: C.surfaceRaised, minWidth: 130 }}>{SERVICE_KINDS[rentWords ? 'rentals' : 'accommodation']?.what === 'item' ? 'Item' : 'Room'}</th>
                   {days.map((d) => <th key={d} className="font-medium px-2 py-2 whitespace-nowrap" style={{ color: d === bkToday ? C.copper : C.inkFaint }}>{new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })}<br />{dayLabel(d)}</th>)}
                 </tr>
               </thead>
@@ -8039,7 +8041,7 @@ function XorlaApp() {
                       <div className="flex items-start justify-between gap-3">
                         <span className="min-w-0">
                           <span className="block text-[13.5px] font-semibold truncate">{b.customer_name} <span className="font-normal" style={{ color: C.inkFaint }}>· {b.item_name}{b.units > 1 ? ` × ${b.units}` : ''}</span></span>
-                          <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{b.status === 'no_show' ? "Didn't arrive" : byGuest ? 'Guest cancelled' : 'Cancelled'} · was {dayLabel(b.check_in)} to {dayLabel(b.check_out)}{b.updated_at ? ` · ${when(b.updated_at)}` : ''}</span>
+                          <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{b.status === 'no_show' ? "Didn't arrive" : byGuest ? (rentWords ? 'Customer cancelled' : 'Guest cancelled') : 'Cancelled'} · was {dayLabel(b.check_in)} to {dayLabel(b.check_out)}{b.updated_at ? ` · ${when(b.updated_at)}` : ''}</span>
                         </span>
                         <span className="shrink-0 px-2 py-1 rounded-lg text-[11px] font-semibold" style={{ background: bg, color: col }}>{txt}</span>
                       </div>
@@ -8137,20 +8139,20 @@ function XorlaApp() {
       const units = Math.max(1, Number(f.units) || 1);
       const price = p ? priceAt(p, deskShopId) : 0;
       const free = p ? freeFor(p.id, deskShopId, f.checkIn, f.checkOut) : null;
-      title = 'New booking'; submitLabel = !netOnline && f.checkIn === bkToday ? 'Check in now' : 'Confirm booking'; submit = submitNewBooking;
+      title = 'New booking'; submitLabel = !netOnline && f.checkIn === bkToday ? (rentWords ? 'Hand over now' : 'Check in now') : 'Confirm booking'; submit = submitNewBooking;
       body = (
         <div className="space-y-3">
           <BrandSelect value={f.productId} onChange={(e) => setBookingForm({ ...f, productId: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm" style={field}>
             {bookables.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </BrandSelect>
           <div className="grid grid-cols-2 gap-2">
-            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.checkIn || 'From'}
+            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[rentWords ? 'rentals' : 'accommodation']?.checkIn || 'From'}
               <input type="date" min={bkToday} value={f.checkIn} onChange={(e) => { const v = e.target.value; if (!v) return; setBookingForm({ ...f, checkIn: v, checkOut: addDays(v, Math.max(1, n || 1)) }); }} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} /></label>
-            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.checkOut || 'Until'}
+            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{SERVICE_KINDS[rentWords ? 'rentals' : 'accommodation']?.checkOut || 'Until'}
               <input type="date" min={f.checkIn ? addDays(f.checkIn, 1) : bkToday} value={f.checkOut} onChange={(e) => setBookingForm({ ...f, checkOut: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }} /></label>
           </div>
           {(() => {
-            const unitWord = p?.priceUnit === 'day' || serviceKind === 'rentals' ? 'day' : 'night';
+            const unitWord = p?.priceUnit === 'day' || rentWords ? 'day' : 'night';
             const setNights = (k) => { const v = Math.max(1, Math.min(365, k)); setBookingForm({ ...f, checkOut: addDays(f.checkIn || bkToday, v) }); };
             const stepBtn = 'w-11 h-11 rounded-xl flex items-center justify-center text-[20px] font-semibold shrink-0';
             return (
@@ -8168,17 +8170,17 @@ function XorlaApp() {
                     <button key={k} type="button" onClick={() => setNights(k)} className="flex-1 py-1.5 rounded-lg text-[12px] font-semibold" style={n === k ? { background: C.copperFill, color: C.onAccent } : { background: C.bg, color: C.inkDim, border: `1px solid ${C.line}` }}>{k === 7 ? '1 week' : k === 14 ? '2 weeks' : `${k} ${unitWord}${k !== 1 ? 's' : ''}`}</button>
                   ))}
                 </div>
-                {f.checkOut && <div className="text-[11.5px] mt-2" style={{ color: C.inkFaint }}>{SERVICE_KINDS[serviceKind]?.checkOut || 'Until'}: <strong style={{ color: C.inkDim }}>{new Date(`${f.checkOut}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}</strong></div>}
+                {f.checkOut && <div className="text-[11.5px] mt-2" style={{ color: C.inkFaint }}>{SERVICE_KINDS[rentWords ? 'rentals' : 'accommodation']?.checkOut || 'Until'}: <strong style={{ color: C.inkDim }}>{new Date(`${f.checkOut}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}</strong></div>}
               </div>
             );
           })()}
           <div className="grid grid-cols-2 gap-2">
-            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{serviceKind === 'rentals' ? 'How many' : 'Rooms'}
+            <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{rentWords ? 'How many' : 'Rooms'}
               <input type="number" min="1" max="20" placeholder="1" value={f.units} onChange={(e) => setBookingForm({ ...f, units: e.target.value })} className="w-full mt-1 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} /></label>
             <label className="text-[11.5px]" style={{ color: C.inkFaint }}>Paid now (₦)
               <input type="text" inputMode="decimal" placeholder="0" value={formatNumInput(f.paid)} onChange={(e) => setBookingForm({ ...f, paid: parseNumInput(e.target.value) })} className="w-full mt-1 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} /></label>
           </div>
-          <input type="text" placeholder="Guest name" value={f.name} onChange={(e) => setBookingForm({ ...f, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+          <input type="text" placeholder={rentWords ? 'Customer name' : 'Guest name'} value={f.name} onChange={(e) => setBookingForm({ ...f, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
           <input type="tel" placeholder="Phone (optional)" value={f.phone} onChange={(e) => setBookingForm({ ...f, phone: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
           <input type="text" placeholder="Note (optional)" value={f.note} onChange={(e) => setBookingForm({ ...f, note: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
           {p && n > 0 && (
@@ -8197,7 +8199,7 @@ function XorlaApp() {
       const leaving = action === 'check_out' ? earlyOf(b, actForm.earlyRule) : null;
       const stayTotal = leaving ? leaving.total : Number(b.total);
       const balance = Math.max(0, stayTotal + (action === 'check_out' || action === 'check_in' ? extrasTotal : 0) - paidSoFar - adding);
-      const labels = { check_in: ['Check in', 'Check in'], check_out: ['Check out', 'Check out'], decline: ['Decline request', 'Decline'], cancel: ['Cancel booking', 'Cancel booking'], deposit: ['Record a deposit', 'Save deposit'], no_show: ['Mark as no-show', 'Mark as no-show'], refunded: ['Mark refunded', `I've refunded ${fmt(b.refund_amount)}`], bill: [`${b.room_label ? `${String(b.room_label).includes(',') ? 'Rooms' : 'Room'} ${b.room_label}` : b.customer_name}'s bill`, 'Check out'] };
+      const labels = { check_in: rentWords ? ['Hand over', 'Hand over'] : ['Check in', 'Check in'], check_out: rentWords ? ['Returned', 'Mark returned'] : ['Check out', 'Check out'], decline: ['Decline request', 'Decline'], cancel: ['Cancel booking', 'Cancel booking'], deposit: ['Record a deposit', 'Save deposit'], no_show: ['Mark as no-show', 'Mark as no-show'], refunded: ['Mark refunded', `I've refunded ${fmt(b.refund_amount)}`], bill: [`${b.room_label && !rentWords ? `${String(b.room_label).includes(',') ? 'Rooms' : 'Room'} ${b.room_label}` : b.customer_name}'s bill`, rentWords ? 'Mark returned' : 'Check out'] };
       const held = Number(b.deposit_paid) || 0, early = isEarlyCancel(b);
       if (b.is_space) Object.assign(labels, { check_in: ['Start the event', 'Start'], check_out: ['Finish the event', 'Finish'], bill: [`${b.customer_name}'s bill`, 'Finish the event'], no_show: ['Mark as no-show', 'Mark as no-show'] });
       [title, submitLabel] = labels[action]; submit = submitAct;
@@ -8215,8 +8217,8 @@ function XorlaApp() {
             const toggle = (id) => setActForm({ ...actForm, addRooms: adding.includes(id) ? adding.filter((x) => x !== id) : adding.length >= left ? [...adding.slice(1), id] : [...adding, id] });
             return (
               <div className="rounded-xl p-3" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.3)' }}>
-                <div className="text-[12.5px] font-semibold" style={{ color: C.copper }}>{left} more room{left !== 1 ? 's' : ''} to give {String(b.customer_name).split(' ')[0]}</div>
-                <div className="text-[11.5px] mt-0.5 mb-2" style={{ color: C.inkDim }}>This booking is for {need} rooms{have.length ? `, and has ${b.room_label ? `room ${b.room_label}` : `${have.length}`} so far` : ''}. Pick the other{left !== 1 ? 's' : ''} so the room board shows {left !== 1 ? 'them' : 'it'} as taken.</div>
+                <div className="text-[12.5px] font-semibold" style={{ color: C.copper }}>{left} more {rentWords ? 'item' : 'room'}{left !== 1 ? 's' : ''} to give {String(b.customer_name).split(' ')[0]}</div>
+                <div className="text-[11.5px] mt-0.5 mb-2" style={{ color: C.inkDim }}>This booking is for {need} {rentWords ? 'items' : 'rooms'}{have.length ? `, and has ${b.room_label ? `${rentWords ? '' : 'room '}${b.room_label}` : `${have.length}`} so far` : ''}. Pick the other{left !== 1 ? 's' : ''} so the {rentWords ? 'board' : 'room board'} shows {left !== 1 ? 'them' : 'it'} as taken.</div>
                 {free.length ? (
                   <>
                     <div className="flex flex-wrap gap-2">
@@ -8232,8 +8234,8 @@ function XorlaApp() {
             if (b.is_space) return null;
             const named = roomsFor(b.product_id, b.shop_id);
             const free = named.filter((r) => !occupantOf(r));
-            if (!named.length) return <input type="text" autoFocus placeholder={SERVICE_KINDS[serviceKind]?.what === 'item' ? 'Which one? e.g. Car 2 (optional)' : 'Room number, e.g. Room 12 (optional)'} value={actForm.room} onChange={(e) => setActForm({ ...actForm, room: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />;
-            if (!free.length) return <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>Every {b.item_name} is occupied right now. Check a guest out first.</div>;
+            if (!named.length) return <input type="text" autoFocus placeholder={SERVICE_KINDS[rentWords ? 'rentals' : 'accommodation']?.what === 'item' ? 'Which one? e.g. Car 2 (optional)' : 'Room number, e.g. Room 12 (optional)'} value={actForm.room} onChange={(e) => setActForm({ ...actForm, room: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />;
+            if (!free.length) return <div className="rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{rentWords ? `Every ${b.item_name} is out right now. Mark one returned first.` : `Every ${b.item_name} is occupied right now. Check a guest out first.`}</div>;
             const need = Math.max(1, Number(b.units) || 1);
             const picked = actForm.roomIds || [];
             const toggle = (id) => {
@@ -8244,7 +8246,7 @@ function XorlaApp() {
             return (
               <div>
                 <div className="flex items-center justify-between text-[11.5px] mb-1.5">
-                  <span style={{ color: C.inkFaint }}>{need > 1 ? `Choose ${need} rooms for this booking` : `Free ${b.item_name.toLowerCase()}s`}</span>
+                  <span style={{ color: C.inkFaint }}>{need > 1 ? `Choose ${need} ${rentWords ? 'for this booking' : 'rooms for this booking'}` : `Free ${b.item_name.toLowerCase()}s`}</span>
                   {need > 1 && <span className="font-semibold" style={{ color: picked.length === need ? C.sage : C.copper }}>{picked.length} of {need} chosen</span>}
                 </div>
                 {need > 1 && free.length < need && <div className="rounded-xl px-3 py-2 mb-2 text-[12px]" style={{ background: C.copperSoft, color: C.copper }}>Only {free.length} {b.item_name.toLowerCase()}{free.length !== 1 ? 's are' : ' is'} free right now. Check them in to these, and add the other room{need - free.length !== 1 ? 's' : ''} from their bill once {need - free.length !== 1 ? 'they are' : 'it is'} free.</div>}
@@ -8269,7 +8271,7 @@ function XorlaApp() {
                       <button key={v} type="button" onClick={() => setActForm({ ...actForm, earlyRule: v })} className="flex-1 py-1.5 px-1 rounded-lg text-[11.5px] font-semibold leading-tight" style={leaving.rule === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{v === 'stayed' ? `${nw[0].toUpperCase()}${nw.slice(1)}s used` : v === 'one_night' ? `One extra ${nw}` : 'Full booking'}</button>
                     ))}
                   </div>
-                ) : <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Your {serviceKind === 'rentals' ? 'business' : 'hotel'}'s rule: {earlyRuleWords[leaving.rule].toLowerCase()}. If this guest should be charged differently, ask the owner or a manager to check them out.</div>}
+                ) : <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Your {rentWords ? 'business' : 'hotel'}'s rule: {earlyRuleWords[leaving.rule].toLowerCase()}. If this guest should be charged differently, ask the owner or a manager to check them out.</div>}
                 {canRun && leaving.rule !== (settings.earlyLeaveRule || 'stayed') && <div className="text-[11px] mt-1.5" style={{ color: C.inkFaint }}>Just for this guest. Your usual rule is {earlyRuleWords[settings.earlyLeaveRule || 'stayed'].toLowerCase()}.</div>}
               </div>
             );
@@ -8286,7 +8288,7 @@ function XorlaApp() {
                   <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
                     {extrasTotal > 0 ? (
                       <>
-                        <div className="flex justify-between"><span style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Rental' : 'Stay'}{leaving ? ` (${leaving.charge} ${unitWord(b)}${leaving.charge !== 1 ? 's' : ''})` : ''}</span><span className="cx-mono">{fmt(stayTotal)}</span></div>
+                        <div className="flex justify-between"><span style={{ color: C.inkDim }}>{rentWords ? 'Rental' : 'Stay'}{leaving ? ` (${leaving.charge} ${unitWord(b)}${leaving.charge !== 1 ? 's' : ''})` : ''}</span><span className="cx-mono">{fmt(stayTotal)}</span></div>
                         {charges.map((c) => <div key={c.id} className="flex justify-between gap-3"><span className="truncate" style={{ color: C.inkDim }}>{Number(c.quantity) > 1 ? `${c.item} ×${Number(c.quantity)}` : c.item}</span><span className="cx-mono shrink-0">{fmt(c.amount)}</span></div>)}
                         <div className="flex justify-between"><span style={{ color: C.inkDim }}>Total</span><span className="cx-mono">{fmt(grand)}</span></div>
                       </>
@@ -8366,7 +8368,7 @@ function XorlaApp() {
                 <div>
                   <div className="text-[13px] font-semibold mb-2">On the bill</div>
                   {charges.length === 0
-                    ? <div className="text-[12px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkFaint }}>No extras yet. Anything added here is paid at check-out.</div>
+                    ? <div className="text-[12px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkFaint }}>No extras yet. Anything added here is paid at {rentWords ? 'return' : 'check-out'}.</div>
                     : (
                       <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
                         {charges.map((c, i) => (
@@ -8384,15 +8386,15 @@ function XorlaApp() {
                 </div>
 
                 <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
-                  <div className="flex justify-between"><span style={{ color: C.inkDim }}>{serviceKind === 'rentals' ? 'Rental' : 'Stay'}</span><span className="cx-mono">{fmt(b.total)}</span></div>
+                  <div className="flex justify-between"><span style={{ color: C.inkDim }}>{rentWords ? 'Rental' : 'Stay'}</span><span className="cx-mono">{fmt(b.total)}</span></div>
                   <div className="flex justify-between"><span style={{ color: C.inkDim }}>Extras</span><span className="cx-mono">{fmt(extrasTotal)}</span></div>
                   <div className="flex justify-between"><span style={{ color: C.inkDim }}>Paid so far</span><span className="cx-mono">{fmt(paidSoFar)}</span></div>
                   {creditLeft > 0
                     ? <div className="flex justify-between font-semibold pt-1"><span>Credit left</span><span className="cx-mono" style={{ color: C.sage }}>{fmt(creditLeft)}</span></div>
-                    : <div className="flex justify-between font-semibold pt-1"><span>To pay at check-out</span><span className="cx-mono" style={{ color: toPay > 0 ? C.rust : C.sage }}>{fmt(toPay)}</span></div>}
-                  {creditLeft > 0 && <div className="text-[11px] pt-0.5" style={{ color: C.inkFaint }}>The guest paid ahead. Extras come out of this; what's left is given back at check-out.</div>}
+                    : <div className="flex justify-between font-semibold pt-1"><span>To pay at {rentWords ? 'return' : 'check-out'}</span><span className="cx-mono" style={{ color: toPay > 0 ? C.rust : C.sage }}>{fmt(toPay)}</span></div>}
+                  {creditLeft > 0 && <div className="text-[11px] pt-0.5" style={{ color: C.inkFaint }}>The {rentWords ? 'customer' : 'guest'} paid ahead. Extras come out of this; what's left is given back at {rentWords ? 'return' : 'check-out'}.</div>}
                   <div className="flex gap-2 pt-2.5">
-                    <input type="text" inputMode="decimal" placeholder="Guest paid now? (₦)" value={formatNumInput(chargeForm.pay || '')} onChange={(e) => setChargeForm({ ...chargeForm, pay: parseNumInput(e.target.value) })} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
+                    <input type="text" inputMode="decimal" placeholder={rentWords ? 'Customer paid now? (₦)' : 'Guest paid now? (₦)'} value={formatNumInput(chargeForm.pay || '')} onChange={(e) => setChargeForm({ ...chargeForm, pay: parseNumInput(e.target.value) })} className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm outline-none cx-mono" style={field} />
                     <button type="button" onClick={() => payDuringStay(b)} disabled={bookingBusy || !Number(parseNumInput(chargeForm.pay || ''))} className="shrink-0 px-3.5 rounded-lg text-[12.5px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: bookingBusy || !Number(parseNumInput(chargeForm.pay || '')) ? 0.45 : 1 }}>Save payment</button>
                   </div>
                 </div>
@@ -8406,22 +8408,22 @@ function XorlaApp() {
               <div className="rounded-xl px-3.5 py-3 text-[12.5px] space-y-1" style={{ background: C.surfaceRaised }}>
                 <div className="flex justify-between"><span style={{ color: C.inkDim }}>Deposit asked for</span><span className="cx-mono">{fmt(depositDueOf(b))}</span></div>
                 {held > 0 && <div className="flex justify-between"><span style={{ color: C.inkDim }}>Already received</span><span className="cx-mono">{fmt(held)}</span></div>}
-                <div className="flex justify-between font-semibold"><span>Left to pay at check-in</span><span className="cx-mono">{fmt(Math.max(0, Number(b.total) - paidSoFar - adding))}</span></div>
-                <div className="text-[11.5px] pt-1" style={{ color: C.inkFaint }}>{b.status === 'requested' ? 'Saving this confirms this booking firmly. ' : ''}The deposit is held until the guest checks in, then counted as part of the sale.</div>
+                <div className="flex justify-between font-semibold"><span>Left to pay at {rentWords ? 'pick-up' : 'check-in'}</span><span className="cx-mono">{fmt(Math.max(0, Number(b.total) - paidSoFar - adding))}</span></div>
+                <div className="text-[11.5px] pt-1" style={{ color: C.inkFaint }}>{b.status === 'requested' ? 'Saving this confirms this booking firmly. ' : ''}The deposit is held until {rentWords ? 'the customer picks up' : 'the guest checks in'}, then counted as part of the sale.</div>
               </div>
             </>
           )}
           {action === 'cancel' && held > 0 && (
             <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed" style={early ? { background: C.sageSoft, color: C.ink } : { background: C.copperSoft, color: C.ink }}>
               {early
-                ? <><strong>Cancelled in time.</strong> The guest is owed their {fmt(held)} deposit back. It will be listed under "Refunds to send" until you mark it refunded.</>
-                : <><strong>Late cancellation.</strong> It's less than {Number(settings.cancelWindowHours ?? 24)} hours before check-in, so you keep the {fmt(held)} deposit. It's recorded as a sale.</>}
+                ? <><strong>Cancelled in time.</strong> The {rentWords ? 'customer' : 'guest'} is owed their {fmt(held)} deposit back. It will be listed under "Refunds to send" until you mark it refunded.</>
+                : <><strong>Late cancellation.</strong> It's less than {Number(settings.cancelWindowHours ?? 24)} hours before {rentWords ? 'pick-up' : 'check-in'}, so you keep the {fmt(held)} deposit. It's recorded as a sale.</>}
             </div>
           )}
           {action === 'no_show' && (
             <div className="rounded-xl px-3.5 py-3 text-[12.5px] leading-relaxed" style={{ background: C.copperSoft, color: C.ink }}>
               {held > 0 ? <>You keep the <strong>{fmt(held)}</strong> deposit, recorded as a sale. </> : <>No deposit was paid on this booking. </>}
-              The {SERVICE_KINDS[serviceKind]?.what === 'item' ? 'item' : 'room'} is released for the rest of the dates.
+              The {SERVICE_KINDS[rentWords ? 'rentals' : 'accommodation']?.what === 'item' ? 'item' : 'room'} is released for the rest of the dates.
             </div>
           )}
           {action === 'refunded' && (
@@ -8446,7 +8448,7 @@ function XorlaApp() {
           {!netOnline && (
             <div className="mt-4 rounded-xl px-3.5 py-2.5 text-[12.5px] leading-snug flex items-start gap-2.5" style={{ background: C.copperSoft, color: C.ink }}>
               <WifiOff size={15} className="shrink-0 mt-0.5" style={{ color: C.copper }} />
-              <span>{bookingPanel ? (bookingForm?.checkIn === bkToday ? "You're offline. The guest is checked in straight away to a free room, and it sends to Xorla when you're back online." : "You're offline. Bookings for later need internet; a guest checking in today can be booked now.") : ['deposit', 'check_in', 'check_out', 'bill'].includes(bookingAct?.action) ? "You're offline. This is saved on this phone and sends itself when you're back online." : "You're offline. This needs internet."}</span>
+              <span>{bookingPanel ? (bookingForm?.checkIn === bkToday ? (rentWords ? "You're offline. It's handed over straight away, and it sends to Xorla when you're back online." : "You're offline. The guest is checked in straight away to a free room, and it sends to Xorla when you're back online.") : (rentWords ? "You're offline. Bookings for later need internet; a pick-up today can be booked now." : "You're offline. Bookings for later need internet; a guest checking in today can be booked now.")) : ['deposit', 'check_in', 'check_out', 'bill'].includes(bookingAct?.action) ? "You're offline. This is saved on this phone and sends itself when you're back online." : "You're offline. This needs internet."}</span>
             </div>
           )}
           <button onClick={submit} disabled={bookingBusy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: spaceForm && submitLabel === 'That time is taken' ? C.surfaceRaised : ['cancel', 'decline', 'no_show'].includes(bookingAct?.action) ? C.rustFill : C.copperFill, color: spaceForm && submitLabel === 'That time is taken' ? C.inkFaint : C.onAccent, opacity: bookingBusy ? 0.6 : 1 }}>{bookingBusy ? 'Saving…' : submitLabel}</button>
@@ -10182,7 +10184,7 @@ function XorlaApp() {
       details: ['How customers reach you', 'These go on your receipts, invoices, storefront and posters.'],
       branches: [`How many ${L.many} do you have?`, `Each ${L.one} keeps its own sales, stock and staff, and you see them all together.`],
       hours: [kindBook(f.kind || serviceKind).events ? 'When do you work?' : 'When are you open?', kindBook(f.kind || serviceKind).setupHead],
-      deposits: ['Deposits and cancellations', `A deposit holds a booking firmly, so unpaid holds can go to walk-in ${serviceKind === 'rentals' ? 'customers' : 'guests'}.`],
+      deposits: ['Deposits and cancellations', `A deposit holds a booking firmly, so unpaid holds can go to walk-in ${rentWords ? 'customers' : 'guests'}.`],
       list: [serviceKind === 'accommodation' ? 'Add your room types' : `What do you ${T2.tracksStock && f.type !== 'services' ? 'sell' : 'offer'}?`, serviceKind === 'accommodation' ? 'Add each room type once with its price per night and how many you have. Guests can then book online, and checking them in takes one tap.' : `Add it once. After that, recording a ${T2.sale} takes one tap, and customers can ${actWord} online.`],
       storefront: ['Your online storefront', `A free page with your own link. Customers see your ${T2.catalog.toLowerCase()} and ${actWord} without calling you.`],
       team: ['Bring in your staff', 'Optional. Staff record sales on their own phones. You see everything; they only see what they need.'],
@@ -10282,7 +10284,7 @@ function XorlaApp() {
         </div>
       ); }
       if (id === 'deposits') {
-        const night = serviceKind === 'rentals' ? 'day' : 'night';
+        const night = rentWords ? 'day' : 'night';
         return (
           <div className="space-y-6">
             <div>{label('Deposit to confirm a booking', `Paid by cash or transfer, and never more than one ${night}.`)}{seg([[0, 'None'], [25, '25%'], [50, '50%'], [100, 'Full']], f.dep, (v) => setF({ dep: v }))}</div>
@@ -11222,7 +11224,7 @@ function XorlaApp() {
                       { Icon: CalendarClock, title: 'Appointment deposits (optional)', where: `${T.salesTab || 'Jobs'} → ${T.orders || 'Requests'} → an appointment → Accept + deposit, or Ask for deposit`,
                         body: `For a booked time, you can ask for part of the price (20%, 30%, 50%, or any amount) to keep the slot. The customer pays it online and pays the rest at the visit${settings.homeService ? ' (a home service fee is included in the price)' : ''}. You choose, appointment by appointment. Your cancellation rule (free until ${Number(settings.apptCancelHours ?? 12)} hours before) is in ${kindBook(serviceKind).page}.` },
                     ]),
-                    hasBookables && { Icon: CalendarClock, title: `Booking deposits (${serviceKind === 'rentals' ? 'rentals' : 'rooms and halls'})`, where: 'Your storefront booking page, and the booking link you send guests',
+                    hasBookables && { Icon: CalendarClock, title: `Booking deposits (${rentWords ? 'rentals' : 'rooms and halls'})`, where: 'Your storefront booking page, and the booking link you send guests',
                       body: `Guests pay the deposit you set (${Number(settings.depositPercent ?? 50)}%) on their booking page, and the booking confirms itself once it's paid. Set the deposit and free cancellation in Deposits & cancellations.` },
                   ].filter(Boolean);
                   const step = (n, text) => <div className="flex gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: C.sageSoft, color: C.sage }}>{n}</span><span>{text}</span></div>;
@@ -11358,7 +11360,7 @@ function XorlaApp() {
                   ))}
                 </div>
               );
-              const stayWord = serviceKind === 'rentals' ? 'rental' : 'stay', nightWord = serviceKind === 'rentals' ? 'day' : 'night';
+              const stayWord = rentWords ? 'rental' : 'stay', nightWord = rentWords ? 'day' : 'night';
               return (
                 <div className="space-y-4">
                   <div className="text-[12.5px] leading-relaxed px-1" style={{ color: C.inkDim }}>A deposit holds a booking firmly. Your team records it when the guest pays by cash or transfer, and Xorla keeps track of what is owed back if plans change.</div>
@@ -11371,15 +11373,15 @@ function XorlaApp() {
                     {pct > 0 && (
                       <div className="px-4 py-4" style={{ borderTop: `1px solid ${C.line}` }}>
                         <div className="text-[14.5px] font-semibold mb-1">Never more than</div>
-                        <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>Keeps deposits fair on long {stayWord}s. The limit is per {serviceKind === 'rentals' ? 'item' : 'room'}.</div>
+                        <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>Keeps deposits fair on long {stayWord}s. The limit is per {rentWords ? 'item' : 'room'}.</div>
                         {pills([[1, `One ${nightWord}`], [2, `Two ${nightWord}s`], [0, 'No limit']], cap, 'depositCapNights')}
                       </div>
                     )}
                     <div className="px-4 py-4" style={{ borderTop: `1px solid ${C.line}` }}>
-                      <div className="text-[14.5px] font-semibold mb-1">{serviceKind === 'rentals' ? 'Pick-up and return times' : 'Check-in and check-out times'}</div>
+                      <div className="text-[14.5px] font-semibold mb-1">{rentWords ? 'Pick-up and return times' : 'Check-in and check-out times'}</div>
                       <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>Shown to guests on your storefront and on their booking page.</div>
                       <div className="grid grid-cols-2 gap-3">
-                        {[['checkinTime', serviceKind === 'rentals' ? 'Pick up from' : 'Check-in from', '14:00'], ['checkoutTime', serviceKind === 'rentals' ? 'Return by' : 'Check-out by', '12:00']].map(([k, l, dflt]) => (
+                        {[['checkinTime', rentWords ? 'Pick up from' : 'Check-in from', '14:00'], ['checkoutTime', rentWords ? 'Return by' : 'Check-out by', '12:00']].map(([k, l, dflt]) => (
                           <label key={k} className="text-[12px]" style={{ color: C.inkFaint }}>{l}
                             <BrandSelect value={draft[k] || dflt} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm" style={field}>
                               {HALF_HOURS.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}
@@ -11390,12 +11392,12 @@ function XorlaApp() {
                     </div>
                     <div className="px-4 py-4" style={{ borderTop: `1px solid ${C.line}` }}>
                       <div className="text-[14.5px] font-semibold mb-1">Free cancellation until</div>
-                      <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>How long before {serviceKind === 'rentals' ? 'pick-up' : 'check-in'} ({hhmmLabel(draft.checkinTime || '14:00')}) a guest can cancel and get their deposit back.</div>
+                      <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>How long before {rentWords ? 'pick-up' : 'check-in'} ({hhmmLabel(draft.checkinTime || '14:00')}) a guest can cancel and get their deposit back.</div>
                       {pills([[12, '12 hours'], [24, '24 hours'], [48, '48 hours'], [72, '72 hours']], hrs, 'cancelWindowHours')}
                     </div>
                     <div className="px-4 py-4" style={{ borderTop: `1px solid ${C.line}` }}>
-                      <div className="text-[14.5px] font-semibold mb-1">{serviceKind === 'rentals' ? 'Returned early' : 'Guest leaves early'}</div>
-                      <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>{serviceKind === 'rentals' ? 'When someone returns before the booked day, what do you charge?' : `When a guest checks out before their booked date, what do you charge? Xorla works it out at check-out, and the unused ${nightWord}s become free to book again.`}</div>
+                      <div className="text-[14.5px] font-semibold mb-1">{rentWords ? 'Returned early' : 'Guest leaves early'}</div>
+                      <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>{rentWords ? 'When someone returns before the booked day, what do you charge?' : `When a guest checks out before their booked date, what do you charge? Xorla works it out at check-out, and the unused ${nightWord}s become free to book again.`}</div>
                       {pills([['stayed', `Only the ${nightWord}s used`], ['one_night', `One extra ${nightWord}`], ['full', 'The full booking']], draft.earlyLeaveRule || 'stayed', 'earlyLeaveRule')}
                       <div className="text-[11.5px] mt-2.5 leading-relaxed" style={{ color: C.inkFaint }}>{(draft.earlyLeaveRule || 'stayed') === 'full' ? `Booked 3 ${nightWord}s, left after 1: charged all 3, nothing given back.` : (draft.earlyLeaveRule || 'stayed') === 'one_night' ? `Booked 3 ${nightWord}s, left after 1: charged 2, the third given back.` : `Booked 3 ${nightWord}s, left after 1: charged 1, the other 2 given back.`} You or a manager can choose differently for one guest at check-out.</div>
                     </div>
@@ -11435,7 +11437,7 @@ function XorlaApp() {
                     <div className="text-[13.5px] font-semibold" style={{ color: C.ink }}>What happens when plans change</div>
                     <div><strong style={{ color: C.sage }}>Cancels {hrs}+ hours before check-in:</strong> the deposit is owed back. Xorla lists it under "Refunds to send" until your team marks it refunded.</div>
                     <div><strong style={{ color: C.copper }}>Cancels later than that:</strong> you keep the deposit, and it's recorded as a sale.</div>
-                    <div><strong style={{ color: C.rust }}>Doesn't arrive:</strong> from the morning after the check-in date, mark them as a no-show. You keep the deposit, and the {serviceKind === 'rentals' ? 'item is' : 'room is'} free again for the rest of the dates.</div>
+                    <div><strong style={{ color: C.rust }}>Doesn't arrive:</strong> from the morning after the check-in date, mark them as a no-show. You keep the deposit, and the {rentWords ? 'item is' : 'room is'} free again for the rest of the dates.</div>
                     <div style={{ color: C.inkFaint }}>Until the guest checks in, a deposit is shown as money held, not as a sale, so your profit stays accurate.</div>
                   </div>
                 </div>
@@ -12544,9 +12546,9 @@ function XorlaApp() {
                   ))}
                   {isOwnerRole && listItems.length === 0 && <div className="text-[11.5px] font-semibold uppercase tracking-wide px-1 pt-1" style={{ color: C.inkFaint }}>Or add one at a time</div>}
                   <div className={`grid gap-2 ${serviceKind === 'accommodation' ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                    {[['room', BedDouble, `A ${roomWord}`, `Per ${serviceKind === 'rentals' ? 'day' : 'night'}`, C.copper],
+                    {[['room', BedDouble, `A ${roomWord}`, `Per ${rentWords ? 'day' : 'night'}`, C.copper],
                       ...(serviceKind === 'accommodation' ? [['space', Building2, 'A hall', 'By day or hour', '#7FB3FF']] : []),
-                      ['extra', Sparkles, 'An extra', serviceKind === 'rentals' ? 'Delivery, hours' : 'Laundry, bar', C.sage]].map(([k, Ic, l, sub, col]) => (
+                      ['extra', Sparkles, 'An extra', rentWords ? 'Delivery, hours' : 'Laundry, bar', C.sage]].map(([k, Ic, l, sub, col]) => (
                       <button key={k} onClick={() => (k === 'extra' && isOwnerRole && listItems.length === 0 ? setExtrasPick(true) : openCatalogForm(k))} className="rounded-2xl p-3 text-left flex flex-col gap-2 min-w-0" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                         <span className="flex items-center justify-between"><span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: tint(col, 0.13) }}><Ic size={17} style={{ color: col }} /></span><Plus size={15} style={{ color: C.inkFaint }} /></span>
                         <span className="min-w-0"><span className="block text-[13.5px] font-semibold truncate">{l}</span><span className="block text-[11px] truncate" style={{ color: C.inkFaint }}>{sub}</span></span>
@@ -12608,7 +12610,7 @@ function XorlaApp() {
 
                 <div>
                   <div className={fieldLabel} style={{ color: C.inkFaint }}>{formNamesRooms() ? 'ROOM TYPE' : productForm.mode === 'space' ? 'NAME OF THE HALL OR SPACE' : formIsService && productForm.mode === 'extra' ? 'NAME' : formIsService ? 'SERVICE NAME' : 'PRODUCT NAME'}</div>
-                  <input type="text" placeholder={productForm.mode === 'space' ? 'e.g. Grand Hall, Rooftop terrace, Boardroom' : productForm.mode === 'extra' ? (serviceKind === 'rentals' ? 'e.g. Delivery, Extra hour, Driver for the day' : 'e.g. Laundry (per bag), Bottle of water, Airport pickup') : formIsService ? (SERVICE_KINDS[serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : examplesFor(settings.businessType === 'products' ? null : serviceKind).name} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                  <input type="text" placeholder={productForm.mode === 'space' ? 'e.g. Grand Hall, Rooftop terrace, Boardroom' : productForm.mode === 'extra' ? (rentWords ? 'e.g. Delivery, Extra hour, Driver for the day' : 'e.g. Laundry (per bag), Bottle of water, Airport pickup') : formIsService ? (SERVICE_KINDS[serviceKind]?.name || "e.g. Knotless braids, Men's haircut, Engine service") : examplesFor(settings.businessType === 'products' ? null : serviceKind).name} value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
                 </div>
 
                 <div>
