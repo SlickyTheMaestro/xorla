@@ -6147,7 +6147,7 @@ function XorlaApp() {
                 )}
                 {today.length > 0 && (
                   <div className="rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-                    <div className="text-[13px] font-semibold mb-2">{mineOnly ? 'Your appointments today' : "Today's appointments"}</div>
+                    <div className="text-[13px] font-semibold mb-2">{(() => { const w = serviceKind === 'repairs' ? 'drop-offs' : serviceKind === 'events' ? 'events' : serviceKind === 'professional' ? 'consultations' : 'appointments'; return mineOnly ? `Your ${w} today` : `Today's ${w}`; })()}</div>
                     <div className="space-y-2">{today.map((o) => row(o, true))}</div>
                   </div>
                 )}
@@ -6241,7 +6241,7 @@ function XorlaApp() {
                       o.status === 'pending' ? { background: C.copperSoft, color: C.copper } :
                       o.status === 'fulfilled' ? { background: C.sageSoft, color: C.sage } :
                       { background: 'rgba(226,98,75,0.12)', color: C.rust }
-                    }>{o.status === 'pending' && o.payStatus === 'paid' ? 'Paid online' : o.status === 'pending' && o.payStatus === 'requested' ? 'Awaiting payment' : o.payStatus === 'refund_due' ? 'Refund to send' : o.payStatus === 'kept' ? 'Deposit kept' : o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.noShow ? "Didn't come" : o.startAt && !o.acceptedAt ? 'Declined' : 'Cancelled'}</span>
+                    }>{o.status === 'pending' && o.payStatus === 'paid' ? (orderMoney(o).paidOnline < orderMoney(o).total ? 'Deposit paid' : 'Paid online') : o.status === 'pending' && o.payStatus === 'requested' ? 'Awaiting payment' : o.payStatus === 'refund_due' ? 'Refund to send' : o.payStatus === 'kept' ? 'Deposit kept' : o.status === 'pending' && o.awaitingCustomer ? `Waiting for ${String(o.customerName).split(' ')[0]}` : o.status === 'pending' && o.acceptedAt ? 'Confirmed' : o.status === 'pending' && o.startAt && apptPassed(o) ? 'Time passed' : o.status === 'pending' ? 'New' : o.status === 'fulfilled' ? (T.tracksStock ? 'Fulfilled' : 'Done') : o.noShow ? "Didn't come" : o.startAt && !o.acceptedAt ? 'Declined' : 'Cancelled'}</span>
                   </div>
                   {(() => { const n = orderNext(o); return n ? (
                     <div className="flex items-start gap-2 rounded-xl px-3 py-2 mb-3 text-[12.5px]" style={{ background: n.waiting ? C.surfaceRaised : C.copperSoft, color: n.waiting ? C.inkDim : C.ink }}>
@@ -6315,12 +6315,19 @@ function XorlaApp() {
                         <div className="mt-0.5" style={{ color: C.inkDim }}>Confirmed{o.payRequestedBy ? ` by ${o.payRequestedBy}` : ''}{o.payRequestedAt ? `, ${t(o.payRequestedAt)}` : ''}. You'll get a notification when it's paid.</div>
                       </div>
                     );
-                    if (o.payStatus === 'paid') return (
-                      <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>
-                        <div className="flex items-center gap-2 font-semibold" style={{ color: C.sage }}><Check size={14} /> Paid {fmt(paidNet)} online{o.paidOnlineAt ? `, ${t(o.paidOnlineAt)}` : ''}</div>
-                        <div className="mt-0.5" style={{ color: C.inkDim }}>{paidNet < orderMoney(o).total ? `${fmt(orderMoney(o).total - paidNet)} still to collect. ` : ''}Paystack sends it to your bank. Get the order ready, then tap {T.tracksStock ? 'Fulfill' : 'Mark done'}.</div>
-                      </div>
-                    );
+                    if (o.payStatus === 'paid') {
+                      // Appointments show the deposit in their own box below; this note is for orders and requests without a time
+                      if (o.startAt && !isRepairJob(o)) return null;
+                      const left = Math.max(0, orderMoney(o).total - paidNet);
+                      const svc = apptMode && servicesOnly(o);
+                      const next = isRepairJob(o) ? 'Tap Collected when they pick it up.' : svc ? "Tap Mark done when it's finished." : `Get the order ready, then tap ${T.tracksStock ? 'Fulfill' : 'Mark done'}.`;
+                      return (
+                        <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>
+                          <div className="flex items-center gap-2 font-semibold" style={{ color: C.sage }}><Check size={14} /> {left > 0 && svc ? 'Deposit paid' : 'Paid'} {fmt(paidNet)} online{o.paidOnlineAt ? `, ${t(o.paidOnlineAt)}` : ''}</div>
+                          <div className="mt-0.5" style={{ color: C.inkDim }}>{left > 0 ? `${fmt(left)} still to collect${isRepairJob(o) ? ' when they pick it up' : svc ? " when it's done" : ''}. ` : 'Nothing left to collect. '}Paystack sends it to your bank. {next}</div>
+                        </div>
+                      );
+                    }
                     if (o.payStatus === 'refund_due') return (
                       <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.rustSoft, border: '1px solid rgba(226,98,75,0.3)' }}>
                         <div className="flex items-center justify-between gap-2"><span className="font-semibold" style={{ color: C.rust }}>Refund to send: {fmt(o.refundAmount)}</span><span style={{ color: C.inkFaint }}>paid online</span></div>
@@ -20599,7 +20606,7 @@ function CustomerOrder({ token }) {
     : od.ready_at && od.fulfil_mode === 'delivery' ? ['#DFF6EE', '#0E7A5F', 'On its way', `Your ${noun} is on its way to ${addr}.${od.rider_name ? ` Your rider is ${od.rider_name}${od.rider_phone ? ` (${formatPhoneDisplay(od.rider_phone)})` : ''}.` : ''}${od.delivery_pay === 'on_delivery' && od.pay_status !== 'paid' && !od.delivery_paid ? ` Please have ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} ready for them.` : ''}`]
     : od.job_status === 'ready' ? ['#DFF6EE', '#0E7A5F', 'Ready for collection', `Your ${jobWhat} is ready. Collect it from ${od.address || od.business}.${od.pay_status === 'paid' ? (restAtVisit > 0 && isDeposit ? ` Pay the rest (${fmt(restAtVisit)}) when you collect it.` : ' It is fully paid.') : ''}`]
     : od.job_status === 'received' ? ['#DFF6EE', '#0E7A5F', 'In for repair', `${od.business} has your ${jobWhat} and is working on it. You'll get a message when it's ready to collect.`]
-    : od.pay_status === 'paid' ? ['#DFF6EE', '#0E7A5F', 'Paid', `Thanks, ${first}! ${od.business} has your payment${isDeposit && restAtVisit > 0 ? ` (the rest, ${fmt(restAtVisit)}, is paid ${restWhen})` : ''}${timedVisit ? '.' : ` and is getting your ${noun} ready.`}`]
+    : od.pay_status === 'paid' ? ['#DFF6EE', '#0E7A5F', 'Paid', `Thanks, ${first}! ${od.business} has your payment${isDeposit && restAtVisit > 0 ? ` (the rest, ${fmt(restAtVisit)}, is paid ${restWhen})` : ''}${timedVisit ? '.' : noun === 'request' ? (od.job_status ? '.' : ' and will get started on it.') : ` and is getting your ${noun} ready.`}`]
     : od.pay_status === 'requested' && isDeposit ? ['#DFF6EE', '#0E7A5F', `Confirmed: pay a deposit to ${timedVisit ? `keep ${keepWhat}` : 'get started'}`, `${od.business} has confirmed ${timedVisit ? od.preferred_time || 'your booking' : `your ${noun}`}. Pay the ${fmt(Number(od.pay_amount))} deposit below${timedVisit ? ' to keep it' : ' to get started'}. The rest (${fmt(restAtVisit)}) is paid ${restWhen}.`]
     : od.pay_status === 'requested' ? ['#DFF6EE', '#0E7A5F', 'Confirmed: ready to pay', `${od.business} has everything for your ${noun}.${od.online ? ' Pay below to complete it.' : ''}`]
     : od.fulfil_mode === 'delivery' && od.delivery_pay === 'before' && !od.delivery_paid ? ['#FFF4D6', '#8A5A00', 'Confirmed: waiting for your payment', `Pay ${fmt(Number(od.total) + Number(od.delivery_fee || 0))} as ${od.business} asked on WhatsApp. They'll send it out with their rider as soon as it's in.`]
