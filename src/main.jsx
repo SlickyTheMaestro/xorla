@@ -29,7 +29,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     // Hand the service worker the files this page is using, so Xorla can open next time even with no internet
-    navigator.serviceWorker.ready.then((reg) => {
+    const warm = () => navigator.serviceWorker.ready.then((reg) => {
       const urls = [
         ...[...document.querySelectorAll('script[src]')].map((s) => s.src),
         ...[...document.querySelectorAll('link[rel="stylesheet"][href], link[rel="modulepreload"][href]')].map((l) => l.href),
@@ -37,5 +37,8 @@ if ('serviceWorker' in navigator) {
       ];
       (reg.active || navigator.serviceWorker.controller)?.postMessage({ type: 'xorla-warm', urls: [...new Set(urls)] });
     }).catch(() => {});
+    warm();
+    // Screens load in parts: tell it again once the screen's own files have arrived, so the next visit works offline too
+    setTimeout(warm, 6000);
   });
 }
