@@ -6234,6 +6234,18 @@ function XorlaApp() {
                         <span className="cx-mono">{fmt(it.quantity * it.unitPrice)}</span>
                       </div>
                     ))}
+                    {o.status === 'pending' && canAnswerRequests && hasFromPrice(o) && (() => {
+                      const locked = ['requested', 'paid', 'refund_due', 'refunded', 'kept'].includes(o.payStatus);
+                      const agreed = o.items.some((it) => it.adjust);
+                      const open = () => setPriceAsk({ order: o, value: agreed ? String(orderMoney(o).gross) : '', note: ((o.items.find((it) => it.adjust) || {}).description || '').replace(/^Price agreed$/, ''), busy: false, error: '' });
+                      return (
+                        <div className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 mt-1.5 text-[12px]" style={{ background: agreed ? C.sageSoft : C.copperSoft }}>
+                          <span style={{ color: agreed ? C.sage : C.ink }}>{agreed ? 'Final price agreed' : locked ? 'Priced "from"' : 'Priced "from". Set the final price once you know it.'}</span>
+                          {locked ? <span className="shrink-0" style={{ color: C.inkFaint }}>Payment asked</span>
+                            : <button onClick={open} className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: agreed ? 'transparent' : C.copperFill, color: agreed ? C.sage : C.onAccent, border: agreed ? `1px solid ${C.sage}` : 'none' }}>{agreed ? 'Change price' : 'Set final price'}</button>}
+                        </div>
+                      );
+                    })()}
                     {o.discountAmount > 0 && (
                       <div className="flex items-center justify-between text-[12.5px]" style={{ color: C.sage }}>
                         <span>Discount code {o.discountCode}</span>
@@ -6592,8 +6604,7 @@ function XorlaApp() {
                     // A hotel extra for a guest: put it on their bill first (or say they're not a guest), so it isn't recorded as a separate sale
                     if (pending && !o.startAt && !o.roomBookingId && !notGuest[o.id] && !['paid', 'refund_due', 'refunded'].includes(o.payStatus) && serviceKind === 'accommodation' && (String(o.note || '').startsWith(BOOKED_GUEST_NOTE) || o.fulfilMode === 'room')) { primary = null; note = 'Add it to the guest\'s bill above first'; }
                     // A job priced "from": the business sets the final price once it knows it
-                    if (pending && canAnswerRequests && hasFromPrice(o) && (!o.startAt || o.jobStatus || (o.acceptedAt && !isRepairJob(o))) && !['requested', 'paid', 'refund_due', 'refunded', 'kept'].includes(o.payStatus)) sec.unshift({ label: o.items.some((it) => it.adjust) ? 'Change price' : 'Set price', tone: 'accent', onClick: () => setPriceAsk({ order: o, value: String(orderMoney(o).gross), note: ((o.items.find((it) => it.adjust) || {}).description || '').replace(/^Price agreed$/, ''), busy: false, error: '' }) });
-                    if (pending && needsPrice(o) && primary && !o.startAt) { primary = { label: 'Set price', onClick: () => setPriceAsk({ order: o, value: '', note: '', busy: false, error: '' }) }; sec.shift(); }
+                    if (pending && needsPrice(o) && primary && !o.startAt) { primary = { label: 'Set price', onClick: () => setPriceAsk({ order: o, value: '', note: '', busy: false, error: '' }) }; }
                     // An own-choice request is answered first (above); then the order carries on as usual
                     if (pending && !o.startAt && (o.customState === 'asked' || o.customState === 'suggested')) { primary = null; note = o.customState === 'asked' ? 'Answer the own-choice request above first' : `Waiting for ${firstName(o)} to choose`; }
                     const secBtn = (b, i) => {
