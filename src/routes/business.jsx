@@ -3675,6 +3675,27 @@ function XorlaApp() {
   };
   // Delivery money: paid online, or a transfer staff confirmed, counts as paid; otherwise what's still owed
   const deliveryPaid = (o) => o.payStatus === 'paid' || !!o.deliveryPaidAt;
+  // A delivery that should be paid for before anyone takes it out (unless the business chose "rider collects on delivery")
+  const payFirst = (o) => o.status === 'pending' && o.fulfilMode === 'delivery' && !deliveryPaid(o) && o.deliveryPay !== 'on_delivery' && !o.riderSentAt && !o.riderId
+    && !laundryCollect(o) && !o.roomBookingId && !['refund_due', 'refunded'].includes(o.payStatus) && orderMoney(o).total > 0 && !jobForOrder(o);
+  const canPayOnline = (o) => !!(settings.payout && o.payToken);
+  // Tapping a rider button before the customer has paid: say so, and offer the right next step
+  const riderGuard = async (o, which) => {
+    if (!payFirst(o)) return which === 'xorla' ? openXorlaJob(o) : openRiders(o);
+    const first = firstName(o); const asked = o.payStatus === 'requested';
+    if (which === 'xorla') {
+      const amt = fmt(orderMoney(o).total);
+      const ok = await brandConfirm(`${first} hasn't paid yet. Xorla riders don't collect money, so get paid first. ${asked ? `You've sent the payment link. If ${amt} is already in your account another way, tap They've paid.` : canPayOnline(o) ? `Tap Ask to pay online on the order, or if ${amt} is already in your account (transfer or cash), tap They've paid.` : `If ${amt} is already in your account (transfer or cash), tap They've paid.`}`,
+        { title: 'Get paid first', confirm: "They've paid", cancel: 'Not yet' });
+      if (!ok) return;
+      try { await sbRpc('set_delivery_pay', session.access_token, { p_order: o.id, p_pay: 'paid' }); const fresh = await refreshOrder(o.id); openXorlaJob(fresh || o); }
+      catch (e) { brandAlert(e.message); }
+      return;
+    }
+    const ok = await brandConfirm(`${first} hasn't paid yet. It's safest to get paid first. Only send your rider now if ${first} will pay the rider when it arrives.`,
+      { title: 'Get paid first?', confirm: 'Rider collects on delivery', cancel: 'Get paid first' });
+    if (ok) { openRiders(o); setRiderFor((f) => f && { ...f, pay: 'on_delivery' }); }
+  };
   const deliveryOwing = (o) => (o.payStatus === 'paid' ? Math.max(0, orderMoney(o).total - orderMoney(o).paidOnline) : o.deliveryPaidAt ? 0 : orderMoney(o).total);
   const bankLine = () => (settings.bankAccountNumber ? `${settings.bankName ? `${settings.bankName}, ` : ''}${settings.bankAccountNumber}${settings.bankAccountName ? ` (${settings.bankAccountName})` : ''}` : '');
   const payFirstMessage = (o) => {
@@ -5695,7 +5716,12 @@ function XorlaApp() {
       if (xj && xj.status === 'taken') return act(`${String(xj.rider?.name || 'The rider').split(' ')[0]} is coming. Give them code ${xj.pickup_code} with the package`);
       if (xj && xj.status === 'picked_up') return wait(`On its way with ${String(xj.rider?.name || 'the rider').split(' ')[0]}`);
       if (xj && xj.status === 'delivered') return act(xj.paid_at ? 'Delivered. Tap Delivered to finish' : `Delivered. Pay ${String(xj.rider?.name || 'the rider').split(' ')[0]} ${fmt(xj.fee)}, then tap Delivered`);
-      if (!o.riderId) return riders.length ? act(laundryCollect(o) ? 'Choose a rider to collect the laundry' : 'Get rider prices and choose one') : act(laundryCollect(o) ? 'Send someone to collect the laundry' : 'Get it ready, then send it out');
+      if (payFirst(o)) {
+        if (o.payStatus === 'requested') return wait(`Waiting for ${first} to pay. Once paid, choose a rider`);
+        return act(canPayOnline(o) ? `Get paid first: tap Ask to pay online. Then choose a rider` : `Get paid first: confirm ${first}'s transfer. Then choose a rider`);
+      }
+      const paidLead = deliveryPaid(o) ? `${first} has paid. ` : '';
+      if (!o.riderId) return riders.length || canUseXorlaRiders(o) ? act(laundryCollect(o) ? 'Choose a rider to collect the laundry' : `${paidLead}Get it ready, then choose a rider`) : act(laundryCollect(o) ? 'Send someone to collect the laundry' : `${paidLead}Get it ready, then send it out`);
       if (o.deliveryPay === 'before' && !deliveryPaid(o)) return wait(`Waiting for ${first} to pay`);
       if (!o.riderSentAt) return act(`Send ${rider} the details`);
       if (laundryCollect(o) && !o.readyAt) return act('Wash it, then tap "Clean: send it back"');
@@ -5881,13 +5907,14 @@ function XorlaApp() {
                       ) : o.status === 'pending' && canUseXorlaRiders(o) ? (
                         <>
                           {xj && ['expired', 'cancelled'].includes(xj.status) && <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>{xj.status === 'expired' ? `No Xorla rider took it at ${fmt(xj.fee)}. Try a higher fee, or your own riders.` : 'The Xorla job was cancelled.'}</div>}
-                          <div className="grid grid-cols-2 gap-2 mt-2">
-                            <button onClick={() => openXorlaJob(o)} className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Bike size={14} /> Xorla riders</button>
-                            <button onClick={() => openRiders(o)} className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.lineStrong}`, color: C.ink }}><Truck size={14} /> Your riders</button>
+                          {payFirst(o) && <div className="mt-2.5 flex items-center gap-1.5 text-[11.5px] font-semibold" style={{ color: C.copper }}><Lock size={12} /> {o.payStatus === 'requested' ? `Choose a rider once ${firstName(o)} has paid` : 'Get paid first, then choose a rider'}</div>}
+                          <div className="grid grid-cols-2 gap-2 mt-2" style={payFirst(o) ? { opacity: 0.55 } : undefined}>
+                            <button onClick={() => riderGuard(o, 'xorla')} className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Bike size={14} /> Xorla riders</button>
+                            <button onClick={() => riderGuard(o, 'own')} className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ border: `1px solid ${C.lineStrong}`, color: C.ink }}><Truck size={14} /> Your riders</button>
                           </div>
                         </>
                       ) : o.status === 'pending' && (
-                        <button onClick={() => openRiders(o)} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Truck size={14} /> Get rider prices</button>
+                        <button onClick={() => riderGuard(o, 'own')} className="mt-2 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent, opacity: payFirst(o) ? 0.55 : 1 }}><Truck size={14} /> Get rider prices</button>
                       )}
                     </div>
                   ); })()}
@@ -6123,6 +6150,18 @@ function XorlaApp() {
                           primary = { label: laundryCollect(o) ? 'Returned' : o.fulfilMode === 'delivery' ? 'Delivered' : 'Collected', onClick: () => fulfillOrder(o) };
                         }
                       }
+                    }
+                    // A delivery not paid for yet: getting paid is the main button; sending it out waits
+                    if (pending && payFirst(o)) {
+                      const first = firstName(o);
+                      const unsafe = (label) => ({ label, onClick: async () => { if (await brandConfirm(`${first} hasn't paid yet. Send it out anyway? Only do this if ${first} will pay when it arrives.`, { title: 'Send before payment?', confirm: 'Send it out', cancel: 'Not yet' })) markReady(o); } });
+                      const outIdx = primary && primary.label === 'Out for delivery' ? true : false;
+                      for (let k = sec.length - 1; k >= 0; k--) if (['Ask to pay online', 'Send link'].includes(sec[k].label)) sec.splice(k, 1);
+                      if (o.payStatus === 'requested') { primary = { label: 'Send payment link', onClick: () => sendPayLink(o) }; sec.push({ label: "They've paid", tone: 'accent', title: 'They paid by transfer or cash instead', onClick: () => confirmTransfer(o) }); }
+                      else if (canPayOnline(o)) { primary = { label: 'Ask to pay online', onClick: () => setPayAsk({ order: o, fee: '', busy: false, error: '' }) }; sec.push({ label: "They've paid", tone: 'accent', title: 'They paid by transfer or cash', onClick: () => confirmTransfer(o) }); }
+                      else { primary = { label: "They've paid", onClick: () => confirmTransfer(o) }; if (o.customerPhone) sec.push({ label: 'Send bank details', tone: 'accent', href: `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(payFirstMessage(o))}` }); }
+                      if (outIdx) sec.push(unsafe('Out for delivery'));
+                      note = '';
                     }
                     // A hotel extra for a guest: put it on their bill first (or say they're not a guest), so it isn't recorded as a separate sale
                     if (pending && !o.startAt && !o.roomBookingId && !notGuest[o.id] && !['paid', 'refund_due', 'refunded'].includes(o.payStatus) && serviceKind === 'accommodation' && (String(o.note || '').startsWith(BOOKED_GUEST_NOTE) || o.fulfilMode === 'room')) { primary = null; note = 'Add it to the guest\'s bill above first'; }
