@@ -553,6 +553,8 @@ function kindMinutes(kind, p, qty = 1) {
 // "How long" in the words a customer reads, for this kind of business
 const durationWords = (kind, d) => { const x = String(d || '').toLowerCase(); if (!x) return ''; if (kind === 'repairs') return /within|same/.test(x) ? `Ready ${x}` : `Ready in about ${x}`; if (kind === 'events') return x === 'full day' ? 'Covers a full day' : `Covers ${x}`; return `Takes ${x}`; };
 const EVENT_TYPES = ['Wedding', 'Birthday', 'Burial', 'Church event', 'Corporate', 'Party', 'Other'];
+// Things rented by the day (cars, equipment) get a pick-up and a return time; rooms and halls don't
+const rentsByDay = (p) => !!p && p.priceUnit === 'day' && !p.isSpace;
 const DAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 function daysLabel(days) {
   const d = [...new Set(days || [])].sort((a, b) => a - b);
@@ -3630,6 +3632,7 @@ function XorlaApp() {
 
   // Fulfilling a storefront order: one receipt for the whole order, the customer's name on it, and an honest record of what was paid
   const [fulfil, setFulfil] = useState(null); // { order, mode: 'full' | 'part', paid: '' }
+  const [timesFor, setTimesFor] = useState(null);   // rentals: change the pick-up / return time on a booking
   // The extra charge on an order: delivery, or coming to the customer (home service / call-out)
   const feeLabel = (o) => (o.visitMode === 'home' ? (serviceKind === 'repairs' ? 'Call-out fee' : 'Home service') : 'Delivery');
   // Repairs brought in to the workshop: tracked as a job (received, then ready for collection)
@@ -7250,7 +7253,8 @@ function XorlaApp() {
   };
   const openNewBooking = () => {
     setBookingError('');
-    setBookingForm({ productId: bookables[0]?.id || '', checkIn: bkToday, checkOut: addDays(bkToday, 1), units: '1', name: '', phone: '', note: '', paid: '' });
+    const t = (settings.checkinTime || '09:00').slice(0, 5);
+    setBookingForm({ productId: bookables[0]?.id || '', checkIn: bkToday, checkOut: addDays(bkToday, 1), units: '1', name: '', phone: '', note: '', paid: '', pickup: t, ret: t });
     setBookingPanel(true);
   };
   const submitNewBooking = () => {
@@ -7277,7 +7281,16 @@ function XorlaApp() {
       return;
     }
     let newId = null;
-    runBooking(async () => { newId = await sbRpc('create_booking', session.access_token, { p_shop_id: deskShopId, p_product_id: f.productId, p_check_in: f.checkIn, p_check_out: f.checkOut, p_units: Number(f.units) || 1, p_name: f.name, p_phone: f.phone, p_note: f.note, p_amount_paid: Number(parseNumInput(f.paid)) || 0 }); },
+    runBooking(async () => {
+      const base = { p_shop_id: deskShopId, p_product_id: f.productId, p_check_in: f.checkIn, p_check_out: f.checkOut, p_units: Number(f.units) || 1, p_name: f.name, p_phone: f.phone, p_note: f.note, p_amount_paid: Number(parseNumInput(f.paid)) || 0 };
+      const timed = rentsByDay(bookables.find((x) => x.id === f.productId)) && f.pickup && f.ret;
+      if (!timed) { newId = await sbRpc('create_booking', session.access_token, base); return; }
+      try { newId = await sbRpc('create_booking_v2', session.access_token, { ...base, p_pickup: f.pickup, p_return: f.ret }); }
+      catch (e) {
+        if (!/create_booking_v2|schema cache|function/i.test(e.message || '')) throw e;
+        newId = await sbRpc('create_booking', session.access_token, { ...base, p_note: [f.note, `Pick up ${hhmmLabel(f.pickup)}, return by ${hhmmLabel(f.ret)}`].filter(Boolean).join(' · ') });
+      }
+    },
       async () => {
         setBookingPanel(false);
         if (!f.phone || !String(f.phone).replace(/[^0-9]/g, '')) return;
@@ -7413,7 +7426,7 @@ function XorlaApp() {
     const lines = [
       `Hi ${first}, your booking at ${settings.businessName} is confirmed${deposit ? ` and we've received your ${fmt(deposit)} ${deposit >= Number(b.total) ? 'payment' : 'deposit'}` : ''}.`,
       `${b.item_name}${b.units > 1 ? ` × ${b.units}` : ''}, ${dayLabel(b.check_in)} to ${dayLabel(b.check_out)} (${nights}). Total ${fmt(b.total)}.`,
-      rentWords ? `Pick up from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, return by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.` : `Check-in is from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, and check-out is by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.`,
+      rentWords ? (b.pickup_time || b.return_time ? `Pick up at ${hhmmLabel(String(b.pickup_time || settings.checkinTime || '14:00').slice(0, 5))} on ${dayLabel(b.check_in)}, and bring it back by ${hhmmLabel(String(b.return_time || settings.checkoutTime || '12:00').slice(0, 5))} on ${dayLabel(b.check_out)}.` : `Pick up from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, return by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.`) : `Check-in is from ${hhmmLabel(settings.checkinTime || '14:00').replace(':00', '')}, and check-out is by ${hhmmLabel(settings.checkoutTime || '12:00').replace(':00', '')}.`,
       owing > 0 ? `To secure it, please send the ${fmt(owing)} deposit${bank ? ` to ${bank}` : ''}.` : '',
       guestLinkOf(b) ? `See or manage your booking here: ${guestLinkOf(b)}` : '',
     ].filter(Boolean);
@@ -7452,6 +7465,37 @@ function XorlaApp() {
     try { await navigator.clipboard.writeText(link); markLinkSent(b); brandAlert('Booking link copied. Paste it to the guest.', { title: 'Link copied' }); } catch (e) { brandAlert(link, { title: 'Booking link' }); }
   };
 
+  // Rentals: late once the return time on the return day has passed
+  const rentalLate = (b) => b.check_out < bkToday || (b.check_out === bkToday && Date.now() > new Date(`${bkToday}T${String(b.return_time || settings.checkoutTime || '12:00').slice(0, 5)}:00+01:00`).getTime());
+  const saveTimes = async () => {
+    const t = timesFor; if (!t || t.busy) return;
+    setTimesFor({ ...t, busy: true, error: '' });
+    try {
+      await sbRpc('set_booking_times', session.access_token, { p_booking: t.b.id, p_pickup: t.pickup, p_return: t.ret });
+      setBookingsAll((prev) => prev.map((x) => (x.id === t.b.id ? { ...x, pickup_time: x.status === 'checked_in' ? x.pickup_time : `${t.pickup}:00`, return_time: `${t.ret}:00` } : x)));
+      setTimesFor(null);
+    } catch (e) { setTimesFor((x) => x && { ...x, busy: false, error: /set_booking_times|schema cache/i.test(e.message) ? 'This needs a quick update on our side (rental-times.sql).' : e.message }); }
+  };
+  const renderTimesSheet = () => {
+    const t = timesFor; if (!t) return null;
+    const out = t.b.status === 'checked_in';
+    return (
+      <Sheet onClose={() => setTimesFor(null)} busy={t.busy} title={<><div className="text-[16px] font-semibold cx-display">Pick-up and return</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkDim }}>{t.b.customer_name} · {t.b.item_name}</div></>}>
+        <div className="grid grid-cols-2 gap-2">
+          {[['pickup', `Pick up · ${dayLabel(t.b.check_in)}`], ['ret', `Back by · ${dayLabel(t.b.check_out)}`]].map(([k, l]) => (
+            <label key={k} className="text-[11.5px]" style={{ color: C.inkFaint }}>{l}
+              <BrandSelect value={t[k]} disabled={k === 'pickup' && out} onChange={(e) => setTimesFor({ ...t, [k]: e.target.value, error: '' })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm" style={field}>
+                {HALF_HOURS.map((h) => <option key={h} value={h}>{hhmmLabel(h)}</option>)}
+              </BrandSelect>
+            </label>
+          ))}
+        </div>
+        <div className="text-[11.5px] mt-2 leading-relaxed" style={{ color: C.inkFaint }}>{out ? 'It has been picked up, so only the return time can change. ' : ''}The price stays per day. If they bring it back late, add the extra on their bill.</div>
+        {t.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{t.error}</div>}
+        <button onClick={saveTimes} disabled={t.busy} className="w-full mt-4 rounded-xl py-3.5 text-[14px] font-semibold" style={{ background: C.sageFill, color: C.onAccent, opacity: t.busy ? 0.6 : 1 }}>{t.busy ? 'Saving…' : 'Save times'}</button>
+      </Sheet>
+    );
+  };
   const renderBookingRow = (b, actions) => {
     const paid = Number(b.amount_paid) || 0;
     const due = Number(b.total) + (['confirmed', 'checked_in'].includes(b.status) ? extrasTotalOf(b) : 0);
@@ -7490,7 +7534,10 @@ function XorlaApp() {
                 <span className="leading-tight">{b.check_in.slice(0, 7) === b.check_out.slice(0, 7)
                   ? <><strong style={{ color: C.ink }}>{Number(b.check_in.slice(8, 10))}</strong> → <strong style={{ color: C.ink }}>{dayLabel(b.check_out)}</strong></>
                   : <><strong style={{ color: C.ink }}>{dayLabel(b.check_in)}</strong> → <strong style={{ color: C.ink }}>{dayLabel(b.check_out)}</strong></>}
-                  <span className="block text-[10.5px]" style={{ color: C.inkFaint }}>{b.nights} {unitWord(b)}{b.nights !== 1 ? 's' : ''}</span></span>}
+                  <span className="block text-[10.5px]" style={{ color: C.inkFaint }}>{b.nights} {unitWord(b)}{b.nights !== 1 ? 's' : ''}{(b.pickup_time || b.return_time) ? <> · out {hhmmLabel(String(b.pickup_time || settings.checkinTime || '14:00').slice(0, 5))} · <strong style={{ color: b.status === 'checked_in' && rentalLate(b) ? C.rust : C.inkDim }}>back by {hhmmLabel(String(b.return_time || settings.checkoutTime || '12:00').slice(0, 5))}</strong></> : null}</span></span>}
+              {canRun && b.price_unit === 'day' && !b.is_space && ['requested', 'confirmed', 'checked_in'].includes(b.status) && !b.pending && (
+                <button type="button" onClick={() => setTimesFor({ b, pickup: String(b.pickup_time || settings.checkinTime || '09:00').slice(0, 5), ret: String(b.return_time || settings.checkoutTime || '09:00').slice(0, 5), busy: false, error: '' })} className="shrink-0 text-[11.5px] font-semibold" style={{ color: C.copper }}>Times</button>
+              )}
               </div>
               {b.customer_phone && <span className="ml-auto flex items-center gap-1.5 shrink-0">
                 <a href={`https://wa.me/${toWhatsAppNumber(b.customer_phone)}`} target="_blank" rel="noopener noreferrer" aria-label={`WhatsApp ${b.customer_name}`} title="WhatsApp" className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={15} /></a>
@@ -7648,8 +7695,8 @@ function XorlaApp() {
                     const guest = occupantOf(r);
                     const leaving = guest && guest.check_out <= bkToday;
                     const held = !guest && heldIds.has(r.id);
-                    const overdue = guest && guest.check_out < bkToday || (guest && guest.check_out === bkToday && Date.now() > new Date(`${bkToday}T${settings.checkoutTime || '12:00'}:00+01:00`).getTime());
-                    const tone = held ? ['rgba(147,176,170,0.10)', C.inkDim, 'Held'] : !guest ? [C.sageSoft, C.sage, 'Free'] : overdue ? [C.copperSoft, C.copper, `Past ${hhmmLabel(settings.checkoutTime || '12:00')} ${rentWords ? 'return' : 'check-out'}`] : leaving ? [C.copperSoft, C.copper, rentWords ? 'Due back today' : 'Leaving today'] : [C.rustSoft, C.rust, `Until ${dayLabel(guest.check_out)}`];
+                    const overdue = guest && guest.check_out < bkToday || (guest && guest.check_out === bkToday && Date.now() > new Date(`${bkToday}T${String(guest.return_time || settings.checkoutTime || '12:00').slice(0, 5)}:00+01:00`).getTime());
+                    const tone = held ? ['rgba(147,176,170,0.10)', C.inkDim, 'Held'] : !guest ? [C.sageSoft, C.sage, 'Free'] : overdue ? [C.copperSoft, C.copper, `Past ${hhmmLabel(String(guest.return_time || settings.checkoutTime || '12:00').slice(0, 5))} ${rentWords ? 'return' : 'check-out'}`] : leaving ? [C.copperSoft, C.copper, rentWords ? 'Due back today' : 'Leaving today'] : [C.rustSoft, C.rust, `Until ${dayLabel(guest.check_out)}`];
                     const picked = editing && pickedRooms.includes(r.id);
                     const onTap = editing ? () => toggleRoomPick(r) : guest ? () => openBill(guest) : arrivingHere.length ? () => openAct(arrivingHere[0], 'check_in', r.id) : () => openWalkIn(p.id);
                     return (
@@ -8012,7 +8059,7 @@ function XorlaApp() {
             {!eventsNow.length && !eventsNext.length && <div className="text-[12px] rounded-xl px-3 py-2.5" style={{ background: C.surface, color: C.inkFaint }}>No events booked yet. Customers can also book {spacesHere.length === 1 ? 'it' : 'them'} on your storefront.</div>}
           </div>
         )}
-        {upcomingBookings.length > 0 && section('Coming up', C.ink, upcomingBookings.slice(0, 12), '', (b) => renderBookingRow(b, [...(depositPct > 0 && depositOwing(b) > 0 ? [actBtn('Record deposit', () => openAct(b, 'deposit'), true)] : []), actBtn('Cancel', () => openAct(b, 'cancel'))]), 'bk-upcoming', 'Confirmed, not arrived yet')}
+        {upcomingBookings.length > 0 && section('Coming up', C.ink, upcomingBookings.slice(0, 12), '', (b) => renderBookingRow(b, [...(depositPct > 0 && depositOwing(b) > 0 ? [actBtn('Record deposit', () => openAct(b, 'deposit'), true)] : []), actBtn('Cancel', () => openAct(b, 'cancel'))]), 'bk-upcoming', (rentWords ? 'Confirmed, not picked up yet' : 'Confirmed, not arrived yet'))}
         {(() => {
           // What happened to recent cancellations and no-shows, so the whole front desk knows (not just the owner)
           const since = new Date(Date.now() - 3 * 86400000).toISOString();
@@ -8174,6 +8221,20 @@ function XorlaApp() {
               </div>
             );
           })()}
+          {rentsByDay(p) && (
+            <div>
+              <div className="grid grid-cols-2 gap-2">
+                {[['pickup', 'Pick up at'], ['ret', 'Bring back by']].map(([k, l]) => (
+                  <label key={k} className="text-[11.5px]" style={{ color: C.inkFaint }}>{l}
+                    <BrandSelect value={f[k] || ''} onChange={(e) => setBookingForm({ ...f, [k]: e.target.value })} className="w-full mt-1 rounded-xl px-3 py-2.5 text-sm" style={field}>
+                      {HALF_HOURS.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}
+                    </BrandSelect>
+                  </label>
+                ))}
+              </div>
+              {f.pickup && f.ret && f.ret > f.pickup && <div className="text-[11.5px] mt-1.5" style={{ color: C.copper }}>Back later than the pick-up time. Add an extra day, or charge it as an extra on return.</div>}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[11.5px]" style={{ color: C.inkFaint }}>{rentWords ? 'How many' : 'Rooms'}
               <input type="number" min="1" max="20" placeholder="1" value={f.units} onChange={(e) => setBookingForm({ ...f, units: e.target.value })} className="w-full mt-1 rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono" style={field} /></label>
@@ -9455,7 +9516,7 @@ function XorlaApp() {
         {renderReceiptModal()}
         {renderStockPanel()}
         {renderBookingPanels()}
-        {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderDepositPanel()}{renderPricePanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
+        {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderDepositPanel()}{renderPricePanel()}{renderTimesSheet()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
         {renderApptPanel()}
         <div className="max-w-md lg:max-w-6xl mx-auto px-5 lg:px-8 pt-5 lg:pt-7 pb-28 lg:pb-12">
           <div className="lg:hidden mb-4 flex items-baseline justify-between gap-3">
@@ -13398,7 +13459,7 @@ function XorlaApp() {
       {renderListTool()}
       {renderPastImport()}
       {renderHelp()}{renderSupportToast()}{renderArrivalToast()}{renderCacToast()}{renderExtrasPick()}{renderSpotlight()}
-      {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderDepositPanel()}{renderPricePanel()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
+      {renderFulfilPanel()}{renderCancelSheet()}{renderCustomSheet()}{renderPayAskPanel()}{renderDepositPanel()}{renderPricePanel()}{renderTimesSheet()}{renderRoomBillPicker()}{renderRiderSheet()}{renderXorlaJobSheet()}{renderLocPrice()}
       {renderApptPanel()}
       {renderNotifPanel()}
       {renderLimitPrompt()}{renderAddLocations()}
@@ -13523,6 +13584,7 @@ function Storefront({ businessCode }) {
   const [stayOut, setStayOut] = useState('');
   const [stayFree, setStayFree] = useState({});
   const [bookItem, setBookItem] = useState(null);
+  const [bookTimes, setBookTimes] = useState({ pickup: '', ret: '' });   // rentals: when they pick it up and bring it back
   const [bookUnits, setBookUnits] = useState(1);
   const [bookName, setBookName] = useState('');
   const [bookPhone, setBookPhone] = useState('');
@@ -14052,6 +14114,7 @@ function Storefront({ businessCode }) {
   const openBook = (p) => {
     if (!datesValid) { askForDates(); return; }
     setBookError(''); setBookUnits(1); setBookItem(p);
+    if (rentsByDay(p)) { const t = (bookTerms?.checkin_time || '09:00').slice(0, 5); setBookTimes({ pickup: t, ret: t }); } else setBookTimes({ pickup: '', ret: '' });
   };
   const renderBookableCard = (p) => {
     const free = datesValid ? (stayFree[p.id] ?? null) : null;
@@ -14082,14 +14145,23 @@ function Storefront({ businessCode }) {
     if (bookPhone.replace(/[^0-9]/g, '').length < 10) { setBookError('Please enter your phone number, so they can confirm your booking.'); return; }
     setBookBusy(true); setBookError('');
     try {
+      if (rentsByDay(bookItem) && !bookTimes.pickup) throw new Error('Please choose when you will pick it up.');
+      const timed = rentsByDay(bookItem) && bookTimes.pickup && bookTimes.ret;
+      const timeNote = timed ? `Pick up ${hhmmLabel(bookTimes.pickup)}, return by ${hhmmLabel(bookTimes.ret)}` : '';
       const args = { p_business_code: businessCode, p_shop_id: business.shop_id || null, p_product_id: bookItem.id, p_check_in: stayIn, p_check_out: stayOut, p_units: bookUnits, p_name: bookName.trim(), p_phone: bookPhone.trim(), p_note: bookNote.trim() };
       let placed = null;
-      try { placed = await sbRpc('place_booking_v2', SB_KEY, args); }
-      catch (e) { if (/place_booking_v2|schema cache|function/i.test(e.message || '')) await sbRpc('place_booking', SB_KEY, args); else throw e; }
+      try { placed = await sbRpc('place_booking_v2', SB_KEY, timed ? { ...args, p_pickup: bookTimes.pickup, p_return: bookTimes.ret } : args); }
+      catch (e) {
+        if (!/place_booking_v2|schema cache|function/i.test(e.message || '')) throw e;
+        // An older database: keep the times in the note
+        const older = { ...args, p_note: [args.p_note, timeNote].filter(Boolean).join(' · ') };
+        try { placed = await sbRpc('place_booking_v2', SB_KEY, older); }
+        catch (e2) { if (/place_booking_v2|schema cache|function/i.test(e2.message || '')) await sbRpc('place_booking', SB_KEY, older); else throw e2; }
+      }
       const total = bookItem.sellingPrice * stayNights * bookUnits;
       const nightsText = `${stayNights} ${unitWordOf(bookItem)}${stayNights !== 1 ? 's' : ''}`;
       if (business.owner_phone && !placed?.token) {
-        const msg = `New booking request from ${bookName.trim()}${bookPhone ? ` (${bookPhone.trim()})` : ''}:\n\n${bookItem.name}${bookUnits > 1 ? ` × ${bookUnits}` : ''}\n${prettyDay(stayIn)} to ${prettyDay(stayOut)} (${nightsText})\nTotal: ${fmt(total)}${bookNote.trim() ? `\nNote: ${bookNote.trim()}` : ''}\n\nThe dates are held for 24 hours. Confirm it in Xorla.`;
+        const msg = `New booking request from ${bookName.trim()}${bookPhone ? ` (${bookPhone.trim()})` : ''}:\n\n${bookItem.name}${bookUnits > 1 ? ` × ${bookUnits}` : ''}\n${prettyDay(stayIn)}${timed ? `, ${hhmmLabel(bookTimes.pickup)}` : ''} to ${prettyDay(stayOut)}${timed ? `, ${hhmmLabel(bookTimes.ret)}` : ''} (${nightsText})\nTotal: ${fmt(total)}${bookNote.trim() ? `\nNote: ${bookNote.trim()}` : ''}\n\nThe dates are held for 24 hours. Confirm it in Xorla.`;
         window.open(`https://wa.me/${toWhatsAppNumber(business.owner_phone)}?text=${encodeURIComponent(msg)}`, '_blank');
       }
       if (placed?.token) {
@@ -14127,6 +14199,33 @@ function Storefront({ businessCode }) {
               </div>
             </div>
           )}
+          {rentsByDay(bookItem) && (() => {
+            const today = new Date().toLocaleDateString('sv-SE', LAGOS_TIME);
+            const nowHm = new Date().toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: '2-digit', minute: '2-digit', hour12: false });
+            const pickOpts = HALF_HOURS.filter((t) => stayIn !== today || t > nowHm);
+            const sel = { background: S.tile, border: 'none', color: S.ink };
+            const late = bookTimes.pickup && bookTimes.ret && bookTimes.ret > bookTimes.pickup;
+            return (
+              <div className="mb-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-[13px] font-semibold" htmlFor="bk-pickup">Pick up
+                    <span className="block text-[12px] font-normal mb-1" style={{ color: S.muted }}>{prettyDay(stayIn)}</span>
+                    <select id="bk-pickup" value={bookTimes.pickup} onChange={(e) => setBookTimes({ ...bookTimes, pickup: e.target.value })} className={`w-full rounded-xl px-3 py-3 text-[15px] ${focusRing}`} style={sel}>
+                      {!pickOpts.includes(bookTimes.pickup) && <option value="">Choose a time</option>}
+                      {pickOpts.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-[13px] font-semibold" htmlFor="bk-return">Bring it back
+                    <span className="block text-[12px] font-normal mb-1" style={{ color: S.muted }}>{prettyDay(stayOut)}</span>
+                    <select id="bk-return" value={bookTimes.ret} onChange={(e) => setBookTimes({ ...bookTimes, ret: e.target.value })} className={`w-full rounded-xl px-3 py-3 text-[15px] ${focusRing}`} style={sel}>
+                      {HALF_HOURS.map((t) => <option key={t} value={t}>{hhmmLabel(t)}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div className="text-[12px] mt-1.5 leading-relaxed" style={{ color: late ? '#B54708' : S.muted }}>{late ? `That's later than your pick-up time, so ${business.name} may count an extra day. They'll confirm.` : `Each ${unitWordOf(bookItem)} runs from your pick-up time to the same time the next day.`}</div>
+              </div>
+            );
+          })()}
           <label className="block text-[13px] font-semibold mb-1.5" htmlFor="bk-name">Your name</label>
           <input id="bk-name" value={bookName} onChange={(e) => setBookName(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-3 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
           <label className="block text-[13px] font-semibold mb-1.5" htmlFor="bk-phone">Phone number</label>
