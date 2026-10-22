@@ -4857,7 +4857,9 @@ function XorlaApp() {
 
   const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer).length;
   const ordersBadge = tab === 'orders' ? 0 : new Set(orders.filter((o) => (o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer) || o.payStatus === 'refund_due'
-    || (o.createdAt && seenAt.orders && String(o.createdAt) > String(seenAt.orders)) || (o.customerEventAt && seenAt.orders && String(o.customerEventAt) > String(seenAt.orders))).map((o) => o.id)).size;
+    // "New since you last looked" only counts while there's still something to do: a finished one never keeps the badge up
+    || (o.status === 'pending' && o.createdAt && seenAt.orders && String(o.createdAt) > String(seenAt.orders))
+    || (o.status !== 'fulfilled' && o.customerEventAt && seenAt.orders && String(o.customerEventAt) > String(seenAt.orders))).map((o) => o.id)).size;
   const unpaidInvoiceCount = invoices.filter((i) => computeStatus(i) !== 'paid').length;
   const currentStaffNames = settings.staffList.map((s) => s.name);
   const sellerOptions = [...new Set([...currentStaffNames, ...sales.map((s) => s.loggedBy), ...expenses.map((e) => e.loggedBy)].filter(Boolean))]
@@ -7138,7 +7140,9 @@ function XorlaApp() {
     ...bookingRequests.map((b) => b.id),
     ...roomOrders.filter((r) => r.status === 'new' && (viewAllShops ? (!isManager || myShops.some((sh) => sh.id === r.shop_id)) : r.shop_id === activeShopId)).map((r) => r.id),
     ...bookings.filter((b) => b.deposit_status === 'refund_due').map((b) => b.id),
-    ...bookings.filter((b) => newerThan(b.created_at, seenAt.bookings) || newerThan(b.guest_event_at, seenAt.bookings)).map((b) => b.id),
+    // New since you last looked, but only while it's still open (a checked-out or completed booking drops off)
+    ...bookings.filter((b) => (['requested', 'confirmed', 'checked_in'].includes(b.status) && newerThan(b.created_at, seenAt.bookings))
+      || (b.status !== 'checked_out' && newerThan(b.guest_event_at, seenAt.bookings))).map((b) => b.id),
   ]).size;
   // Stays (rooms) and events (halls and spaces) are run separately at the desk
   const arrivals = bookings.filter((b) => !b.is_space && b.status === 'confirmed' && b.check_in <= bkToday);
@@ -8537,7 +8541,7 @@ function XorlaApp() {
     if (canRun && staffRequests.length > 0) items.push({ key: 'staffreq', urgent: false, Icon: Users, title: `${staffRequests.length} ${staffRequests.length === 1 ? 'person is' : 'people are'} asking to join your team`, sub: staffRequests.slice(0, 2).map((r) => r.name).join(', '), onClick: () => { setNotifOpen(false); setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('team'); setTab('settings'); } });
     if (bookingRequests.length > 0 && canAnswerRequests) items.push({ key: 'bookreq', urgent: false, Icon: CalendarClock, title: `${bookingRequests.length} booking request${bookingRequests.length !== 1 ? 's' : ''} to answer`, sub: bookingRequests.slice(0, 2).map((b) => `${b.customer_name}, ${dayLabel(b.check_in)}`).join(' · '), onClick: go('bookings') });
     if (refundsDue.length > 0) items.push({ key: 'refunds', urgent: true, Icon: Wallet, title: `${refundsDue.length} deposit refund${refundsDue.length !== 1 ? 's' : ''} to send`, sub: refundsDue.slice(0, 2).map((b) => `${b.customer_name}, ${fmt(b.refund_amount)}`).join(' · '), onClick: go('bookings') });
-    if (arrivals.length > 0) items.push({ key: 'arrivals', urgent: false, Icon: CalendarClock, title: `${arrivals.length} arrival${arrivals.length !== 1 ? 's' : ''} today`, sub: arrivals.slice(0, 3).map((b) => b.customer_name).join(', '), onClick: go('bookings') });
+    if (arrivals.length > 0) items.push({ key: 'arrivals', urgent: false, Icon: CalendarClock, title: rentWords ? `${arrivals.length} pick-up${arrivals.length !== 1 ? 's' : ''} today` : `${arrivals.length} arrival${arrivals.length !== 1 ? 's' : ''} today`, sub: arrivals.slice(0, 3).map((b) => b.customer_name).join(', '), onClick: go('bookings') });
     if (pendingOrderCount > 0) items.push({ key: 'orders', urgent: false, Icon: ShoppingBag, title: `${pendingOrderCount} new ${T.order}${pendingOrderCount !== 1 ? 's' : ''} from your storefront`, sub: 'Review and fulfil', onClick: go('orders') });
     if (canRun && pendingRequests.length > 0) items.push({ key: 'requests', urgent: false, Icon: PackagePlus, title: `${pendingRequests.length} stock request${pendingRequests.length !== 1 ? 's' : ''} from your shops`, sub: pendingRequests.slice(0, 2).map((r) => shopNameOf(r.shop_id)).join(', '), onClick: go('products', () => setProductsView('list')) });
     if (needsAttention.length > 0) items.push({ key: 'invoices', urgent: true, Icon: PhoneCall, title: `${needsAttention.length} invoice${needsAttention.length !== 1 ? 's' : ''} need${needsAttention.length === 1 ? 's' : ''} follow-up`, sub: needsAttention.slice(0, 3).map((i) => i.clientName).join(', '), onClick: go('invoices') });
