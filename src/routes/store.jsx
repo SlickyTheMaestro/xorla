@@ -31,7 +31,9 @@ function Storefront({ businessCode }) {
   const [laundryWay, setLaundryWay] = useState('');   // laundry, not staying: 'collect' (they fetch it) | 'drop' (customer brings it)
   const [guestStay, setGuestStay] = useState('');   // hotel service extras: '' | 'yes' (staying here) | 'no'   // hotels: a guest staying here can say which room (staff check it before billing)
   // How the customer gets their order: pick-up, delivery (address + landmark), or brought to their room at a hotel
-  const [orderModes, setOrderModes] = useState([]);
+  const [orderModesRaw, setOrderModes] = useState([]);
+  const [branchDelivers, setBranchDelivers] = useState(true);   // a branch can be pick-up only
+  const orderModes = branchDelivers ? orderModesRaw : orderModesRaw.filter((m) => m !== 'delivery');
   const [fulfilMode, setFulfilMode] = useState('');
   const [deliverAddr, setDeliverAddr] = useState('');
   const [deliverLandmark, setDeliverLandmark] = useState('');
@@ -159,7 +161,11 @@ function Storefront({ businessCode }) {
         document.title = store.name;
         setStoreProducts((store.products || []).map((r) => ({ ...fromSbProduct(r), variantStock: r.variant_stock && typeof r.variant_stock === 'object' ? r.variant_stock : null })).filter((p) => store.business_type !== 'products' || !isBookable(p)));
         sbRpc('storefront_booking_terms', SB_KEY, { p_business_code: businessCode }).then((t) => setBookTerms(t || null)).catch(() => {});
-        sbRpc('storefront_delivery_zones', SB_KEY, { p_business_code: businessCode }).then((z) => setStoreZones(Array.isArray(z) ? z : [])).catch(() => setStoreZones([]));
+        // This branch's delivery areas and prices (each branch can have its own), and whether it delivers at all
+        setZoneId('');
+        sbRpc('storefront_delivery', SB_KEY, { p_business_code: businessCode, p_shop: store.shop_id || null })
+          .then((d) => { setStoreZones(Array.isArray(d?.zones) ? d.zones : []); setBranchDelivers(d?.delivers !== false); })
+          .catch(() => { setBranchDelivers(true); sbRpc('storefront_delivery_zones', SB_KEY, { p_business_code: businessCode }).then((z) => setStoreZones(Array.isArray(z) ? z : [])).catch(() => setStoreZones([])); });
         sbRpc('storefront_visit_terms', SB_KEY, { p_business_code: businessCode }).then((v) => setVisitTerms(v || null)).catch(() => setVisitTerms(null));
         sbRpc('storefront_order_modes', SB_KEY, { p_business_code: businessCode })
           .then((m) => { const list = (Array.isArray(m) ? m : []).filter((v) => v !== 'room' || kind === 'accommodation'); setOrderModes(list); if (list.length === 1) setFulfilMode(list[0]); })
@@ -329,6 +335,8 @@ function Storefront({ businessCode }) {
   const svcKinds = [...new Set(svcExtras.map((c) => stayServiceKind(c.product.name)))];
   const svcKind = svcKinds.length === 1 ? svcKinds[0] : svcKinds.length ? 'mixed' : null;
   // Ask "how do you want it?" when there are goods to hand over (not for appointments or pure services)
+  // A pick-up-only branch: delivery isn't offered, and pick-up is chosen for them
+  useEffect(() => { if (!branchDelivers && fulfilMode === 'delivery') setFulfilMode(orderModes.length === 1 ? orderModes[0] : ''); else if (!branchDelivers && orderModes.length === 1 && !fulfilMode) setFulfilMode(orderModes[0]); }, [branchDelivers, orderModesRaw]); // eslint-disable-line react-hooks/exhaustive-deps
   const askHow = orderModes.length > 0 && cartList.some((c) => storeKind(c.product) !== 'service' && !isBookable(c.product) && !stayService(c.product));
   const askStay = svcExtras.length > 0 && !askHow && orderModes.includes('room');
   const sk = business?.service_kind || '';
@@ -1225,7 +1233,8 @@ function Storefront({ businessCode }) {
       <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-name">Your name</label>
       <input id="sf-name" type="text" autoComplete="name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
       <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-phone">Phone number{usesSlots ? '' : <span className="font-normal" style={{ color: S.muted }}> (recommended)</span>}</label>
-      <input id="sf-phone" type="tel" autoComplete="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="So they can confirm with you" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-2 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+      <input id="sf-phone" type="tel" autoComplete="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="WhatsApp number, e.g. 0803 123 4567" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-2 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
+      <div className="text-[12px] mb-2 -mt-0.5" style={{ color: S.muted }}>Updates about your order, and your delivery code, come to this number on WhatsApp.</div>
       {askHow && (() => {
         const opts = [
           ['room', "I'm staying here", 'Brought to your room'],

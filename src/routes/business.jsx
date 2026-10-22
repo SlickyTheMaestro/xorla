@@ -263,7 +263,7 @@ const URGENCY = {
   paid: { label: 'Paid', color: C.sage },
 };
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptCancelHours', 'apptDepositPct', 'homeService', 'homeFee', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule', 'orderModes', 'waBookingConfirm'];
+const EDITABLE_SETTINGS = ['autoWhatsapp', 'businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptCancelHours', 'apptDepositPct', 'homeService', 'homeFee', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule', 'orderModes', 'waBookingConfirm'];
 const SETTINGS_DESCRIPTIONS = {
   plan: 'What your plan includes, and renewing it.',
   notifications: 'Alerts on this device for new orders, requests and staff.',
@@ -647,7 +647,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, parts: Array.isArray(row.parts) && row.parts.length > 1 ? row.parts : null, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payKind: row.pay_kind || null, payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, billedAt: row.billed_at || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '', visitMode: row.visit_mode || '', visitAddress: row.visit_address || '', eventType: row.event_type || '', guestCount: Number(row.guest_count) || 0, jobStatus: row.job_status || '', jobReceivedAt: row.job_received_at || null, jobReadyAt: row.job_ready_at || null };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, parts: Array.isArray(row.parts) && row.parts.length > 1 ? row.parts : null, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, waSent: row.wa_sent && typeof row.wa_sent === 'object' ? row.wa_sent : {}, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payKind: row.pay_kind || null, payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, billedAt: row.billed_at || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '', visitMode: row.visit_mode || '', visitAddress: row.visit_address || '', eventType: row.event_type || '', guestCount: Number(row.guest_count) || 0, jobStatus: row.job_status || '', jobReceivedAt: row.job_received_at || null, jobReadyAt: row.job_ready_at || null };
 }
 
 function staticMessage(inv, settings) {
@@ -1307,6 +1307,7 @@ function XorlaApp() {
   const [xorlaJobFor, setXorlaJobFor] = useState(null);   // the "send to Xorla riders" panel
   const [riders, setRiders] = useState([]);            // riders and dispatch companies the business uses
   const [zones, setZones] = useState([]);              // delivery areas with fixed fees
+  const [zoneBranch, setZoneBranch] = useState(null);  // several branches: whose delivery areas are being looked at ('all' = every branch)
   const [riderFor, setRiderFor] = useState(null);      // { order, picks: { [riderId]: fee }, chosen, customerFee, busy, error }
   const [riderForm, setRiderForm] = useState({ name: '', phone: '', areas: '' });
   const [zoneForm, setZoneForm] = useState({ name: '', fee: '' });
@@ -1665,6 +1666,8 @@ function XorlaApp() {
     if (!res.ok || data.error) throw new Error(data.error || 'Something went wrong. Please try again.');
     return data;
   };
+  // Whether Xorla's WhatsApp line is live: the order screen uses it to say "sent automatically" or show a send button
+  useEffect(() => { if (session?.access_token) callWhatsApp('status').then((d) => setWaConnected(!!d.connected)).catch(() => setWaConnected(false)); }, [session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (settingsPage !== 'automation' || !session) return;
     setWaNotice(null);
@@ -2088,7 +2091,7 @@ function XorlaApp() {
       language: business.language || 'english',
       ownerPhone: business.owner_phone || '',
       allowStaffExpenses: !!business.allow_staff_expenses,
-      autoReminders: !!business.auto_reminders_enabled,
+      autoReminders: !!business.auto_reminders_enabled, autoWhatsapp: business.auto_whatsapp !== false,
       summaryFrequency: business.summary_frequency || 'off',
       businessType: business.business_type || null,
       serviceKind: business.service_kind || null,
@@ -3561,7 +3564,8 @@ function XorlaApp() {
       const fresh = (await refreshOrder(payAsk.order.id)) || payAsk.order;
       setPayAsk(null);
       const amount = fresh.payAmount ?? orderMoney(fresh).total;
-      if (fresh.customerPhone) offerWhatsApp(fresh.customerPhone, payMessage(fresh, amount, fresh.deliveryFee), 'Payment link ready', `Send ${String(fresh.customerName).split(' ')[0]} the payment link on WhatsApp? They'll see:\n\n"${payMessage(fresh, amount, fresh.deliveryFee)}"`);
+      if (fresh.customerPhone && waAuto('pay_link') && !fresh.startAt) { showAiNotice(`Xorla is sending ${String(fresh.customerName).split(' ')[0]} the payment link on WhatsApp now.`); setTimeout(() => refreshOrder(fresh.id), 6000); }
+      else if (fresh.customerPhone) offerWhatsApp(fresh.customerPhone, payMessage(fresh, amount, fresh.deliveryFee), 'Payment link ready', `Send ${String(fresh.customerName).split(' ')[0]} the payment link on WhatsApp? They'll see:\n\n"${payMessage(fresh, amount, fresh.deliveryFee)}"`);
       else { await copyText(`paylink-${fresh.id}`, orderLinkOf(fresh)); brandAlert("There's no phone number on this order, so the payment link was copied. Send it to the customer any way you like.", { title: 'Link copied' }); }
     } catch (e) { setPayAsk((p) => p && { ...p, busy: false, error: e.message }); }
   };
@@ -3663,11 +3667,24 @@ function XorlaApp() {
     if (!(await brandConfirm(`Remove ${r.name} from your riders? Past deliveries keep their name.`, { confirm: 'Remove', danger: true }))) return;
     try { await sbRest(`riders?id=eq.${r.id}`, { method: 'PATCH', accessToken: session.access_token, body: { active: false } }); await reloadDelivery(); } catch (e) { brandAlert(e.message); }
   };
+  // Several branches: each can have its own delivery areas and prices, and can be pick-up only
+  const branchShops = allLiveLocations.filter((s) => (s.kind || 'shop') !== 'warehouse');
+  const zonesByBranch = branchShops.length > 1;
+  const zoneBranchNow = () => (!zonesByBranch ? null : zoneBranch === 'all' && isOwnerRole ? 'all' : myShops.some((x) => x.id === zoneBranch) ? zoneBranch : (activeShopId || myShops[0]?.id || null));
+  const toggleDelivers = async (sh) => {
+    const next = sh.delivers === false;
+    if (!next || (await brandConfirm(`Turn delivery back on for ${locName(sh)}?`, { confirm: 'Turn on' }))) {
+      if (!next && !(await brandConfirm(`Stop deliveries from ${locName(sh)}? Customers ordering from this ${L.one || 'branch'} will only see pick-up. Other branches still deliver.`, { title: 'Pick-up only?', confirm: 'Pick-up only' }))) return;
+      try { await sbRpc('set_shop_delivers', session.access_token, { p_shop: sh.id, p_on: next }); setShops((prev) => prev.map((x) => (x.id === sh.id ? { ...x, delivers: next } : x))); }
+      catch (e) { brandAlert(/set_shop_delivers|Could not find/i.test(e.message || '') ? 'This needs a quick update first (branch-delivery.sql).' : e.message); }
+    }
+  };
   const addZone = async () => {
     const name = zoneForm.name.trim(), fee = Number(parseNumInput(zoneForm.fee));
     if (!name) { brandAlert('Name the area, e.g. Aba town.'); return; }
     if (!Number.isFinite(fee) || fee < 0) { brandAlert('Enter the delivery fee for this area.'); return; }
-    try { await sbRest('delivery_zones', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: name.slice(0, 50), fee: Math.round(fee) } }); setZoneForm({ name: '', fee: '' }); await reloadDelivery(); }
+    const zb = zoneBranchNow();
+    try { await sbRest('delivery_zones', { method: 'POST', accessToken: session.access_token, body: { business_id: settings.businessId, name: name.slice(0, 50), fee: Math.round(fee), shop_id: zb && zb !== 'all' ? zb : null } }); setZoneForm({ name: '', fee: '' }); await reloadDelivery(); }
     catch (e) { brandAlert(e.message); }
   };
   const removeZone = async (z) => {
@@ -3871,6 +3888,10 @@ function XorlaApp() {
     try { await sbRpc('business_rider_job_update', session.access_token, { p_job: j.id, p_action: action, p_note: note }); await reloadRiderJobs(); if (action === 'cancel') await loadBusinessData(session.access_token); }
     catch (e) { brandAlert(e.message); }
   };
+  // Automatic WhatsApp to customers: on when Xorla's line is live and the business hasn't turned it off (the delivery code goes on every plan)
+  const waAuto = (kind) => !!waConnected && settings.autoWhatsapp !== false && (kind === 'rider_code' || effPlan !== 'free');
+  const waTime = (x) => new Date(x).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true });
+  const markCodeSent = async (j) => { try { await sbRpc('mark_code_sent', session.access_token, { p_job: j.id }); await reloadRiderJobs(); } catch (e) { /* the button still opened WhatsApp */ } };
   const deliveryCodeMessage = (o, j) => {
     const first = String(o.customerName || '').split(' ')[0] || 'there'; const rFirst = String(j.rider?.name || 'the rider').split(' ')[0];
     return [`Hi ${first}, your order from ${settings.businessName} is ${j.status === 'picked_up' ? 'on its way' : 'about to leave'} with ${rFirst}, a verified Xorla rider${j.rider?.plate ? ` (${RIDER_VEHICLES.find((v) => v[0] === j.rider.vehicle)?.[1] || 'Rider'} · ${j.rider.plate})` : ''}.`,
@@ -3956,20 +3977,67 @@ function XorlaApp() {
             <button type="button" onClick={() => updateXorlaJob(j, 'new_codes')} className="mt-1.5 text-[12px] font-semibold" style={{ color: C.copper }}>Send new codes</button>
           </div>
         )}
-        {j.status === 'taken' && !j.locked && (
-          <div className="rounded-xl px-3 py-2.5 flex items-center gap-3" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.35)' }}>
-            <span className="flex-1 min-w-0"><span className="block text-[11px] font-bold uppercase tracking-wide" style={{ color: C.copper }}>Pick-up code</span><span className="block text-[11.5px] mt-0.5 leading-snug" style={{ color: C.inkDim }}>Give it to {rFirst} only when you hand over the package.</span></span>
-            <span className="text-[24px] font-bold cx-mono tracking-[0.18em] shrink-0" style={{ color: C.ink }}>{j.pickup_code}</span>
-          </div>
-        )}
-        {j.status === 'picked_up' && <div className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: C.sage }}><Truck size={13} /> Picked up at {at(j.picked_at)} · on the way</div>}
+        {['taken', 'picked_up'].includes(j.status) && !j.locked && (() => {
+          const cFirst = String(o.customerName || '').split(' ')[0] || 'The customer';
+          const codeSent = !!j.code_sent_at;
+          const failed = o.waSent?.rider_code && o.waSent.rider_code.ok === false && o.waSent.rider_code.ref === j.delivery_code;
+          const sending = !codeSent && !failed && waAuto('rider_code') && o.customerPhone && Date.now() - new Date(j.taken_at || j.created_at).getTime() < 3 * 60000;
+          const waHref = o.customerPhone ? `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(deliveryCodeMessage(o, j))}` : '';
+          const stepNo = (n, done) => <span className="w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-[11.5px] font-bold" style={done ? { background: C.sageFill, color: C.onAccent } : { background: C.copperFill, color: C.onAccent }}>{done ? <Check size={13} /> : n}</span>;
+          return (
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+              <div className="px-3 py-3" style={{ background: codeSent ? C.sageSoft : C.copperSoft }}>
+                <div className="flex items-start gap-2.5">
+                  {stepNo(1, codeSent)}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[12.5px] font-semibold" style={{ color: C.ink }}>{cFirst}'s delivery code</span>
+                      <span className="text-[20px] font-bold cx-mono tracking-[0.16em] shrink-0" style={{ color: C.ink }}>{j.delivery_code}</span>
+                    </div>
+                    <div className="text-[11.5px] mt-0.5 leading-snug" style={{ color: C.inkDim }}>{cFirst} gives it to {rFirst} only when the order is in their hands. That's how we know it arrived.</div>
+                    {codeSent ? (
+                      <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: C.sage }}><Check size={13} /> {j.code_sent_how === 'whatsapp' ? `Sent to ${cFirst} on WhatsApp at ${waTime(j.code_sent_at)}` : `You sent it at ${waTime(j.code_sent_at)}`}</span>
+                        {waHref && <a href={waHref} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold" style={{ color: C.inkFaint }}>Send again</a>}
+                      </div>
+                    ) : sending ? (
+                      <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: C.copper }}><Loader2 size={13} className="animate-spin" /> Sending to {cFirst} on WhatsApp…</span>
+                        <a href={waHref} target="_blank" rel="noopener noreferrer" onClick={() => markCodeSent(j)} className="text-[11.5px] font-semibold" style={{ color: C.inkFaint }}>Send it yourself</a>
+                      </div>
+                    ) : waHref ? (
+                      <>
+                        {failed && <div className="mt-1.5 text-[11.5px] font-semibold" style={{ color: C.rust }}>Couldn't send it automatically. Send it now:</div>}
+                        <a href={waHref} target="_blank" rel="noopener noreferrer" onClick={() => markCodeSent(j)} className="mt-2 w-full min-h-[42px] px-3 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2" style={{ background: '#25D366', color: '#fff' }}><MessageCircle size={15} /> Send {cFirst} the code on WhatsApp</a>
+                      </>
+                    ) : (
+                      <div className="mt-2 text-[12px] leading-snug font-semibold" style={{ color: C.rust }}>No phone number on this order. Call or message {cFirst} and give them the code: {j.delivery_code}.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="px-3 py-3" style={{ background: C.surface, borderTop: `1px solid ${C.line}` }}>
+                <div className="flex items-start gap-2.5">
+                  {stepNo(2, j.status === 'picked_up')}
+                  <div className="flex-1 min-w-0">
+                    {j.status === 'taken' ? (
+                      <>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[12.5px] font-semibold" style={{ color: C.ink }}>Pick-up code for {rFirst}</span>
+                          <span className="text-[20px] font-bold cx-mono tracking-[0.16em] shrink-0" style={{ color: C.ink }}>{j.pickup_code}</span>
+                        </div>
+                        <div className="text-[11.5px] mt-0.5 leading-snug" style={{ color: C.inkDim }}>Tell {rFirst} this code only when you hand over the package. Never before.</div>
+                      </>
+                    ) : (
+                      <div className="text-[12.5px] font-semibold flex items-center gap-1.5" style={{ color: C.sage }}><Truck size={13} /> {rFirst} picked it up at {at(j.picked_at)}. On the way to {cFirst}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         {j.status === 'delivered' && <div className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: C.sage }}><Check size={13} /> Delivered at {at(j.delivered_at)}, confirmed with {String(o.customerName).split(' ')[0]}'s code</div>}
-        {['taken', 'picked_up'].includes(j.status) && (
-          <div className="rounded-lg px-2.5 py-2 flex items-center gap-2" style={{ background: C.surface }}>
-            <span className="flex-1 min-w-0 text-[11.5px] leading-snug" style={{ color: C.inkDim }}>{String(o.customerName).split(' ')[0]}'s delivery code: <strong className="cx-mono" style={{ color: C.ink }}>{j.delivery_code}</strong>. They give it to {rFirst} when they get the order.</span>
-            {o.customerPhone && <a href={`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(deliveryCodeMessage(o, j))}`} target="_blank" rel="noopener noreferrer" className="shrink-0 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold flex items-center gap-1" style={{ background: 'rgba(37,211,102,0.12)', color: '#25D366' }}><MessageCircle size={13} /> Send</a>}
-          </div>
-        )}
         {['picked_up', 'delivered'].includes(j.status) && !paid && (
           <div className="rounded-lg px-2.5 py-2" style={{ background: C.copperSoft }}>
             {j.pay_how === 'transfer' ? (
@@ -4367,6 +4435,7 @@ function XorlaApp() {
       if ('storefrontTagline' in patch) bizPatch.storefront_tagline = patch.storefrontTagline;
       if ('allowStaffExpenses' in patch) bizPatch.allow_staff_expenses = patch.allowStaffExpenses;
       if ('autoReminders' in patch) bizPatch.auto_reminders_enabled = patch.autoReminders;
+      if ('autoWhatsapp' in patch) bizPatch.auto_whatsapp = patch.autoWhatsapp !== false;
       if ('summaryFrequency' in patch) bizPatch.summary_frequency = patch.summaryFrequency;
       if (Object.keys(bizPatch).length) {
         sbRest(`businesses?id=eq.${next.businessId}`, { method: 'PATCH', accessToken: session.access_token, body: bizPatch }).catch((e) => console.error('Settings sync failed:', e));
@@ -5713,7 +5782,8 @@ function XorlaApp() {
     if (o.fulfilMode === 'delivery') {
       const xj = jobForOrder(o);
       if (xj && xj.status === 'open') return wait('Waiting for a Xorla rider to accept');
-      if (xj && xj.status === 'taken') return act(`${String(xj.rider?.name || 'The rider').split(' ')[0]} is coming. Give them code ${xj.pickup_code} with the package`);
+      if (xj && ['taken', 'picked_up'].includes(xj.status) && !xj.code_sent_at && !xj.locked && !(waAuto('rider_code') && o.customerPhone && !(o.waSent?.rider_code?.ok === false) && Date.now() - new Date(xj.taken_at || xj.created_at).getTime() < 3 * 60000)) return act(`Send ${first} the delivery code (step 1 below)${xj.status === 'taken' ? `. Then give ${String(xj.rider?.name || 'the rider').split(' ')[0]} the pick-up code with the package` : ''}`);
+      if (xj && xj.status === 'taken') return act(`${String(xj.rider?.name || 'The rider').split(' ')[0]} is coming. Give them pick-up code ${xj.pickup_code} with the package`);
       if (xj && xj.status === 'picked_up') return wait(`On its way with ${String(xj.rider?.name || 'the rider').split(' ')[0]}`);
       if (xj && xj.status === 'delivered') return act(xj.paid_at ? 'Delivered. Tap Delivered to finish' : `Delivered. Pay ${String(xj.rider?.name || 'the rider').split(' ')[0]} ${fmt(xj.fee)}, then tap Delivered`);
       if (payFirst(o)) {
@@ -5831,6 +5901,8 @@ function XorlaApp() {
                       <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.25)' }}>
                         <div className="flex items-center gap-2 font-semibold" style={{ color: C.copper }}><Clock size={14} /> Waiting for {String(o.customerName).split(' ')[0]} to pay {fmt(o.payAmount)} online</div>
                         <div className="mt-0.5" style={{ color: C.inkDim }}>Confirmed{o.payRequestedBy ? ` by ${o.payRequestedBy}` : ''}{o.payRequestedAt ? `, ${t(o.payRequestedAt)}` : ''}. You'll get a notification when it's paid.</div>
+                        {o.waSent?.pay_link?.ok === true && <div className="mt-1.5 text-[12px] font-semibold flex items-center gap-1.5" style={{ color: C.sage }}><Check size={13} /> Payment link sent to {String(o.customerName).split(' ')[0]} on WhatsApp at {waTime(o.waSent.pay_link.at)}</div>}
+                        {o.waSent?.pay_link?.ok === false && <div className="mt-1.5 text-[12px] font-semibold" style={{ color: C.rust }}>Couldn't send the link automatically. Tap Send payment link below.</div>}
                       </div>
                     );
                     if (o.payStatus === 'paid') {
@@ -6157,11 +6229,20 @@ function XorlaApp() {
                       const unsafe = (label) => ({ label, onClick: async () => { if (await brandConfirm(`${first} hasn't paid yet. Send it out anyway? Only do this if ${first} will pay when it arrives.`, { title: 'Send before payment?', confirm: 'Send it out', cancel: 'Not yet' })) markReady(o); } });
                       const outIdx = primary && primary.label === 'Out for delivery' ? true : false;
                       for (let k = sec.length - 1; k >= 0; k--) if (['Ask to pay online', 'Send link'].includes(sec[k].label)) sec.splice(k, 1);
-                      if (o.payStatus === 'requested') { primary = { label: 'Send payment link', onClick: () => sendPayLink(o) }; sec.push({ label: "They've paid", tone: 'accent', title: 'They paid by transfer or cash instead', onClick: () => confirmTransfer(o) }); }
+                      if (o.payStatus === 'requested') { primary = { label: o.waSent?.pay_link?.ok ? 'Send link again' : 'Send payment link', onClick: () => sendPayLink(o) }; sec.push({ label: "They've paid", tone: 'accent', title: 'They paid by transfer or cash instead', onClick: () => confirmTransfer(o) }); }
                       else if (canPayOnline(o)) { primary = { label: 'Ask to pay online', onClick: () => setPayAsk({ order: o, fee: '', busy: false, error: '' }) }; sec.push({ label: "They've paid", tone: 'accent', title: 'They paid by transfer or cash', onClick: () => confirmTransfer(o) }); }
                       else { primary = { label: "They've paid", onClick: () => confirmTransfer(o) }; if (o.customerPhone) sec.push({ label: 'Send bank details', tone: 'accent', href: `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(payFirstMessage(o))}` }); }
                       if (outIdx) sec.push(unsafe('Out for delivery'));
                       note = '';
+                    }
+                    // A Xorla rider is on it: the codes move the order along, so no "Out for delivery" button to tap by mistake
+                    if (pending && o.fulfilMode === 'delivery' && primary && ['Out for delivery', 'Delivered'].includes(primary.label)) {
+                      const lj = jobForOrder(o);
+                      if (lj && ['open', 'taken', 'picked_up'].includes(lj.status)) {
+                        const rf = String(lj.rider?.name || 'the rider').split(' ')[0];
+                        primary = null;
+                        note = lj.status === 'open' ? 'Waiting for a Xorla rider to accept.' : lj.status === 'taken' ? `When ${rf} enters your pick-up code, the order moves to "on the way" by itself.` : `When ${firstName(o)} gives ${rf} the delivery code, it's marked delivered by itself.`;
+                      }
                     }
                     // A hotel extra for a guest: put it on their bill first (or say they're not a guest), so it isn't recorded as a separate sale
                     if (pending && !o.startAt && !o.roomBookingId && !notGuest[o.id] && !['paid', 'refund_due', 'refunded'].includes(o.payStatus) && serviceKind === 'accommodation' && (String(o.note || '').startsWith(BOOKED_GUEST_NOTE) || o.fulfilMode === 'room')) { primary = null; note = 'Add it to the guest\'s bill above first'; }
@@ -6186,6 +6267,12 @@ function XorlaApp() {
                             <span className="cx-mono text-[15px] font-bold">{fmt(o.total + (o.deliveryFee || 0))}</span>
                           </div>
                         </div>
+                        {(() => {
+                          const names = { on_the_way: 'Rider on the way', ready_pickup: 'Ready to collect', delivered: 'Delivered, thank you' };
+                          const got = Object.entries(o.waSent || {}).filter(([k, v]) => names[k] && v && v.at);
+                          if (!got.length) return null;
+                          return <div className="mt-2 text-[11.5px] flex items-start gap-1.5 leading-snug" style={{ color: C.inkFaint }}><MessageCircle size={12} className="shrink-0 mt-[2px]" style={{ color: '#25D366' }} /><span>WhatsApp to {firstName(o)}: {got.map(([k, v]) => `${names[k]} ${v.ok ? `✓ ${waTime(v.at)}` : '(not sent, message them yourself)'}`).join(' · ')}</span></div>;
+                        })()}
                         {note && <div className="mt-2 text-[12px]" style={{ color: C.inkFaint }}>{note}</div>}
                         {(sec.length > 0 || primary) && (
                           <div className="mt-3 pt-3 space-y-2" style={{ borderTop: `1px solid ${C.line}` }}>
@@ -10981,24 +11068,58 @@ function XorlaApp() {
                 </div>
                 <div className="rounded-2xl p-4" style={card}>
                   <div className="text-[14.5px] font-semibold mb-1">Delivery areas (optional)</div>
-                  <div className="text-[12px] mb-3 leading-relaxed" style={{ color: C.inkFaint }}>If you charge the same in an area, add it here. Customers pick their area in the basket and see the fee at once. Anywhere else, your team gets a rider's price and confirms the fee.</div>
-                  <div className="space-y-2 mb-3">
-                    {zones.map((z) => (
-                      <div key={z.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  <div className="text-[12px] mb-3 leading-relaxed" style={{ color: C.inkFaint }}>If you charge the same in an area, add it here. Customers pick their area in the basket and see the fee at once. Anywhere else, your team gets a rider's price and confirms the fee.{zonesByBranch ? ` Each ${L.one || 'branch'} can have its own areas and prices: choose the ${L.one || 'branch'} first.` : ''}</div>
+                  {(() => {
+                    const zb = zoneBranchNow();
+                    const sh = zb && zb !== 'all' ? branchShops.find((x) => x.id === zb) : null;
+                    const own = !zonesByBranch ? zones : zones.filter((z) => (zb === 'all' ? !z.shop_id : z.shop_id === zb));
+                    const shared = zonesByBranch && zb !== 'all' ? zones.filter((z) => !z.shop_id) : [];
+                    const off = sh && sh.delivers === false;
+                    const row = (z, faded) => (
+                      <div key={z.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, opacity: faded ? 0.7 : 1 }}>
                         <MapPin size={15} style={{ color: C.copper }} className="shrink-0" />
-                        <span className="flex-1 min-w-0 text-[13.5px] font-semibold truncate">{z.name}</span>
+                        <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold truncate">{z.name}</span>{faded && <span className="block text-[11px]" style={{ color: C.inkFaint }}>Every {L.one || 'branch'}</span>}</span>
                         <span className="cx-mono text-[13px] font-semibold">{fmt(z.fee)}</span>
-                        {canRun && <button onClick={() => removeZone(z)} aria-label={`Remove ${z.name}`} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: C.rust }}><Trash2 size={14} /></button>}
+                        {canRun && (!faded || isOwnerRole) && <button onClick={() => removeZone(z)} aria-label={`Remove ${z.name}`} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: C.rust }}><Trash2 size={14} /></button>}
                       </div>
-                    ))}
-                  </div>
-                  {canRun && (
-                    <div className="grid grid-cols-[1fr_110px_auto] gap-2">
-                      <input type="text" placeholder="Area, e.g. Aba town" value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} className="min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
-                      <input type="text" inputMode="decimal" placeholder="Fee (₦)" value={formatNumInput(zoneForm.fee)} onChange={(e) => setZoneForm({ ...zoneForm, fee: parseNumInput(e.target.value) })} className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none cx-mono" style={field} />
-                      <button onClick={addZone} aria-label="Add area" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: C.sageFill, color: C.onAccent }}><Plus size={16} /></button>
-                    </div>
-                  )}
+                    );
+                    return (
+                      <>
+                        {zonesByBranch && (
+                          <div className="flex flex-wrap gap-1.5 mb-3" role="tablist" aria-label={`Choose a ${L.one || 'branch'}`}>
+                            {[...myShops.map((x) => [x.id, locName(x), x.delivers === false]), ...(isOwnerRole ? [['all', `Every ${L.one || 'branch'}`, false]] : [])].map(([id, label, isOff]) => (
+                              <button key={id} type="button" role="tab" aria-selected={zb === id} onClick={() => setZoneBranch(id)} className="shrink-0 min-h-[36px] px-3 rounded-full text-[12.5px] font-semibold whitespace-nowrap" style={zb === id ? { background: C.copperFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{label}{isOff ? ' · pick-up only' : ''}</button>
+                            ))}
+                          </div>
+                        )}
+                        {sh && canRun && (
+                          <button type="button" role="switch" aria-checked={!off} onClick={() => toggleDelivers(sh)} className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 mb-3 text-left" style={{ background: off ? C.copperSoft : C.sageSoft }}>
+                            <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold">{off ? `${locName(sh)} is pick-up only` : `${locName(sh)} delivers`}</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{off ? 'Customers ordering from here only see pick-up.' : 'Customers ordering from here can ask for delivery.'}</span></span>
+                            <span className="shrink-0 w-11 h-6 rounded-full relative" style={{ background: off ? C.line : C.sageFill }}><span className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all" style={{ left: off ? 3 : 23 }} /></span>
+                          </button>
+                        )}
+                        {!off && (
+                          <>
+                            <div className="space-y-2 mb-3">
+                              {own.map((z) => row(z, false))}
+                              {shared.map((z) => row(z, true))}
+                              {!own.length && !shared.length && <div className="text-[12px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkFaint }}>No areas yet{sh ? ` for ${locName(sh)}` : ''}. Customers can still ask for delivery; you'll confirm the fee.</div>}
+                            </div>
+                            {canRun && (zb !== 'all' || isOwnerRole) && (
+                              <>
+                                {zonesByBranch && <div className="text-[11.5px] font-semibold mb-1.5" style={{ color: C.inkDim }}>Add an area for {sh ? locName(sh) : `every ${L.one || 'branch'}`}</div>}
+                                <div className="grid grid-cols-[1fr_110px_auto] gap-2">
+                                  <input type="text" placeholder="Area, e.g. Aba town" value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} className="min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none" style={field} />
+                                  <input type="text" inputMode="decimal" placeholder="Fee (₦)" value={formatNumInput(zoneForm.fee)} onChange={(e) => setZoneForm({ ...zoneForm, fee: parseNumInput(e.target.value) })} className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none cx-mono" style={field} />
+                                  <button onClick={addZone} aria-label="Add area" className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: C.sageFill, color: C.onAccent }}><Plus size={16} /></button>
+                                </div>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 {!(Array.isArray(settings.orderModes) ? settings.orderModes : (settings.businessType !== 'services' || serviceKind === 'rentals') ? ['pickup', 'delivery'] : []).includes('delivery') && (
                   <div className="text-[12px] rounded-xl px-3.5 py-2.5" style={{ background: C.copperSoft, color: C.copper }}>Delivery is off on your storefront. Turn it on in Settings → Storefront, under "How customers get their order".</div>
@@ -11127,6 +11248,15 @@ function XorlaApp() {
                       </span>
                     </button>
                   )}
+                  <button onClick={() => setDraft({ ...draft, autoWhatsapp: draft.autoWhatsapp === false })} role="switch" aria-checked={draft.autoWhatsapp !== false} className="w-full flex items-start gap-3 px-4 py-4 text-left" style={{ borderBottom: `1px solid ${C.line}` }}>
+                    <div className="flex-1">
+                      <div className="text-[14.5px] font-semibold mb-1">Order updates to customers</div>
+                      <div className="text-[12px] leading-relaxed" style={{ color: C.inkFaint }}>Customers get a WhatsApp message at each step: the payment link when you ask them to pay, who's bringing their order and their delivery code, ready to collect, and delivered. Each goes once, and the order shows when it was sent. {effPlan === 'free' ? 'On the Free plan, only the Xorla rider delivery code is sent.' : ''}</div>
+                    </div>
+                    <span className="shrink-0 mt-0.5 w-12 h-7 rounded-full relative transition-colors" style={{ background: draft.autoWhatsapp !== false ? C.sageFill : C.line }}>
+                      <span className="absolute top-1 w-5 h-5 rounded-full transition-all" style={{ background: '#fff', left: draft.autoWhatsapp !== false ? '24px' : '4px' }} />
+                    </span>
+                  </button>
                   <button onClick={() => setDraft({ ...draft, autoReminders: !draft.autoReminders })} role="switch" aria-checked={draft.autoReminders} className="w-full flex items-start gap-3 px-4 py-4 text-left">
                     <div className="flex-1">
                       <div className="text-[14.5px] font-semibold mb-1">Automatic payment reminders</div>
