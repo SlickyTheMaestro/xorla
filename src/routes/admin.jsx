@@ -1,6 +1,6 @@
 // Xorla: admin screens (loaded only when needed). Shared code lives in ../App.jsx.
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Search, Loader2, ThumbsUp, ThumbsDown, Eye, ChevronLeft, Check, Users, Info, ChevronRight, SendHorizontal, Phone, Smartphone, Megaphone, Lock, ShieldCheck, Gift, Trash2, Headphones, MessageCircle, X, FileText, Send, Link2, Upload, RefreshCw, LogOut, Copy, Bike, AlertCircle, Clock, Sparkles, TrendingUp, Receipt, Store, Lightbulb, Shapes, Wallet, ArrowDownRight, History, Building2, ScanFace, BadgeCheck, Landmark, Pencil } from 'lucide-react';
+import { Search, Loader2, ThumbsUp, ThumbsDown, Eye, ChevronLeft, Check, Users, Info, ChevronRight, SendHorizontal, Phone, Smartphone, Megaphone, Lock, ShieldCheck, Gift, Trash2, Headphones, MessageCircle, X, FileText, Send, Link2, Upload, RefreshCw, LogOut, Copy, Bike, AlertCircle, Clock, Sparkles, TrendingUp, Receipt, Store, Lightbulb, Shapes, Wallet, ArrowDownRight, History, Building2, ScanFace, BadgeCheck, Landmark, Pencil, Truck, MapPin, Package, RotateCcw, Ban, KeyRound, StickyNote } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { BrandSelect, C, CAC_STATUS, CAC_SUGGEST, LazyChart, PasswordChecks, PasswordInput, RIDER_ID_TYPES, RIDER_VEHICLES, SB_KEY, SB_URL, SPOT_CTA, SUPPORT, SUPPORT_TOPICS, Sheet, SupportImage, ThemeToggle, TypingBubble, UPDATE_KIND, XorlaMark, XorlaSpotlight, brandAlert, brandConfirm, cacDocUrl, cacUpload, fmt, formatNumInput, formatPhoneDisplay, friendlyAuthError, loadSession, parseNumInput, passwordError, riderBilling, riderInitials, saveSession, sbRefresh, sbRpc, sbSignIn, sbSignUp, supportWhen, toWhatsAppNumber, useXorlaTheme, vaultFileUrl } from '../App.jsx';
 
@@ -1424,7 +1424,176 @@ const RIDER_FIX_SUGGEST = [
 const riderAgo = (t) => { if (!t) return ''; const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 60 ? `${Math.max(1, m)} min ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)} day${Math.round(m / 1440) !== 1 ? 's' : ''} ago`; };
 const namesClose = (a, b) => { const w = (s) => String(s || '').toLowerCase().split(/[^a-z]+/).filter((x) => x.length >= 3); const x = w(a), y = w(b); if (!x.length || !y.length) return 0; return x.filter((t) => y.includes(t)).length / Math.min(x.length, y.length); };
 
-function RiderAdmin({ call, token, isFounder = true, initialId = null, onCounts }) {
+// Riders: applications to join, and the delivery jobs running on the network
+function RiderAdmin(props) {
+  const [view, setView] = useState('people');
+  return (
+    <div>
+      <div className="inline-flex p-1 rounded-xl mb-4" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} role="tablist" aria-label="Riders">
+        {[['people', 'Applications', Users], ['jobs', 'Delivery jobs', Truck]].map(([k, l, Ic]) => (
+          <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-semibold" style={view === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}><Ic size={14} />{l}</button>
+        ))}
+      </div>
+      {view === 'people' ? <RiderApplications {...props} /> : <RiderJobsAdmin call={props.call} />}
+    </div>
+  );
+}
+
+// The team's view of delivery jobs: find the ones in trouble, see every step, and step in
+const JOB_STATUS = { open: ['Waiting for a rider', 'copper'], taken: ['Rider on the way', 'sage'], picked_up: ['Out for delivery', 'sage'], delivered: ['Delivered', 'sage'], cancelled: ['Cancelled', 'rust'], expired: ['No rider took it', 'faint'] };
+const JOB_STEP = { posted: 'Business posted the job', taken: 'Rider took it', picked_up: 'Picked up (code matched)', delivered: 'Delivered (code matched)', released: 'Given back to other riders', wrong_code: 'Wrong code entered', locked: 'Locked after 5 wrong codes', new_codes: 'New codes sent', cancelled: 'Cancelled', paid: 'Business marked the rider paid', got_paid: 'Rider confirmed the money arrived', note: 'Team note' };
+function RiderJobsAdmin({ call }) {
+  const [counts, setCounts] = useState(null);
+  const [filter, setFilter] = useState('live');
+  const [q, setQ] = useState('');
+  const [list, setList] = useState(null);
+  const [open, setOpen] = useState(null);
+  const [act, setAct] = useState({ mode: '', note: '', busy: false, error: '' });
+  const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+  const when = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '');
+  const tone = (t) => ({ copper: [C.copperSoft, C.copper], sage: [C.sageSoft, C.sage], rust: [C.rustSoft, C.rust], faint: [C.surfaceRaised, C.inkFaint] }[t] || [C.surfaceRaised, C.inkDim]);
+  const loadCounts = useCallback(() => call('admin_rider_job_counts', {}).then(setCounts).catch(() => {}), [call]);
+  const loadList = useCallback(async () => {
+    try { setList(await call('admin_rider_jobs', { p_filter: filter, p_search: q || null })); }
+    catch (e) { setList({ error: /admin_rider_job|schema cache|function/i.test(e.message || '') ? 'Run admin-rider-jobs.sql in Supabase to turn this on.' : e.message }); }
+  }, [call, filter, q]);
+  useEffect(() => { loadCounts(); }, [loadCounts]);
+  useEffect(() => { setList(null); const t = setTimeout(loadList, q ? 300 : 0); return () => clearTimeout(t); }, [loadList]);
+  useEffect(() => { const t = setInterval(() => { if (document.visibilityState === 'visible' && !open) { loadCounts(); loadList(); } }, 30000); return () => clearInterval(t); }, [loadCounts, loadList, open]);
+  const openJob = async (id) => { setAct({ mode: '', note: '', busy: false, error: '' }); try { setOpen(await call('admin_rider_job', { p_id: id })); window.scrollTo({ top: 0 }); } catch (e) { brandAlert(e.message); } };
+  const runAct = async (mode) => {
+    if (act.busy) return;
+    setAct((a) => ({ ...a, busy: true, error: '' }));
+    try { const r = await call('admin_rider_job_act', { p_id: open.id, p_action: mode, p_note: act.note }); setOpen(r); setAct({ mode: '', note: '', busy: false, error: '' }); loadCounts(); loadList(); }
+    catch (e) { setAct((a) => ({ ...a, busy: false, error: e.message })); }
+  };
+  const badge = (status) => { const [l, t] = JOB_STATUS[status] || [status, 'faint']; const [bg, fg] = tone(t); return <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap" style={{ background: bg, color: fg }}>{l}</span>; };
+
+  // ---------- One job ----------
+  if (open) {
+    const j = open;
+    const can = { new_codes: ['taken', 'picked_up'].includes(j.status), release: j.status === 'taken', cancel: ['open', 'taken', 'picked_up'].includes(j.status) };
+    const acts = [
+      can.new_codes && ['new_codes', KeyRound, 'Send new codes', 'Unlocks the job and gives the business new pick-up and delivery codes. Use when codes were lost or the job is locked.', false],
+      can.release && ['release', RotateCcw, 'Give to other riders', 'Takes the job from this rider and opens it to nearby riders again, with new codes.', true],
+      can.cancel && ['cancel', Ban, 'Cancel the job', j.status === 'picked_up' ? 'The rider has the package. Agree with the business and rider what happens to it first.' : 'The business and the rider are told.', true],
+      ['note', StickyNote, 'Add a team note', 'Only the Xorla team sees it.', true],
+    ].filter(Boolean);
+    const row = (l, v) => v ? <div className="flex justify-between gap-4 py-1.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}` }}><span style={{ color: C.inkFaint }}>{l}</span><span className="text-right min-w-0 break-words" style={{ color: C.ink }}>{v}</span></div> : null;
+    return (
+      <div className="max-w-3xl">
+        <button onClick={() => { setOpen(null); loadList(); }} className="flex items-center gap-1 text-[13px] font-semibold mb-3" style={{ color: C.copper }}><ChevronLeft size={16} /> All jobs</button>
+        <div className="rounded-2xl p-4 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0"><div className="text-[17px] font-bold">{j.business} → {j.customer_name || 'customer'}</div><div className="text-[12.5px] mt-0.5" style={{ color: C.inkFaint }}>{fmt(j.fee)} · {j.pay_how === 'cash_pickup' ? 'cash at pick-up' : 'transfer'} · posted {when(j.created_at)}{j.posted_by_name ? ` by ${j.posted_by_name}` : ''}</div></div>
+            {badge(j.status)}
+          </div>
+          {j.problems?.length > 0 && <div className="mt-3 rounded-xl px-3 py-2.5 text-[12.5px] space-y-0.5" style={{ background: C.rustSoft, color: C.rust }}>{j.problems.map((p) => <div key={p} className="flex items-center gap-1.5 font-semibold"><AlertCircle size={13} className="shrink-0" />{p}</div>)}</div>}
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3 mb-3">
+          <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            <div className="text-[12px] font-bold uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Pick-up</div>
+            {row('From', j.pickup_name)}{row('Address', j.pickup_address)}{row('Area', [j.pickup_lga, j.pickup_state].filter(Boolean).join(', '))}
+            {row('Phone', j.pickup_phone || j.business_phone ? <a href={`tel:${String(j.pickup_phone || j.business_phone).replace(/[^0-9+]/g, '')}`} style={{ color: C.copper }}>{j.pickup_phone || j.business_phone}</a> : null)}
+            {row('Package', j.package)}{row('Note', j.note)}
+          </div>
+          <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            <div className="text-[12px] font-bold uppercase tracking-wide mb-1" style={{ color: C.inkFaint }}>Delivery</div>
+            {row('To', j.customer_name)}{row('Address', j.dropoff_address)}{row('Area', j.dropoff_area)}
+            {row('Phone', j.customer_phone ? <a href={`tel:${String(j.customer_phone).replace(/[^0-9+]/g, '')}`} style={{ color: C.copper }}>{j.customer_phone}</a> : null)}
+            {row('Rider', j.rider ? `${j.rider.name}${j.rider.vehicle ? ` · ${j.rider.vehicle}` : ''}${j.rider.plate ? ` · ${j.rider.plate}` : ''}` : 'None yet')}
+            {row('Rider phone', j.rider?.phone ? <a href={`tel:${String(j.rider.phone).replace(/[^0-9+]/g, '')}`} style={{ color: C.copper }}>{j.rider.phone}</a> : null)}
+            {row('Paid', j.paid_at ? `${when(j.paid_at)} by ${j.paid_by_name || 'the business'} (${j.paid_how || ''})${j.rider_confirmed_paid_at ? ' · rider confirmed' : ' · rider hasn\'t confirmed'}` : j.status === 'delivered' ? 'Not yet' : null)}
+            {row('Wrong codes', j.code_tries ? `${j.code_tries} of 5${j.locked ? ' · locked' : ''}` : null)}
+          </div>
+        </div>
+        <div className="rounded-2xl p-4 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="text-[12px] font-bold uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>What happened</div>
+          <ol className="space-y-2">
+            {(j.events || []).map((e, i) => (
+              <li key={i} className="flex gap-3 text-[13px]">
+                <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: e.who === 'xorla' ? C.copperFill : ['locked', 'wrong_code', 'cancelled'].includes(e.action) ? C.rustFill : C.sageFill }} />
+                <span className="min-w-0"><span className="font-semibold">{JOB_STEP[e.action] || e.action}</span><span style={{ color: C.inkFaint }}> · {e.who === 'xorla' ? 'Xorla team' : e.who} · {when(e.at)}</span>{e.note && !['taken'].includes(e.action) && <span className="block break-words" style={{ color: C.inkDim }}>{e.note === 'pickup' ? 'At pick-up' : e.note === 'deliver' ? 'At delivery' : e.note === 'paid_cash' ? 'Cash' : e.note === 'paid_transfer' ? 'Transfer' : e.action === 'posted' ? `By ${e.note}` : e.note}</span>}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div className="text-[12px] font-bold uppercase tracking-wide mb-2" style={{ color: C.inkFaint }}>Step in</div>
+          {!act.mode ? (
+            <div className="grid sm:grid-cols-2 gap-2">
+              {acts.map(([k, Ic, l, d]) => (
+                <button key={k} onClick={() => setAct({ mode: k, note: '', busy: false, error: '' })} className="text-left rounded-xl p-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  <span className="flex items-center gap-2 text-[13.5px] font-semibold" style={{ color: k === 'cancel' ? C.rust : C.ink }}><Ic size={15} />{l}</span>
+                  <span className="block text-[12px] mt-1 leading-snug" style={{ color: C.inkFaint }}>{d}</span>
+                </button>
+              ))}
+            </div>
+          ) : (() => {
+            const [, Ic, l, d, needNote] = acts.find((a) => a[0] === act.mode) || [];
+            return (
+              <div>
+                <div className="flex items-center gap-2 text-[14px] font-semibold mb-1">{Ic && <Ic size={15} />}{l}</div>
+                <div className="text-[12.5px] mb-2.5" style={{ color: C.inkFaint }}>{d}</div>
+                <textarea rows={2} value={act.note} onChange={(e) => setAct({ ...act, note: e.target.value, error: '' })} placeholder={needNote ? 'Why? (the business and rider see this, except for team notes)' : 'Note (optional)'} className="w-full rounded-xl px-3.5 py-2.5 text-[13.5px] outline-none resize-none" style={field} />
+                {act.error && <div className="mt-2 rounded-xl px-3 py-2 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{act.error}</div>}
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => setAct({ mode: '', note: '', busy: false, error: '' })} className="px-4 py-2.5 rounded-xl text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Back</button>
+                  <button onClick={() => runAct(act.mode)} disabled={act.busy || (needNote && !act.note.trim())} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: act.mode === 'cancel' ? C.rustFill : C.copperFill, color: C.onAccent, opacity: act.busy || (needNote && !act.note.trim()) ? 0.5 : 1 }}>{act.busy ? 'Saving…' : l}</button>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- The list ----------
+  const filters = [['live', 'Live', counts?.live], ['problems', 'Needs a look', counts?.problems], ['delivered', 'Delivered'], ['closed', 'Cancelled or expired'], ['all', 'All']];
+  return (
+    <div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+        {[['Live now', counts?.live, C.sage, Truck], ['Needs a look', counts?.problems, counts?.problems ? C.rust : C.inkFaint, AlertCircle], ['Delivered today', counts?.delivered_today, C.sage, Check], ['Rider fees today', counts ? fmt(counts.fees_today) : null, C.copper, Wallet]].map(([l, v, col, Ic]) => (
+          <div key={l} className="rounded-2xl px-4 py-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center gap-1.5 text-[11.5px] font-semibold" style={{ color: C.inkFaint }}><Ic size={13} style={{ color: col }} />{l}</div>
+            <div className="text-[22px] font-bold cx-mono mt-0.5" style={{ color: v ? col : C.inkFaint }}>{v ?? '–'}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {filters.map(([k, l, n]) => (
+          <button key={k} onClick={() => setFilter(k)} className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold" style={filter === k ? { background: C.copperFill, color: C.onAccent } : { background: C.surfaceRaised, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}{n ? ` · ${n}` : ''}</button>
+        ))}
+      </div>
+      <div className="relative mb-3">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.inkFaint }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search business, rider, customer or phone" className="w-full rounded-xl pl-9 pr-3 py-2.5 text-[13.5px] outline-none" style={field} />
+      </div>
+      {list === null ? <div className="flex items-center gap-2 text-[13px] py-6" style={{ color: C.inkFaint }}><Loader2 size={15} className="animate-spin" /> Loading…</div>
+        : list.error ? <div className="rounded-xl px-4 py-3 text-[13px]" style={{ background: C.rustSoft, color: C.rust }}>{list.error}</div>
+        : !list.length ? <div className="rounded-2xl p-6 text-center text-[13px]" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.inkFaint }}>{filter === 'problems' ? 'Nothing needs a look. Every job is moving.' : 'No jobs here.'}</div>
+        : (
+          <div className="space-y-2">
+            {list.map((j) => (
+              <button key={j.id} onClick={() => openJob(j.id)} className="w-full text-left rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${j.problems?.length ? 'rgba(226,98,75,0.45)' : C.line}` }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold truncate">{j.business} → {j.customer_name || 'customer'}</div>
+                    <div className="text-[12px] mt-0.5 leading-snug" style={{ color: C.inkFaint }}><MapPin size={11} className="inline -mt-0.5 mr-1" />{j.pickup_lga}{j.dropoff_area ? ` → ${j.dropoff_area}` : ''} · {fmt(j.fee)} · {j.rider ? `${j.rider}` : 'no rider yet'}</div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">{badge(j.status)}<span className="text-[11px]" style={{ color: C.inkFaint }}>{when(j.delivered_at || j.cancelled_at || j.picked_at || j.taken_at || j.created_at)}</span></div>
+                </div>
+                {j.problems?.length > 0 && <div className="mt-2 text-[12px] font-semibold flex items-center gap-1.5" style={{ color: C.rust }}><AlertCircle size={12} />{j.problems.join(' · ')}</div>}
+              </button>
+            ))}
+          </div>
+        )}
+    </div>
+  );
+}
+
+function RiderApplications({ call, token, isFounder = true, initialId = null, onCounts }) {
   const [counts, setCounts] = useState(null);
   const [tab, setTab] = useState('submitted');
   const [q, setQ] = useState('');
