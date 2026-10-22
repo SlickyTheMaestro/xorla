@@ -458,7 +458,7 @@ function formatNumInput(v) {
 }
 function parseNumInput(v) { return String(v).replace(/,/g, ''); }
 function fmtPdf(n) { return `NGN ${Number(n || 0).toLocaleString('en-NG')}`; } // jsPDF's built-in fonts can't render the ₦ glyph
-const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptCancelHours', 'homeService', 'homeFee', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule', 'orderModes', 'waBookingConfirm'];
+const EDITABLE_SETTINGS = ['businessName', 'paymentLink', 'tone', 'customInstructions', 'language', 'ownerPhone', 'businessAddress', 'businessEmail', 'allowStaffExpenses', 'storefrontEnabled', 'storefrontTagline', 'businessType', 'autoReminders', 'summaryFrequency', 'myName', 'serviceKind', 'staffConfirmBookings', 'depositPercent', 'depositCapNights', 'cancelWindowHours', 'bankName', 'bankAccountNumber', 'bankAccountName', 'depositPayNote', 'apptEnabled', 'openTime', 'closeTime', 'openDays', 'apptCapacity', 'apptCancelHours', 'apptDepositPct', 'homeService', 'homeFee', 'apptByPerson', 'checkinTime', 'checkoutTime', 'approveManagerPrices', 'earlyLeaveRule', 'orderModes', 'waBookingConfirm'];
 const SETTINGS_DESCRIPTIONS = {
   plan: 'What your plan includes, and renewing it.',
   notifications: 'Alerts on this device for new orders, requests and staff.',
@@ -2622,7 +2622,7 @@ function XorlaApp() {
       openDays: Array.isArray(business.open_days) ? business.open_days : [1, 2, 3, 4, 5, 6],
       apptCapacity: business.appt_capacity ?? 1,
       apptCancelHours: business.appt_cancel_hours ?? 12,
-      homeService: !!business.home_service, homeFee: Number(business.home_fee) || 0,
+      homeService: !!business.home_service, homeFee: Number(business.home_fee) || 0, apptDepositPct: Number(business.appt_deposit_pct) || 0,
       apptByPerson: !!business.appt_by_person,
       // undefined = the setup update hasn't been run on the database yet (then nothing new is shown)
       setupDoneAt: business.setup_done_at === undefined ? undefined : business.setup_done_at,
@@ -3955,7 +3955,21 @@ function XorlaApp() {
   const hasPaidDeposit = (o) => o.payStatus === 'paid' && orderMoney(o).paidOnline > 0 && !!o.startAt;
   const lateForDeposit = (o) => o.startAt && new Date(o.startAt).getTime() - Date.now() < apptCancelHrs * 3600000;
   const roundDeposit = (total, pct) => Math.max(100, Math.min(total, Math.round((total * pct) / 100 / 500) * 500 || Math.round((total * pct) / 100)));
-  const openDeposit = (o) => setDepAsk({ order: o, amount: String(roundDeposit(orderMoney(o).total, 30)), busy: false, error: '' });
+  const openDeposit = (o) => setDepAsk({ order: o, amount: String(roundDeposit(orderMoney(o).total, Number(settings.apptDepositPct) || 30)), busy: false, error: '' });
+  // Staff: ask for the deposit the owner set (staff never choose the amount)
+  const staffDepPct = Number(settings.apptDepositPct) || 0;
+  const staffDeposit = async (o) => {
+    const amount = roundDeposit(orderMoney(o).total, staffDepPct);
+    const first = String(o.customerName).split(' ')[0];
+    if (!(await brandConfirm(`${o.acceptedAt ? '' : `This confirms ${first}'s time. `}${first} will be asked to pay a ${fmt(amount)} deposit (${staffDepPct}%, set by the owner) online to keep it. The rest is paid ${o.visitMode === 'venue' ? 'later' : 'at the visit'}.`, { title: o.acceptedAt ? 'Ask for the deposit?' : 'Accept and ask for the deposit?', confirm: o.acceptedAt ? 'Ask for deposit' : 'Accept + deposit' }))) return;
+    try {
+      const r = await sbRpc('staff_appt_deposit', session.access_token, { p_order: o.id });
+      const fresh = (await refreshOrder(o.id)) || o;
+      const msg = depositMessage(fresh, Number(r?.amount) || amount);
+      if (fresh.customerPhone) offerWhatsApp(fresh.customerPhone, msg, 'Deposit link ready', `Send ${first} the deposit link on WhatsApp? They'll see:\n\n"${msg}"`);
+      else { await copyText(`paylink-${fresh.id}`, orderLinkOf(fresh)); brandAlert("There's no phone number on this appointment, so the deposit link was copied. Send it to the customer any way you like.", { title: 'Link copied' }); }
+    } catch (e) { brandAlert(/staff_appt_deposit|schema cache/i.test(e.message || '') ? 'This needs a quick update on our side. Ask the owner.' : e.message); }
+  };
   const confirmDeposit = async () => {
     if (!depAsk || depAsk.busy) return;
     const amount = Math.round(Number(parseNumInput(depAsk.amount)) || 0);
@@ -4827,6 +4841,7 @@ function XorlaApp() {
       if ('apptCapacity' in patch) bizPatch.appt_capacity = Number(patch.apptCapacity);
       if ('apptCancelHours' in patch) bizPatch.appt_cancel_hours = Number(patch.apptCancelHours);
       if ('homeService' in patch) bizPatch.home_service = !!patch.homeService;
+      if ('apptDepositPct' in patch) bizPatch.appt_deposit_pct = Math.max(0, Math.min(100, Math.round(Number(patch.apptDepositPct) || 0)));
       if ('homeFee' in patch) bizPatch.home_fee = Math.max(0, Math.round(Number(patch.homeFee) || 0));
       if ('apptByPerson' in patch) bizPatch.appt_by_person = !!patch.apptByPerson;
       if ('setupDoneAt' in patch && settings.setupDoneAt !== undefined) bizPatch.setup_done_at = patch.setupDoneAt;
@@ -6564,6 +6579,7 @@ function XorlaApp() {
                         sec.push({ label: 'Other time', onClick: () => openAppt('reschedule', o) });
                         if (!apptPassed(o) && !apptFull(o, apptClashes(o))) {
                           primary = { label: 'Accept', onClick: () => acceptAppt(o) };
+                          if (!canRun && staffDepPct > 0 && settings.payout && o.payToken && !o.payStatus) sec.push({ label: 'Accept + deposit', tone: 'accent', title: `Confirm it and ask for the ${staffDepPct}% deposit the owner set`, onClick: () => staffDeposit(o) });
                           if (canRun && settings.payout && o.payToken && !o.payStatus) sec.push({ label: 'Accept + deposit', tone: 'accent', title: 'Optional: confirm it and ask for part of the price online to keep the time', onClick: () => openDeposit(o) });
                         }
                       } else note = 'Waiting for the owner to answer';
@@ -6573,6 +6589,7 @@ function XorlaApp() {
                         if (canRemind(o)) sec.push({ label: o.remindedAt ? 'Remind again' : 'Remind', tone: 'accent', onClick: () => sendReminder(o) });
                         else if (waConfirmLink(o)) sec.push({ label: 'WhatsApp', tone: 'accent', href: waConfirmLink(o) });
                         if (canAnswerRequests) sec.push({ label: 'Move', onClick: () => openAppt('reschedule', o) });
+                        if (!canRun && canAnswerRequests && staffDepPct > 0 && settings.payout && o.payToken && !o.payStatus) sec.push({ label: 'Ask for deposit', tone: 'accent', title: `The ${staffDepPct}% deposit the owner set`, onClick: () => staffDeposit(o) });
                         if (canRun && settings.payout && o.payToken && !o.payStatus) sec.push({ label: 'Ask for deposit', tone: 'accent', title: 'Optional: part of the price online to keep the time', onClick: () => openDeposit(o) });
                         if (o.payStatus === 'requested') { sec.push({ label: 'Send deposit link', tone: 'accent', onClick: () => { const m = depositMessage(o, o.payAmount || 0); if (o.customerPhone) window.open(`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(m)}`, '_blank'); else sendPayLink(o); } }); if (canRun) sec.push({ label: 'No deposit', onClick: () => removeDeposit(o) }); }
                         sec.push({ label: 'Cancel', tone: 'danger', onClick: () => { openAppt('cancel', o); if (hasPaidDeposit(o)) setApptPanel((p) => p && { ...p, keep: canRun && lateForDeposit(o) }); } });
@@ -9556,7 +9573,7 @@ function XorlaApp() {
                   <div className="text-[22px] font-bold cx-display">{title}</div>
                   {toAnswer.length > 0 && <span className="text-[12.5px] font-semibold" style={{ color: C.copper }}>{toAnswer.length} to answer</span>}
                 </div>
-                <div className="text-[12.5px] leading-relaxed mb-4" style={{ color: C.inkFaint }}>{serviceKind === 'repairs' ? 'Accept drop-offs, then tap Received when it comes in and Ready for collection when it is fixed.' : 'Accept or decline requests, move times, remind customers, and mark them done.'} Prices and payments are handled by the owner.</div>
+                <div className="text-[12.5px] leading-relaxed mb-4" style={{ color: C.inkFaint }}>{serviceKind === 'repairs' ? 'Accept drop-offs, then tap Received when it comes in and Ready for collection when it is fixed.' : 'Accept or decline requests, move times, remind customers, and mark them done.'} {staffDepPct > 0 && settings.payout ? `Prices are set by the owner. You can ask for the owner's ${staffDepPct}% deposit when you accept.` : 'Prices and payments are handled by the owner.'}</div>
                 {renderApptTop()}
                 {open.length === 0
                   ? <div className="rounded-2xl p-6 text-center" style={card}><CalendarClock size={22} className="mx-auto mb-2" style={{ color: C.inkFaint }} /><div className="text-[14px] font-semibold">Nothing waiting</div><div className="text-[12.5px] mt-1" style={{ color: C.inkFaint }}>New requests from the storefront show up here.</div></div>
@@ -11262,6 +11279,13 @@ function XorlaApp() {
                         <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                           {[[2, '2 hours'], [6, '6 hours'], [12, '12 hours'], [24, '24 hours']].map(([v, l]) => (
                             <button key={v} onClick={() => setDraft({ ...draft, apptCancelHours: v })} className="flex-1 py-2 px-1 rounded-lg text-[12.5px] font-semibold" style={hrs === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>
+                          ))}
+                        </div>
+                        <div className="text-[14.5px] font-semibold mt-4 mb-1">Deposit your staff can ask for</div>
+                        <div className="text-[12px] leading-relaxed mb-3" style={{ color: C.inkFaint }}>When staff accept a booking, they can ask the customer for this deposit, so a no-show doesn't cost you a paying customer. Staff never choose the amount. You and your managers can still ask for any amount.</div>
+                        <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                          {[[0, 'Off'], [20, '20%'], [30, '30%'], [50, '50%']].map(([v, l]) => (
+                            <button key={v} onClick={() => setDraft({ ...draft, apptDepositPct: v })} className="flex-1 py-2 px-1 rounded-lg text-[12.5px] font-semibold" style={Number(draft.apptDepositPct || 0) === v ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}>{l}</button>
                           ))}
                         </div>
                         {!settings.payout && <div className="text-[11.5px] mt-2.5 leading-relaxed" style={{ color: C.inkFaint }}>Deposits need online payments. Turn them on in Settings → Online payments.</div>}
