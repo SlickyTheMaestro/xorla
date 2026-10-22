@@ -7694,7 +7694,7 @@ function XorlaApp() {
               </div>
 
               {rooms.length > 0 && (
-                <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                <div className={`grid gap-2 ${rooms.some((r) => String(r.label).length > 5) ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5' : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6'}`}>
                   {rooms.map((r) => {
                     const guest = occupantOf(r);
                     const leaving = guest && guest.check_out <= bkToday;
@@ -7705,10 +7705,10 @@ function XorlaApp() {
                     const onTap = editing ? () => toggleRoomPick(r) : guest ? () => openBill(guest) : arrivingHere.length ? () => openAct(arrivingHere[0], 'check_in', r.id) : () => openWalkIn(p.id);
                     return (
                       <button key={r.id} onClick={onTap} aria-pressed={editing ? picked : undefined} title={editing ? (guest ? (rentWords ? 'Out with a customer' : 'Has a guest') : picked ? 'Selected' : 'Select') : guest ? `${guest.customer_name}'s bill` : arrivingHere.length ? (rentWords ? `Give this one to ${arrivingHere[0].customer_name}` : `Check ${arrivingHere[0].customer_name} in here`) : 'Book a walk-in'}
-                        className="rounded-xl px-2.5 py-2 text-left active:scale-[0.97] transition-transform" style={{ background: picked ? C.rustSoft : tone[0], border: `1px solid ${picked ? C.rust : `${tone[1]}55`}`, boxShadow: picked ? `0 0 0 1px ${C.rust}` : 'none', opacity: editing && guest ? 0.45 : 1 }}>
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="text-[15px] font-bold cx-mono" style={{ color: C.ink }}>{r.label}</span>
-                          {editing ? (guest ? <Lock size={12} style={{ color: C.inkFaint }} /> : <span className="w-4 h-4 rounded-md flex items-center justify-center shrink-0" style={{ background: picked ? C.rustFill : 'transparent', border: `1.5px solid ${picked ? C.rust : C.inkFaint}` }}>{picked && <Check size={11} strokeWidth={3} style={{ color: C.onAccent }} />}</span>) : <span className="w-2 h-2 rounded-full shrink-0" style={{ background: tone[1] }} />}
+                        className="min-w-0 rounded-xl px-2.5 py-2 text-left active:scale-[0.97] transition-transform" style={{ background: picked ? C.rustSoft : tone[0], border: `1px solid ${picked ? C.rust : `${tone[1]}55`}`, boxShadow: picked ? `0 0 0 1px ${C.rust}` : 'none', opacity: editing && guest ? 0.45 : 1 }}>
+                        <div className="flex items-start justify-between gap-1">
+                          <span className={`${String(r.label).length > 5 ? 'text-[13px]' : 'text-[15px]'} font-bold cx-mono leading-tight min-w-0 break-words`} style={{ color: C.ink }}>{r.label}</span>
+                          {editing ? (guest ? <Lock size={12} style={{ color: C.inkFaint }} /> : <span className="w-4 h-4 rounded-md flex items-center justify-center shrink-0" style={{ background: picked ? C.rustFill : 'transparent', border: `1.5px solid ${picked ? C.rust : C.inkFaint}` }}>{picked && <Check size={11} strokeWidth={3} style={{ color: C.onAccent }} />}</span>) : <span className="w-2 h-2 rounded-full shrink-0 mt-1" style={{ background: tone[1] }} />}
                         </div>
                         <div className="text-[10.5px] font-semibold truncate" style={{ color: tone[1] }}>{guest ? guest.customer_name.split(' ')[0] : tone[2]}</div>
                         {guest && extrasTotalOf(guest) > 0 && <div className="text-[10px] font-semibold truncate cx-mono" style={{ color: C.copper }}>+{fmt(extrasTotalOf(guest))}</div>}
@@ -7978,8 +7978,8 @@ function XorlaApp() {
                 </div>
               </div>
               <div className="relative flex gap-2 mt-3">
-                <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : spacesHere.length ? setBookPick(true) : openNewBooking())} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={15} /> {rentWords ? 'Walk-in customer' : 'Walk-in guest'}</button>
-                {storeLink && <button onClick={() => copyText('quiet-link', storeLink)} className="flex-1 h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.sage, border: '1px solid rgba(31,217,196,0.35)' }}>{copiedKey === 'quiet-link' ? <><Check size={15} /> Link copied</> : <><Copy size={14} /> Copy booking link</>}</button>}
+                <button onClick={() => (!bookables.length && spacesHere.length ? openSpaceBooking() : spacesHere.length ? setBookPick(true) : openNewBooking())} className="flex-1 min-w-0 min-h-[44px] px-3 py-2 rounded-xl text-[13px] leading-tight font-semibold flex items-center justify-center gap-1.5 text-center" style={{ background: C.copperFill, color: C.onAccent }}><Plus size={15} className="shrink-0" /> {rentWords ? 'Walk-in' : 'Walk-in guest'}</button>
+                {storeLink && <button onClick={() => copyText('quiet-link', storeLink)} className="flex-1 min-w-0 min-h-[44px] px-3 py-2 rounded-xl text-[13px] leading-tight font-semibold flex items-center justify-center gap-1.5 text-center" style={{ color: C.sage, border: '1px solid rgba(31,217,196,0.35)' }}>{copiedKey === 'quiet-link' ? <><Check size={15} /> Link copied</> : <><Copy size={14} className="shrink-0" /> Copy booking link</>}</button>}
               </div>
             </div>
           );
@@ -8021,7 +8021,7 @@ function XorlaApp() {
         {renderRoomBoard()}
 
         <div>
-          <div className="flex items-baseline justify-between gap-2 mb-2"><span className="text-[14px] font-semibold">Free {rentWords ? 'items' : 'rooms'}, next 14 days{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span><span className="text-[11px] shrink-0" style={{ color: C.inkFaint }}>Swipe to see more →</span></div>
+          <div className="flex items-baseline justify-between flex-wrap gap-x-3 gap-y-0.5 mb-2"><span className="text-[14px] font-semibold">Free {rentWords ? 'items' : 'rooms'}, next 14 days{viewAllShops && shops.length > 1 ? ` · ${shopNameOf(deskShopId)}` : ''}</span><span className="text-[11px] lg:hidden" style={{ color: C.inkFaint }}>Swipe to see more →</span></div>
           <div className="overflow-x-auto rounded-xl" style={{ border: `1px solid ${C.line}` }}>
             <table className="text-[12px] min-w-full" style={{ borderCollapse: 'collapse' }}>
               <thead>
