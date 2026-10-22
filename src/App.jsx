@@ -8816,7 +8816,8 @@ function XorlaApp() {
         </div>
       );
     };
-    const tick = (t, onGold) => (
+    const tick = (t, onGold) => (t.endsWith(':')
+      ? <li key={t} className="text-[11.5px] font-bold uppercase tracking-wide pt-0.5" style={{ color: onGold ? GOLD.on : C.sage }}>{t.slice(0, -1)}</li> :
       <li key={t} className="flex items-start gap-2.5 text-[13.5px] leading-snug">
         <Check size={15} strokeWidth={2.6} className="shrink-0 mt-[2px]" style={{ color: onGold ? GOLD.on : C.sage }} />
         <span style={{ color: onGold ? GOLD.on : C.inkDim }}>{t}</span>
@@ -8956,7 +8957,7 @@ function XorlaApp() {
               <div className="text-[13px] mt-0.5" style={{ color: 'rgba(10,31,28,0.75)' }}>For a growing business with staff</div>
               {priceBlock('pro', true)}
               <ul className="space-y-2 mt-5 mb-6">
-                {['Up to 3 staff, each with their own login', `Unlimited ${T.catalog.toLowerCase()}`, '150 questions to Oga a month, in 5 languages', '100 automatic WhatsApp reminders a month', 'Weekly or monthly WhatsApp summaries'].map((t) => tick(t, true))}
+                {['Up to 3 staff, each with their own login', `Unlimited ${T.catalog.toLowerCase()} and room bookings`, '150 questions to Oga a month, in 5 languages', '100 automatic WhatsApp messages a month: reminders, confirmations and summaries', 'No "Powered by Xorla" on your shop and receipts', 'Unlimited papers in your document vault'].map((t) => tick(t, true))}
               </ul>
               {cta('pro', true)}
             </div>
@@ -8970,7 +8971,7 @@ function XorlaApp() {
               <div className="text-[13px] mt-0.5" style={{ color: C.inkDim }}>{settings.businessType === 'services' ? `For several ${L.many}` : `For several ${L.many} or warehouses`}</div>
               {priceBlock('business', false)}
               <ul className="space-y-2 mt-5 mb-5">
-                {['Everything in Pro', 'Up to 10 staff across your locations', 'Deliveries, transfers and stock requests', '500 questions to Oga and 500 reminders a month'].map((t) => tick(t, false))}
+                {['Everything in Pro, plus:', 'Up to 10 staff across your locations', 'Deliveries, transfers and stock requests', '500 questions to Oga and 500 reminders a month'].map((t) => tick(t, false))}
               </ul>
               {liveLocations.length > 3 + planExtra && (
                 <div className="rounded-2xl px-4 py-3 mb-2 text-[12.5px] leading-relaxed" style={{ background: C.rustSoft, color: C.ink }}>
@@ -15093,7 +15094,8 @@ function PricingPage() {
   const bizPrice = planPrice('business', interval, 0, early), bizRegular = planPrice('business', interval, 0, false);
   const taken = spots === null ? null : 100 - spots;
 
-  const Tick = ({ t, onGold }) => (
+  const Tick = ({ t, onGold }) => (t.endsWith(':')
+    ? <li className="text-[12.5px] font-bold uppercase tracking-wide pt-0.5" style={{ color: onGold ? P.onGold : P.teal }}>{t.slice(0, -1)}</li> :
     <li className="flex items-start gap-2.5 text-[14px] leading-snug">
       <Check size={16} strokeWidth={2.6} className="shrink-0 mt-[2px]" style={{ color: onGold ? P.onGold : P.teal }} />
       <span style={{ color: onGold ? P.onGold : P.muted }}>{t}</span>
@@ -15155,7 +15157,7 @@ function PricingPage() {
               <p className="text-[14px] mt-1" style={{ color: P.muted }}>Run a one-person business properly.</p>
               <div className="mt-5" style={{ fontFamily: display, fontWeight: 800, fontSize: 40, letterSpacing: '-0.03em' }}>₦0</div>
               <ul className="space-y-2.5 mt-6 mb-7">
-                {['1 location, run by you', 'Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link', '10 questions to Oga a month'].map((t) => <Tick key={t} t={t} />)}
+                {['1 location, run by you', 'Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link', 'Online payments, appointments, deliveries and reports', '10 room or rental bookings and 10 questions to Oga a month'].map((t) => <Tick key={t} t={t} />)}
               </ul>
               <a href="/" className="block text-center rounded-2xl py-3.5 text-[15px] font-semibold" style={{ border: `1px solid ${P.line}`, color: P.ink }}>Start free</a>
             </div>
@@ -15169,7 +15171,7 @@ function PricingPage() {
               <p className="text-[14.5px] mt-1" style={{ color: 'rgba(10,31,28,0.78)' }}>For a growing business with staff.</p>
               <Price value={proPrice} regular={proRegular} onGold />
               <ul className="space-y-2.5 mt-6 mb-8">
-                {['Up to 3 staff, each with their own login', 'Unlimited products and services', '150 questions to Oga a month, in 5 languages', '100 automatic WhatsApp payment reminders a month', 'Weekly or monthly business summaries on WhatsApp'].map((t) => <Tick key={t} t={t} onGold />)}
+                {['Everything in Free, plus:', 'Up to 3 staff, each with their own login. They see only what you allow', 'Unlimited products, services and room bookings', '150 questions to Oga a month, in 5 languages', '100 automatic WhatsApp messages a month: payment reminders, booking confirmations and summaries', 'Your brand only: no "Powered by Xorla" on your shop and receipts', 'Unlimited papers in your document vault'].map((t) => <Tick key={t} t={t} onGold />)}
               </ul>
               <a href="/" className="block text-center rounded-2xl py-4 text-[15.5px] font-bold" style={{ background: P.onGold, color: P.gold }}>Start your 30-day free trial</a>
               <p className="text-[12.5px] text-center mt-3" style={{ color: 'rgba(10,31,28,0.7)' }}>No card needed to start.</p>
@@ -15182,7 +15184,7 @@ function PricingPage() {
               <Price value={bizPrice} regular={bizRegular} />
               <p className="text-[13px] mt-2" style={{ color: P.muted }}>Includes 3 locations. Each extra one is {fmt(PLAN_PRICES.extraShop[interval])} {per}.</p>
               <ul className="space-y-2.5 mt-6 mb-7">
-                {['Everything in Pro', 'Up to 10 staff across your locations', 'Deliveries, stock transfers and requests between locations', '500 questions to Oga and 500 reminders a month', 'See every location together, or one at a time'].map((t) => <Tick key={t} t={t} />)}
+                {['Everything in Pro, plus:', 'Up to 10 staff across your locations', 'Deliveries, stock transfers and requests between locations', '500 questions to Oga and 500 reminders a month', 'See every location together, or one at a time'].map((t) => <Tick key={t} t={t} />)}
               </ul>
               <a href="/" className="block text-center rounded-2xl py-3.5 text-[15px] font-semibold" style={{ border: `1px solid ${P.teal}`, color: P.teal }}>Start your 30-day free trial</a>
             </div>
@@ -22312,6 +22314,9 @@ function LandingPage() {
   const [faq, setFaq] = useState(0);
   const [menu, setMenu] = useState(false);
   const [yearly, setYearly] = useState(false);
+  // Early-supporter places left (the first 100 paying businesses get a lower price for 12 months)
+  const [spots, setSpots] = useState(null);
+  useEffect(() => { sbRpc('early_supporter_spots', SB_KEY, {}).then((n) => setSpots(typeof n === 'number' ? n : null)).catch(() => {}); }, []);
   useEffect(() => {
     if (!menu) return undefined;
     const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
@@ -22371,7 +22376,10 @@ function LandingPage() {
       <span className="lp-spin" key={theme}>{theme === 'dark' ? <Sun size={17} style={{ color: LP.amber }} /> : <Moon size={17} />}</span>
     </button>
   );
-  const price = (plan) => (yearly ? PLAN_PRICES[plan].yearly : PLAN_PRICES[plan].monthly);
+  const early = typeof spots === 'number' && spots > 0;
+  const regular = (plan) => planPrice(plan, yearly ? 'yearly' : 'monthly', 0, false);
+  const price = (plan) => planPrice(plan, yearly ? 'yearly' : 'monthly', 0, early);
+  const perDay = (plan) => Math.round(price(plan) / (yearly ? 365 : 30) / 10) * 10;
 
   return (
     <div ref={rootRef} className="lp-root" style={{ ...vars, background: LP.bg, color: LP.ink, fontFamily: LP_BODY, minHeight: '100vh', transition: 'background-color .35s ease, color .35s ease' }}>
@@ -22760,20 +22768,39 @@ function LandingPage() {
               {[[false, 'Monthly'], [true, 'Yearly']].map(([v, l]) => <button key={l} role="tab" aria-selected={yearly === v} onClick={() => setYearly(v)} className="lp-focus px-5 py-2.5 rounded-full text-[14.5px] font-bold transition-colors duration-300 flex items-center gap-2" style={yearly === v ? { background: LP.btn, color: LP.btnInk } : { color: LP.dim }}>{l}{v && <span className="px-2 py-0.5 rounded-full text-[11px] font-bold" style={{ background: LP.amber, color: LP.inkFixed }}>2 months free</span>}</button>)}
             </div>
           </div>
-          <div className="mt-10 grid md:grid-cols-3 gap-4 items-stretch">
+          {early && (
+            <div className="mt-8 rounded-2xl px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5" style={{ background: LP.tint, border: `1px solid ${LP.line}` }}>
+              <span className="self-start px-3 py-1 rounded-full text-[12.5px] font-bold shrink-0" style={{ background: LP.amber, color: LP.inkFixed }}>Early-supporter offer</span>
+              <span className="text-[14.5px] leading-relaxed" style={{ color: LP.ink }}>The first 100 businesses to subscribe pay about a third less for their first 12 months. <strong>{spots} of 100 places left.</strong></span>
+            </div>
+          )}
+          <div className="mt-6 grid md:grid-cols-3 gap-4 items-stretch">
             {[
-              ['Free', null, 'For a one-person business', ['Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link'], false],
-              ['Pro', 'pro', 'For a growing business with staff', ['Up to 3 staff, each with their own login', 'Unlimited products and services', 'Automatic WhatsApp payment reminders', 'Oga in 5 languages'], true],
-              ['Business', 'business', 'For several branches or shops', ['Up to 10 staff across 3 locations', 'Move stock between locations', 'See every location together, or one at a time'], false],
-            ].map(([n, plan, who, pts, star], i) => (
+              ['Free', null, 'For one person getting started', null, ['Up to 20 products or services', 'Sales, expenses, invoices and receipts', 'Your own online shop link', '10 room or rental bookings and 10 questions to Oga a month'], false],
+              ['Pro', 'pro', 'For a growing business with staff', 'Everything in Free, plus', ['Up to 3 staff, each with their own login. They see only what you allow', 'Unlimited products, services and room bookings', 'Automatic WhatsApp: payment reminders, booking confirmations and business summaries', 'Oga, your business adviser: 150 questions a month in English, Pidgin, Igbo, Yoruba or Hausa', 'Your brand only: no "Powered by Xorla" on your shop and receipts', 'Unlimited papers in your document vault'], true],
+              ['Business', 'business', 'For several branches, shops or warehouses', 'Everything in Pro, plus', ['3 locations included, and add more any time', 'Up to 10 staff, each placed at their branch', 'Move stock between branches, and see what each one sells', 'Every branch together on one screen, or one at a time', '500 questions to Oga and 500 WhatsApp messages a month'], false],
+            ].map(([n, plan, who, plus, pts, star], i) => (
               <div key={n} data-reveal className="lp-tile rounded-[28px] p-7 flex flex-col" style={{ '--d': `${i * 0.08}s`, ...(star ? { background: LP.forest, color: '#fff', boxShadow: '0 30px 60px -30px rgba(11,59,51,0.7)' } : { background: LP.card, border: `1px solid ${LP.line}` }) }}>
-                <div className="flex items-center justify-between"><span className="text-[18px] font-semibold" style={{ fontFamily: LP_DISPLAY }}>{n}</span>{star && <span className="px-3 py-1 rounded-full text-[12.5px] font-bold" style={{ background: LP.amber, color: LP.inkFixed }}>Most chosen</span>}</div>
+                <div className="flex items-center justify-between gap-2"><span className="text-[18px] font-semibold" style={{ fontFamily: LP_DISPLAY }}>{n}</span>{star && <span className="px-3 py-1 rounded-full text-[12.5px] font-bold" style={{ background: LP.amber, color: LP.inkFixed }}>Most chosen</span>}</div>
                 <div className="mt-1 text-[14px]" style={{ color: star ? 'rgba(255,255,255,0.72)' : LP.dim }}>{who}</div>
-                <div className="mt-5 flex items-baseline gap-1.5"><span className="text-[34px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.04em' }}>{plan ? <LpCount value={price(plan)} ms={500} /> : '₦0'}</span><span className="text-[14px]" style={{ color: star ? 'rgba(255,255,255,0.7)' : LP.faint }}>{plan ? (yearly ? 'a year' : 'a month') : 'forever'}</span></div>
-                <ul className="mt-5 space-y-2.5 flex-1">{pts.map((x) => <li key={x} className="flex items-start gap-2.5 text-[14.5px] leading-snug"><Check size={16} strokeWidth={2.8} className="shrink-0 mt-0.5" style={{ color: star ? LP.teal : LP.accent }} />{x}</li>)}</ul>
+                <div className="mt-5 flex items-baseline gap-1.5 flex-wrap"><span className="text-[34px] font-bold" style={{ fontFamily: LP_DISPLAY, letterSpacing: '-0.04em' }}>{plan ? <LpCount value={price(plan)} ms={500} /> : '₦0'}</span><span className="text-[14px]" style={{ color: star ? 'rgba(255,255,255,0.7)' : LP.faint }}>{plan ? (yearly ? 'a year' : 'a month') : 'forever'}</span></div>
+                {plan ? (
+                  <div className="mt-1 text-[13px] leading-snug" style={{ color: star ? 'rgba(255,255,255,0.72)' : LP.dim }}>
+                    {early && <><span className="line-through">{fmt(regular(plan))}</span> after the offer · </>}About {fmt(perDay(plan))} a day
+                  </div>
+                ) : <div className="mt-1 text-[13px]" style={{ color: LP.dim }}>No card, no time limit</div>}
+                {plus && <div className="mt-5 text-[13px] font-bold uppercase tracking-wide" style={{ color: star ? LP.teal : LP.accent }}>{plus}</div>}
+                <ul className={`${plus ? 'mt-3' : 'mt-5'} space-y-2.5 flex-1`}>{pts.map((x) => <li key={x} className="flex items-start gap-2.5 text-[14.5px] leading-snug"><Check size={16} strokeWidth={2.8} className="shrink-0 mt-0.5" style={{ color: star ? LP.teal : LP.accent }} />{x}</li>)}</ul>
                 <a href={start} className={`${btn} mt-7 w-full`} style={star ? { background: LP.amber, color: LP.inkFixed } : { background: LP.bg2, color: LP.ink }}>{plan ? 'Start 30 days free' : 'Start free'}</a>
+                {plan && <div className="mt-2 text-[12.5px] text-center" style={{ color: star ? 'rgba(255,255,255,0.65)' : LP.faint }}>No card needed. Stop any time.</div>}
               </div>
             ))}
+          </div>
+          <div data-reveal className="mt-4 rounded-[24px] p-6" style={{ background: LP.card, border: `1px solid ${LP.line}` }}>
+            <div className="text-[15px] font-bold">On every plan, Free included</div>
+            <ul className="mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2.5">
+              {['Customers pay you online by card, transfer or USSD', 'Appointments, bookings and deposits', 'Deliveries with your riders or Xorla riders', 'Discount codes and shop posters', 'Works offline, and syncs when you are back', 'Reports on your profit and best sellers'].map((x) => <li key={x} className="flex items-start gap-2.5 text-[14px] leading-snug" style={{ color: LP.dim }}><Check size={15} strokeWidth={2.8} className="shrink-0 mt-0.5" style={{ color: LP.accent }} />{x}</li>)}
+            </ul>
           </div>
           <p className="mt-5 text-[14.5px]" style={{ color: LP.dim }}><a href="/pricing" className="lp-focus font-bold underline underline-offset-4" style={{ color: LP.ink }}>See full pricing and early-supporter prices</a></p>
         </section>
