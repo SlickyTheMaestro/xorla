@@ -6632,7 +6632,7 @@ function XorlaApp() {
                     // An own-choice request is answered first (above); then the order carries on as usual
                     if (pending && !o.startAt && (o.customState === 'asked' || o.customState === 'suggested')) { primary = null; note = o.customState === 'asked' ? 'Answer the own-choice request above first' : `Waiting for ${firstName(o)} to choose`; }
                     const secBtn = (b, i) => {
-                      const cls = 'h-10 px-2 rounded-xl text-[12.5px] font-semibold whitespace-nowrap flex items-center justify-center min-w-0 transition-opacity active:opacity-70';
+                      const cls = 'min-h-[40px] px-3 py-2 rounded-xl text-[12.5px] leading-tight font-semibold whitespace-nowrap flex items-center justify-center grow basis-auto transition-opacity active:opacity-70';
                       const st = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: b.tone === 'danger' ? C.rust : b.tone === 'accent' ? C.copper : C.ink };
                       return b.href
                         ? <a key={i} href={b.href} target="_blank" rel="noopener noreferrer" className={cls} style={st}>{b.label}</a>
@@ -6652,10 +6652,11 @@ function XorlaApp() {
                         {(sec.length > 0 || primary) && (
                           <div className="mt-3 pt-3 space-y-2" style={{ borderTop: `1px solid ${C.line}` }}>
                             {sec.length === 1 && primary ? (
-                              <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,2fr)' }}>{secBtn(sec[0], 0)}{primBtn}</div>
+                              <div className="flex flex-wrap gap-2">{secBtn(sec[0], 0)}<div className="grow-[2] basis-40">{primBtn}</div></div>
                             ) : (
                               <>
-                                {sec.length > 0 && <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(3, sec.length)}, minmax(0,1fr))` }}>{sec.map(secBtn)}</div>}
+                                {/* Buttons size to their words and move to the next line when they don't fit, whatever the phone's text size */}
+                                {sec.length > 0 && <div className="flex flex-wrap gap-2">{sec.map(secBtn)}</div>}
                                 {primBtn}
                               </>
                             )}
@@ -9579,10 +9580,12 @@ function XorlaApp() {
                   ? <div className="rounded-2xl p-6 text-center" style={card}><CalendarClock size={22} className="mx-auto mb-2" style={{ color: C.inkFaint }} /><div className="text-[14px] font-semibold">Nothing waiting</div><div className="text-[12.5px] mt-1" style={{ color: C.inkFaint }}>New requests from the storefront show up here.</div></div>
                   : groups.map(([label, list, hint]) => (
                     <section key={label} className="mb-6">
-                      <div className="flex items-baseline gap-2 mb-2.5 px-0.5">
-                        <span className="text-[14.5px] font-bold">{label}</span>
-                        <span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.surfaceRaised, color: C.inkDim }}>{list.length}</span>
-                        {hint && <span className="text-[12px] truncate" style={{ color: C.inkFaint }}>{hint}</span>}
+                      <div className="mb-2.5 px-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[14.5px] font-bold whitespace-nowrap">{label}</span>
+                          <span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.surfaceRaised, color: C.inkDim }}>{list.length}</span>
+                        </div>
+                        {hint && <div className="text-[12px] mt-0.5 leading-snug" style={{ color: C.inkFaint }}>{hint}</div>}
                       </div>
                       <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">{list.slice(0, 30).map((o) => renderOrderCard(o))}</div>
                     </section>
