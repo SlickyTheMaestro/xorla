@@ -19,6 +19,16 @@ import '@fontsource/ibm-plex-mono/500.css';
 import '@fontsource/ibm-plex-mono/600.css';
 import './index.css';
 
+// Phones offer "Install app" before a screen's own code has loaded, so keep the offer for the screen to use
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    if (/^\/(ride|riders?)\/?$/.test(window.location.pathname)) e.preventDefault();
+    window.__xorlaInstall = e;
+    window.dispatchEvent(new Event('xorla-install-ready'));
+  });
+  window.addEventListener('appinstalled', () => { window.__xorlaInstall = null; window.dispatchEvent(new Event('xorla-install-ready')); });
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />

@@ -1,5 +1,5 @@
 // Xorla: rider screens (loaded only when needed). Shared code lives in ../App.jsx.
-import { Bike, BadgeCheck, Clock, Pencil, Lock, Ban, MapPin, Bell, ChevronRight, ArrowRight, Package, Check, Phone, MessageCircle, X, Loader2, CameraOff, RotateCcw, LogOut, ChevronLeft, EyeOff, Eye, Store, ShieldCheck, AlertCircle, ImagePlus, Contact, ScanFace, Landmark, Search } from 'lucide-react';
+import { Bike, BadgeCheck, Clock, Pencil, Lock, Ban, MapPin, Bell, ChevronRight, ArrowRight, Package, Check, Phone, MessageCircle, X, Loader2, CameraOff, RotateCcw, LogOut, ChevronLeft, EyeOff, Eye, Store, ShieldCheck, AlertCircle, ImagePlus, Contact, ScanFace, Landmark, Search, Download, Share } from 'lucide-react';
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { BrandSelect, C, NG_LGAS, NG_STATES, PASSWORD_MIN_LENGTH, RIDER_ID_TYPES, RIDER_VEHICLES, SB_KEY, SB_URL, XorlaMark, base64UrlToUint8Array, brandConfirm, fmt, formatPhoneDisplay, resizeImageToBlob, riderBilling, riderInitials, sbRecover, sbRefresh, sbRpc, sbSignIn, sbSignUp, toWhatsAppNumber, vaultFileUrl } from '../App.jsx';
@@ -198,6 +198,90 @@ function RiderCodeBox({ label, hint, busy, onSubmit, error }) {
     </div>
   );
 }
+// Install the app and job alerts: two taps that make riding with Xorla easier
+const riderIsStandalone = () => { try { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch (e) { return false; } };
+const riderIsIOS = () => { try { const ua = navigator.userAgent || ''; return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1); } catch (e) { return false; } };
+const riderNotifState = () => { try { if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return 'unsupported'; return Notification.permission; } catch (e) { return 'unsupported'; } };
+const RIDER_SETUP_HIDE = 'xorla:rider-setup-later';
+function RiderSetup({ withAlerts, alertsOn, onAlerts, alertsBusy }) {
+  const C = RIDER_LIGHT;
+  const [installed, setInstalled] = useState(riderIsStandalone);
+  const [offer, setOffer] = useState(() => (typeof window !== 'undefined' ? window.__xorlaInstall || null : null));
+  const [steps, setSteps] = useState(false);
+  const [notif, setNotif] = useState(riderNotifState);
+  const [later, setLater] = useState(() => { try { return Number(localStorage.getItem(RIDER_SETUP_HIDE) || 0) > Date.now(); } catch (e) { return false; } });
+  const ios = riderIsIOS();
+  useEffect(() => {
+    const ready = () => { setOffer(window.__xorlaInstall || null); if (!window.__xorlaInstall && riderIsStandalone()) setInstalled(true); };
+    const done = () => setInstalled(true);
+    window.addEventListener('xorla-install-ready', ready); window.addEventListener('appinstalled', done);
+    const back = () => setNotif(riderNotifState());
+    document.addEventListener('visibilitychange', back);
+    return () => { window.removeEventListener('xorla-install-ready', ready); window.removeEventListener('appinstalled', done); document.removeEventListener('visibilitychange', back); };
+  }, []);
+  useEffect(() => { setNotif(riderNotifState()); }, [alertsOn]);
+  const install = async () => {
+    if (offer && offer.prompt) {
+      try { offer.prompt(); const r = await offer.userChoice; if (r && r.outcome === 'accepted') setInstalled(true); } catch (e) {}
+      window.__xorlaInstall = null; setOffer(null);
+      return;
+    }
+    setSteps(true);
+  };
+  // iPhones only show alerts from an installed app
+  const alertsNeedInstall = ios && !installed;
+  const alertsDone = !withAlerts || alertsOn || notif === 'unsupported' && !alertsNeedInstall;
+  if (installed && alertsDone) return null;
+  if (later) return null;
+  const row = (done, Ic, title, body, action, first) => (
+    <div className={`flex items-start gap-3 ${first ? 'pb-3 last:pb-0' : 'pt-3'}`} style={first ? undefined : { borderTop: `1px solid ${C.line}` }}>
+      <span className="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center" style={{ background: done ? C.sageSoft : C.copperSoft }}>{done ? <Check size={17} style={{ color: C.sage }} /> : <Ic size={17} style={{ color: C.copper }} />}</span>
+      <div className="flex-1 min-w-0">
+        <div className="text-[14px] font-bold leading-snug">{title}</div>
+        <div className="mt-0.5 text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>{body}</div>
+        {action}
+      </div>
+    </div>
+  );
+  const btn = (label, onClick, disabled) => <button type="button" onClick={onClick} disabled={disabled} className="mt-2.5 min-h-[40px] px-4 rounded-xl text-[13px] font-bold inline-flex items-center gap-1.5 disabled:opacity-60" style={{ background: C.copper, color: '#fff' }}>{disabled && <Loader2 size={14} className="animate-spin" />}{label}</button>;
+  const blocked = (
+    <div className="mt-2 rounded-xl px-3 py-2.5 text-[12.5px] leading-relaxed" style={{ background: C.rustSoft, color: C.ink }}>
+      Alerts are blocked on this phone. {ios ? 'Open Settings, then Notifications, find Xorla Rider and turn on Allow Notifications.' : 'Tap the lock or ⓘ beside the web address (or the ⋮ menu, then Settings, then Site settings), choose Notifications and set it to Allow. Then come back here.'}
+    </div>
+  );
+  return (
+    <div className="mt-4 rounded-[22px] p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="flex-1 min-w-0 text-[15px] font-extrabold" style={{ letterSpacing: '-0.01em' }}>Set up your phone</div>
+        <button type="button" onClick={() => { try { localStorage.setItem(RIDER_SETUP_HIDE, String(Date.now() + 3 * 864e5)); } catch (e) {} setLater(true); }} className="shrink-0 min-h-[32px] px-2 text-[12.5px] font-semibold" style={{ color: C.inkFaint }}>Later</button>
+      </div>
+      <div>
+        {row(installed, Download, installed ? 'Xorla Rider is installed' : 'Install Xorla Rider',
+          installed ? 'Open it from your home screen any time.' : 'Opens in one tap from your home screen, like WhatsApp. Uses very little data and space.',
+          !installed && btn(offer || !ios ? 'Install app' : 'Show me how', install), true)}
+        {withAlerts && row(alertsOn, Bell, alertsOn ? 'Job alerts are on' : 'Turn on job alerts',
+          alertsOn ? "We'll buzz you when a job opens near you." : 'Your phone buzzes the moment a job opens near you, even when Xorla is closed. The first rider to accept gets it.',
+          alertsOn ? null : alertsNeedInstall ? <div className="mt-2 text-[12.5px] font-semibold" style={{ color: C.copper }}>On iPhone, install the app first, then open it and turn alerts on here.</div>
+            : notif === 'denied' ? blocked
+            : notif === 'unsupported' ? <div className="mt-2 text-[12.5px]" style={{ color: C.inkDim }}>This browser can't show alerts. Open this page in Chrome to get them.</div>
+            : btn(alertsBusy ? 'Turning on…' : 'Turn on alerts', onAlerts, alertsBusy))}
+      </div>
+      {steps && createPortal(
+        <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-3" style={{ background: 'rgba(11,43,38,0.45)', fontFamily: RIDER_FONT }} onClick={() => setSteps(false)}>
+          <div role="dialog" aria-modal="true" aria-label="Install Xorla Rider" className="w-full max-w-sm rounded-[22px] p-5" style={{ background: C.surface, color: C.ink }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2"><div className="flex-1 text-[17px] font-extrabold">Install Xorla Rider</div><button type="button" aria-label="Close" onClick={() => setSteps(false)} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: C.chip }}><X size={16} /></button></div>
+            <ol className="mt-3 space-y-2.5 text-[14px] leading-relaxed">
+              {(ios
+                ? [<>Open this page in <strong>Safari</strong>.</>, <>Tap the <strong>Share</strong> button <Share size={14} className="inline -mt-0.5" /> at the bottom of the screen.</>, <>Scroll down and tap <strong>Add to Home Screen</strong>.</>, <>Tap <strong>Add</strong>. Xorla Rider is now on your home screen.</>]
+                : [<>Open this page in <strong>Chrome</strong>.</>, <>Tap the <strong>⋮</strong> menu at the top right.</>, <>Tap <strong>Install app</strong> or <strong>Add to Home screen</strong>.</>, <>Tap <strong>Install</strong>. Xorla Rider is now on your home screen.</>]
+              ).map((t, i) => <li key={i} className="flex gap-3"><span className="w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-[12px] font-bold" style={{ background: C.copperSoft, color: C.copper }}>{i + 1}</span><span>{t}</span></li>)}
+            </ol>
+            <button type="button" onClick={() => setSteps(false)} className="mt-4 w-full h-11 rounded-xl text-[14px] font-bold" style={{ background: C.copper, color: '#fff' }}>Got it</button>
+          </div>
+        </div>, document.body)}
+    </div>
+  );
+}
 function RiderWork({ call, me, photo, token }) {
   const C = RIDER_LIGHT;
   const first = String(me.full_name || '').split(' ')[0];
@@ -256,19 +340,45 @@ function RiderWork({ call, me, photo, token }) {
       if (next && !alerts) turnOnAlerts();
     } catch (e) { setNote(e.message); }
   };
+  const [alertsBusy, setAlertsBusy] = useState(false);
+  const saveSub = useCallback(async () => {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const res = await fetch(`${SB_URL}/functions/v1/push`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: 'config' }) });
+      const { publicKey } = await res.json();
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToUint8Array(publicKey) });
+    }
+    const j = sub.toJSON();
+    await call('save_push_subscription', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+    return reg;
+  }, [call, token]);
+  // Alerts were allowed before: make sure this phone is still saved for this rider (quietly, once)
+  useEffect(() => { if (alerts && 'serviceWorker' in navigator && 'PushManager' in window) saveSub().catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tapping a job alert while Xorla Rider is already open: go straight to that tab
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined;
+    const onMsg = (e) => {
+      if (e.data?.type !== 'xorla-open') return;
+      try { const u = new URL(e.data.url, window.location.origin); if (!u.pathname.startsWith('/ride')) { window.location.assign(u.href); return; } const t = u.searchParams.get('tab'); if (['jobs', 'active', 'earnings'].includes(t)) setTab(t); } catch (err) {}
+      refresh();
+    };
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg);
+  }, [refresh]);
   const turnOnAlerts = async () => {
+    if (alertsBusy) return;
+    setAlertsBusy(true);
     try {
       if (!('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window)) { setNote("This phone can't show job alerts. Keep Xorla open to see new jobs."); return; }
       const perm = await Notification.requestPermission();
-      if (perm !== 'granted') { setNote('Allow notifications to hear about new jobs.'); return; }
-      const reg = await navigator.serviceWorker.ready;
-      const res = await fetch(`${SB_URL}/functions/v1/push`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: 'config' }) });
-      const { publicKey } = await res.json();
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToUint8Array(publicKey) });
-      const j = sub.toJSON();
-      await call('save_push_subscription', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+      if (perm !== 'granted') { setNote(perm === 'denied' ? 'Alerts are blocked. See the steps on the card to allow them.' : 'Allow notifications to hear about new jobs.'); setAlerts(false); return; }
+      const reg = await saveSub();
       setAlerts(true); setNote("Job alerts are on. We'll buzz you when a job opens near you.");
-    } catch (e) { setNote("Couldn't turn on alerts. Keep Xorla open to see new jobs."); }
+      // A first alert right away, so the rider sees what one looks like
+      try { await reg.showNotification('Job alerts are on', { body: "This is how a new delivery job will look. Tap it to see the job.", icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', tag: 'rider-alerts-on', data: { url: '/ride?tab=jobs' } }); } catch (e) {}
+    } catch (e) { setNote("Couldn't turn on alerts. Check your internet and try again."); }
+    finally { setAlertsBusy(false); }
   };
   const maps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q || '')}`;
   const tel = (p) => `tel:${String(p || '').replace(/[^0-9+]/g, '')}`;
@@ -288,7 +398,7 @@ function RiderWork({ call, me, photo, token }) {
           <span className="w-10 h-6 rounded-full relative transition-colors" style={{ background: available ? '#1FD9C4' : C.track }}><span className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all" style={{ left: available ? 19 : 3 }} /></span>
         </button>
       </div>
-      {available && !alerts && <button type="button" onClick={turnOnAlerts} className="mt-3 w-full rounded-2xl px-4 py-3 flex items-center gap-3 text-left" style={{ background: 'rgba(245,163,0,0.12)', border: '1px solid rgba(245,163,0,0.35)' }}><Bell size={18} style={{ color: '#A86F00' }} /><span className="flex-1 text-[13px] font-semibold">Turn on job alerts, so your phone buzzes when a job opens</span><ChevronRight size={16} /></button>}
+      <RiderSetup withAlerts alertsOn={alerts} onAlerts={turnOnAlerts} alertsBusy={alertsBusy} />
       <div className="mt-4 grid grid-cols-3 gap-1 p-1 rounded-2xl" style={{ background: C.chip }} role="tablist">
         {tabs.map(([id, l, n]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className="h-10 rounded-xl text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={tab === id ? { background: C.surface, color: C.ink, boxShadow: '0 1px 3px rgba(11,43,38,0.12)' } : { color: C.inkDim }}>
@@ -941,6 +1051,7 @@ function RiderApp() {
             )}
             {['rejected', 'suspended'].includes(status) && RIDER_SUPPORT_WHATSAPP && <a href={`https://wa.me/${RIDER_SUPPORT_WHATSAPP}?text=${encodeURIComponent(`Hello Xorla, this is ${me.full_name} (rider, ${me.phone || ''}). About my rider account:`)}`} target="_blank" rel="noopener noreferrer" className="mt-4 h-11 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.sage, color: C.bg }}><MessageCircle size={16} /> Message the Xorla team</a>}
           </div>
+          {status === 'submitted' && <RiderSetup withAlerts={false} />}
           {status === 'submitted' && (
             <div className="mt-3 rounded-2xl px-4 py-3.5 text-[13px] leading-relaxed flex gap-3" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.inkDim }}>
               <ShieldCheck size={17} className="shrink-0 mt-0.5" style={{ color: C.sage }} />

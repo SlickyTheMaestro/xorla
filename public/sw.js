@@ -118,6 +118,11 @@ self.addEventListener('notificationclick', (event) => {
   const target = new URL(event.notification.data?.url || '/', self.location.origin).href;
   event.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    // Rider alerts open the rider app, never the business app on the same phone
+    const rider = new URL(target).pathname.startsWith('/ride');
+    const same = wins.find((w) => w.url.startsWith(self.location.origin) && new URL(w.url).pathname.startsWith('/ride') === rider);
+    if (same) { await same.focus(); same.postMessage({ type: 'xorla-open', url: target }); return; }
+    if (rider) { await self.clients.openWindow(target); return; }
     for (const w of wins) {
       if (w.url.startsWith(self.location.origin)) {
         await w.focus();

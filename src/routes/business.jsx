@@ -1492,6 +1492,8 @@ function XorlaApp() {
       if (!dismissed) setShowInstallBanner(true);
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    // The offer may have come before this screen loaded
+    if (window.__xorlaInstall) handleBeforeInstall({ preventDefault() {}, prompt: (...a) => window.__xorlaInstall.prompt(...a), get userChoice() { return window.__xorlaInstall.userChoice; } });
 
     const handleInstalled = () => { setShowInstallBanner(false); setInstallPrompt(null); };
     window.addEventListener('appinstalled', handleInstalled);
