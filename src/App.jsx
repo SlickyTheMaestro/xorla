@@ -6241,14 +6241,14 @@ function XorlaApp() {
                         <span className="cx-mono">{fmt(it.quantity * it.unitPrice)}</span>
                       </div>
                     ))}
-                    {o.status === 'pending' && canAnswerRequests && hasFromPrice(o) && (() => {
+                    {o.status === 'pending' && hasFromPrice(o) && (() => {
                       const locked = ['requested', 'paid', 'refund_due', 'refunded', 'kept'].includes(o.payStatus);
                       const agreed = o.items.some((it) => it.adjust);
                       const open = () => setPriceAsk({ order: o, value: agreed ? String(orderMoney(o).gross) : '', note: ((o.items.find((it) => it.adjust) || {}).description || '').replace(/^Price agreed$/, ''), busy: false, error: '' });
                       return (
                         <div className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 mt-1.5 text-[12px]" style={{ background: agreed ? C.sageSoft : C.copperSoft }}>
-                          <span style={{ color: agreed ? C.sage : C.ink }}>{agreed ? 'Final price agreed' : locked ? 'Priced "from"' : 'Priced "from". Set the final price once you know it.'}</span>
-                          {locked ? <span className="shrink-0" style={{ color: C.inkFaint }}>Payment asked</span>
+                          <span style={{ color: agreed ? C.sage : C.ink }}>{agreed ? 'Final price agreed' : locked || !canRun ? `Priced "from".${!canRun ? ' The owner sets the final price.' : ''}` : 'Priced "from". Set the final price once you know it.'}</span>
+                          {!canRun ? null : locked ? <span className="shrink-0" style={{ color: C.inkFaint }}>Payment asked</span>
                             : <button onClick={open} className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-semibold" style={{ background: agreed ? 'transparent' : C.copperFill, color: agreed ? C.sage : C.onAccent, border: agreed ? `1px solid ${C.sage}` : 'none' }}>{agreed ? 'Change price' : 'Set final price'}</button>}
                         </div>
                       );
@@ -6550,7 +6550,7 @@ function XorlaApp() {
                       if (o.jobStatus === 'received') {
                         if (canAnswerRequests) sec.push({ label: 'Cancel', tone: 'danger', onClick: () => cancelOrder(o.id) });
                         if (o.payStatus === 'requested') sec.push({ label: 'Send link', tone: 'accent', onClick: () => { const m = depositMessage(o, o.payAmount || 0); if (o.customerPhone) window.open(`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(m)}`, '_blank'); else sendPayLink(o); } });
-                        else if (!o.payStatus && settings.payout && o.payToken && canAnswerRequests) sec.push({ label: 'Ask for payment', tone: 'accent', title: 'Optional: a deposit for parts, or the full price, paid online', onClick: () => openDeposit(o) });
+                        else if (!o.payStatus && settings.payout && o.payToken && canRun) sec.push({ label: 'Ask for payment', tone: 'accent', title: 'Optional: a deposit for parts, or the full price, paid online', onClick: () => openDeposit(o) });
                         primary = { label: 'Ready for collection', onClick: () => setJob(o, 'ready') };
                       } else {
                         if (o.customerPhone) sec.push({ label: 'Message', tone: 'accent', href: `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(jobReadyMessage(o))}` });
@@ -6564,7 +6564,7 @@ function XorlaApp() {
                         sec.push({ label: 'Other time', onClick: () => openAppt('reschedule', o) });
                         if (!apptPassed(o) && !apptFull(o, apptClashes(o))) {
                           primary = { label: 'Accept', onClick: () => acceptAppt(o) };
-                          if (settings.payout && o.payToken && !o.payStatus) sec.push({ label: 'Accept + deposit', tone: 'accent', title: 'Optional: confirm it and ask for part of the price online to keep the time', onClick: () => openDeposit(o) });
+                          if (canRun && settings.payout && o.payToken && !o.payStatus) sec.push({ label: 'Accept + deposit', tone: 'accent', title: 'Optional: confirm it and ask for part of the price online to keep the time', onClick: () => openDeposit(o) });
                         }
                       } else note = 'Waiting for the owner to answer';
                     } else if (pending && o.startAt && o.acceptedAt) {
@@ -6573,8 +6573,8 @@ function XorlaApp() {
                         if (canRemind(o)) sec.push({ label: o.remindedAt ? 'Remind again' : 'Remind', tone: 'accent', onClick: () => sendReminder(o) });
                         else if (waConfirmLink(o)) sec.push({ label: 'WhatsApp', tone: 'accent', href: waConfirmLink(o) });
                         if (canAnswerRequests) sec.push({ label: 'Move', onClick: () => openAppt('reschedule', o) });
-                        if (settings.payout && o.payToken && !o.payStatus && canAnswerRequests) sec.push({ label: 'Ask for deposit', tone: 'accent', title: 'Optional: part of the price online to keep the time', onClick: () => openDeposit(o) });
-                        if (o.payStatus === 'requested') { sec.push({ label: 'Send deposit link', tone: 'accent', onClick: () => { const m = depositMessage(o, o.payAmount || 0); if (o.customerPhone) window.open(`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(m)}`, '_blank'); else sendPayLink(o); } }); sec.push({ label: 'No deposit', onClick: () => removeDeposit(o) }); }
+                        if (canRun && settings.payout && o.payToken && !o.payStatus) sec.push({ label: 'Ask for deposit', tone: 'accent', title: 'Optional: part of the price online to keep the time', onClick: () => openDeposit(o) });
+                        if (o.payStatus === 'requested') { sec.push({ label: 'Send deposit link', tone: 'accent', onClick: () => { const m = depositMessage(o, o.payAmount || 0); if (o.customerPhone) window.open(`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(m)}`, '_blank'); else sendPayLink(o); } }); if (canRun) sec.push({ label: 'No deposit', onClick: () => removeDeposit(o) }); }
                         sec.push({ label: 'Cancel', tone: 'danger', onClick: () => { openAppt('cancel', o); if (hasPaidDeposit(o)) setApptPanel((p) => p && { ...p, keep: canRun && lateForDeposit(o) }); } });
                       }
                       primary = isRepairJob(o) ? { label: 'Received', onClick: () => setJob(o, 'received') } : { label: 'Mark done', onClick: () => fulfillOrder(o) };
@@ -6582,13 +6582,13 @@ function XorlaApp() {
                       sec.push({ label: 'Cancel', tone: 'danger', onClick: () => cancelOrder(o.id) });
                       if (o.payStatus === 'requested' && apptMode && servicesOnly(o)) {
                         sec.push({ label: 'Send link', tone: 'accent', onClick: () => { const m = depositMessage(o, o.payAmount || 0); if (o.customerPhone) window.open(`https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(m)}`, '_blank'); else sendPayLink(o); } });
-                        sec.push({ label: 'Remove', onClick: () => removeDeposit(o) });
+                        if (canRun) sec.push({ label: 'Remove', onClick: () => removeDeposit(o) });
                       } else if (o.payStatus === 'requested') {
                         sec.push({ label: 'Send link', tone: 'accent', onClick: () => sendPayLink(o) });
                         sec.push({ label: 'Change', title: 'Change the delivery fee', onClick: () => setPayAsk({ order: o, fee: o.deliveryFee ? String(o.deliveryFee) : '', busy: false, error: '' }) });
                       } else if (!o.payStatus && settings.payout && o.payToken && !(apptMode && servicesOnly(o))) {
                         sec.push({ label: 'Ask to pay online', tone: 'accent', onClick: () => setPayAsk({ order: o, fee: '', busy: false, error: '' }) });
-                      } else if (!o.payStatus && settings.payout && o.payToken && canAnswerRequests && !needsPrice(o)) {
+                      } else if (!o.payStatus && settings.payout && o.payToken && canRun && !needsPrice(o)) {
                         sec.push({ label: 'Ask for payment', tone: 'accent', title: 'Optional: a deposit to get started, or the full price, paid online', onClick: () => openDeposit(o) });
                       }
                       primary = { label: T.tracksStock ? 'Fulfill' : 'Mark done', onClick: () => fulfillOrder(o) };
@@ -6611,7 +6611,7 @@ function XorlaApp() {
                     // A hotel extra for a guest: put it on their bill first (or say they're not a guest), so it isn't recorded as a separate sale
                     if (pending && !o.startAt && !o.roomBookingId && !notGuest[o.id] && !['paid', 'refund_due', 'refunded'].includes(o.payStatus) && serviceKind === 'accommodation' && (String(o.note || '').startsWith(BOOKED_GUEST_NOTE) || o.fulfilMode === 'room')) { primary = null; note = 'Add it to the guest\'s bill above first'; }
                     // A job priced "from": the business sets the final price once it knows it
-                    if (pending && needsPrice(o) && primary && !o.startAt) { primary = { label: 'Set price', onClick: () => setPriceAsk({ order: o, value: '', note: '', busy: false, error: '' }) }; }
+                    if (pending && canRun && needsPrice(o) && primary && !o.startAt) { primary = { label: 'Set price', onClick: () => setPriceAsk({ order: o, value: '', note: '', busy: false, error: '' }) }; }
                     // An own-choice request is answered first (above); then the order carries on as usual
                     if (pending && !o.startAt && (o.customState === 'asked' || o.customState === 'suggested')) { primary = null; note = o.customState === 'asked' ? 'Answer the own-choice request above first' : `Waiting for ${firstName(o)} to choose`; }
                     const secBtn = (b, i) => {
@@ -9481,7 +9481,7 @@ function XorlaApp() {
     const staffOpenOrders = orders.filter((o) => o.status === 'pending' || o.payStatus === 'refund_due').length;
     const staffTabs = [
       ...(hasBookables ? [{ id: 'bookings', label: 'Bookings', Icon: CalendarClock, badge: bookingsBadge }] : []),
-      ...(apptMode ? [{ id: 'orders', label: 'Appointments', Icon: CalendarClock, badge: ordersBadge }] : (settings.storefrontEnabled || staffOpenOrders > 0) ? [{ id: 'orders', label: T.orders, Icon: ShoppingBag, badge: ordersBadge }] : []),
+      ...(apptMode ? [{ id: 'orders', label: serviceKind === 'repairs' ? 'Jobs' : serviceKind === 'events' ? 'Events' : serviceKind === 'professional' ? 'Clients' : 'Appointments', Icon: serviceKind === 'repairs' ? Wrench : CalendarClock, badge: ordersBadge }] : (settings.storefrontEnabled || staffOpenOrders > 0) ? [{ id: 'orders', label: T.orders, Icon: ShoppingBag, badge: ordersBadge }] : []),
       { id: 'sales', label: hasBookables ? 'Record' : `Record ${T.sale}`, Icon: Plus, badge: 0 },
       ...(hasManyLocations ? [{ id: 'stock', label: 'Stock', Icon: Package, badge: inTransit.filter((t) => myShops.some((sh) => sh.id === t.to_shop)).length }] : []),
     ];
@@ -9534,17 +9534,42 @@ function XorlaApp() {
             `Check the ${L.one} shown at the top before recording. That's where your ${T.sale} is saved.`)}
           {staffTab === 'bookings' && <div className="rounded-2xl p-4 lg:p-6 mb-5" style={card}>{renderBookingDesk()}</div>}
           {staffTab === 'orders' && apptMode && (() => {
+            // Staff see their day in plain groups: what needs an answer, what's happening today, what's next
             const open = orders.filter((o) => o.status === 'pending').sort((a, b) => (a.startAt || '9999').localeCompare(b.startAt || '9999'));
+            const title = serviceKind === 'repairs' ? 'Jobs' : serviceKind === 'events' ? 'Event bookings' : serviceKind === 'professional' ? 'Consultations & projects' : 'Appointments';
+            const toAnswer = open.filter((o) => !o.acceptedAt && !o.awaitingCustomer && !o.jobStatus);
+            const inShop = open.filter((o) => isRepairJob(o) && o.jobStatus);
+            const rest = open.filter((o) => !toAnswer.includes(o) && !inShop.includes(o));
+            const today = rest.filter((o) => o.startAt && lagosDateKey(o.startAt) <= lagosToday);
+            const later = rest.filter((o) => o.startAt && lagosDateKey(o.startAt) > lagosToday);
+            const noTime = rest.filter((o) => !o.startAt);
+            const groups = [
+              [canAnswerRequests ? 'To answer' : 'Waiting for the owner', toAnswer, canAnswerRequests ? 'Accept it, offer another time, or decline' : 'The owner answers these'],
+              ['In the workshop', inShop, 'Mark it ready when it is fixed'],
+              ['Today', today, ''],
+              ['Coming up', later, ''],
+              [serviceKind === 'professional' ? 'Projects' : 'Without a time', noTime, ''],
+            ].filter(([, list]) => list.length);
             return (
-              <div className="rounded-2xl p-4 mb-5" style={card}>
-                <div className="flex items-baseline justify-between gap-3 mb-3">
-                  <div className="text-[20px] font-bold cx-display">Appointments</div>
-                  {pendingOrderCount > 0 && <span className="text-[12px] font-semibold" style={{ color: C.copper }}>{pendingOrderCount} waiting</span>}
+              <div className="mb-5">
+                <div className="flex items-baseline justify-between gap-3 mb-1">
+                  <div className="text-[22px] font-bold cx-display">{title}</div>
+                  {toAnswer.length > 0 && <span className="text-[12.5px] font-semibold" style={{ color: C.copper }}>{toAnswer.length} to answer</span>}
                 </div>
+                <div className="text-[12.5px] leading-relaxed mb-4" style={{ color: C.inkFaint }}>{serviceKind === 'repairs' ? 'Accept drop-offs, then tap Received when it comes in and Ready for collection when it is fixed.' : 'Accept or decline requests, move times, remind customers, and mark them done.'} Prices and payments are handled by the owner.</div>
                 {renderApptTop()}
                 {open.length === 0
-                  ? <div className="text-[12.5px] rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised, color: C.inkFaint }}>No upcoming appointments or requests.</div>
-                  : <div className="space-y-3">{open.slice(0, 30).map((o) => renderOrderCard(o))}</div>}
+                  ? <div className="rounded-2xl p-6 text-center" style={card}><CalendarClock size={22} className="mx-auto mb-2" style={{ color: C.inkFaint }} /><div className="text-[14px] font-semibold">Nothing waiting</div><div className="text-[12.5px] mt-1" style={{ color: C.inkFaint }}>New requests from the storefront show up here.</div></div>
+                  : groups.map(([label, list, hint]) => (
+                    <section key={label} className="mb-6">
+                      <div className="flex items-baseline gap-2 mb-2.5 px-0.5">
+                        <span className="text-[14.5px] font-bold">{label}</span>
+                        <span className="text-[12px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.surfaceRaised, color: C.inkDim }}>{list.length}</span>
+                        {hint && <span className="text-[12px] truncate" style={{ color: C.inkFaint }}>{hint}</span>}
+                      </div>
+                      <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">{list.slice(0, 30).map((o) => renderOrderCard(o))}</div>
+                    </section>
+                  ))}
               </div>
             );
           })()}
