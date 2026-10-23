@@ -4136,7 +4136,11 @@ function XorlaApp() {
           );
         })()}
         {j.status === 'delivered' && <div className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: C.sage }}><Check size={13} /> Delivered at {at(j.delivered_at)}, confirmed with {String(o.customerName).split(' ')[0]}'s code</div>}
-        {['picked_up', 'delivered'].includes(j.status) && !paid && (
+        {/* Transfer: only once the customer has given the rider their code (delivered). Cash: handed over with the package. */}
+        {j.status === 'picked_up' && !paid && j.pay_how === 'transfer' && (
+          <div className="text-[11.5px] leading-snug flex items-start gap-1.5" style={{ color: C.inkFaint }}><Clock size={12} className="shrink-0 mt-[2px]" /> You'll pay {rFirst} {fmt(j.fee)} by transfer after {String(o.customerName || 'the customer').split(' ')[0]} confirms delivery with their code.</div>
+        )}
+        {(j.pay_how === 'transfer' ? j.status === 'delivered' : ['picked_up', 'delivered'].includes(j.status)) && !paid && (
           <div className="rounded-lg px-2.5 py-2" style={{ background: C.copperSoft }}>
             {j.pay_how === 'transfer' ? (
               <>
