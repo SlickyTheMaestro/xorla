@@ -4615,10 +4615,14 @@ function XorlaApp() {
   const trueProfitToday = todayRevenue - todayCOGS - todayExpenses;
 
   const pendingOrderCount = orders.filter((o) => o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer).length;
-  const ordersBadge = tab === 'orders' ? 0 : new Set(orders.filter((o) => (o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer) || o.payStatus === 'refund_due'
+  // Money still to sort out stays on the badge until it's done, even while looking at Orders: refunds owed to customers, and riders not yet paid
+  const refundsOwed = orders.filter((o) => o.payStatus === 'refund_due').map((o) => o.id);
+  const ridersOwed = riderJobs.filter((j) => j.status === 'delivered' && !j.paid_at && j.rider).map((j) => `rj-${j.id}`);
+  const moneyToDo = refundsOwed.length + ridersOwed.length;
+  const ordersBadge = tab === 'orders' ? moneyToDo : new Set([...ridersOwed, ...orders.filter((o) => (o.status === 'pending' && !o.acceptedAt && !o.awaitingCustomer) || o.payStatus === 'refund_due'
     // "New since you last looked" only counts while there's still something to do: a finished one never keeps the badge up
     || (o.status === 'pending' && o.createdAt && seenAt.orders && String(o.createdAt) > String(seenAt.orders))
-    || (o.status !== 'fulfilled' && o.customerEventAt && seenAt.orders && String(o.customerEventAt) > String(seenAt.orders))).map((o) => o.id)).size;
+    || (o.status !== 'fulfilled' && o.customerEventAt && seenAt.orders && String(o.customerEventAt) > String(seenAt.orders))).map((o) => o.id)]).size;
   const unpaidInvoiceCount = invoices.filter((i) => computeStatus(i) !== 'paid').length;
   const currentStaffNames = settings.staffList.map((s) => s.name);
   const sellerOptions = [...new Set([...currentStaffNames, ...sales.map((s) => s.loggedBy), ...expenses.map((e) => e.loggedBy)].filter(Boolean))]
@@ -6941,7 +6945,7 @@ function XorlaApp() {
   const occupies = (b) => b.status === 'confirmed' || b.status === 'checked_in' || holdLive(b);
   const bookingRequests = bookings.filter(holdLive);
   const newerThan = (t, since) => !!t && !!since && String(t) > String(since);
-  const bookingsBadge = tab === 'bookings' ? 0 : new Set([
+  const bookingsBadge = tab === 'bookings' ? bookings.filter((b) => b.deposit_status === 'refund_due').length : new Set([
     ...bookingRequests.map((b) => b.id),
     ...roomOrders.filter((r) => r.status === 'new' && (viewAllShops ? (!isManager || myShops.some((sh) => sh.id === r.shop_id)) : r.shop_id === activeShopId)).map((r) => r.id),
     ...bookings.filter((b) => b.deposit_status === 'refund_due').map((b) => b.id),
@@ -11757,10 +11761,10 @@ function XorlaApp() {
                 <span className="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.rustFill, color: C.onAccent }}>{products.filter((p) => p.isLow).length}</span>
               )}
               {id === 'bookings' && bookingsBadge > 0 && (
-                <span title="New since you last looked" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>{bookingsBadge}</span>
+                <span title="New, or money still to sort out" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>{bookingsBadge}</span>
               )}
               {id === 'orders' && ordersBadge > 0 && (
-                <span title="New since you last looked" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>{ordersBadge}</span>
+                <span title="New, or money still to sort out" className="ml-auto min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>{ordersBadge}</span>
               )}
             </button>
           ))}
