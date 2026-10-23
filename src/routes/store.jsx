@@ -423,6 +423,8 @@ function Storefront({ businessCode }) {
 
   const submitOrder = async () => {
     if (!customerName.trim() || cartList.length === 0) return;
+    // Every order needs a phone number: the business confirms with it, and updates and the delivery code go to it
+    { const d = customerPhone.replace(/\D/g, '').length; if (d < 10 || d > 14) { brandAlert('Please enter your phone number (WhatsApp if you have it), e.g. 0803 123 4567.', { theme: 'light' }); return; } }
     if (askHow) {
       if (!fulfilMode) { brandAlert(`Please choose how you want your ${W.short.toLowerCase()}.`, { theme: 'light' }); return; }
       if (fulfilMode === 'delivery' && storeZones.length && !zoneId) { brandAlert('Please choose your area, so you can see the delivery fee.', { theme: 'light' }); return; }
@@ -1236,7 +1238,7 @@ function Storefront({ businessCode }) {
     <div>
       <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-name">Your name</label>
       <input id="sf-name" type="text" autoComplete="name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className={`w-full rounded-xl px-4 py-3 text-[15px] mb-4 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
-      <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-phone">Phone number{usesSlots ? '' : <span className="font-normal" style={{ color: S.muted }}> (recommended)</span>}</label>
+      <label className="block text-[13px] font-semibold mb-1.5" htmlFor="sf-phone">Phone number</label>
       <input id="sf-phone" type="tel" autoComplete="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="WhatsApp number, e.g. 0803 123 4567" className={`w-full rounded-xl px-4 py-3 text-[15px] mb-2 ${focusRing}`} style={{ background: S.tile, border: 'none', color: S.ink }} />
       <div className="text-[12px] mb-2 -mt-0.5" style={{ color: S.muted }}>Updates about your order, and your delivery code, come to this number on WhatsApp.</div>
       {askHow && (() => {
@@ -1491,7 +1493,7 @@ function Storefront({ businessCode }) {
       )}
       <div className="text-[12px] mb-5" style={{ color: S.muted }}>{usesSlots && apptSlot ? `No payment now. Your ${sk === 'events' ? 'date' : sk === 'repairs' && !goingHome ? 'drop-off time' : 'time'} is held while ${business.name} confirms it.` : projectReq ? `No payment now. ${business.name} will reply with the price and when it can be ready.` : bookTerms?.online_pay ? `No payment now. ${business.name} will confirm${cartHasService ? ' the time' : ' what you ordered'}, then you can pay online by card, transfer or USSD, or pay them directly.` : `No payment now. ${business.name} will contact you to confirm${cartHasService ? ' the time' : ''} and arrange payment.`}</div>
       <div className="sticky bottom-0 -mx-5 px-5 lg:-mx-6 lg:px-6 pt-3 pb-5" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 22%)' }}>
-  {(() => { const needSlot = usesSlots && apptCal.days.some((d) => d.slots.length) && !apptSlot; const needPhone = usesSlots && apptSlot && customerPhone.replace(/[^0-9]/g, '').length < 10; const off = submitting || !customerName.trim() || cartList.length === 0 || needSlot || needPhone; return (
+  {(() => { const needSlot = usesSlots && apptCal.days.some((d) => d.slots.length) && !apptSlot; const phoneDigits = customerPhone.replace(/[^0-9]/g, '').length; const needPhone = !!customerName.trim() && (phoneDigits < 10 || phoneDigits > 14); const off = submitting || !customerName.trim() || cartList.length === 0 || needSlot || needPhone; return (
   <button onClick={submitOrder} disabled={off} className={`w-full py-3.5 rounded-xl text-[14.5px] font-semibold ${focusRing}`} style={{ background: S.ink, color: '#fff', opacity: off ? 0.4 : 1 }}>{submitting ? 'Sending…' : needSlot && customerName.trim() ? 'Pick a time to continue' : needPhone ? 'Add your phone number to continue' : `${W.send} · ${fmt(payable)}`}</button>); })()}
       </div>
     </div>
