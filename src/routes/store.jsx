@@ -1,7 +1,7 @@
 // Xorla: store screens (loaded only when needed). Shared code lives in ../App.jsx.
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Users, Loader2, Check, Sparkles, X, ShieldCheck, Building2, Package, Camera, Plus, ChevronLeft, ChevronRight, ShoppingBag, MessageCircle, MapPin, Search } from 'lucide-react';
-import { BOOKED_GUEST_NOTE, EVENT_TIMES, HALF_HOURS, LAGOS_TIME, LAUNDRY_COLLECT_NOTE, LAUNDRY_DROP_NOTE, PERSON_WORDS, S, SB_KEY, SERVICE_KINDS, SF_FONT, STAY_SERVICE_RE, SlotPicker, apptDay, apptTime, brandAlert, calEndOf, cleanOptions, displayLocationName, eventEndAfter, eventTimeLabel, examplesFor, fmt, formatPhoneDisplay, fromSbProduct, hasOptions, hhmmLabel, isBookable, kindOf, locationWords, optionAddon, optionCombos, optionWords, priceLabel, rentsByDay, sbRpc, stayServiceKind, toWhatsAppNumber, todayKey } from '../App.jsx';
+import { NG_LGAS, NG_STATES, BOOKED_GUEST_NOTE, EVENT_TIMES, HALF_HOURS, LAGOS_TIME, LAUNDRY_COLLECT_NOTE, LAUNDRY_DROP_NOTE, PERSON_WORDS, S, SB_KEY, SERVICE_KINDS, SF_FONT, STAY_SERVICE_RE, SlotPicker, apptDay, apptTime, brandAlert, calEndOf, cleanOptions, displayLocationName, eventEndAfter, eventTimeLabel, examplesFor, fmt, formatPhoneDisplay, fromSbProduct, hasOptions, hhmmLabel, isBookable, kindOf, locationWords, optionAddon, optionCombos, optionWords, priceLabel, rentsByDay, sbRpc, stayServiceKind, toWhatsAppNumber, todayKey } from '../App.jsx';
 
 // "How long" in the words a customer reads, for this kind of business
 const durationWords = (kind, d) => { const x = String(d || '').toLowerCase(); if (!x) return ''; if (kind === 'repairs') return /within|same/.test(x) ? `Ready ${x}` : `Ready in about ${x}`; if (kind === 'events') return x === 'full day' ? 'Covers a full day' : `Covers ${x}`; return `Takes ${x}`; };
@@ -38,6 +38,8 @@ function Storefront({ businessCode }) {
   const [deliverAddr, setDeliverAddr] = useState('');
   const [deliverLandmark, setDeliverLandmark] = useState('');
   const [storeZones, setStoreZones] = useState([]);   // delivery areas with fixed fees
+  const [dropState, setDropState] = useState('');     // the customer's town (local government), so riders know how far it is
+  const [dropLga, setDropLga] = useState('');
   const [zoneId, setZoneId] = useState('');           // '' = not chosen, 'other' = somewhere else (the business quotes)
   const [submitting, setSubmitting] = useState(false);
   const [orderSent, setOrderSent] = useState(false);
@@ -469,6 +471,8 @@ function Storefront({ businessCode }) {
           await sbRpc('place_order', SB_KEY, { ...older, p_note: [older.p_note, p_mode === 'delivery' ? `Deliver to: ${p_address}` : p_mode === 'room' ? `Room ${p_room}` : p_mode === 'pickup' ? 'Pick-up' : ''].filter(Boolean).join(' · ') });
         }
       }
+      // Delivery: save the customer's town with the order (riders see the town, never the address, before they accept)
+      if (placed?.token && askHow && fulfilMode === 'delivery' && dropState && dropLga) sbRpc('set_order_dropoff', SB_KEY, { p_token: placed.token, p_state: dropState, p_lga: dropLga }).catch(() => {});
       if (placed?.token && !(usesSlots && apptSlot)) {
         setThanks({ kind: 'order', name: customerName.trim(), phone: customerPhone.trim(), link: `/order/${placed.token}`, total: payable,
           lines: cartList.map((c) => `${c.product.name}${lineLabel(c) ? ` (${lineLabel(c)})` : ''}${c.qty > 1 ? ` ×${c.qty}` : ''}${forText(c)}`),
@@ -1272,6 +1276,23 @@ function Storefront({ businessCode }) {
                     <option value="other">Somewhere else</option>
                   </select>
                 )}
+                {(() => {
+                  // The state the shop is in, guessed from its address, so most customers only pick their area
+                  const guessState = () => { const a = `${currentStoreShop?.address || ''} ${business?.address || ''}`.toLowerCase(); if (!a.trim()) return ''; return NG_STATES.find((st) => a.includes(st.toLowerCase().replace(/ \(.*\)$/, ''))) || NG_STATES.find((st) => (NG_LGAS[st] || []).some((l) => { const w = l.toLowerCase().split(/[\s-]/)[0]; return w.length >= 4 && new RegExp(`\\b${w}\\b`).test(a); })) || ''; };
+                  const st = dropState || guessState();
+                  return (
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <select id="sf-drop-state" aria-label="Your state" value={st} onChange={(e) => { setDropState(e.target.value); setDropLga(''); }} className={`w-full min-w-0 rounded-xl px-3 py-3 text-[15px] ${focusRing}`} style={{ ...inputStyle, color: st ? S.ink : S.muted }}>
+                        <option value="">Your state</option>
+                        {NG_STATES.map((x) => <option key={x} value={x}>{x}</option>)}
+                      </select>
+                      <select id="sf-drop-lga" aria-label="Your local government area" value={dropLga} onChange={(e) => { setDropState(st); setDropLga(e.target.value); }} disabled={!st} className={`w-full min-w-0 rounded-xl px-3 py-3 text-[15px] ${focusRing}`} style={{ ...inputStyle, color: dropLga ? S.ink : S.muted }}>
+                        <option value="">Your area (LGA)</option>
+                        {(NG_LGAS[st] || []).map((l) => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    </div>
+                  );
+                })()}
                 <textarea id="sf-address" rows={2} maxLength={220} value={deliverAddr} onChange={(e) => setDeliverAddr(e.target.value)} placeholder="Address, e.g. 12 Faulks Road, Aba" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] resize-none ${focusRing}`} style={inputStyle} />
                 <input id="sf-landmark" value={deliverLandmark} onChange={(e) => setDeliverLandmark(e.target.value.slice(0, 70))} placeholder="Landmark (optional), e.g. opposite First Bank" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
                 {(() => { const z = storeZones.find((x) => x.id === zoneId); return z

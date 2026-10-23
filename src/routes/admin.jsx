@@ -2,7 +2,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Search, Loader2, ThumbsUp, ThumbsDown, Eye, ChevronLeft, Check, Users, Info, ChevronRight, SendHorizontal, Phone, Smartphone, Megaphone, Lock, ShieldCheck, Gift, Trash2, Headphones, MessageCircle, X, FileText, Send, Link2, Upload, RefreshCw, LogOut, Copy, Bike, AlertCircle, Clock, Sparkles, TrendingUp, Receipt, Store, Lightbulb, Shapes, Wallet, ArrowDownRight, History, Building2, ScanFace, BadgeCheck, Landmark, Pencil, Truck, MapPin, Package, RotateCcw, Ban, KeyRound, StickyNote } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { BrandSelect, C, CAC_STATUS, CAC_SUGGEST, LazyChart, PasswordChecks, PasswordInput, RIDER_ID_TYPES, RIDER_VEHICLES, SB_KEY, SB_URL, SPOT_CTA, SUPPORT, SUPPORT_TOPICS, Sheet, SupportImage, ThemeToggle, TypingBubble, UPDATE_KIND, XorlaMark, XorlaSpotlight, brandAlert, brandConfirm, cacDocUrl, cacUpload, fmt, formatNumInput, formatPhoneDisplay, friendlyAuthError, loadSession, parseNumInput, passwordError, riderBilling, riderInitials, saveSession, sbRefresh, sbRpc, sbSignIn, sbSignUp, supportWhen, toWhatsAppNumber, useXorlaTheme, vaultFileUrl } from '../App.jsx';
+import { NG_LGAS, NG_STATES, BrandSelect, C, CAC_STATUS, CAC_SUGGEST, LazyChart, PasswordChecks, PasswordInput, RIDER_ID_TYPES, RIDER_VEHICLES, SB_KEY, SB_URL, SPOT_CTA, SUPPORT, SUPPORT_TOPICS, Sheet, SupportImage, ThemeToggle, TypingBubble, UPDATE_KIND, XorlaMark, XorlaSpotlight, brandAlert, brandConfirm, cacDocUrl, cacUpload, fmt, formatNumInput, formatPhoneDisplay, friendlyAuthError, loadSession, parseNumInput, passwordError, riderBilling, riderInitials, saveSession, sbRefresh, sbRpc, sbSignIn, sbSignUp, supportWhen, toWhatsAppNumber, useXorlaTheme, vaultFileUrl } from '../App.jsx';
 
 // ============ Founder dashboard (/admin): only for people in platform_admins, and only with two-step verification ============
 // Two-step verification uses Supabase Auth's authenticator-app codes (TOTP). A stolen password alone can't open this page.
@@ -1430,15 +1430,115 @@ function RiderAdmin(props) {
   return (
     <div>
       <div className="inline-flex p-1 rounded-xl mb-4" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }} role="tablist" aria-label="Riders">
-        {[['people', 'Applications', Users], ['jobs', 'Delivery jobs', Truck]].map(([k, l, Ic]) => (
+        {[['people', 'Applications', Users], ['jobs', 'Delivery jobs', Truck], ['moves', 'Moves', MapPin]].map(([k, l, Ic]) => (
           <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-semibold" style={view === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}><Ic size={14} />{l}</button>
         ))}
       </div>
-      {view === 'people' ? <RiderApplications {...props} /> : <RiderJobsAdmin call={props.call} />}
+      {view === 'people' ? <RiderApplications {...props} /> : view === 'jobs' ? <RiderJobsAdmin call={props.call} /> : <RiderMovesAdmin call={props.call} />}
     </div>
   );
 }
 
+// Riders who moved to another state: the team checks, then approves (their jobs move with them) or declines with a reason
+function RiderMovesAdmin({ call }) {
+  const [list, setList] = useState(null);
+  const [act, setAct] = useState({ id: '', mode: '', note: '', busy: false, error: '' });
+  const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+  const load = useCallback(async () => {
+    try { setList(await call('admin_rider_moves', {})); }
+    catch (e) { setList({ error: /admin_rider_moves|schema cache|function/i.test(e.message || '') ? 'Run rider-trips.sql in Supabase to turn this on.' : e.message }); }
+  }, [call]);
+  useEffect(() => { load(); }, [load]);
+  const decide = async (m, approve) => {
+    if (!approve && !act.note.trim()) { setAct((a) => ({ ...a, error: 'Say why, so the rider knows what to do.' })); return; }
+    setAct((a) => ({ ...a, busy: true, error: '' }));
+    try { await call('admin_rider_move_decide', { p_id: m.id, p_approve: approve, p_note: act.note.trim() }); setAct({ id: '', mode: '', note: '', busy: false, error: '' }); load(); }
+    catch (e) { setAct((a) => ({ ...a, busy: false, error: e.message })); }
+  };
+  if (list === null) return <div className="py-10 flex justify-center"><Loader2 size={20} className="animate-spin" style={{ color: C.inkFaint }} /></div>;
+  if (list.error) return <div className="rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.copperSoft, color: C.copper }}>{list.error}</div>;
+  if (!list.length) return <div className="rounded-2xl px-4 py-8 text-center text-[13px]" style={{ background: C.card, border: `1px solid ${C.line}`, color: C.inkFaint }}>No riders waiting to move. When a rider taps "I've moved", it shows here.</div>;
+  return (
+    <div className="space-y-3">
+      <div className="text-[12.5px] leading-relaxed" style={{ color: C.inkDim }}>The rider's guarantor and checks were done for the old place. Call them (and the guarantor if needed) before approving. Approving moves their areas and switches "Taking jobs" off until they open the app.</div>
+      {list.map((m) => (
+        <div key={m.id} className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[14.5px] font-semibold">{m.rider}</div>
+              <div className="text-[12px]" style={{ color: C.inkFaint }}>{m.phone} · asked {new Date(m.created_at).toLocaleString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}</div>
+            </div>
+            {m.phone && <a href={`tel:${String(m.phone).replace(/[^0-9+]/g, '')}`} className="shrink-0 h-9 px-3 rounded-xl text-[12.5px] font-semibold flex items-center gap-1.5" style={{ border: `1px solid ${C.line}`, color: C.ink }}><Phone size={13} /> Call</a>}
+          </div>
+          <div className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+            <span style={{ color: C.inkFaint }}>From</span><span>{m.from_lga}, {m.from_state}</span>
+            <span style={{ color: C.inkFaint }}>To</span><span className="font-semibold">{m.to_lga}, {m.to_state}</span>
+            <span style={{ color: C.inkFaint }}>Areas</span><span>{(m.to_areas || []).join(', ')}</span>
+            <span style={{ color: C.inkFaint }}>Address</span><span>{m.new_address}</span>
+            {m.note && <><span style={{ color: C.inkFaint }}>Note</span><span>{m.note}</span></>}
+          </div>
+          {m.active_jobs > 0 && <div className="mt-2 text-[12px] font-semibold" style={{ color: C.copper }}>On a delivery now. Approve once it's finished.</div>}
+          {act.id === m.id && act.mode === 'decline' ? (
+            <div className="mt-3">
+              <textarea rows={2} value={act.note} onChange={(e) => setAct({ ...act, note: e.target.value, error: '' })} placeholder="Why? The rider sees this." className="w-full rounded-xl px-3.5 py-2.5 text-[13px] outline-none resize-none" style={field} />
+              {act.error && <div className="mt-2 text-[12.5px]" style={{ color: C.rust }}>{act.error}</div>}
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button onClick={() => setAct({ id: '', mode: '', note: '', busy: false, error: '' })} className="h-10 rounded-xl text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Back</button>
+                <button onClick={() => decide(m, false)} disabled={act.busy} className="h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.rustSoft, color: C.rust }}>Decline</button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button onClick={() => setAct({ id: m.id, mode: 'decline', note: '', busy: false, error: '' })} className="h-10 rounded-xl text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.rust }}>Decline</button>
+              <button onClick={() => { setAct({ id: m.id, mode: 'approve', note: '', busy: false, error: '' }); decide(m, true); }} disabled={act.busy || m.active_jobs > 0} className="h-10 rounded-xl text-[13px] font-bold" style={{ background: C.sageFill, color: C.onAccent, opacity: m.active_jobs > 0 ? 0.5 : 1 }}>Approve move</button>
+            </div>
+          )}
+          {act.id === m.id && act.mode === 'approve' && act.error && <div className="mt-2 text-[12.5px]" style={{ color: C.rust }}>{act.error}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// The team changes an approved rider's areas (after a call), with a note that goes into the rider's history
+function RiderAreasEditor({ call, r, onDone, onCancel }) {
+  const [st, setSt] = useState(r.state || '');
+  const [lga, setLga] = useState(r.lga || '');
+  const [areas, setAreas] = useState(r.areas || []);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+  const save = async () => {
+    setBusy(true); setErr('');
+    try { await call('admin_rider_set_areas', { p_rider: r.id, p_state: st, p_lga: lga, p_areas: areas, p_note: note.trim() }); onDone(); }
+    catch (e) { setErr(/admin_rider_set_areas|schema cache/i.test(e.message || '') ? 'Run rider-trips.sql in Supabase first.' : e.message); setBusy(false); }
+  };
+  return (
+    <div className="mt-4 rounded-2xl p-3.5" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+      <div className="text-[13px] font-semibold mb-2">Change where {String(r.full_name || '').split(' ')[0]} rides</div>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <BrandSelect value={st} onChange={(e) => { setSt(e.target.value); setLga(''); setAreas([]); }} aria-label="State" className="w-full min-w-0 rounded-xl px-3 py-2.5 text-[13px] outline-none" style={field}>
+          {NG_STATES.map((x) => <option key={x} value={x}>{x}</option>)}
+        </BrandSelect>
+        <BrandSelect value={lga} onChange={(e) => { setLga(e.target.value); if (!areas.length) setAreas([e.target.value]); }} aria-label="Home area" className="w-full min-w-0 rounded-xl px-3 py-2.5 text-[13px] outline-none" style={field}>
+          <option value="">Home area…</option>
+          {(NG_LGAS[st] || []).map((l) => <option key={l} value={l}>{l}</option>)}
+        </BrandSelect>
+      </div>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {(NG_LGAS[st] || []).map((l) => <button key={l} type="button" aria-pressed={areas.includes(l)} onClick={() => setAreas(areas.includes(l) ? areas.filter((x) => x !== l) : areas.length >= 12 ? areas : [...areas, l])} className="px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold" style={areas.includes(l) ? { background: C.copperFill, color: C.onAccent } : { background: C.card, color: C.inkDim, border: `1px solid ${C.line}` }}>{l}</button>)}
+      </div>
+      <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="Why? e.g. Rider called: moved to Aba" className="w-full rounded-xl px-3 py-2.5 text-[13px] outline-none mb-2" style={field} />
+      {st !== r.state && <div className="text-[12px] mb-2" style={{ color: C.copper }}>A new state: check the guarantor still works for them before saving.</div>}
+      {err && <div className="text-[12.5px] mb-2" style={{ color: C.rust }}>{err}</div>}
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={onCancel} className="h-10 rounded-xl text-[13px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.inkDim }}>Cancel</button>
+        <button onClick={save} disabled={busy || !lga || !areas.length || !note.trim()} className="h-10 rounded-xl text-[13px] font-bold" style={{ background: C.sageFill, color: C.onAccent, opacity: busy || !lga || !areas.length || !note.trim() ? 0.5 : 1 }}>Save areas</button>
+      </div>
+    </div>
+  );
+}
 // The team's view of delivery jobs: find the ones in trouble, see every step, and step in
 const JOB_STATUS = { open: ['Waiting for a rider', 'copper'], taken: ['Rider on the way', 'sage'], picked_up: ['Out for delivery', 'sage'], delivered: ['Delivered', 'sage'], cancelled: ['Cancelled', 'rust'], expired: ['No rider took it', 'faint'] };
 const JOB_STEP = { posted: 'Business posted the job', taken: 'Rider took it', picked_up: 'Picked up (code matched)', delivered: 'Delivered (code matched)', released: 'Given back to other riders', wrong_code: 'Wrong code entered', locked: 'Locked after 5 wrong codes', new_codes: 'New codes sent', cancelled: 'Cancelled', paid: 'Business marked the rider paid', got_paid: 'Rider confirmed the money arrived', note: 'Team note' };
@@ -1604,6 +1704,7 @@ function RiderApplications({ call, token, isFounder = true, initialId = null, on
   const [act, setAct] = useState({ mode: '', note: '', busy: false, error: '' });
   const [zoom, setZoom] = useState('');
   const [nin, setNin] = useState({ busy: false, error: '' });
+  const [editAreas, setEditAreas] = useState(false);
   const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
   // Ask NIMC (through Dojah, in the billing function) whether the NIN is real, whose it is, and whether the selfie matches its photo
   const checkNin = async () => {
@@ -1790,6 +1891,9 @@ function RiderApplications({ call, token, isFounder = true, initialId = null, on
                   </div>
                 </div>
               )}
+              {r.status === 'approved' && !act.mode && (editAreas
+                ? <RiderAreasEditor call={call} r={r} onCancel={() => setEditAreas(false)} onDone={() => { setEditAreas(false); show(r.id); }} />
+                : <button onClick={() => setEditAreas(true)} className="mt-4 w-full h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.ink, border: `1px solid ${C.line}` }}><MapPin size={14} /> Change areas</button>)}
               {r.status === 'approved' && !act.mode && <button onClick={() => setAct({ mode: 'suspend', note: '', busy: false, error: '' })} className="mt-4 w-full h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5" style={{ color: C.rust, border: `1px solid ${C.line}` }}><Lock size={14} /> Pause this rider</button>}
               {r.status === 'suspended' && isFounder && !act.mode && <button onClick={() => decide('reinstate')} className="mt-4 w-full h-10 rounded-xl text-[13px] font-semibold" style={{ background: C.sageFill, color: C.onAccent }}>Make active again</button>}
               {act.mode && (
@@ -1813,7 +1917,7 @@ function RiderApplications({ call, token, isFounder = true, initialId = null, on
                 {(r.history || []).slice().reverse().map((h, i) => (
                   <li key={i} className="flex gap-2.5 text-[12.5px]">
                     <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: h.by_team ? C.copperFill : C.sageFill }} />
-                    <span className="min-w-0"><span className="font-semibold">{{ started: 'Started applying', submitted: 'Sent the application', nin_checked: 'Checked the NIN with NIMC', resubmitted: 'Fixed it and sent it again', approve: 'Approved', fix: 'Sent back for a fix', reject: 'Turned down', suspend: 'Paused', reinstate: 'Made active again' }[h.action] || h.action}</span>{h.by_team && h.by_name ? <span style={{ color: C.inkFaint }}> · {h.by_name}</span> : null}
+                    <span className="min-w-0"><span className="font-semibold">{{ started: 'Started applying', submitted: 'Sent the application', reach_changed: 'Changed where they ride', move_requested: 'Asked to move to another state', move_approved: 'Move approved', move_declined: 'Move declined', areas_changed: 'Areas changed by the team', job_taken_back: 'A job was taken back by the team', job_released: 'Gave back a job', nin_checked: 'Checked the NIN with NIMC', resubmitted: 'Fixed it and sent it again', approve: 'Approved', fix: 'Sent back for a fix', reject: 'Turned down', suspend: 'Paused', reinstate: 'Made active again' }[h.action] || h.action}</span>{h.by_team && h.by_name ? <span style={{ color: C.inkFaint }}> · {h.by_name}</span> : null}
                       <span className="block" style={{ color: C.inkFaint }}>{new Date(h.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                       {h.note && <span className="block mt-0.5" style={{ color: C.inkDim }}>"{h.note}"</span>}</span>
                   </li>

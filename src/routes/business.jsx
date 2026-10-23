@@ -647,7 +647,7 @@ function orderMoney(order) {
   return { gross, off, delivery, total, paidOnline };
 }
 function fromSbOrder(row) {
-  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, parts: Array.isArray(row.parts) && row.parts.length > 1 ? row.parts : null, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, waSent: row.wa_sent && typeof row.wa_sent === 'object' ? row.wa_sent : {}, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payKind: row.pay_kind || null, payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, billedAt: row.billed_at || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '', visitMode: row.visit_mode || '', visitAddress: row.visit_address || '', eventType: row.event_type || '', guestCount: Number(row.guest_count) || 0, jobStatus: row.job_status || '', jobReceivedAt: row.job_received_at || null, jobReadyAt: row.job_ready_at || null };
+  return { id: row.id, customerName: row.customer_name, customerPhone: row.customer_phone || '', items: row.items || [], total: row.total || 0, status: row.status, createdAt: row.created_at, preferredTime: row.preferred_time || '', note: row.note || '', shopId: row.shop_id || null, startAt: row.start_at || null, endAt: row.end_at || null, holdUntil: row.hold_until || null, acceptedAt: row.accepted_at || null, acceptedByName: row.accepted_by_name || '', cancelReason: row.cancel_reason || '', source: row.source || 'storefront', requestedStartAt: row.requested_start_at || null, awaitingCustomer: !!row.awaiting_customer, proposalToken: row.proposal_token || null, proposalReply: row.proposal_reply || null, personId: row.person_id || null, personName: row.person_name || '', personAny: row.person_any !== false, parts: Array.isArray(row.parts) && row.parts.length > 1 ? row.parts : null, noShow: !!row.no_show, remindedAt: row.reminded_at || null, discountCode: row.discount_code || '', discountAmount: Number(row.discount_amount) || 0, payToken: row.pay_token || null, dropoffState: row.dropoff_state || '', dropoffLga: row.dropoff_lga || '', waSent: row.wa_sent && typeof row.wa_sent === 'object' ? row.wa_sent : {}, deliveryFee: Number(row.delivery_fee) || 0, payAmount: row.pay_amount == null ? null : Number(row.pay_amount), payKind: row.pay_kind || null, payStatus: row.pay_status || null, payRequestedAt: row.pay_requested_at || null, payRequestedBy: row.pay_requested_by || '', amountPaid: Number(row.amount_paid) || 0, paidOnlineAt: row.paid_online_at || null, refundAmount: Number(row.refund_amount) || 0, refundedAt: row.refunded_at || null, refundedByName: row.refunded_by_name || '', refundBank: row.refund_bank_name || '', refundNumber: row.refund_account_number || '', refundName: row.refund_account_name || '', customerEventAt: row.customer_event_at || null, roomLabel: row.room_label || '', roomBookingId: row.room_booking_id || null, billedAt: row.billed_at || null, fulfilMode: row.fulfil_mode || '', deliveryAddress: row.delivery_address || '', readyAt: row.ready_at || null, readyByName: row.ready_by_name || '', deliveryZone: row.delivery_zone || '', riderId: row.rider_id || null, riderName: row.rider_name || '', riderPhone: row.rider_phone || '', riderFee: row.rider_fee == null ? null : Number(row.rider_fee), riderQuotes: Array.isArray(row.rider_quotes) ? row.rider_quotes : [], deliveryPay: row.delivery_pay || '', deliveryPaidAt: row.delivery_paid_at || null, deliveryPaidBy: row.delivery_paid_by || '', riderSentAt: row.rider_sent_at || null, customState: row.custom_state || null, customNote: row.custom_note || '', customSuggest: Array.isArray(row.custom_suggest) ? row.custom_suggest : [], cancelledByName: row.cancelled_by_name || '', visitMode: row.visit_mode || '', visitAddress: row.visit_address || '', eventType: row.event_type || '', guestCount: Number(row.guest_count) || 0, jobStatus: row.job_status || '', jobReceivedAt: row.job_received_at || null, jobReadyAt: row.job_ready_at || null };
 }
 
 function staticMessage(inv, settings) {
@@ -1305,6 +1305,16 @@ function XorlaApp() {
   const [roomOrders, setRoomOrders] = useState([]);
   const [riderJobs, setRiderJobs] = useState([]);     // deliveries sent to the Xorla rider network
   const [xorlaJobFor, setXorlaJobFor] = useState(null);   // the "send to Xorla riders" panel
+  // The send panel: how far the trip is, a fair fee for it, and how many riders can see it
+  useEffect(() => {
+    const f = xorlaJobFor; if (!f || !session?.access_token) return undefined;
+    if (!f.lga || !f.dropLga) { if (f.est) setXorlaJobFor((x) => x && { ...x, est: null }); return undefined; }
+    let off = false;
+    sbRpc('rider_trip_estimate', session.access_token, { p_state: f.state, p_lga: f.lga, p_drop_state: f.dropState, p_drop_lga: f.dropLga })
+      .then((e) => { if (!off) setXorlaJobFor((x) => (x && x.lga === f.lga && x.dropLga === f.dropLga && x.dropState === f.dropState ? { ...x, est: e || null, wide: x.wideTouched ? x.wide : Number(e?.km || 0) * 1.3 > 25 } : x)); })
+      .catch(() => {});
+    return () => { off = true; };
+  }, [xorlaJobFor?.state, xorlaJobFor?.lga, xorlaJobFor?.dropState, xorlaJobFor?.dropLga, !!xorlaJobFor]); // eslint-disable-line react-hooks/exhaustive-deps
   const [riders, setRiders] = useState([]);            // riders and dispatch companies the business uses
   const [zones, setZones] = useState([]);              // delivery areas with fixed fees
   const [zoneBranch, setZoneBranch] = useState(null);  // several branches: whose delivery areas are being looked at ('all' = every branch)
@@ -3694,7 +3704,7 @@ function XorlaApp() {
   const deliveryPaid = (o) => o.payStatus === 'paid' || !!o.deliveryPaidAt;
   // A delivery that should be paid for before anyone takes it out (unless the business chose "rider collects on delivery")
   const payFirst = (o) => o.status === 'pending' && o.fulfilMode === 'delivery' && !deliveryPaid(o) && o.deliveryPay !== 'on_delivery' && !o.riderSentAt && !o.riderId
-    && !laundryCollect(o) && !o.roomBookingId && !['refund_due', 'refunded'].includes(o.payStatus) && orderMoney(o).total > 0 && !jobForOrder(o);
+    && !laundryCollect(o) && !o.roomBookingId && !['refund_due', 'refunded'].includes(o.payStatus) && orderMoney(o).total > 0 && !(jobForOrder(o) && ['open', 'taken', 'picked_up', 'delivered'].includes(jobForOrder(o).status));
   const canPayOnline = (o) => !!(settings.payout && o.payToken);
   // Tapping a rider button before the customer has paid: say so, and offer the right next step
   const riderGuard = async (o, which) => {
@@ -3859,7 +3869,7 @@ function XorlaApp() {
   };
   // ---------- Xorla rider network: send a delivery to verified riders nearby ----------
   const jobForOrder = (o) => riderJobs.find((j) => j.order_id === o.id && ['open', 'taken', 'picked_up'].includes(j.status))
-    || riderJobs.filter((j) => j.order_id === o.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
+    || riderJobs.filter((j) => j.order_id === o.id && !j.hidden).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
   const liveJob = (j) => !!j && ['open', 'taken', 'picked_up', 'delivered'].includes(j.status);
   const reloadRiderJobs = async () => { try { const r = await sbRpc('business_rider_jobs', session.access_token, {}); setRiderJobs(Array.isArray(r) ? r : []); } catch (e) { /* the next refresh brings it */ } };
   const canUseXorlaRiders = (o) => o.fulfilMode === 'delivery' && !!o.deliveryAddress && !laundryCollect(o) && !isRideJob(o);
@@ -3868,7 +3878,9 @@ function XorlaApp() {
     const sh = locationsAll.find((x) => x.id === (o.shopId || mainShopId)) || {};
     const state = sh.rider_state || 'Abia';
     const lga = sh.rider_lga || guessLga(`${sh.address || ''} ${settings.businessAddress || ''}`, state) || guessLga(o.deliveryAddress, state);
-    setXorlaJobFor({ order: o, state, lga, fee: o.deliveryFee ? String(o.deliveryFee) : '', payHow: 'transfer', note: '', busy: false, error: '' });
+    const dropState = o.dropoffState || state;
+    const dropLga = o.dropoffLga || guessLga(o.deliveryAddress, dropState) || guessLga(o.deliveryZone, dropState);
+    setXorlaJobFor({ order: o, state, lga, dropState, dropLga, est: null, wide: false, fee: o.deliveryFee ? String(o.deliveryFee) : '', payHow: 'transfer', note: '', busy: false, error: '' });
   };
   const postXorlaJob = async () => {
     const f = xorlaJobFor; if (!f || f.busy) return;
@@ -3877,10 +3889,13 @@ function XorlaApp() {
     if (!Number.isFinite(fee) || fee < 100) { setXorlaJobFor({ ...f, error: "Enter what you'll pay the rider (at least ₦100)." }); return; }
     setXorlaJobFor({ ...f, busy: true, error: '' });
     try {
-      await sbRpc('post_rider_job', session.access_token, { p_order: f.order.id, p_fee: fee, p_pay_how: f.payHow, p_state: f.state, p_lga: f.lga, p_note: f.note.trim() });
+      const args = { p_order: f.order.id, p_fee: fee, p_pay_how: f.payHow, p_state: f.state, p_lga: f.lga, p_note: f.note.trim() };
+      if (f.dropLga) Object.assign(args, { p_drop_state: f.dropState, p_drop_lga: f.dropLga, p_wide: !!f.wide });
+      try { await sbRpc('post_rider_job', session.access_token, args); }
+      catch (e) { if (f.dropLga && /p_drop|Could not find the function/i.test(e.message || '')) await sbRpc('post_rider_job', session.access_token, { p_order: f.order.id, p_fee: fee, p_pay_how: f.payHow, p_state: f.state, p_lga: f.lga, p_note: f.note.trim() }); else throw e; }
       setXorlaJobFor(null);
       await reloadRiderJobs(); await loadBusinessData(session.access_token);
-      showAiNotice(`Sent to Xorla riders in ${f.lga}. You'll see who's coming the moment one accepts.`);
+      showAiNotice(f.wide ? `Sent to Xorla riders across ${f.state}. You'll see who's coming the moment one accepts.` : `Sent to Xorla riders in ${f.lga}. If nobody accepts in 10 minutes, riders across ${f.state} who take long trips see it too.`);
     } catch (e) { setXorlaJobFor((x) => x && { ...x, busy: false, error: /post_rider_job|Could not find the function/i.test(e.message || '') ? 'The Xorla rider network needs a quick update first (rider-jobs.sql).' : e.message }); }
   };
   const updateXorlaJob = async (j, action, note = '') => {
@@ -3891,6 +3906,10 @@ function XorlaApp() {
   // Automatic WhatsApp to customers: on when Xorla's line is live and the business hasn't turned it off (the delivery code goes on every plan)
   const waAuto = (kind) => !!waConnected && settings.autoWhatsapp !== false && (kind === 'rider_code' || effPlan !== 'free');
   const waTime = (x) => new Date(x).toLocaleTimeString('en-GB', { ...LAGOS_TIME, hour: 'numeric', minute: '2-digit', hour12: true });
+  const hideXorlaJob = async (j) => {
+    setRiderJobs((list) => list.map((x) => (x.id === j.id ? { ...x, hidden: true } : x)));
+    try { await sbRpc('business_hide_rider_job', session.access_token, { p_job: j.id }); } catch (e) { /* before the update is run: hidden on this screen only */ }
+  };
   const markCodeSent = async (j) => { try { await sbRpc('mark_code_sent', session.access_token, { p_job: j.id }); await reloadRiderJobs(); } catch (e) { /* the button still opened WhatsApp */ } };
   const deliveryCodeMessage = (o, j) => {
     const first = String(o.customerName || '').split(' ')[0] || 'there'; const rFirst = String(j.rider?.name || 'the rider').split(' ')[0];
@@ -3919,6 +3938,30 @@ function XorlaApp() {
             {(NG_LGAS[f.state] || []).map((l) => <option key={l} value={l}>{l}</option>)}
           </BrandSelect>
         </div>
+        <label className="block text-[12.5px] font-semibold mb-1.5">{String(o.customerName).split(' ')[0]}'s town</label>
+        <div className="grid grid-cols-2 gap-2 mb-1">
+          <BrandSelect value={f.dropState} onChange={(e) => set({ dropState: e.target.value, dropLga: '' })} aria-label="Customer's state" className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
+            {NG_STATES.map((st) => <option key={st} value={st}>{st}</option>)}
+          </BrandSelect>
+          <BrandSelect value={f.dropLga} onChange={(e) => set({ dropLga: e.target.value })} aria-label="Customer's local government area" className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
+            <option value="">Choose their area…</option>
+            {(NG_LGAS[f.dropState] || []).map((l) => <option key={l} value={l}>{l}</option>)}
+          </BrandSelect>
+        </div>
+        <div className="text-[11.5px] mb-3" style={{ color: C.inkFaint }}>{o.dropoffLga ? `${String(o.customerName).split(' ')[0]} chose this at checkout.` : 'Riders see the town (never the address) before they accept, so they know how far it is.'}</div>
+        {f.est && f.est.km != null && (() => {
+          const road = Math.max(1, Math.round(Number(f.est.km) * 1.3));
+          const low = fee > 0 && f.est.suggested && fee < f.est.suggested * 0.8;
+          return (
+            <div className="rounded-xl px-3.5 py-3 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2 flex-wrap text-[12.5px]"><MapPin size={14} style={{ color: C.copper }} /><strong>{f.lga} → {f.dropLga}{f.dropState !== f.state ? `, ${f.dropState}` : ''}</strong><span style={{ color: C.inkFaint }}>{Number(f.est.km) === 0 ? 'same area' : `about ${road} km by road`}</span></div>
+              <div className="mt-1.5 flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[12px]" style={{ color: low ? C.rust : C.inkDim }}>{low ? `Low for this trip. A fair fee is about ${fmt(f.est.suggested)}.` : `A fair fee for this trip: about ${fmt(f.est.suggested)}.`}</span>
+                {String(f.est.suggested) !== String(fee) && <button type="button" onClick={() => set({ fee: String(f.est.suggested) })} className="min-h-[32px] px-3 rounded-lg text-[12px] font-semibold" style={{ color: C.copper, border: '1px solid rgba(255,176,32,0.35)' }}>Use {fmt(f.est.suggested)}</button>}
+              </div>
+            </div>
+          );
+        })()}
         <label className="block text-[12.5px] font-semibold mb-1.5">You pay the rider</label>
         <input type="text" inputMode="decimal" placeholder="₦ amount" value={formatNumInput(f.fee || '')} onChange={(e) => set({ fee: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-1" style={field} />
         <div className="text-[11.5px] mb-3" style={{ color: C.inkFaint }}>{o.deliveryFee ? `The customer pays ${fmt(o.deliveryFee)} for delivery.${fee > 0 ? (o.deliveryFee > fee ? ` You keep ${fmt(o.deliveryFee - fee)}.` : o.deliveryFee < fee ? ` That's ${fmt(fee - o.deliveryFee)} more than they pay.` : ' The same as they pay.') : ''}` : 'A fair fee gets a rider faster.'}</div>
@@ -3930,11 +3973,18 @@ function XorlaApp() {
             </button>
           ))}
         </div>
+        <button type="button" role="switch" aria-checked={!!f.wide} onClick={() => set({ wide: !f.wide, wideTouched: true })} className="w-full flex items-start gap-3 rounded-xl px-3.5 py-3 mb-3 text-left" style={{ background: f.wide ? C.copperSoft : C.surfaceRaised, border: `1px solid ${f.wide ? 'rgba(255,176,32,0.35)' : C.line}` }}>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[12.5px] font-semibold" style={{ color: C.ink }}>Show to riders across {f.state} now</span>
+            <span className="block text-[11.5px] mt-0.5 leading-snug" style={{ color: C.inkFaint }}>{f.wide ? `Every rider in ${f.state} who takes long trips sees it straight away.` : `Riders in ${f.lga || 'the pick-up area'} see it first. If nobody accepts in 10 minutes, long-trip riders across ${f.state} see it too.`}{f.est ? ` (${f.est.riders_near} nearby, ${f.est.riders_state} in ${f.state})` : ''}</span>
+          </span>
+          <span className="shrink-0 mt-0.5 w-11 h-6 rounded-full relative" style={{ background: f.wide ? C.copperFill : C.line }}><span className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all" style={{ left: f.wide ? 23 : 3 }} /></span>
+        </button>
         <input type="text" maxLength={200} placeholder="Note for the rider (optional), e.g. call at the gate" value={f.note} onChange={(e) => set({ note: e.target.value })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none mb-3" style={field} />
         <div className="rounded-xl px-3.5 py-2.5 text-[11.5px] leading-relaxed mb-1" style={{ background: C.surfaceRaised, color: C.inkDim }}>Xorla riders don't collect money from customers. Make sure {String(o.customerName).split(' ')[0]} has paid you, or will pay you directly.</div>
         {f.error && <div className="mt-2 rounded-xl px-3.5 py-2.5 text-[12.5px]" style={{ background: C.rustSoft, color: C.rust }}>{f.error}</div>}
         <button onClick={postXorlaJob} disabled={f.busy} className="w-full mt-3 h-12 rounded-xl text-[14px] font-semibold flex items-center justify-center gap-2" style={{ background: C.copperFill, color: C.onAccent, opacity: f.busy ? 0.6 : 1 }}>
-          <Bike size={17} /> {f.busy ? 'Sending…' : `Send to riders${f.lga ? ` in ${f.lga}` : ''}${fee ? ` · ${fmt(fee)}` : ''}`}
+          <Bike size={17} /> {f.busy ? 'Sending…' : `Send to riders${f.wide ? ` across ${f.state}` : f.lga ? ` in ${f.lga}` : ''}${fee ? ` · ${fmt(fee)}` : ''}`}
         </button>
       </Sheet>
     );
@@ -3950,7 +4000,7 @@ function XorlaApp() {
         <div className="mt-2 pt-2" style={{ borderTop: `1px solid ${C.line}` }}>
           <div className="flex items-center gap-2.5">
             <span className="relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperSoft }}><Bike size={17} style={{ color: C.copper }} /><span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full xorla-pulse" style={{ background: C.copperFill }} /></span>
-            <span className="flex-1 min-w-0"><span className="block font-semibold" style={{ color: C.ink }}>Looking for a Xorla rider in {j.pickup_lga}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{fmt(j.fee)} · posted {ago(j.created_at)} · closes in {left} min</span></span>
+            <span className="flex-1 min-w-0"><span className="block font-semibold" style={{ color: C.ink }}>{j.wide_at && new Date(j.wide_at).getTime() <= Date.now() ? `Looking for a Xorla rider across ${j.pickup_state}` : `Looking for a Xorla rider in ${j.pickup_lga}`}</span><span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{j.dropoff_lga ? `To ${j.dropoff_lga}${j.trip_km != null && Number(j.trip_km) > 0 ? ` (about ${Math.round(Number(j.trip_km) * 1.3)} km)` : ''} · ` : ''}{fmt(j.fee)} · posted {ago(j.created_at)} · closes in {left} min</span>{j.wide_at && new Date(j.wide_at).getTime() > Date.now() && <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>Riders across {j.pickup_state} who take long trips see it in {Math.max(1, Math.ceil((new Date(j.wide_at).getTime() - Date.now()) / 60000))} min.</span>}</span>
           </div>
           <button type="button" onClick={() => updateXorlaJob(j, 'cancel')} className="mt-2 text-[11.5px] font-semibold" style={{ color: C.rust }}>Cancel and choose another way</button>
         </div>
@@ -5940,7 +5990,7 @@ function XorlaApp() {
                   {o.fulfilMode === 'delivery' && o.deliveryAddress && (() => { const xj = jobForOrder(o); return (
                     <div className="rounded-xl px-3 py-2.5 mb-3 text-[12.5px]" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                       <div className="flex items-center gap-2 font-semibold" style={{ color: C.ink }}><Truck size={14} style={{ color: C.copper }} /> {laundryCollect(o) ? (o.readyAt ? 'Bringing the laundry back to' : 'Collect the laundry from') : 'Deliver to'}</div>
-                      <div className="mt-0.5 leading-relaxed" style={{ color: C.inkDim }}>{o.deliveryAddress}{o.deliveryZone ? <span style={{ color: C.inkFaint }}> · {o.deliveryZone} area, {fmt(o.deliveryFee)}</span> : null}</div>
+                      <div className="mt-0.5 leading-relaxed" style={{ color: C.inkDim }}>{o.deliveryAddress}{o.dropoffLga ? <span style={{ color: C.inkFaint }}> · {o.dropoffLga}{o.dropoffState ? `, ${o.dropoffState}` : ''}</span> : null}{o.deliveryZone ? <span style={{ color: C.inkFaint }}> · {o.deliveryZone} area, {fmt(o.deliveryFee)}</span> : null}</div>
                       <div className="flex gap-3 mt-1.5">
                         <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.deliveryAddress)}`} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold" style={{ color: C.sage }}>Open in Maps</a>
                         <button onClick={() => copyText(`addr-${o.id}`, `${o.customerName}, ${o.customerPhone}\n${o.deliveryAddress}`)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>{copiedKey === `addr-${o.id}` ? 'Copied' : 'Copy address'}</button>
@@ -5978,7 +6028,7 @@ function XorlaApp() {
                         null
                       ) : o.status === 'pending' && canUseXorlaRiders(o) ? (
                         <>
-                          {xj && ['expired', 'cancelled'].includes(xj.status) && <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>{xj.status === 'expired' ? `No Xorla rider took it at ${fmt(xj.fee)}. Try a higher fee, or your own riders.` : 'The Xorla job was cancelled.'}</div>}
+                          {xj && ['expired', 'cancelled'].includes(xj.status) && !xj.hidden && <div className="mt-2 flex items-start gap-2 text-[11.5px]" style={{ color: C.inkFaint }}><span className="flex-1 min-w-0">{xj.status === 'expired' ? `No Xorla rider took it at ${fmt(xj.fee)}. Try a higher fee, or your own riders.` : 'The Xorla job was cancelled.'}</span><button type="button" onClick={() => hideXorlaJob(xj)} className="shrink-0 font-semibold" style={{ color: C.inkDim }}>Clear</button></div>}
                           {payFirst(o) && <div className="mt-2.5 flex items-center gap-1.5 text-[11.5px] font-semibold" style={{ color: C.copper }}><Lock size={12} /> {o.payStatus === 'requested' ? `Choose a rider once ${firstName(o)} has paid` : 'Get paid first, then choose a rider'}</div>}
                           <div className="grid grid-cols-2 gap-2 mt-2" style={payFirst(o) ? { opacity: 0.55 } : undefined}>
                             <button onClick={() => riderGuard(o, 'xorla')} className="h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent }}><Bike size={14} /> Xorla riders</button>

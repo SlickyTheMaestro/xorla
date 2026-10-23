@@ -282,6 +282,114 @@ function RiderSetup({ withAlerts, alertsOn, onAlerts, alertsBusy }) {
     </div>
   );
 }
+// Where a rider picks up, whether they take long trips, and how far they'll go; moving to another state is a request to the Xorla team
+const RIDER_RANGES = [['nearby', 'Nearby only', 'Drop-offs within about 15 km of the pick-up'], ['state', 'Anywhere in my state', 'Any drop-off in the same state'], ['any', 'Other states too', 'Including trips into another state']];
+function RiderReachSheet({ call, reach, onClose, onSaved }) {
+  const C = RIDER_LIGHT;
+  const [areas, setAreas] = useState(reach.areas || []);
+  const [longTrips, setLongTrips] = useState(!!reach.long_trips);
+  const [range, setRange] = useState(reach.drop_range || 'state');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [moving, setMoving] = useState(false);
+  const [mv, setMv] = useState({ state: '', lga: '', areas: [], address: '', note: '' });
+  const move = reach.move && reach.move.status === 'pending' ? reach.move : null;
+  const lastMove = reach.move && reach.move.status !== 'pending' && reach.move.decided_at && Date.now() - new Date(reach.move.decided_at).getTime() < 14 * 864e5 ? reach.move : null;
+  const field = { background: C.field, border: `1.5px solid ${C.field}`, color: C.ink };
+  const chip = (on) => (on ? { background: C.copper, color: '#fff', border: `1px solid ${C.copper}` } : { background: C.surface, color: C.inkDim, border: `1px solid ${C.lineStrong}` });
+  const toggle = (list, set, l) => set(list.includes(l) ? list.filter((x) => x !== l) : list.length >= 12 ? list : [...list, l]);
+  const save = async () => {
+    if (!areas.length) { setErr('Choose at least one area you pick up from.'); return; }
+    setBusy(true); setErr('');
+    try { const r = await call('rider_set_reach', { p_areas: areas, p_long_trips: longTrips, p_drop_range: range }); onSaved({ ...reach, ...r }, 'Saved. You\'ll see jobs from your new areas.'); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const sendMove = async () => {
+    setBusy(true); setErr('');
+    try { const m = await call('rider_request_move', { p_state: mv.state, p_lga: mv.lga, p_areas: mv.areas.length ? mv.areas : [mv.lga], p_address: mv.address.trim(), p_note: mv.note.trim() }); onSaved({ ...reach, move: m }, 'Sent. The Xorla team will check it and let you know.'); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const withdraw = async () => {
+    setBusy(true);
+    try { await call('rider_withdraw_move', {}); onSaved({ ...reach, move: { ...move, status: 'withdrawn' } }, 'Move request withdrawn.'); } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center" style={{ background: 'rgba(11,43,38,0.45)', fontFamily: RIDER_FONT }} onClick={() => !busy && onClose()}>
+      <div role="dialog" aria-modal="true" aria-label="Where you ride" className="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-t-[26px] sm:rounded-[26px] p-5" style={{ background: C.bg, color: C.ink }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="flex-1 text-[19px] font-bold" style={{ fontFamily: RIDER_DISPLAY, letterSpacing: '-0.03em' }}>{moving ? 'Moving to another state' : 'Where you ride'}</div>
+          <button type="button" aria-label="Close" onClick={() => (moving ? setMoving(false) : onClose())} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: C.chip }}><X size={16} /></button>
+        </div>
+        {!moving ? (
+          <>
+            <div className="text-[12.5px] mb-4" style={{ color: C.inkDim }}>{reach.state}. You can change this any time.</div>
+            <div className="text-[13px] font-bold mb-1">Areas you pick up from</div>
+            <div className="text-[12px] mb-2" style={{ color: C.inkFaint }}>Jobs from shops in these areas reach you first. Up to 12.</div>
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {(NG_LGAS[reach.state] || []).map((l) => <button key={l} type="button" aria-pressed={areas.includes(l)} onClick={() => toggle(areas, setAreas, l)} className="min-h-[34px] px-3 rounded-full text-[12.5px] font-semibold" style={chip(areas.includes(l))}>{l}</button>)}
+            </div>
+            <button type="button" role="switch" aria-checked={longTrips} onClick={() => setLongTrips(!longTrips)} className="w-full flex items-start gap-3 rounded-2xl px-4 py-3 mb-4 text-left" style={{ background: longTrips ? C.mint : C.surface, border: `1px solid ${C.line}` }}>
+              <span className="flex-1 min-w-0"><span className="block text-[13.5px] font-bold">Also show me long trips across {reach.state}</span><span className="block text-[12px] mt-0.5" style={{ color: C.inkDim }}>Jobs from other areas that no nearby rider took in 10 minutes. You'd ride to the pick-up first.</span></span>
+              <span className="shrink-0 mt-0.5 w-11 h-6 rounded-full relative" style={{ background: longTrips ? C.sage : C.track }}><span className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all" style={{ left: longTrips ? 23 : 3 }} /></span>
+            </button>
+            <div className="text-[13px] font-bold mb-2">How far you'll go to drop off</div>
+            <div className="space-y-2 mb-4" role="radiogroup">
+              {RIDER_RANGES.map(([v, l, d]) => (
+                <button key={v} type="button" role="radio" aria-checked={range === v} onClick={() => setRange(v)} className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left" style={{ background: C.surface, border: `1.5px solid ${range === v ? C.copper : C.line}` }}>
+                  <span className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center" style={{ border: `2px solid ${range === v ? C.copper : C.lineStrong}` }}>{range === v && <span className="w-2.5 h-2.5 rounded-full" style={{ background: C.copper }} />}</span>
+                  <span className="min-w-0"><span className="block text-[13.5px] font-semibold">{l}</span><span className="block text-[12px]" style={{ color: C.inkFaint }}>{d}</span></span>
+                </button>
+              ))}
+            </div>
+            {err && <div className="mb-3 text-[12.5px] font-semibold" style={{ color: C.rust }}>{err}</div>}
+            <button type="button" disabled={busy} onClick={save} className="w-full h-12 rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: C.copper, color: '#fff', opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={16} className="animate-spin" /> : null}Save</button>
+            <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
+              {move ? (
+                <div className="rounded-2xl px-4 py-3" style={{ background: 'rgba(245,163,0,0.12)' }}>
+                  <div className="text-[13px] font-bold">Move to {move.to_lga}, {move.to_state}: waiting for the Xorla team</div>
+                  <div className="text-[12px] mt-0.5" style={{ color: C.inkDim }}>You keep getting jobs in {reach.state} until it's approved. We may call you or your guarantor.</div>
+                  <button type="button" disabled={busy} onClick={withdraw} className="mt-2 text-[12.5px] font-semibold" style={{ color: C.rust }}>Withdraw the request</button>
+                </div>
+              ) : (
+                <>
+                  {lastMove && <div className="mb-2 text-[12.5px]" style={{ color: lastMove.status === 'approved' ? C.sage : C.inkDim }}>{lastMove.status === 'approved' ? `Your move to ${lastMove.to_state} was approved.` : lastMove.status === 'declined' ? `Your move to ${lastMove.to_state} wasn't approved${lastMove.decision_note ? `: ${lastMove.decision_note}` : ''}.` : ''}</div>}
+                  <button type="button" onClick={() => { setMoving(true); setErr(''); }} className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                    <MapPin size={17} style={{ color: C.copper }} /><span className="flex-1 min-w-0"><span className="block text-[13.5px] font-semibold">I've moved to another state</span><span className="block text-[12px]" style={{ color: C.inkFaint }}>The Xorla team checks it, then your jobs move with you</span></span><ChevronRight size={16} />
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-[12.5px] mb-4 leading-relaxed" style={{ color: C.inkDim }}>Your checks were done for {reach.state}, so the Xorla team looks at a move first. Until then you keep getting jobs in {reach.state}.</div>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <BrandSelect palette={RIDER_LIGHT} value={mv.state} onChange={(e) => setMv({ ...mv, state: e.target.value, lga: '', areas: [] })} aria-label="New state" className="w-full min-w-0 rounded-xl px-3 py-3 text-[14px] outline-none" style={field}>
+                <option value="">New state</option>
+                {NG_STATES.filter((x) => x !== reach.state).map((x) => <option key={x} value={x}>{x}</option>)}
+              </BrandSelect>
+              <BrandSelect palette={RIDER_LIGHT} value={mv.lga} onChange={(e) => setMv({ ...mv, lga: e.target.value, areas: mv.areas.length ? mv.areas : [e.target.value] })} aria-label="Where you now live" className="w-full min-w-0 rounded-xl px-3 py-3 text-[14px] outline-none" style={field} disabled={!mv.state}>
+                <option value="">Where you live</option>
+                {(NG_LGAS[mv.state] || []).map((l) => <option key={l} value={l}>{l}</option>)}
+              </BrandSelect>
+            </div>
+            {mv.state && (
+              <>
+                <div className="text-[13px] font-bold mb-2">Areas you'll pick up from</div>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {(NG_LGAS[mv.state] || []).map((l) => <button key={l} type="button" aria-pressed={mv.areas.includes(l)} onClick={() => setMv({ ...mv, areas: mv.areas.includes(l) ? mv.areas.filter((x) => x !== l) : mv.areas.length >= 12 ? mv.areas : [...mv.areas, l] })} className="min-h-[34px] px-3 rounded-full text-[12.5px] font-semibold" style={chip(mv.areas.includes(l))}>{l}</button>)}
+                </div>
+              </>
+            )}
+            <input type="text" maxLength={200} value={mv.address} onChange={(e) => setMv({ ...mv, address: e.target.value })} placeholder="Your new home address" className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none mb-2" style={field} />
+            <input type="text" maxLength={300} value={mv.note} onChange={(e) => setMv({ ...mv, note: e.target.value })} placeholder="Anything we should know (optional)" className="w-full rounded-xl px-3.5 py-3 text-[14px] outline-none mb-3" style={field} />
+            {err && <div className="mb-3 text-[12.5px] font-semibold" style={{ color: C.rust }}>{err}</div>}
+            <button type="button" disabled={busy || !mv.state || !mv.lga || mv.address.trim().length < 8} onClick={sendMove} className="w-full h-12 rounded-2xl text-[15px] font-bold flex items-center justify-center gap-2" style={{ background: C.copper, color: '#fff', opacity: busy || !mv.state || !mv.lga || mv.address.trim().length < 8 ? 0.5 : 1 }}>{busy ? <Loader2 size={16} className="animate-spin" /> : null}Send to the Xorla team</button>
+          </>
+        )}
+      </div>
+    </div>, document.body);
+}
 function RiderWork({ call, me, photo, token }) {
   const C = RIDER_LIGHT;
   const first = String(me.full_name || '').split(' ')[0];
@@ -341,6 +449,11 @@ function RiderWork({ call, me, photo, token }) {
     } catch (e) { setNote(e.message); }
   };
   const [alertsBusy, setAlertsBusy] = useState(false);
+  const [reach, setReach] = useState(null);        // areas, long trips, how far, and any move request
+  const [reachOpen, setReachOpen] = useState(false);
+  const [hiddenIds, setHiddenIds] = useState([]);
+  useEffect(() => { call('rider_reach').then((r) => r && setReach(r)).catch(() => setReach(null)); }, [call]);
+  const hideJob = (j) => { setHiddenIds((x) => [...x, j.id]); call('rider_job_act', { p_job: j.id, p_action: 'hide', p_code: null, p_note: null }).catch(() => {}); };
   const saveSub = useCallback(async () => {
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
@@ -399,6 +512,17 @@ function RiderWork({ call, me, photo, token }) {
         </button>
       </div>
       <RiderSetup withAlerts alertsOn={alerts} onAlerts={turnOnAlerts} alertsBusy={alertsBusy} />
+      {reach && (
+        <button type="button" onClick={() => setReachOpen(true)} className="mt-3 w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <MapPin size={17} className="shrink-0" style={{ color: C.copper }} />
+          <span className="flex-1 min-w-0">
+            <span className="block text-[13px] font-semibold truncate">You pick up in {(reach.areas || []).slice(0, 2).join(', ')}{(reach.areas || []).length > 2 ? ` +${reach.areas.length - 2}` : ''}</span>
+            <span className="block text-[11.5px]" style={{ color: C.inkFaint }}>{reach.long_trips ? `Long trips across ${reach.state} on` : 'Long trips off'} · drop-offs: {(RIDER_RANGES.find((x) => x[0] === reach.drop_range) || RIDER_RANGES[1])[1].toLowerCase()}{reach.move?.status === 'pending' ? ' · move waiting' : ''}</span>
+          </span>
+          <span className="text-[12.5px] font-bold shrink-0" style={{ color: C.copper }}>Change</span>
+        </button>
+      )}
+      {reachOpen && reach && <RiderReachSheet call={call} reach={reach} onClose={() => setReachOpen(false)} onSaved={(r, msg) => { setReach(r); setReachOpen(false); setNote(msg); refresh(); }} />}
       <div className="mt-4 grid grid-cols-3 gap-1 p-1 rounded-2xl" style={{ background: C.chip }} role="tablist">
         {tabs.map(([id, l, n]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className="h-10 rounded-xl text-[12.5px] font-bold flex items-center justify-center gap-1.5" style={tab === id ? { background: C.surface, color: C.ink, boxShadow: '0 1px 3px rgba(11,43,38,0.12)' } : { color: C.inkDim }}>
@@ -423,7 +547,12 @@ function RiderWork({ call, me, photo, token }) {
                 <div className="min-w-0">
                   <div className="text-[11.5px] font-semibold" style={{ color: C.inkFaint }}>{jobAgo(j.created_at)} · {payLabel(j)}</div>
                   <div className="mt-1 text-[15.5px] font-bold leading-snug">{j.pickup_name}</div>
-                  <div className="mt-1 text-[13px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkDim }}><MapPin size={13} style={{ color: C.sage }} /> {j.pickup_lga}<ArrowRight size={13} /> {j.dropoff_area || 'Nearby'}</div>
+                  <div className="mt-1 text-[13px] flex items-center gap-1.5 flex-wrap" style={{ color: C.inkDim }}><MapPin size={13} style={{ color: C.sage }} /> {j.pickup_lga}<ArrowRight size={13} /> {j.dropoff_lga ? `${j.dropoff_lga}${j.dropoff_state && j.dropoff_state !== j.pickup_state ? `, ${j.dropoff_state}` : ''}` : (j.dropoff_area || 'Nearby')}</div>
+                  <div className="mt-1 flex items-center gap-2 flex-wrap text-[12px]">
+                    {j.trip_km != null && <span className="font-semibold" style={{ color: C.ink }}>{Number(j.trip_km) === 0 ? 'Same area' : `About ${Math.max(1, Math.round(Number(j.trip_km) * 1.3))} km`}</span>}
+                    {j.wide && !(reach?.areas || me.areas || []).includes(j.pickup_lga) && <Pill tone="amber">Long trip</Pill>}
+                    {j.dropoff_lga && <a href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(`${j.pickup_lga}, ${j.pickup_state}, Nigeria`)}&destination=${encodeURIComponent(`${j.dropoff_lga}, ${j.dropoff_state || j.pickup_state}, Nigeria`)}&travelmode=driving`} target="_blank" rel="noopener noreferrer" className="font-semibold underline" style={{ color: C.sage }}>See route</a>}
+                  </div>
                   {j.package && <div className="mt-1 text-[12.5px] truncate" style={{ color: C.inkFaint }}><Package size={12} className="inline mr-1" />{j.package}</div>}
                 </div>
                 <div className="text-right shrink-0"><div className="text-[24px] font-bold leading-none" style={{ fontFamily: RIDER_DISPLAY, letterSpacing: '-0.04em' }}>{fmt(j.fee)}</div><div className="text-[11px] mt-1" style={{ color: C.inkFaint }}>you earn</div></div>
@@ -486,8 +615,11 @@ function RiderWork({ call, me, photo, token }) {
               </div>
             );
           })}
-          {jobs.filter((j) => j.status === 'cancelled' && Date.now() - new Date(j.cancelled_at).getTime() < 6 * 3600000).map((j) => (
-            <div key={j.id} className="rounded-2xl px-4 py-3 text-[13px]" style={{ background: C.rustSoft, color: C.rust }}><strong>{j.pickup_name} cancelled a job</strong>{j.cancel_reason ? `: ${j.cancel_reason}` : ''}. Don't go for the pick-up.</div>
+          {jobs.filter((j) => j.status === 'cancelled' && !hiddenIds.includes(j.id) && Date.now() - new Date(j.cancelled_at).getTime() < 6 * 3600000).map((j) => (
+            <div key={j.id} className="rounded-2xl pl-4 pr-2 py-2.5 text-[13px] flex items-start gap-2" style={{ background: C.rustSoft, color: C.rust }}>
+              <span className="flex-1 min-w-0 py-0.5"><strong>{j.pickup_name} cancelled a job</strong>{j.cancel_reason ? `: ${j.cancel_reason}` : ''}. Don't go for the pick-up.</span>
+              <button type="button" onClick={() => hideJob(j)} aria-label="Clear" className="shrink-0 min-h-[32px] px-2.5 rounded-lg text-[12px] font-bold" style={{ color: C.rust }}>Clear</button>
+            </div>
           ))}
         </div>
       )}
