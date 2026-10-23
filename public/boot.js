@@ -1,0 +1,5 @@
+// Runs before the page paints (loaded from index.html, not inline, so the Content-Security-Policy can block inline scripts)
+// 1. Rider pages install as their own app ("Xorla Rider"), opening straight to the jobs screen
+try { if (/^\/(ride|riders?)\/?$/.test(location.pathname)) { document.querySelector('link[rel="manifest"]').setAttribute('href', '/manifest-rider.json'); var am = document.createElement('meta'); am.name = 'apple-mobile-web-app-title'; am.content = 'Xorla Rider'; document.head.appendChild(am); } } catch (e) {}
+// 2. Light or dark mode before the page paints, so there's no flash (owner/staff app and founder dashboard only)
+try { var xp = location.pathname.replace(/\/+$/, ''); if (xp === '' || xp === '/login' || xp === '/admin') { var xt = localStorage.getItem('xorla:theme'); if (xt === 'auto') xt = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; if (xt === 'light') { document.documentElement.setAttribute('data-xt', 'light'); var tc = document.querySelector('meta[name="theme-color"]'); if (tc) tc.setAttribute('content', '#F1F5F2'); } } } catch (e) {}

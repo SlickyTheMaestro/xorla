@@ -14,7 +14,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(caches.open(SHELL).then(async (c) => {
     try { const r = await fetch('/', { cache: 'no-store' }); if (r.ok) await c.put(PAGE_KEY, r); } catch (e) {}
-    try { await c.add('/manifest.json'); } catch (e) {}
+    try { await c.addAll(['/manifest.json', '/manifest-rider.json', '/boot.js']); } catch (e) {}
   }));
 });
 self.addEventListener('activate', (event) => {
@@ -67,7 +67,7 @@ self.addEventListener('fetch', (event) => {
   if (url.origin === self.location.origin) {
     if (req.mode === 'navigate') { event.respondWith(pageRequest(event)); return; }
     if (url.pathname.startsWith('/assets/')) { event.respondWith(cacheFirst(req, ASSETS, 120)); return; }
-    if (/\.(png|jpg|jpeg|svg|ico|webp|json|webmanifest)$/.test(url.pathname) && url.pathname !== '/sw.js') { event.respondWith(staleWhileRevalidate(req, SHELL)); return; }
+    if ((/\.(png|jpg|jpeg|svg|ico|webp|json|webmanifest)$/.test(url.pathname) || url.pathname === '/boot.js') && url.pathname !== '/sw.js') { event.respondWith(staleWhileRevalidate(req, SHELL)); return; }
     return;
   }
   // Product and logo pictures stored in Xorla's database storage (public links only, never private documents)
