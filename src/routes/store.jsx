@@ -1281,12 +1281,12 @@ function Storefront({ businessCode }) {
                   const guessState = () => { const a = `${currentStoreShop?.address || ''} ${business?.address || ''}`.toLowerCase(); if (!a.trim()) return ''; return NG_STATES.find((st) => a.includes(st.toLowerCase().replace(/ \(.*\)$/, ''))) || NG_STATES.find((st) => (NG_LGAS[st] || []).some((l) => { const w = l.toLowerCase().split(/[\s-]/)[0]; return w.length >= 4 && new RegExp(`\\b${w}\\b`).test(a); })) || ''; };
                   const st = dropState || guessState();
                   return (
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      <select id="sf-drop-state" aria-label="Your state" value={st} onChange={(e) => { setDropState(e.target.value); setDropLga(''); }} className={`w-full min-w-0 rounded-xl px-3 py-3 text-[15px] ${focusRing}`} style={{ ...inputStyle, color: st ? S.ink : S.muted }}>
+                    <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2 mt-2">
+                      <select id="sf-drop-state" aria-label="Your state" value={st} onChange={(e) => { setDropState(e.target.value); setDropLga(''); }} className={`w-full min-w-0 rounded-xl pl-3 pr-8 py-3 text-[15px] truncate ${focusRing}`} style={{ ...inputStyle, color: st ? S.ink : S.muted }}>
                         <option value="">Your state</option>
                         {NG_STATES.map((x) => <option key={x} value={x}>{x}</option>)}
                       </select>
-                      <select id="sf-drop-lga" aria-label="Your local government area" value={dropLga} onChange={(e) => { setDropState(st); setDropLga(e.target.value); }} disabled={!st} className={`w-full min-w-0 rounded-xl px-3 py-3 text-[15px] ${focusRing}`} style={{ ...inputStyle, color: dropLga ? S.ink : S.muted }}>
+                      <select id="sf-drop-lga" aria-label="Your local government area" value={dropLga} onChange={(e) => { setDropState(st); setDropLga(e.target.value); }} disabled={!st} className={`w-full min-w-0 rounded-xl pl-3 pr-8 py-3 text-[15px] truncate ${focusRing}`} style={{ ...inputStyle, color: dropLga ? S.ink : S.muted }}>
                         <option value="">Your area (LGA)</option>
                         {(NG_LGAS[st] || []).map((l) => <option key={l} value={l}>{l}</option>)}
                       </select>
@@ -1297,7 +1297,7 @@ function Storefront({ businessCode }) {
                 <input id="sf-landmark" value={deliverLandmark} onChange={(e) => setDeliverLandmark(e.target.value.slice(0, 70))} placeholder="Landmark (optional), e.g. opposite First Bank" className={`w-full mt-2 rounded-xl px-4 py-3 text-[15px] ${focusRing}`} style={inputStyle} />
                 {(() => { const z = storeZones.find((x) => x.id === zoneId); return z
                   ? <div className="text-[12.5px] mt-1.5" style={{ color: S.ink }}>Delivery to {z.name}: <strong>{Number(z.fee) > 0 ? fmt(z.fee) : 'free'}</strong>. Total with delivery: <strong>{fmt(payable + Number(z.fee))}</strong>.</div>
-                  : <div className="text-[12px] mt-1" style={{ color: S.muted }}>{business.name} confirms the delivery fee before you pay.</div>; })()}
+                  : <div className="text-[12px] mt-1" style={{ color: S.muted }}>{business.name} tells you the delivery fee{dropLga ? ` to ${dropLga}` : ''} before you pay. You pay only once you agree.</div>; })()}
               </>
             )}
           </div>

@@ -3435,7 +3435,25 @@ function XorlaApp() {
     );
   };
   // Online payment for storefront orders: the business confirms the order (adding delivery if any), then the customer pays on their order page
-  const [payAsk, setPayAsk] = useState(null); // { order, fee, busy, error }
+  const [payAsk, setPayAsk] = useState(null); // { order, fee, busy, error, (delivery) dropState, dropLga, est }
+  // Delivery orders: before asking for payment, show how far it is and a fair delivery fee
+  useEffect(() => {
+    const p = payAsk; if (!p || !session?.access_token || p.order?.fulfilMode !== 'delivery') return undefined;
+    const from = pickupAreaOf(p.order);
+    if (!from.lga || !p.dropLga) { if (p.est) setPayAsk((x) => x && { ...x, est: null }); return undefined; }
+    let off = false;
+    sbRpc('rider_trip_estimate', session.access_token, { p_state: from.state, p_lga: from.lga, p_drop_state: p.dropState, p_drop_lga: p.dropLga })
+      .then((e) => { if (!off) setPayAsk((x) => (x && x.dropLga === p.dropLga && x.dropState === p.dropState ? { ...x, est: e ? { ...e, from } : null } : x)); })
+      .catch(() => {});
+    return () => { off = true; };
+  }, [payAsk?.dropState, payAsk?.dropLga, !!payAsk]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openPayAsk = (o) => {
+    if (o.fulfilMode !== 'delivery') { setPayAsk({ order: o, fee: '', busy: false, error: '' }); return; }
+    const from = pickupAreaOf(o);
+    const dropState = o.dropoffState || from.state;
+    const dropLga = o.dropoffLga || guessLga(o.deliveryAddress, dropState) || guessLga(o.deliveryZone, dropState);
+    setPayAsk({ order: o, fee: o.deliveryFee ? String(o.deliveryFee) : '', dropState, dropLga, est: null, busy: false, error: '' });
+  };
   const [depAsk, setDepAsk] = useState(null);  // appointments: { order, amount, busy, error } — part of the price online to keep the time
   const orderLinkOf = (o) => (o.payToken ? `${window.location.origin}/order/${o.payToken}` : '');
   const refreshOrder = async (id) => {
@@ -3570,6 +3588,9 @@ function XorlaApp() {
     const fee = Math.max(0, Number(parseNumInput(payAsk.fee)) || 0);
     setPayAsk({ ...payAsk, busy: true, error: '' });
     try {
+      if (payAsk.dropLga && payAsk.order.payToken && (payAsk.dropLga !== payAsk.order.dropoffLga || payAsk.dropState !== payAsk.order.dropoffState)) {
+        await sbRpc('set_order_dropoff', session.access_token, { p_token: payAsk.order.payToken, p_state: payAsk.dropState, p_lga: payAsk.dropLga }).catch(() => {});
+      }
       await sbRpc('request_order_payment', session.access_token, { p_order: payAsk.order.id, p_delivery_fee: fee });
       const fresh = (await refreshOrder(payAsk.order.id)) || payAsk.order;
       setPayAsk(null);
@@ -3874,10 +3895,26 @@ function XorlaApp() {
   const reloadRiderJobs = async () => { try { const r = await sbRpc('business_rider_jobs', session.access_token, {}); setRiderJobs(Array.isArray(r) ? r : []); } catch (e) { /* the next refresh brings it */ } };
   const canUseXorlaRiders = (o) => o.fulfilMode === 'delivery' && !!o.deliveryAddress && !laundryCollect(o) && !isRideJob(o);
   const guessLga = (text, state) => (NG_LGAS[state] || []).find((l) => new RegExp(`\\b${l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(String(text || ''))) || '';
-  const openXorlaJob = (o) => {
+  // A state and area from an address: a full area name ("Umuahia North"), else a town word ("Umuahia", "Ikeja"), else a state name
+  const guessArea = (text) => {
+    const t = String(text || '');
+    const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    for (const st of NG_STATES) for (const l of NG_LGAS[st] || []) if (new RegExp(`\\b${esc(l)}\\b`, 'i').test(t)) return { state: st, lga: l };
+    for (const st of NG_STATES) for (const l of NG_LGAS[st] || []) { const w = l.split(/[\s-]/)[0]; if (w.length >= 5 && new RegExp(`\\b${esc(w)}\\b`, 'i').test(t)) return { state: st, lga: l }; }
+    const st = NG_STATES.find((x) => new RegExp(`\\b${esc(x.replace(/ \(.*\)$/, ''))}\\b`, 'i').test(t));
+    return { state: st || '', lga: '' };
+  };
+  // Where the rider picks up: the branch's saved area, or a guess from its address
+  const pickupAreaOf = (o) => {
     const sh = locationsAll.find((x) => x.id === (o.shopId || mainShopId)) || {};
-    const state = sh.rider_state || 'Abia';
-    const lga = sh.rider_lga || guessLga(`${sh.address || ''} ${settings.businessAddress || ''}`, state) || guessLga(o.deliveryAddress, state);
+    if (sh.rider_state && sh.rider_lga) return { state: sh.rider_state, lga: sh.rider_lga };
+    const g = guessArea(`${sh.address || ''} ${settings.businessAddress || ''}`);
+    const state = sh.rider_state || g.state || 'Abia';
+    return { state, lga: sh.rider_lga || (g.state === state ? g.lga : '') || guessLga(`${sh.address || ''}`, state) || '' };
+  };
+  const openXorlaJob = (o) => {
+    const { state, lga: lga0 } = pickupAreaOf(o);
+    const lga = lga0 || guessLga(o.deliveryAddress, state);
     const dropState = o.dropoffState || state;
     const dropLga = o.dropoffLga || guessLga(o.deliveryAddress, dropState) || guessLga(o.deliveryZone, dropState);
     setXorlaJobFor({ order: o, state, lga, dropState, dropLga, est: null, wide: false, fee: o.deliveryFee ? String(o.deliveryFee) : '', payHow: 'transfer', note: '', busy: false, error: '' });
@@ -3952,6 +3989,9 @@ function XorlaApp() {
         {f.est && f.est.km != null && (() => {
           const road = Math.max(1, Math.round(Number(f.est.km) * 1.3));
           const low = fee > 0 && f.est.suggested && fee < f.est.suggested * 0.8;
+          if (!f.est.suggested) return (
+            <div className="rounded-xl px-3.5 py-3 mb-3 text-[12px] leading-snug" style={{ background: C.copperSoft, color: C.ink }}><strong>{f.lga} → {f.dropLga}{f.dropState !== f.state ? `, ${f.dropState}` : ''}: about {road} km.</strong> That's a long way for a rider. Only riders who take trips to other states will see it; a park or courier may suit it better.</div>
+          );
           return (
             <div className="rounded-xl px-3.5 py-3 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
               <div className="flex items-center gap-2 flex-wrap text-[12.5px]"><MapPin size={14} style={{ color: C.copper }} /><strong>{f.lga} → {f.dropLga}{f.dropState !== f.state ? `, ${f.dropState}` : ''}</strong><span style={{ color: C.inkFaint }}>{Number(f.est.km) === 0 ? 'same area' : `about ${road} km by road`}</span></div>
@@ -4127,7 +4167,42 @@ function XorlaApp() {
           ))}
           {off > 0 && <div className="flex items-center justify-between gap-3 px-3 py-2.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}`, color: C.sage }}><span>Discount ({o.discountCode})</span><span className="cx-mono font-semibold">{fmt(-off)}</span></div>}
         </div>
-        <label className="block text-[12.5px] font-semibold mb-1.5">Delivery fee <span className="font-normal" style={{ color: C.inkFaint }}>(leave empty for pickup)</span></label>
+        {o.fulfilMode === 'delivery' && (() => {
+          const first = String(o.customerName || '').split(' ')[0] || 'The customer';
+          const e = payAsk.est; const road = e && e.km != null ? Math.max(1, Math.round(Number(e.km) * 1.3)) : null;
+          const other = e && e.from && payAsk.dropState !== e.from.state;
+          const low = e && e.suggested && fee > 0 && fee < e.suggested * 0.8;
+          const sel = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink, colorScheme: 'var(--c-scheme)' };
+          return (
+            <div className="mb-3">
+              <div className="text-[12.5px] font-semibold mb-1">Delivering to</div>
+              <div className="text-[12.5px] mb-2 leading-snug" style={{ color: C.inkDim }}>{o.deliveryAddress}{o.deliveryZone ? ` · ${o.deliveryZone} area` : ''}</div>
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2 mb-2">
+                <BrandSelect value={payAsk.dropState} onChange={(ev) => setPayAsk({ ...payAsk, dropState: ev.target.value, dropLga: '', est: null })} aria-label={`${first}'s state`} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={sel}>
+                  {NG_STATES.map((st) => <option key={st} value={st}>{st}</option>)}
+                </BrandSelect>
+                <BrandSelect value={payAsk.dropLga || ''} onChange={(ev) => setPayAsk({ ...payAsk, dropLga: ev.target.value, est: null })} aria-label={`${first}'s area`} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={sel}>
+                  <option value="">Their area (LGA)…</option>
+                  {(NG_LGAS[payAsk.dropState] || []).map((l) => <option key={l} value={l}>{l}</option>)}
+                </BrandSelect>
+              </div>
+              {!payAsk.dropLga ? (
+                <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Choose {first}'s area to see how far it is and a fair delivery fee.</div>
+              ) : e && road != null ? (
+                <div className="rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                  <div className="flex items-center gap-2 flex-wrap text-[12.5px]"><MapPin size={14} style={{ color: C.copper }} /><strong>{e.from.lga} → {payAsk.dropLga}{other ? `, ${payAsk.dropState}` : ''}</strong><span style={{ color: C.inkFaint }}>{Number(e.km) === 0 ? 'same area' : `about ${road} km by road`}</span></div>
+                  {!e.suggested ? <div className="mt-1.5 text-[12px] leading-snug" style={{ color: C.inkDim }}>That's a long way for a rider. Get a price from a park, courier or interstate dispatch, then enter it below, so {first} pays the right amount before anything is sent.</div> : (
+                  <div className="mt-1.5 flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[12px]" style={{ color: low ? C.rust : C.inkDim }}>{low ? `Low for this distance. A fair delivery fee is about ${fmt(e.suggested)}.` : `A fair delivery fee: about ${fmt(e.suggested)}.`}</span>
+                    {String(e.suggested) !== String(fee) && <button type="button" onClick={() => setPayAsk({ ...payAsk, fee: String(e.suggested) })} className="min-h-[32px] px-3 rounded-lg text-[12px] font-semibold" style={{ color: C.copper, border: '1px solid rgba(255,176,32,0.35)' }}>Use {fmt(e.suggested)}</button>}
+                  </div>)}
+                  {other && e.suggested && <div className="mt-1.5 text-[11.5px] leading-snug" style={{ color: C.inkFaint }}>Another state: only Xorla riders who take trips to other states will see it.</div>}
+                </div>
+              ) : null}
+            </div>
+          );
+        })()}
+        <label className="block text-[12.5px] font-semibold mb-1.5">Delivery fee {o.fulfilMode === 'delivery' ? <span className="font-normal" style={{ color: C.inkFaint }}>(what {String(o.customerName || '').split(' ')[0] || 'they'} pays for delivery)</span> : <span className="font-normal" style={{ color: C.inkFaint }}>(leave empty for pickup)</span>}</label>
         <input type="text" inputMode="decimal" placeholder="₦0" value={formatNumInput(payAsk.fee)} onChange={(e) => setPayAsk({ ...payAsk, fee: parseNumInput(e.target.value) })} className="w-full rounded-xl px-3.5 py-2.5 text-sm outline-none cx-mono mb-3" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} />
         <div className="rounded-xl px-3.5 py-3 flex items-center justify-between mb-2" style={{ background: C.surfaceRaised }}>
           <span className="text-[13px] font-semibold">They'll pay</span>
@@ -6252,7 +6327,7 @@ function XorlaApp() {
                         sec.push({ label: 'Send link', tone: 'accent', onClick: () => sendPayLink(o) });
                         sec.push({ label: 'Change', title: 'Change the delivery fee', onClick: () => setPayAsk({ order: o, fee: o.deliveryFee ? String(o.deliveryFee) : '', busy: false, error: '' }) });
                       } else if (!o.payStatus && settings.payout && o.payToken && !(apptMode && servicesOnly(o))) {
-                        sec.push({ label: 'Ask to pay online', tone: 'accent', onClick: () => setPayAsk({ order: o, fee: '', busy: false, error: '' }) });
+                        sec.push({ label: 'Ask to pay online', tone: 'accent', onClick: () => openPayAsk(o) });
                       } else if (!o.payStatus && settings.payout && o.payToken && canRun && !needsPrice(o)) {
                         sec.push({ label: 'Ask for payment', tone: 'accent', title: 'Optional: a deposit to get started, or the full price, paid online', onClick: () => openDeposit(o) });
                       }
@@ -6280,7 +6355,7 @@ function XorlaApp() {
                       const outIdx = primary && primary.label === 'Out for delivery' ? true : false;
                       for (let k = sec.length - 1; k >= 0; k--) if (['Ask to pay online', 'Send link'].includes(sec[k].label)) sec.splice(k, 1);
                       if (o.payStatus === 'requested') { primary = { label: o.waSent?.pay_link?.ok ? 'Send link again' : 'Send payment link', onClick: () => sendPayLink(o) }; sec.push({ label: "They've paid", tone: 'accent', title: 'They paid by transfer or cash instead', onClick: () => confirmTransfer(o) }); }
-                      else if (canPayOnline(o)) { primary = { label: 'Ask to pay online', onClick: () => setPayAsk({ order: o, fee: '', busy: false, error: '' }) }; sec.push({ label: "They've paid", tone: 'accent', title: 'They paid by transfer or cash', onClick: () => confirmTransfer(o) }); }
+                      else if (canPayOnline(o)) { primary = { label: 'Ask to pay online', onClick: () => openPayAsk(o) }; sec.push({ label: "They've paid", tone: 'accent', title: 'They paid by transfer or cash', onClick: () => confirmTransfer(o) }); }
                       else { primary = { label: "They've paid", onClick: () => confirmTransfer(o) }; if (o.customerPhone) sec.push({ label: 'Send bank details', tone: 'accent', href: `https://wa.me/${toWhatsAppNumber(o.customerPhone)}?text=${encodeURIComponent(payFirstMessage(o))}` }); }
                       if (outIdx) sec.push(unsafe('Out for delivery'));
                       note = '';
