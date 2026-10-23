@@ -1,5 +1,5 @@
 // Xorla: business screens (loaded only when needed). Shared code lives in ../App.jsx.
-import { Sun, Moon, Smartphone, Check, Search, Loader2, Lock, Delete, ChevronLeft, Users, Store, Bike, ChevronRight, Clock, Settings, ShieldCheck, Sparkles, X, ArrowRight, CloudUpload, WifiOff, Plus, Wallet, Camera, BedDouble, Package, MessageCircle, BadgeCheck, Phone, Truck, RefreshCw, MapPin, PartyPopper, Wrench, Briefcase, Copy, Undo2, CalendarClock, Download, History, FileSpreadsheet, Info, Upload, TrendingUp, Link2, Trash2, Bell, ArrowDownRight, ArrowUpRight, Building2, ChevronDown, CreditCard, ShoppingBag, PackagePlus, PhoneCall, LifeBuoy, Gift, AlertCircle, Archive, Tag, Send, List, LayoutGrid, Minus, LogOut, FileText, ImagePlus, Shapes, Boxes, Globe, Sparkle, Layers, Scissors, Car, Receipt, KeyRound, Megaphone, Lightbulb, Warehouse, Home, Share, SquarePlus, Eye, Share2, Pencil, TrendingDown, BookOpen, Paperclip, SendHorizontal, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { ArrowUp, Sun, Moon, Smartphone, Check, Search, Loader2, Lock, Delete, ChevronLeft, Users, Store, Bike, ChevronRight, Clock, Settings, ShieldCheck, Sparkles, X, ArrowRight, CloudUpload, WifiOff, Plus, Wallet, Camera, BedDouble, Package, MessageCircle, BadgeCheck, Phone, Truck, RefreshCw, MapPin, PartyPopper, Wrench, Briefcase, Copy, Undo2, CalendarClock, Download, History, FileSpreadsheet, Info, Upload, TrendingUp, Link2, Trash2, Bell, ArrowDownRight, ArrowUpRight, Building2, ChevronDown, CreditCard, ShoppingBag, PackagePlus, PhoneCall, LifeBuoy, Gift, AlertCircle, Archive, Tag, Send, List, LayoutGrid, Minus, LogOut, FileText, ImagePlus, Shapes, Boxes, Globe, Sparkle, Layers, Scissors, Car, Receipt, KeyRound, Megaphone, Lightbulb, Warehouse, Home, Share, SquarePlus, Eye, Share2, Pencil, TrendingDown, BookOpen, Paperclip, SendHorizontal, ThumbsUp, ThumbsDown } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { BOOKED_GUEST_NOTE, BrandSelect, C, CAC_STATUS, EVENT_TIMES, HALF_HOURS, LAGOS_TIME, LazyChart, NG_LGAS, NG_STATES, PERSON_WORDS, PLAN_PRICES, PasswordChecks, PasswordInput, RIDER_VEHICLES, SB_KEY, SB_URL, SERVICE_KINDS, SESSION_KEY, SPOT_TONES, STAY_SERVICE_RE, STORE_ROOT_DOMAIN, SUPPORT, SUPPORT_TOPICS, Sheet, SlotPicker, SupportImage, ThemeToggle, TypingBubble, VAULT_KINDS, VaultArt, XorlaMark, XorlaSpotlight, apptDay, apptTime, base64UrlToUint8Array, brandAlert, brandConfirm, cacDocUrl, cacUpload, cleanOptions, displayLocationName, eventEndAfter, eventTimeLabel, examplesFor, fmt, formatNumInput, formatPhoneDisplay, fromSbProduct, hasOptions, hhmmLabel, invoiceLineItems, invoiceSubtotal, isBookable, kindOf, laundryCollect, laundryDrop, loadSession, locationWords, netFetch, noteWithout, optionAddon, optionCombos, optionWords, parseNumInput, passwordError, planPrice, priceLabel, rentsByDay, resizeImageToBlob, saveSession, sbRecover, sbRefresh, sbRpc, sbSignIn, sbSignUp, stayServiceKind, supportWhen, tint, toWhatsAppNumber, todayKey, useXorlaTheme, vaultDaysLeft, vaultExpiry, vaultFileUrl } from '../App.jsx';
@@ -4709,6 +4709,9 @@ function XorlaApp() {
     return lines.length ? lines.join('\n') : '- No product sales recorded in this period yet.';
   };
 
+  // The question box grows with what's in it (typed, or a suggestion tapped), like WhatsApp
+  const advisorBoxRef = useRef(null);
+  useEffect(() => { const el = advisorBoxRef.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 152)}px`; }, [advisorQuestion, tab]);
   const runAdvisor = async (q) => {
     if (!q || !q.trim()) return;
     setAdvisorQuestion(q);
@@ -13297,18 +13300,25 @@ function XorlaApp() {
               ))}
             </div>
 
-            <div className="flex gap-2 mb-4">
-              <input
-                type="text"
+            {/* Like WhatsApp: the box grows as you type (up to 6 lines), the send arrow sits at the bottom.
+                On a computer Enter sends and Shift+Enter starts a new line; on a phone Enter is a new line and the arrow sends. */}
+            <div className="flex items-end gap-2 mb-4">
+              <textarea
+                rows={1}
+                aria-label="Ask Oga a question"
                 placeholder="Ask about your business…"
                 value={advisorQuestion}
+                ref={advisorBoxRef}
                 onChange={(e) => setAdvisorQuestion(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') runAdvisor(advisorQuestion); }}
-                className="flex-1 rounded-xl px-3.5 py-2.5 text-sm outline-none"
-                style={field}
+                onKeyDown={(e) => {
+                  const desktop = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+                  if (e.key === 'Enter' && !e.shiftKey && desktop && !e.nativeEvent.isComposing) { e.preventDefault(); if (advisorQuestion.trim() && !advisorLoading) runAdvisor(advisorQuestion); }
+                }}
+                className="flex-1 min-w-0 rounded-[22px] px-4 py-[11px] text-[15px] leading-[22px] outline-none resize-none block"
+                style={{ ...field, maxHeight: 152, overflowY: 'auto' }}
               />
-              <button onClick={() => runAdvisor(advisorQuestion)} disabled={advisorLoading || !advisorQuestion.trim()} className="px-4 rounded-xl text-[12.5px] font-semibold flex items-center gap-1.5" style={{ background: C.copperFill, color: C.onAccent, opacity: advisorLoading || !advisorQuestion.trim() ? 0.4 : 1 }}>
-                {advisorLoading ? <OgaMark size={18} tone="ink" thinking /> : 'Ask'}
+              <button type="button" onClick={() => runAdvisor(advisorQuestion)} disabled={advisorLoading || !advisorQuestion.trim()} aria-label="Ask Oga" className="shrink-0 w-11 h-11 rounded-full flex items-center justify-center transition-opacity" style={{ background: C.copperFill, color: C.onAccent, opacity: advisorLoading || !advisorQuestion.trim() ? 0.4 : 1 }}>
+                {advisorLoading ? <OgaMark size={18} tone="ink" thinking /> : <ArrowUp size={19} strokeWidth={2.4} />}
               </button>
             </div>
 
@@ -15075,7 +15085,7 @@ function HelpCenter({ token, userId, isOwner, T, L, apptMode, stays, tracksStock
           {reply.error && <div className="mb-2 rounded-xl px-3 py-2 text-[12px]" style={{ background: C.rustSoft, color: C.rust }}>{reply.error}</div>}
           <div className="flex items-end gap-2">
             <label className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 cursor-pointer" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.inkDim }} aria-label="Attach a screenshot"><Paperclip size={16} /><input type="file" accept="image/*" className="hidden" onChange={pickFile(setReply)} /></label>
-            <textarea value={reply.body} onChange={(e) => { setReply({ ...reply, body: e.target.value }); noteTyping(); }} rows={1} placeholder="Write a reply…" className="flex-1 rounded-xl px-3.5 py-3 text-[14px] outline-none resize-none" style={{ ...field, maxHeight: 140 }} onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`; }} />
+            <textarea value={reply.body} onChange={(e) => { setReply({ ...reply, body: e.target.value }); noteTyping(); }} rows={1} placeholder="Write a reply…" className="flex-1 min-w-0 rounded-xl px-3.5 py-3 text-[14px] outline-none resize-none" style={{ ...field, maxHeight: 140 }} onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`; }} />
             <button onClick={sendReply} disabled={reply.busy || (!reply.body.trim() && !reply.file)} aria-label="Send" className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.copperFill, color: C.onAccent, opacity: reply.busy || (!reply.body.trim() && !reply.file) ? 0.45 : 1 }}>{reply.busy ? <Loader2 size={17} className="animate-spin" /> : <SendHorizontal size={17} />}</button>
           </div>
           {t && t.status !== 'solved' && <button onClick={() => resolve(null)} className="mt-2 text-[12px] font-medium" style={{ color: C.inkFaint }}>Sorted? Mark as solved</button>}
