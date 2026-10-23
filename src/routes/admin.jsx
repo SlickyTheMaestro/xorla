@@ -1434,11 +1434,53 @@ function RiderAdmin(props) {
           <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-semibold" style={view === k ? { background: C.copperFill, color: C.onAccent } : { color: C.inkDim }}><Ic size={14} />{l}</button>
         ))}
       </div>
-      {view === 'people' ? <RiderApplications {...props} /> : view === 'jobs' ? <RiderJobsAdmin call={props.call} /> : <RiderMovesAdmin call={props.call} />}
+      {view === 'people' ? <RiderApplications {...props} /> : view === 'jobs' ? <><RiderFeeGuide call={props.call} isFounder={!!props.isFounder} /><RiderJobsAdmin call={props.call} /></> : <RiderMovesAdmin call={props.call} />}
     </div>
   );
 }
 
+// The fair-fee guide businesses see when they ask for payment or send a job (the founder tunes it as real prices come in)
+function RiderFeeGuide({ call, isFounder }) {
+  const [g, setG] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { call('admin_rider_fee_guide', { p_patch: null }).then((x) => { setG(x); setF({ base: x.base, per_km: x.per_km, minimum: x.minimum, max_km: x.max_km }); }).catch(() => setG(null)); }, [call]);
+  if (!g) return null;
+  const field = { background: C.surfaceRaised, border: `1px solid ${C.line}`, color: C.ink };
+  const save = async () => {
+    setBusy(true); setErr('');
+    try { const x = await call('admin_rider_fee_guide', { p_patch: { base: Number(f.base), per_km: Number(f.per_km), minimum: Number(f.minimum), max_km: Number(f.max_km) } }); setG(x); setOpen(false); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="mb-4 rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[14px] font-semibold">Fair delivery fee guide</div>
+          <div className="text-[12px] mt-0.5" style={{ color: C.inkFaint }}>{fmt(g.base)} + {fmt(g.per_km)} per road km, at least {fmt(g.minimum)}. No guide beyond {Number(g.max_km)} km.</div>
+        </div>
+        {isFounder && <button onClick={() => setOpen(!open)} className="shrink-0 h-9 px-3 rounded-xl text-[12.5px] font-semibold" style={{ border: `1px solid ${C.line}`, color: C.copper }}>{open ? 'Close' : 'Change'}</button>}
+      </div>
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {(g.examples || []).map((x) => <div key={x.label} className="rounded-xl px-3 py-2" style={{ background: C.surfaceRaised }}><div className="text-[11px]" style={{ color: C.inkFaint }}>{x.label}</div><div className="cx-mono text-[14px] font-semibold">{x.fee ? fmt(x.fee) : '-'}</div></div>)}
+      </div>
+      {open && (
+        <div className="mt-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[['base', 'Base (₦)'], ['per_km', 'Per road km (₦)'], ['minimum', 'Minimum (₦)'], ['max_km', 'Longest trip (km)']].map(([k, l]) => (
+              <label key={k} className="block"><span className="block text-[11.5px] mb-1" style={{ color: C.inkFaint }}>{l}</span><input inputMode="decimal" value={f[k] ?? ''} onChange={(e) => setF({ ...f, [k]: e.target.value.replace(/[^0-9.]/g, '') })} className="w-full rounded-xl px-3 py-2 text-[13.5px] outline-none cx-mono" style={field} /></label>
+            ))}
+          </div>
+          {err && <div className="mt-2 text-[12.5px]" style={{ color: C.rust }}>{err}</div>}
+          <button onClick={save} disabled={busy} className="mt-3 h-10 px-4 rounded-xl text-[13px] font-bold" style={{ background: C.sageFill, color: C.onAccent, opacity: busy ? 0.6 : 1 }}>Save guide</button>
+          <div className="mt-2 text-[11.5px]" style={{ color: C.inkFaint }}>Businesses see the new fair fees straight away. Riders always see the fee the business chose.</div>
+        </div>
+      )}
+    </div>
+  );
+}
 // Riders who moved to another state: the team checks, then approves (their jobs move with them) or declines with a reason
 function RiderMovesAdmin({ call }) {
   const [list, setList] = useState(null);

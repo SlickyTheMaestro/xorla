@@ -1317,7 +1317,8 @@ function XorlaApp() {
   }, [xorlaJobFor?.state, xorlaJobFor?.lga, xorlaJobFor?.dropState, xorlaJobFor?.dropLga, !!xorlaJobFor]); // eslint-disable-line react-hooks/exhaustive-deps
   const [riders, setRiders] = useState([]);            // riders and dispatch companies the business uses
   const [zones, setZones] = useState([]);              // delivery areas with fixed fees
-  const [zoneBranch, setZoneBranch] = useState(null);  // several branches: whose delivery areas are being looked at ('all' = every branch)
+  const [zoneBranch, setZoneBranch] = useState(null);
+  const [pickEdit, setPickEdit] = useState({});        // a branch's pick-up state being changed in Settings  // several branches: whose delivery areas are being looked at ('all' = every branch)
   const [riderFor, setRiderFor] = useState(null);      // { order, picks: { [riderId]: fee }, chosen, customerFee, busy, error }
   const [riderForm, setRiderForm] = useState({ name: '', phone: '', areas: '' });
   const [zoneForm, setZoneForm] = useState({ name: '', fee: '' });
@@ -3439,20 +3440,20 @@ function XorlaApp() {
   // Delivery orders: before asking for payment, show how far it is and a fair delivery fee
   useEffect(() => {
     const p = payAsk; if (!p || !session?.access_token || p.order?.fulfilMode !== 'delivery') return undefined;
-    const from = pickupAreaOf(p.order);
+    const from = { state: p.fromState, lga: p.fromLga };
     if (!from.lga || !p.dropLga) { if (p.est) setPayAsk((x) => x && { ...x, est: null }); return undefined; }
     let off = false;
     sbRpc('rider_trip_estimate', session.access_token, { p_state: from.state, p_lga: from.lga, p_drop_state: p.dropState, p_drop_lga: p.dropLga })
-      .then((e) => { if (!off) setPayAsk((x) => (x && x.dropLga === p.dropLga && x.dropState === p.dropState ? { ...x, est: e ? { ...e, from } : null } : x)); })
+      .then((e) => { if (!off) setPayAsk((x) => (x && x.dropLga === p.dropLga && x.dropState === p.dropState && x.fromLga === p.fromLga ? { ...x, est: e ? { ...e, from } : null } : x)); })
       .catch(() => {});
     return () => { off = true; };
-  }, [payAsk?.dropState, payAsk?.dropLga, !!payAsk]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [payAsk?.dropState, payAsk?.dropLga, payAsk?.fromState, payAsk?.fromLga, !!payAsk]); // eslint-disable-line react-hooks/exhaustive-deps
   const openPayAsk = (o) => {
     if (o.fulfilMode !== 'delivery') { setPayAsk({ order: o, fee: '', busy: false, error: '' }); return; }
     const from = pickupAreaOf(o);
-    const dropState = o.dropoffState || from.state;
+    const dropState = o.dropoffState || from.state || 'Lagos';
     const dropLga = o.dropoffLga || guessLga(o.deliveryAddress, dropState) || guessLga(o.deliveryZone, dropState);
-    setPayAsk({ order: o, fee: o.deliveryFee ? String(o.deliveryFee) : '', dropState, dropLga, est: null, busy: false, error: '' });
+    setPayAsk({ order: o, fee: o.deliveryFee ? String(o.deliveryFee) : '', fromState: from.state || dropState, fromLga: from.lga, fromSaved: from.saved, editFrom: !from.lga, dropState, dropLga, est: null, busy: false, error: '' });
   };
   const [depAsk, setDepAsk] = useState(null);  // appointments: { order, amount, busy, error } — part of the price online to keep the time
   const orderLinkOf = (o) => (o.payToken ? `${window.location.origin}/order/${o.payToken}` : '');
@@ -3909,12 +3910,18 @@ function XorlaApp() {
     const sh = locationsAll.find((x) => x.id === (o.shopId || mainShopId)) || {};
     if (sh.rider_state && sh.rider_lga) return { state: sh.rider_state, lga: sh.rider_lga };
     const g = guessArea(`${sh.address || ''} ${settings.businessAddress || ''}`);
-    const state = sh.rider_state || g.state || 'Abia';
-    return { state, lga: sh.rider_lga || (g.state === state ? g.lga : '') || guessLga(`${sh.address || ''}`, state) || '' };
+    const state = sh.rider_state || g.state || '';
+    return { state, lga: sh.rider_lga || (g.state === state ? g.lga : '') || (state ? guessLga(`${sh.address || ''}`, state) : '') || '', shop: sh, saved: !!(sh.rider_state && sh.rider_lga) };
+  };
+  const saveShopPickup = async (shopId, state, lga) => {
+    if (!shopId || !state || !lga) return;
+    setShops((prev) => prev.map((x) => (x.id === shopId ? { ...x, rider_state: state, rider_lga: lga } : x)));
+    try { await sbRpc('set_shop_pickup_area', session.access_token, { p_shop: shopId, p_state: state, p_lga: lga }); } catch (e) { /* saved when a job is sent */ }
   };
   const openXorlaJob = (o) => {
-    const { state, lga: lga0 } = pickupAreaOf(o);
-    const lga = lga0 || guessLga(o.deliveryAddress, state);
+    const pa = pickupAreaOf(o);
+    const state = pa.state || o.dropoffState || 'Lagos';
+    const lga = pa.lga;
     const dropState = o.dropoffState || state;
     const dropLga = o.dropoffLga || guessLga(o.deliveryAddress, dropState) || guessLga(o.deliveryZone, dropState);
     setXorlaJobFor({ order: o, state, lga, dropState, dropLga, est: null, wide: false, fee: o.deliveryFee ? String(o.deliveryFee) : '', payHow: 'transfer', note: '', busy: false, error: '' });
@@ -3966,7 +3973,7 @@ function XorlaApp() {
           <ShieldCheck size={16} className="shrink-0 mt-0.5" style={{ color: C.sage }} />
           <span><strong style={{ color: C.ink }}>Verified riders only.</strong> Xorla checks each rider's ID, selfie, guarantor and bank. The first rider who serves your area and accepts gets it, and you'll see their name, photo and plate.</span>
         </div>
-        <label className="block text-[12.5px] font-semibold mb-1.5">Pick-up area</label>
+        <label className="block text-[12.5px] font-semibold mb-1.5">Picks up from {(() => { const sh = locationsAll.find((x) => x.id === (o.shopId || mainShopId)); return sh ? locName(sh) : settings.businessName; })()}</label>
         <div className="grid grid-cols-2 gap-2 mb-3">
           <BrandSelect value={f.state} onChange={(e) => set({ state: e.target.value, lga: '' })} aria-label="State" className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ ...field, colorScheme: 'var(--c-scheme)' }}>
             {NG_STATES.map((st) => <option key={st} value={st}>{st}</option>)}
@@ -3988,7 +3995,7 @@ function XorlaApp() {
         </div>
         <div className="text-[11.5px] mb-3" style={{ color: C.inkFaint }}>{o.dropoffLga ? `${String(o.customerName).split(' ')[0]} chose this at checkout.` : 'Riders see the town (never the address) before they accept, so they know how far it is.'}</div>
         {f.est && f.est.km != null && (() => {
-          const road = Math.max(1, Math.round(Number(f.est.km) * 1.3));
+          const road = f.est.road_km != null ? Number(f.est.road_km) : Math.max(1, Math.round(Number(f.est.km) * 1.3));
           const low = fee > 0 && f.est.suggested && fee < f.est.suggested * 0.8;
           if (!f.est.suggested) return (
             <div className="rounded-xl px-3.5 py-3 mb-3 text-[12px] leading-snug" style={{ background: C.copperSoft, color: C.ink }}><strong>{f.lga} → {f.dropLga}{f.dropState !== f.state ? `, ${f.dropState}` : ''}: about {road} km.</strong> That's a long way for a rider. Only riders who take trips to other states will see it; a park or courier may suit it better.</div>
@@ -4172,12 +4179,39 @@ function XorlaApp() {
         </div>
         {o.fulfilMode === 'delivery' && (() => {
           const first = String(o.customerName || '').split(' ')[0] || 'The customer';
-          const e = payAsk.est; const road = e && e.km != null ? Math.max(1, Math.round(Number(e.km) * 1.3)) : null;
+          const e = payAsk.est; const road = e && e.km != null ? (e.road_km != null ? Number(e.road_km) : Math.max(1, Math.round(Number(e.km) * 1.3))) : null;
           const other = e && e.from && payAsk.dropState !== e.from.state;
           const low = e && e.suggested && fee > 0 && fee < e.suggested * 0.8;
           const sel = { background: C.bg, border: `1px solid ${C.line}`, color: C.ink, colorScheme: 'var(--c-scheme)' };
           return (
             <div className="mb-3">
+              {(() => {
+                const sh = locationsAll.find((x) => x.id === (o.shopId || mainShopId));
+                const bName = sh ? locName(sh) : settings.businessName;
+                return (
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[12.5px] min-w-0"><span className="font-semibold">From</span> <span style={{ color: C.inkDim }}>{bName}{payAsk.fromLga && !payAsk.editFrom ? ` · ${payAsk.fromLga}, ${payAsk.fromState}` : ''}</span></div>
+                      {!payAsk.editFrom && canRun && <button type="button" onClick={() => setPayAsk({ ...payAsk, editFrom: true })} className="shrink-0 text-[12px] font-semibold" style={{ color: C.copper }}>Change</button>}
+                    </div>
+                    {payAsk.editFrom && (
+                      <>
+                        <div className="text-[11.5px] mt-0.5 mb-1.5" style={{ color: C.inkFaint }}>Where riders pick up from {bName}. Saved for next time.</div>
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2">
+                          <BrandSelect value={payAsk.fromState || ''} onChange={(ev) => setPayAsk({ ...payAsk, fromState: ev.target.value, fromLga: '', est: null })} aria-label="Pick-up state" className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={sel}>
+                            <option value="">State…</option>
+                            {NG_STATES.map((st) => <option key={st} value={st}>{st}</option>)}
+                          </BrandSelect>
+                          <BrandSelect value={payAsk.fromLga || ''} onChange={(ev) => { setPayAsk({ ...payAsk, fromLga: ev.target.value, editFrom: !ev.target.value, est: null }); if (ev.target.value && canRun) saveShopPickup(sh?.id, payAsk.fromState, ev.target.value); }} aria-label="Pick-up area" className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={sel}>
+                            <option value="">Area (LGA)…</option>
+                            {(NG_LGAS[payAsk.fromState] || []).map((l) => <option key={l} value={l}>{l}</option>)}
+                          </BrandSelect>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="text-[12.5px] font-semibold mb-1">Delivering to</div>
               <div className="text-[12.5px] mb-2 leading-snug" style={{ color: C.inkDim }}>{o.deliveryAddress}{o.deliveryZone ? ` · ${o.deliveryZone} area` : ''}</div>
               <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2 mb-2">
@@ -4189,8 +4223,8 @@ function XorlaApp() {
                   {(NG_LGAS[payAsk.dropState] || []).map((l) => <option key={l} value={l}>{l}</option>)}
                 </BrandSelect>
               </div>
-              {!payAsk.dropLga ? (
-                <div className="text-[11.5px]" style={{ color: C.inkFaint }}>Choose {first}'s area to see how far it is and a fair delivery fee.</div>
+              {!payAsk.dropLga || !payAsk.fromLga ? (
+                <div className="text-[11.5px]" style={{ color: C.inkFaint }}>{!payAsk.fromLga ? 'Set where riders pick up from' : `Choose ${first}'s area`} to see how far it is and a fair delivery fee.</div>
               ) : e && road != null ? (
                 <div className="rounded-xl px-3.5 py-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
                   <div className="flex items-center gap-2 flex-wrap text-[12.5px]"><MapPin size={14} style={{ color: C.copper }} /><strong>{e.from.lga} → {payAsk.dropLga}{other ? `, ${payAsk.dropState}` : ''}</strong><span style={{ color: C.inkFaint }}>{Number(e.km) === 0 ? 'same area' : `about ${road} km by road`}</span></div>
@@ -11220,6 +11254,28 @@ function XorlaApp() {
                             ))}
                           </div>
                         )}
+                        {(() => {
+                          const b = sh || (!zonesByBranch ? branchShops[0] : null);
+                          if (!b || !canRun) return null;
+                          const g = b.rider_lga ? { state: b.rider_state, lga: b.rider_lga } : guessArea(`${b.address || ''} ${settings.businessAddress || ''}`);
+                          const st = pickEdit[b.id]?.state ?? (g.state || '');
+                          return (
+                            <div className="rounded-xl px-3 py-2.5 mb-3" style={{ background: C.surfaceRaised, border: `1px solid ${C.line}` }}>
+                              <div className="text-[12.5px] font-semibold">Riders pick up from {locName(b)}</div>
+                              <div className="text-[11.5px] mb-2" style={{ color: C.inkFaint }}>{b.rider_lga ? 'Distances and fair delivery fees start here.' : 'Not set yet: choose it so distances and fair fees start from the right place.'}</div>
+                              <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2">
+                                <BrandSelect value={st} onChange={(e) => setPickEdit((x) => ({ ...x, [b.id]: { state: e.target.value } }))} aria-label={`${locName(b)} pick-up state`} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={field}>
+                                  <option value="">State…</option>
+                                  {NG_STATES.map((x) => <option key={x} value={x}>{x}</option>)}
+                                </BrandSelect>
+                                <BrandSelect value={pickEdit[b.id] ? '' : (b.rider_lga || '')} onChange={(e) => { if (e.target.value) { saveShopPickup(b.id, st, e.target.value); setPickEdit((x) => { const n = { ...x }; delete n[b.id]; return n; }); } }} aria-label={`${locName(b)} pick-up area`} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={field}>
+                                  <option value="">{g.lga && !b.rider_lga ? `${g.lga}? Choose…` : 'Area (LGA)…'}</option>
+                                  {(NG_LGAS[st] || []).map((l) => <option key={l} value={l}>{l}</option>)}
+                                </BrandSelect>
+                              </div>
+                            </div>
+                          );
+                        })()}
                         {sh && canRun && (
                           <button type="button" role="switch" aria-checked={!off} onClick={() => toggleDelivers(sh)} className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 mb-3 text-left" style={{ background: off ? C.copperSoft : C.sageSoft }}>
                             <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold">{off ? `${locName(sh)} is pick-up only` : `${locName(sh)} delivers`}</span><span className="block text-[11.5px]" style={{ color: C.inkDim }}>{off ? 'Customers ordering from here only see pick-up.' : 'Customers ordering from here can ask for delivery.'}</span></span>
