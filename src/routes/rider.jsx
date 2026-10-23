@@ -453,6 +453,20 @@ function RiderWork({ call, me, photo, token }) {
   const [reachOpen, setReachOpen] = useState(false);
   const [hiddenIds, setHiddenIds] = useState([]);
   useEffect(() => { call('rider_reach').then((r) => r && setReach(r)).catch(() => setReach(null)); }, [call]);
+  const nudge = async (j, kind) => {
+    let note = '';
+    if (kind === 'not_received') {
+      const ok = await brandConfirm(`Tell ${j.pickup_name} the ${fmt(j.fee)} hasn't reached you? They'll be asked to check and pay again, and the Xorla team will see it.`, { title: "Payment didn't arrive?", confirm: 'Yes, tell them', theme: 'light' });
+      if (!ok) return;
+    }
+    setBusy(`${j.id}:${kind}`);
+    try {
+      await call('rider_pay_nudge', { p_job: j.id, p_kind: kind, p_note: note });
+      setNote(kind === 'remind' ? `Reminder sent to ${j.pickup_name}.` : `${j.pickup_name} has been asked to check the payment.`);
+      await refresh();
+    } catch (e) { setNote(/rider_pay_nudge|schema cache/i.test(e.message || '') ? 'Call or WhatsApp the business for now.' : e.message); }
+    finally { setBusy(''); }
+  };
   const hideJob = (j) => { setHiddenIds((x) => [...x, j.id]); call('rider_job_act', { p_job: j.id, p_action: 'hide', p_code: null, p_note: null }).catch(() => {}); };
   const saveSub = useCallback(async () => {
     const reg = await navigator.serviceWorker.ready;
@@ -496,7 +510,7 @@ function RiderWork({ call, me, photo, token }) {
   const maps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q || '')}`;
   const tel = (p) => `tel:${String(p || '').replace(/[^0-9+]/g, '')}`;
   const payLabel = (j) => (j.pay_how === 'cash_pickup' ? 'Cash at pick-up' : 'Transfer after delivery');
-  const tabs = [['jobs', 'Jobs', (open || []).length], ['active', 'My jobs', active.length], ['earnings', 'Earnings', 0]];
+  const tabs = [['jobs', 'Jobs', (open || []).length], ['active', 'My jobs', active.length], ['earnings', 'Earnings', done.filter((j) => j.paid_at && !j.rider_confirmed_paid_at).length]];
   const Pill = ({ children, tone = 'ink' }) => <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold" style={tone === 'sage' ? { background: C.sageSoft, color: C.sage } : tone === 'amber' ? { background: 'rgba(245,163,0,0.14)', color: '#A86F00' } : tone === 'rust' ? { background: C.rustSoft, color: C.rust } : { background: C.chip, color: C.inkDim }}>{children}</span>;
   return (
     <div>
@@ -646,6 +660,24 @@ function RiderWork({ call, me, photo, token }) {
                     : j.paid_at ? <><Pill tone="amber">Business says it's paid ({j.paid_how === 'cash' ? 'cash' : 'transfer'})</Pill><button type="button" disabled={!!busy} onClick={() => act(j, 'got_paid')} className="h-7 px-3 rounded-full text-[11.5px] font-bold" style={{ background: C.copper, color: '#fff' }}>I got it</button></>
                     : <Pill>Waiting for payment</Pill>}
                 </div>
+                {!j.rider_confirmed_paid_at && (() => {
+                  const ph = String(j.pickup_phone || '').replace(/[^0-9+]/g, '');
+                  const hrs = (t) => { const h = Math.floor((Date.now() - new Date(t).getTime()) / 3600000); return h < 1 ? 'just now' : `${h}h ago`; };
+                  const wa = ph ? `https://wa.me/${toWhatsAppNumber(ph)}?text=${encodeURIComponent(`Hello ${j.pickup_name}, this is ${me.full_name}, the Xorla rider who delivered your order${j.delivered_at ? ` on ${riderTime(j.delivered_at)}` : ''}. ${j.paid_at ? `You marked my ${fmt(j.fee)} as paid, but it hasn't reached me yet. Please check.` : `Please send my ${fmt(j.fee)} for the delivery.`} Thank you.`)}` : '';
+                  return (
+                    <div className="mt-2 rounded-xl px-3 py-2.5" style={{ background: C.surfaceRaised }}>
+                      {j.pay_disputed_at && !j.paid_at && <div className="text-[12px] mb-1.5" style={{ color: C.inkDim }}>You told them the money hadn't arrived ({hrs(j.pay_disputed_at)}). They've been asked to check and pay again.</div>}
+                      {!j.paid_at && j.last_reminder_at && <div className="text-[12px] mb-1.5" style={{ color: C.inkDim }}>You reminded them {hrs(j.last_reminder_at)}.</div>}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {!j.paid_at && <button type="button" disabled={!!busy || j.can_remind === false} onClick={() => nudge(j, 'remind')} className="h-8 px-3 rounded-full text-[12px] font-bold" style={{ background: C.copper, color: '#fff', opacity: busy || j.can_remind === false ? 0.5 : 1 }}>Remind them to pay</button>}
+                        {j.paid_at && <button type="button" disabled={!!busy} onClick={() => nudge(j, 'not_received')} className="h-8 px-3 rounded-full text-[12px] font-bold" style={{ color: C.rust, border: `1px solid ${C.rustSoft}` }}>I haven't received it</button>}
+                        {ph && <a href={wa} target="_blank" rel="noopener noreferrer" className="h-8 px-3 rounded-full text-[12px] font-bold inline-flex items-center gap-1" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={13} /> WhatsApp</a>}
+                        {ph && <a href={`tel:${ph}`} className="h-8 px-3 rounded-full text-[12px] font-bold inline-flex items-center gap-1" style={{ background: C.chip, color: C.inkDim }}><Phone size={12} /> Call</a>}
+                      </div>
+                      {RIDER_SUPPORT_WHATSAPP && Date.now() - new Date(j.delivered_at).getTime() > 24 * 3600000 && <a href={`https://wa.me/${RIDER_SUPPORT_WHATSAPP}?text=${encodeURIComponent(`Hello Xorla, I'm ${me.full_name}. ${j.pickup_name} hasn't paid me ${fmt(j.fee)} for a delivery on ${riderTime(j.delivered_at)}.`)}`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-[12px] font-semibold underline" style={{ color: C.inkDim }}>Still not paid? Tell the Xorla team</a>}
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>

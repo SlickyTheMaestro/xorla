@@ -1541,7 +1541,7 @@ function RiderAreasEditor({ call, r, onDone, onCancel }) {
 }
 // The team's view of delivery jobs: find the ones in trouble, see every step, and step in
 const JOB_STATUS = { open: ['Waiting for a rider', 'copper'], taken: ['Rider on the way', 'sage'], picked_up: ['Out for delivery', 'sage'], delivered: ['Delivered', 'sage'], cancelled: ['Cancelled', 'rust'], expired: ['No rider took it', 'faint'] };
-const JOB_STEP = { posted: 'Business posted the job', taken: 'Rider took it', picked_up: 'Picked up (code matched)', delivered: 'Delivered (code matched)', released: 'Given back to other riders', wrong_code: 'Wrong code entered', locked: 'Locked after 5 wrong codes', new_codes: 'New codes sent', cancelled: 'Cancelled', paid: 'Business marked the rider paid', got_paid: 'Rider confirmed the money arrived', note: 'Team note' };
+const JOB_STEP = { pay_reminder: 'Rider asked to be paid', pay_disputed: 'Rider says the payment didn\'t arrive', widened: 'Shown to riders across the state', posted: 'Business posted the job', taken: 'Rider took it', picked_up: 'Picked up (code matched)', delivered: 'Delivered (code matched)', released: 'Given back to other riders', wrong_code: 'Wrong code entered', locked: 'Locked after 5 wrong codes', new_codes: 'New codes sent', cancelled: 'Cancelled', paid: 'Business marked the rider paid', got_paid: 'Rider confirmed the money arrived', note: 'Team note' };
 function RiderJobsAdmin({ call }) {
   const [counts, setCounts] = useState(null);
   const [filter, setFilter] = useState('live');

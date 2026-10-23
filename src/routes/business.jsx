@@ -4134,6 +4134,8 @@ function XorlaApp() {
             {j.pay_how === 'transfer' ? (
               <>
                 <div className="font-semibold" style={{ color: C.ink }}>Pay {rFirst} {fmt(j.fee)} by transfer</div>
+                {j.pay_disputed_at && <div className="text-[12px] mt-0.5 font-semibold" style={{ color: C.rust }}>{rFirst} says your last payment didn't arrive. Check it, then pay again.</div>}
+                {!j.pay_disputed_at && j.pay_reminders > 0 && <div className="text-[12px] mt-0.5" style={{ color: C.copper }}>{rFirst} has asked to be paid.</div>}
                 {j.rider.account_number && <div className="text-[12px] mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: C.inkDim }}>{j.rider.bank_name} · <span className="cx-mono">{j.rider.account_number}</span> · {j.rider.account_name}{j.rider.bank_verified && <span className="inline-flex items-center gap-0.5 text-[10.5px] font-semibold" style={{ color: C.sage }}><BadgeCheck size={11} /> checked</span>}
                   <button type="button" onClick={() => copyText(`acct-${j.id}`, j.rider.account_number)} className="text-[11.5px] font-semibold" style={{ color: C.copper }}>{copiedKey === `acct-${j.id}` ? 'Copied' : 'Copy'}</button></div>}
                 <button type="button" onClick={() => updateXorlaJob(j, 'paid_transfer')} className="mt-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>I've paid {rFirst}</button>
@@ -12375,6 +12377,36 @@ function XorlaApp() {
                 : `Requests from your storefront land here with the time the customer picked. Only free times can be picked, and you can't accept two that clash. Marking one done records it as a ${T.sale}.`)
               : T.tracksStock ? 'Orders placed through your storefront land here. Fulfilling one logs it as a real sale and updates your stock automatically.' : 'Service requests from your storefront land here, with the customer\'s preferred time. Marking one done logs it as a job.'}</div>
             {renderApptTop()}
+            {(() => {
+              // Riders still waiting for their money, even after the order is closed
+              const owed = riderJobs.filter((j) => j.status === 'delivered' && !j.paid_at && j.rider && (j.pay_reminders > 0 || j.pay_disputed_at || !orders.some((o) => o.id === j.order_id && o.status === 'pending')));
+              if (!owed.length) return null;
+              return (
+                <div className="mb-3 rounded-2xl p-3.5" style={{ background: C.copperSoft, border: '1px solid rgba(255,176,32,0.35)' }}>
+                  <div className="flex items-center gap-2 text-[13.5px] font-semibold"><Bike size={15} style={{ color: C.copper }} /> {owed.length === 1 ? 'A rider is waiting to be paid' : `${owed.length} riders are waiting to be paid`}</div>
+                  <div className="mt-2 space-y-2">
+                    {owed.map((j) => {
+                      const rF = String(j.rider.name || 'The rider').split(' ')[0];
+                      return (
+                        <div key={j.id} className="rounded-xl px-3 py-2.5" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="min-w-0 text-[13px]"><strong>{j.rider.name}</strong><span style={{ color: C.inkFaint }}> · {String(j.customer_name || '').split(' ')[0]}'s delivery{j.delivered_at ? `, ${new Date(j.delivered_at).toLocaleDateString('en-GB', { ...LAGOS_TIME, day: 'numeric', month: 'short' })}` : ''}</span></span>
+                            <span className="cx-mono text-[14px] font-bold shrink-0">{fmt(j.fee)}</span>
+                          </div>
+                          {j.pay_disputed_at && <div className="mt-1 text-[12px] font-semibold" style={{ color: C.rust }}>{rF} says your payment didn't arrive{j.pay_dispute_note ? `: "${j.pay_dispute_note}"` : ''}. Check it, then pay again.</div>}
+                          {!j.pay_disputed_at && j.pay_reminders > 0 && <div className="mt-1 text-[12px]" style={{ color: C.copper }}>{rF} reminded you{j.pay_reminders > 1 ? ` ${j.pay_reminders} times` : ''}.</div>}
+                          {j.pay_how === 'transfer' && j.rider.account_number && <div className="mt-1 text-[12px] flex items-center gap-2 flex-wrap" style={{ color: C.inkDim }}>{j.rider.bank_name} · <span className="cx-mono">{j.rider.account_number}</span> · {j.rider.account_name}<button type="button" onClick={() => copyText(`owed-${j.id}`, j.rider.account_number)} className="font-semibold" style={{ color: C.copper }}>{copiedKey === `owed-${j.id}` ? 'Copied' : 'Copy'}</button></div>}
+                          <div className="mt-2 flex gap-2 flex-wrap">
+                            <button type="button" onClick={() => updateXorlaJob(j, j.pay_how === 'cash_pickup' ? 'paid_cash' : 'paid_transfer')} className="min-h-[36px] px-3 rounded-lg text-[12.5px] font-semibold" style={{ background: C.copperFill, color: C.onAccent }}>I've paid {rF}</button>
+                            {j.rider.phone && <a href={`https://wa.me/${toWhatsAppNumber(j.rider.phone)}`} target="_blank" rel="noopener noreferrer" className="min-h-[36px] px-3 rounded-lg text-[12.5px] font-semibold inline-flex items-center gap-1.5" style={{ background: C.sageSoft, color: C.sage }}><MessageCircle size={13} /> WhatsApp</a>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
             {isOwnerRole && !settings.payout && orders.some((o) => o.status === 'pending' && !o.startAt) && (
               <button type="button" onClick={() => { setDraft({ ...settings }); setPreviousTab(tab); setSettingsPage('payments'); setTab('settings'); }} className="w-full mb-3 rounded-2xl px-4 py-3 flex items-center gap-3 text-left" style={{ background: C.sageSoft, border: '1px solid rgba(31,217,196,0.3)' }}>
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.sageFill }}><CreditCard size={17} style={{ color: C.onAccent }} /></span>
