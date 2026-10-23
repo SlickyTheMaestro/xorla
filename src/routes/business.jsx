@@ -3951,6 +3951,7 @@ function XorlaApp() {
   const deliveryCodeMessage = (o, j) => {
     const first = String(o.customerName || '').split(' ')[0] || 'there'; const rFirst = String(j.rider?.name || 'the rider').split(' ')[0];
     return [`Hi ${first}, your order from ${settings.businessName} is ${j.status === 'picked_up' ? 'on its way' : 'about to leave'} with ${rFirst}, a verified Xorla rider${j.rider?.plate ? ` (${RIDER_VEHICLES.find((v) => v[0] === j.rider.vehicle)?.[1] || 'Rider'} · ${j.rider.plate})` : ''}.`,
+      j.rider?.phone ? `Rider's number: ${formatPhoneDisplay(j.rider.phone)}` : '',
       `When it arrives, check your order, then give ${rFirst} this code: ${j.delivery_code}`,
       "Please don't share the code before you have your order.", orderLinkOf(o) ? `Your order: ${orderLinkOf(o)}` : ''].filter(Boolean).join('\n\n');
   };
